@@ -1,19 +1,19 @@
 use async_trait::async_trait;
-use bcr_ebill_core::contact::IdentityPublicData;
+use bcr_ebill_core::{contact::IdentityPublicData, util::crypto};
 use bcr_ebill_transport::event::EventEnvelope;
 use bcr_ebill_transport::handler::NotificationHandlerApi;
-use log::{error, trace, warn};
-use nostr_sdk::nips::nip59::UnwrappedGift;
+use log::{error, info, trace, warn};
 use nostr_sdk::{
-    Client, EventId, Filter, Kind, Metadata, Options, PublicKey, RelayPoolNotification, Timestamp,
-    ToBech32, UnsignedEvent,
+    Client, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
+    RelayPoolNotification, SecretKey, Tag, Timestamp, ToBech32, UnsignedEvent,
+    nips::{nip04, nip59::UnwrappedGift},
 };
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::service::contact_service::ContactServiceApi;
-use crate::util::{BcrKeys, crypto};
+use crate::util::BcrKeys;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
 use bcr_ebill_transport::{Error, NotificationJsonTransportApi, Result};
@@ -47,7 +47,7 @@ impl NostrConfig {
 /// A wrapper around nostr_sdk that implements the NotificationJsonTransportApi.
 ///
 /// # Example:
-/// ```ignore
+/// ```no_run
 /// let config = NostrConfig {
 ///     keys: BcrKeys::new(),
 ///     relays: vec!["wss://relay.example.com".to_string()],
@@ -95,6 +95,14 @@ impl NostrClient {
         self.keys.get_public_key()
     }
 
+    pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
+        self.keys.get_nostr_keys()
+    }
+
+    fn use_nip04(&self) -> bool {
+        true
+    }
+
     /// Subscribe to some nostr events with a filter
     pub async fn subscribe(&self, subscription: Filter) -> Result<()> {
         self.client
@@ -107,8 +115,19 @@ impl NostrClient {
         Ok(())
     }
 
-    /// Unwrap envelope from private direct message
     pub async fn unwrap_envelope(
+        &self,
+        note: RelayPoolNotification,
+    ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+        if self.use_nip04() {
+            self.unwrap_nip04_envelope(note).await
+        } else {
+            self.unwrap_nip17_envelope(note).await
+        }
+    }
+
+    /// Unwrap envelope from private direct message
+    async fn unwrap_nip17_envelope(
         &self,
         note: RelayPoolNotification,
     ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
@@ -127,17 +146,68 @@ impl NostrClient {
         }
         result
     }
-}
 
-impl ServiceTraitBounds for NostrClient {}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl NotificationJsonTransportApi for NostrClient {
-    fn get_sender_key(&self) -> String {
-        self.get_node_id()
+    /// Unwrap envelope from private direct message
+    async fn unwrap_nip04_envelope(
+        &self,
+        note: RelayPoolNotification,
+    ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+        let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
+        if let RelayPoolNotification::Event { event, .. } = note {
+            if event.kind == Kind::EncryptedDirectMessage {
+                match nip04::decrypt(
+                    self.keys.get_nostr_keys().secret_key(),
+                    &event.pubkey,
+                    &event.content,
+                ) {
+                    Ok(decrypted) => {
+                        result = extract_text_envelope(&decrypted)
+                            .map(|e| (e, event.pubkey, event.id, event.created_at));
+                    }
+                    Err(e) => {
+                        error!("Decrypting event failed: {e}");
+                    }
+                }
+            } else {
+                info!(
+                    "Received event with kind {} but expected GiftWrap",
+                    event.kind
+                );
+            }
+        }
+        result
     }
-    async fn send(
+
+    pub async fn send_nip04_message(
+        &self,
+        recipient: &IdentityPublicData,
+        event: EventEnvelope,
+    ) -> bcr_ebill_transport::Result<()> {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id) {
+            let public_key = PublicKey::from_str(&npub).map_err(|e| {
+                error!("Failed to parse Nostr npub when sending a notification: {e}");
+                Error::Crypto("Failed to parse Nostr npub".to_string())
+            })?;
+            let message = serde_json::to_string(&event)?;
+            let event =
+                create_nip04_event(self.get_nostr_keys().secret_key(), &public_key, &message)?;
+            if let Some(relay) = &recipient.nostr_relay {
+                if let Err(e) = self.client.send_event_builder_to(vec![relay], event).await {
+                    error!("Error sending Nostr message: {e}")
+                };
+            } else if let Err(e) = self.client.send_event_builder(event).await {
+                error!("Error sending Nostr message: {e}")
+            }
+        } else {
+            error!(
+                "Try to send Nostr message but Nostr npub not found in contact {}",
+                recipient.name
+            );
+        }
+        Ok(())
+    }
+
+    async fn send_nip17_message(
         &self,
         recipient: &IdentityPublicData,
         event: EventEnvelope,
@@ -168,6 +238,28 @@ impl NotificationJsonTransportApi for NostrClient {
                 "Try to send Nostr message but Nostr npub not found in contact {}",
                 recipient.name
             );
+        }
+        Ok(())
+    }
+}
+
+impl ServiceTraitBounds for NostrClient {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl NotificationJsonTransportApi for NostrClient {
+    fn get_sender_key(&self) -> String {
+        self.get_node_id()
+    }
+    async fn send(
+        &self,
+        recipient: &IdentityPublicData,
+        event: EventEnvelope,
+    ) -> bcr_ebill_transport::Result<()> {
+        if self.use_nip04() {
+            self.send_nip04_message(recipient, event).await?;
+        } else {
+            self.send_nip17_message(recipient, event).await?;
         }
         Ok(())
     }
@@ -226,15 +318,14 @@ impl NostrConsumer {
                 // continue where we left off
                 let offset_ts = get_offset(&offset_store, &node_id).await;
                 let public_key = current_client.keys.get_nostr_keys().public_key();
+                let filter = Filter::new()
+                    .pubkey(public_key)
+                    .kind(Kind::EncryptedDirectMessage)
+                    .since(offset_ts);
 
                 // subscribe only to private messages sent to our pubkey
                 current_client
-                    .subscribe(
-                        Filter::new()
-                            .pubkey(public_key)
-                            .kind(Kind::GiftWrap)
-                            .since(offset_ts),
-                    )
+                    .subscribe(filter)
                     .await
                     .expect("Failed to subscribe to Nostr events");
 
@@ -306,13 +397,19 @@ async fn valid_sender(
 }
 
 async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &str) -> Timestamp {
-    Timestamp::from_secs(
-        db.current_offset(node_id)
-            .await
-            .map_err(|e| error!("Could not get event offset: {e}"))
-            .ok()
-            .unwrap_or(0),
-    )
+    let slack = 3600;
+    let current = db
+        .current_offset(node_id)
+        .await
+        .map_err(|e| error!("Could not get event offset: {e}"))
+        .ok()
+        .unwrap_or(0);
+    let ts = if current <= slack {
+        current
+    } else {
+        current - slack
+    };
+    Timestamp::from_secs(ts)
 }
 
 async fn add_offset(
@@ -333,6 +430,16 @@ async fn add_offset(
     .ok();
 }
 
+fn extract_text_envelope(message: &str) -> Option<EventEnvelope> {
+    match serde_json::from_str::<EventEnvelope>(message) {
+        Ok(envelope) => Some(envelope),
+        Err(e) => {
+            error!("Json deserializing event envelope failed: {e}");
+            None
+        }
+    }
+}
+
 fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
     if rumor.kind == Kind::PrivateDirectMessage {
         match serde_json::from_str::<EventEnvelope>(rumor.content.as_str()) {
@@ -345,6 +452,21 @@ fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
     } else {
         None
     }
+}
+
+fn create_nip04_event(
+    secret_key: &SecretKey,
+    public_key: &PublicKey,
+    message: &str,
+) -> Result<EventBuilder> {
+    Ok(EventBuilder::new(
+        Kind::EncryptedDirectMessage,
+        nip04::encrypt(secret_key, public_key, message).map_err(|e| {
+            error!("Failed to encrypt direct private message: {e}");
+            Error::Crypto("Failed to encrypt direct private message".to_string())
+        })?,
+    )
+    .tag(Tag::public_key(*public_key)))
 }
 
 /// Handle extracted event with given handlers.

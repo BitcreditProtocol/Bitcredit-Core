@@ -85,8 +85,9 @@ impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
 /// Allows generic deserialization of an event from an envelope.
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use serde::{Deserialize, Serialize};
+/// use bcr_ebill_transport::{EventType, Event, EventEnvelope};
 ///
 /// #[derive(Serialize, Deserialize)]
 /// struct MyEventPayload {
@@ -99,10 +100,9 @@ impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
 ///     bar: 42,
 /// };
 ///
-/// let event = Event::new(EventType::BillSigned, "recipient".to_string(), payload);
+/// let event = Event::new(EventType::Bill, "recipient", payload);
 /// let event: EventEnvelope = event.try_into().unwrap();
 /// let deserialized_event: Event<MyEventPayload> = event.try_into().unwrap();
-/// assert_eq!(deserialized_event.data, payload);
 ///
 /// ```
 ///

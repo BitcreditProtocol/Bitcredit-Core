@@ -81,12 +81,6 @@ async function start() {
   console.log(current_identity);
   document.getElementById("current_identity").innerHTML = current_identity.node_id;
 
-  try {
-    await identityApi.switch({ t: 1, node_id: "test" });
-  } catch (err) {
-    console.error("switching identity failed: ", err);
-  }
-
   // Company
   let companies = await companyApi.list();
   console.log("companies:", companies.companies.length, companies);

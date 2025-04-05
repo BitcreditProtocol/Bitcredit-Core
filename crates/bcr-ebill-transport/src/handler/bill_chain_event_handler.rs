@@ -278,6 +278,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
                     .await
                 {
                     error!("Failed to process chain data: {}", e);
+                    return Ok(());
                 }
             }
             if let Err(e) = self.create_notification(&decoded.data, node_id).await {
