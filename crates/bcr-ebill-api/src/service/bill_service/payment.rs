@@ -11,7 +11,7 @@ use bcr_ebill_core::{
         },
     },
     company::{Company, CompanyKeys},
-    contact::BillIdentifiedParticipant,
+    contact::BillIdentParticipant,
     identity::{Identity, IdentityWithAll},
     util::BcrKeys,
 };
@@ -90,7 +90,7 @@ impl BillService {
                     // If we are the recourser and a bill issuer and it's paid, we add a Recourse block
                     if payment_info.recourser.node_id == identity.identity.node_id {
                         if let Some(signer_identity) =
-                            BillIdentifiedParticipant::new(identity.identity.clone())
+                            BillIdentParticipant::new(identity.identity.clone())
                         {
                             let reason = match payment_info.reason {
                                 BillRecourseReasonBlockData::Pay => RecourseReason::Pay(
@@ -147,7 +147,7 @@ impl BillService {
                                     )
                                     .await, payment_info.sum, payment_info.currency, reason),
                                     // signer identity (company)
-                                    &BillIdentifiedParticipant::from(recourser_company.0.clone()),
+                                    &BillIdentParticipant::from(recourser_company.0.clone()),
                                     // signer keys (company keys)
                                     &BcrKeys::from_private_key(&recourser_company.1.private_key)?,
                                     now,
@@ -185,7 +185,7 @@ impl BillService {
                     // If we are the seller and a bill issuer and it's paid, we add a Sell block
                     if payment_info.seller.node_id() == identity.identity.node_id {
                         if let Some(signer_identity) =
-                            BillIdentifiedParticipant::new(identity.identity.clone())
+                            BillIdentParticipant::new(identity.identity.clone())
                         {
                             let _ = self
                                 .execute_bill_action(
@@ -235,7 +235,7 @@ impl BillService {
                                     payment_info.currency,
                                     payment_info.payment_address),
                                     // signer identity (company)
-                                    &BillIdentifiedParticipant::from(seller_company.0.clone()),
+                                    &BillIdentParticipant::from(seller_company.0.clone()),
                                     // signer keys (company keys)
                                     &BcrKeys::from_private_key(&seller_company.1.private_key)?,
                                     now,

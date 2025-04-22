@@ -191,7 +191,7 @@ pub enum ValidationError {
 
     /// error returned if the signer for a certain action is not allowed to be anonymous
     #[error("The signer can't be anonymous")]
-    SignerCantBeAnonymous,
+    SignerCantBeAnon,
 
     /// error returned if the maturity date is in the past
     #[error("maturity date can't be in the past")]

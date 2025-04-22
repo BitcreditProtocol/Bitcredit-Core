@@ -4,7 +4,7 @@ use bcr_ebill_api::{
         bill::{
             BillAction, BillIssueData, BillsFilterRole, LightBitcreditBillResult, RecourseReason,
         },
-        contact::{BillIdentifiedParticipant, BillParticipant},
+        contact::{BillIdentParticipant, BillParticipant},
     },
     external,
     service::{Error, bill_service::error::Error as BillServiceError},
@@ -323,7 +323,7 @@ impl Bill {
             .execute_bill_action(
                 &offer_to_sell_payload.bill_id,
                 BillAction::OfferToSell(
-                    BillParticipant::Identified(public_data_buyer.clone()), // TODO: support anon
+                    BillParticipant::Ident(public_data_buyer.clone()), // TODO: support anon
                     sum,
                     offer_to_sell_payload.currency.clone(),
                 ),
@@ -360,7 +360,7 @@ impl Bill {
             .bill_service
             .execute_bill_action(
                 &endorse_bill_payload.bill_id,
-                BillAction::Endorse(BillParticipant::Identified(public_data_endorsee.clone())), // TODO: support anon
+                BillAction::Endorse(BillParticipant::Ident(public_data_endorsee.clone())), // TODO: support anon
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
@@ -489,7 +489,7 @@ impl Bill {
             .execute_bill_action(
                 &mint_bill_payload.bill_id,
                 BillAction::Mint(
-                    BillParticipant::Identified(public_mint_node), // TODO: support anon
+                    BillParticipant::Ident(public_mint_node), // TODO: support anon
                     sum,
                     mint_bill_payload.currency.clone(),
                 ),
@@ -676,13 +676,13 @@ impl Default for Bill {
     }
 }
 
-async fn get_signer_public_data_and_keys() -> Result<(BillIdentifiedParticipant, BcrKeys)> {
+async fn get_signer_public_data_and_keys() -> Result<(BillIdentParticipant, BcrKeys)> {
     let current_identity = get_current_identity().await?;
     let local_node_id = current_identity.personal;
     let (signer_public_data, signer_keys) = match current_identity.company {
         None => {
             let identity = get_ctx().identity_service.get_full_identity().await?;
-            match BillIdentifiedParticipant::new(identity.identity) {
+            match BillIdentParticipant::new(identity.identity) {
                 Some(identity_public_data) => (identity_public_data, identity.key_pair),
                 None => {
                     return Err(Error::Validation(ValidationError::DrawerIsNotBillIssuer).into());
@@ -701,7 +701,7 @@ async fn get_signer_public_data_and_keys() -> Result<(BillIdentifiedParticipant,
                 .into());
             }
             (
-                BillIdentifiedParticipant::from(company),
+                BillIdentParticipant::from(company),
                 BcrKeys::from_private_key(&keys.private_key).map_err(Error::CryptoUtil)?,
             )
         }

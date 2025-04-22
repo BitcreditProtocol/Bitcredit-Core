@@ -102,7 +102,7 @@ impl BillService {
         signatory_identity: &IdentityWithAll,
     ) -> BillSigningKeys {
         match signer_public_data {
-            BillParticipant::Identified(identified) => {
+            BillParticipant::Ident(identified) => {
                 let (signatory_keys, company_keys, signatory_identity) = match identified.t {
                     ContactType::Person => (signer_keys.clone(), None, None),
                     ContactType::Company => (
@@ -117,7 +117,7 @@ impl BillService {
                     signatory_identity,
                 }
             }
-            BillParticipant::Anonymous(_) => BillSigningKeys {
+            BillParticipant::Anon(_) => BillSigningKeys {
                 signatory_keys: signer_keys.clone(),
                 company_keys: None,
                 signatory_identity: None,

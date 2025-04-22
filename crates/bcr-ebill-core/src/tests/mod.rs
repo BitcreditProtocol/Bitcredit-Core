@@ -6,7 +6,7 @@ pub mod tests {
     use crate::{
         Field, OptionalPostalAddress, PostalAddress, ValidationError,
         bill::{BillKeys, BitcreditBill},
-        contact::{BillIdentifiedParticipant, ContactType},
+        contact::{BillIdentParticipant, ContactType},
         identity::Identity,
     };
     use rstest::rstest;
@@ -113,7 +113,7 @@ pub mod tests {
     }
 
     pub fn valid_bill_participant() -> BillParticipant {
-        BillParticipant::Identified(BillIdentifiedParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id: TEST_PUB_KEY_SECP.into(),
             name: "Johanna Smith".into(),
@@ -124,7 +124,7 @@ pub mod tests {
     }
 
     pub fn valid_other_bill_participant() -> BillParticipant {
-        BillParticipant::Identified(BillIdentifiedParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id: OTHER_TEST_PUB_KEY_SECP.into(),
             name: "John Smith".into(),
@@ -134,8 +134,8 @@ pub mod tests {
         })
     }
 
-    pub fn valid_bill_identified_participant() -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn valid_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: TEST_PUB_KEY_SECP.into(),
             name: "Johanna Smith".into(),
@@ -145,8 +145,8 @@ pub mod tests {
         }
     }
 
-    pub fn valid_other_bill_identified_participant() -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn valid_other_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: OTHER_TEST_PUB_KEY_SECP.into(),
             name: "John Smith".into(),
@@ -156,8 +156,8 @@ pub mod tests {
         }
     }
 
-    pub fn empty_bill_identified_participant() -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: "".to_string(),
             name: "some name".to_string(),
@@ -168,7 +168,7 @@ pub mod tests {
     }
 
     pub fn bill_participant_only_node_id(node_id: String) -> BillParticipant {
-        BillParticipant::Identified(BillIdentifiedParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "some name".to_string(),
@@ -178,8 +178,8 @@ pub mod tests {
         })
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "some name".to_string(),

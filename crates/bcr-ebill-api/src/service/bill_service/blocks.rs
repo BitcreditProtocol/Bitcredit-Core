@@ -43,7 +43,7 @@ impl BillService {
 
         let block = match bill_action {
             BillAction::Accept => {
-                if let BillParticipant::Identified(signer) = signer_public_data {
+                if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillAcceptBlockData {
                         accepter: signer.clone().into(),
                         signatory: signing_keys.signatory_identity,
@@ -61,7 +61,7 @@ impl BillService {
                         timestamp,
                     )?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnonymous));
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
             BillAction::RequestAcceptance => {
@@ -102,7 +102,7 @@ impl BillService {
                 )?
             }
             BillAction::RequestRecourse(recoursee, recourse_reason) => {
-                if let BillParticipant::Identified(signer) = signer_public_data {
+                if let BillParticipant::Ident(signer) = signer_public_data {
                     let (sum, currency, reason) = match *recourse_reason {
                         RecourseReason::Accept => (
                             bill.sum,
@@ -134,11 +134,11 @@ impl BillService {
                         timestamp,
                     )?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnonymous));
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
             BillAction::Recourse(recoursee, sum, currency, recourse_reason) => {
-                if let BillParticipant::Identified(signer) = signer_public_data {
+                if let BillParticipant::Ident(signer) = signer_public_data {
                     let reason = match *recourse_reason {
                         RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
                         RecourseReason::Pay(_, _) => BillRecourseReasonBlockData::Pay,
@@ -164,7 +164,7 @@ impl BillService {
                         timestamp,
                     )?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnonymous));
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
             BillAction::Mint(mint, sum, currency) => {
@@ -255,7 +255,7 @@ impl BillService {
                 )?
             }
             BillAction::RejectAcceptance => {
-                if let BillParticipant::Identified(signer) = signer_public_data {
+                if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillRejectBlockData {
                         rejecter: signer.clone().into(),
                         signatory: signing_keys.signatory_identity,
@@ -273,7 +273,7 @@ impl BillService {
                         timestamp,
                     )?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnonymous));
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
             BillAction::RejectBuying => {
@@ -295,7 +295,7 @@ impl BillService {
                 )?
             }
             BillAction::RejectPayment => {
-                if let BillParticipant::Identified(signer) = signer_public_data {
+                if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillRejectBlockData {
                         rejecter: signer.clone().into(),
                         signatory: signing_keys.signatory_identity,
@@ -313,11 +313,11 @@ impl BillService {
                         timestamp,
                     )?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnonymous));
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
             BillAction::RejectPaymentForRecourse => {
-                if let BillParticipant::Identified(signer) = signer_public_data {
+                if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillRejectBlockData {
                         rejecter: signer.clone().into(),
                         signatory: signing_keys.signatory_identity,
@@ -335,7 +335,7 @@ impl BillService {
                         timestamp,
                     )?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnonymous));
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
         };
@@ -381,7 +381,7 @@ impl BillService {
         timestamp: u64,
     ) -> Result<()> {
         match signer_public_data {
-            BillParticipant::Identified(identified) => {
+            BillParticipant::Ident(identified) => {
                 match identified.t {
                     ContactType::Person => {
                         self.add_block_to_identity_chain_for_signed_bill_action(
@@ -418,7 +418,7 @@ impl BillService {
                 };
             }
             // for anon, we only add to our identity chain, since we're no company
-            BillParticipant::Anonymous(_) => {
+            BillParticipant::Anon(_) => {
                 self.add_block_to_identity_chain_for_signed_bill_action(
                     bill_id,
                     block,

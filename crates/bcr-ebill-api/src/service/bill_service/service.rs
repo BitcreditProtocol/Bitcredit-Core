@@ -1,7 +1,7 @@
 use super::error::Error;
 use super::{BillAction, BillServiceApi, Result};
 use crate::blockchain::Blockchain;
-use crate::blockchain::bill::block::BillIdentifiedParticipantBlockData;
+use crate::blockchain::bill::block::BillIdentParticipantBlockData;
 use crate::blockchain::bill::{BillBlockchain, BillOpCode};
 use crate::data::{
     File,
@@ -10,7 +10,7 @@ use crate::data::{
         BillsFilterRole, BitcreditBill, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
         PastEndorsee,
     },
-    contact::{BillIdentifiedParticipant, ContactType},
+    contact::{BillIdentParticipant, ContactType},
     identity::Identity,
 };
 use crate::external::bitcoin::BitcoinClientApi;
@@ -33,7 +33,7 @@ use bcr_ebill_core::blockchain::bill::block::{BillParticipantBlockData, NodeId};
 use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
-use bcr_ebill_core::contact::{BillAnonymousParticipant, BillParticipant, Contact};
+use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{ServiceTraitBounds, Validate};
@@ -118,13 +118,13 @@ impl BillService {
         contacts: &HashMap<String, Contact>,
     ) -> BillParticipant {
         match chain_identity {
-            BillParticipantBlockData::Identified(data) => BillParticipant::Identified(
+            BillParticipantBlockData::Ident(data) => BillParticipant::Ident(
                 self.extend_bill_chain_identity_data_from_contacts_or_identity(
                     data, identity, contacts,
                 )
                 .await,
             ),
-            BillParticipantBlockData::Anonymous(data) => {
+            BillParticipantBlockData::Anon(data) => {
                 let (email, nostr_relay) = self
                     .get_email_and_nostr_relay(
                         &data.node_id,
@@ -134,7 +134,7 @@ impl BillService {
                         contacts,
                     )
                     .await;
-                BillParticipant::Anonymous(BillAnonymousParticipant {
+                BillParticipant::Anon(BillAnonParticipant {
                     node_id: data.node_id,
                     email,
                     nostr_relay,
@@ -147,10 +147,10 @@ impl BillService {
     /// companies, or leave them empty
     pub(super) async fn extend_bill_chain_identity_data_from_contacts_or_identity(
         &self,
-        chain_identity: BillIdentifiedParticipantBlockData,
+        chain_identity: BillIdentParticipantBlockData,
         identity: &Identity,
         contacts: &HashMap<String, Contact>,
-    ) -> BillIdentifiedParticipant {
+    ) -> BillIdentParticipant {
         let (email, nostr_relay) = self
             .get_email_and_nostr_relay(
                 &chain_identity.node_id,
@@ -159,7 +159,7 @@ impl BillService {
                 contacts,
             )
             .await;
-        BillIdentifiedParticipant {
+        BillIdentParticipant {
             t: chain_identity.t,
             node_id: chain_identity.node_id,
             name: chain_identity.name,
@@ -234,7 +234,7 @@ impl BillService {
 
             if !sent {
                 let identity = self.identity_store.get().await?;
-                let current_identity = BillIdentifiedParticipant::new(identity.clone());
+                let current_identity = BillIdentParticipant::new(identity.clone());
                 let participants = chain.get_all_nodes_from_bill(&bill_keys)?;
                 let mut recipient_options = vec![current_identity];
                 let bill = self
@@ -242,7 +242,7 @@ impl BillService {
                     .await?;
 
                 for node_id in participants {
-                    let contact: Option<BillIdentifiedParticipant> =
+                    let contact: Option<BillIdentParticipant> =
                         self.contact_store.get(&node_id).await?.map(|c| c.into());
                     recipient_options.push(contact);
                 }
@@ -250,7 +250,7 @@ impl BillService {
                 let recipients = recipient_options
                     .into_iter()
                     .flatten()
-                    .collect::<Vec<BillIdentifiedParticipant>>();
+                    .collect::<Vec<BillIdentParticipant>>();
 
                 self.notification_service
                     .send_request_to_action_timed_out_event(
@@ -457,7 +457,7 @@ impl BillServiceApi for BillService {
     async fn get_combined_bitcoin_key_for_bill(
         &self,
         bill_id: &str,
-        caller_public_data: &BillIdentifiedParticipant,
+        caller_public_data: &BillIdentParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
@@ -559,7 +559,7 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         bill_action: BillAction,
-        signer_public_data: &BillIdentifiedParticipant,
+        signer_public_data: &BillIdentParticipant,
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<BillBlockchain> {
@@ -598,7 +598,7 @@ impl BillServiceApi for BillService {
             &mut blockchain,
             &bill_keys,
             &bill_action,
-            &BillParticipant::Identified(signer_public_data.clone()), // TODO: support anon
+            &BillParticipant::Ident(signer_public_data.clone()), // TODO: support anon
             signer_keys,
             &identity,
             timestamp,
@@ -730,7 +730,7 @@ impl BillServiceApi for BillService {
     async fn get_past_payments(
         &self,
         bill_id: &str,
-        caller_public_data: &BillIdentifiedParticipant,
+        caller_public_data: &BillIdentParticipant,
         caller_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Vec<PastPaymentResult>> {

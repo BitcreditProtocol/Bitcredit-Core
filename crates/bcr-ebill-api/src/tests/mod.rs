@@ -12,7 +12,7 @@ pub mod tests {
             identity::IdentityBlock,
         },
         company::{Company, CompanyKeys},
-        contact::{BillIdentifiedParticipant, BillParticipant, Contact, ContactType},
+        contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
@@ -262,7 +262,7 @@ pub mod tests {
             async fn send_bill_recourse_paid_event(
                 &self,
                 event: &BillChainEvent,
-                recoursee: &BillIdentifiedParticipant,
+                recoursee: &BillIdentParticipant,
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_request_to_action_rejected_event(
                 &self,
@@ -275,13 +275,13 @@ pub mod tests {
                 bill_id: &str,
                 sum: Option<u64>,
                 timed_out_action: ActionType,
-                recipients: Vec<BillIdentifiedParticipant>,
+                recipients: Vec<BillIdentParticipant>,
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_recourse_action_event(
                 &self,
                 event: &BillChainEvent,
                 action: ActionType,
-                recoursee: &BillIdentifiedParticipant,
+                recoursee: &BillIdentParticipant,
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_request_to_mint_event(&self, sender_node_id: &str, bill: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn send_new_quote_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
@@ -358,8 +358,8 @@ pub mod tests {
         }
     }
 
-    pub fn empty_bill_identified_participant() -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: "".to_string(),
             name: "some@example.com".to_string(),
@@ -370,7 +370,7 @@ pub mod tests {
     }
 
     pub fn bill_participant_only_node_id(node_id: String) -> BillParticipant {
-        BillParticipant::Identified(BillIdentifiedParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "some name".to_string(),
@@ -380,8 +380,8 @@ pub mod tests {
         })
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "some name".to_string(),
@@ -398,7 +398,7 @@ pub mod tests {
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
-            payee: BillParticipant::Identified(empty_bill_identified_participant()),
+            payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
             currency: "sat".to_string(),
             sum: 5000,

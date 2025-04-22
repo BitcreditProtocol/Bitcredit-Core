@@ -74,7 +74,7 @@ pub fn get_baseline_cached_bill(id: String) -> BitcreditBillResult {
         participants: BillParticipants {
             drawee: bill_identified_participant_only_node_id("drawee".to_string()),
             drawer: bill_identified_participant_only_node_id("drawer".to_string()),
-            payee: BillParticipant::Identified(bill_identified_participant_only_node_id(
+            payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
                 "payee".to_string(),
             )),
             endorsee: None,
@@ -144,8 +144,8 @@ pub fn get_baseline_bill(bill_id: &str) -> BitcreditBill {
     let mut payee = empty_bill_identified_participant();
     payee.name = "payee".to_owned();
     payee.node_id = keys.get_public_key();
-    bill.payee = BillParticipant::Identified(payee);
-    bill.drawee = BillIdentifiedParticipant::new(get_baseline_identity().identity).unwrap();
+    bill.payee = BillParticipant::Ident(payee);
+    bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
     bill.id = bill_id.to_owned();
     bill
 }
@@ -271,7 +271,7 @@ pub fn get_ctx() -> MockBillContext {
 pub fn request_to_recourse_block(
     id: &str,
     first_block: &BillBlock,
-    recoursee: &BillIdentifiedParticipant,
+    recoursee: &BillIdentParticipant,
     ts: Option<u64>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
@@ -304,7 +304,7 @@ pub fn request_to_recourse_block(
 pub fn recourse_block(
     id: &str,
     first_block: &BillBlock,
-    recoursee: &BillIdentifiedParticipant,
+    recoursee: &BillIdentParticipant,
 ) -> BillBlock {
     BillBlock::create_block_for_recourse(
         id.to_string(),
@@ -361,7 +361,7 @@ pub fn request_to_accept_block(id: &str, first_block: &BillBlock, ts: Option<u64
         id.to_string(),
         first_block,
         &BillRequestToAcceptBlockData {
-            requester: BillParticipantBlockData::Identified(
+            requester: BillParticipantBlockData::Ident(
                 bill_identified_participant_only_node_id(
                     BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                         .unwrap()
@@ -407,7 +407,7 @@ pub fn reject_accept_block(id: &str, first_block: &BillBlock) -> BillBlock {
 pub fn offer_to_sell_block(
     id: &str,
     first_block: &BillBlock,
-    buyer: &BillIdentifiedParticipant,
+    buyer: &BillIdentParticipant,
     ts: Option<u64>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
@@ -415,7 +415,7 @@ pub fn offer_to_sell_block(
         id.to_string(),
         first_block,
         &BillOfferToSellBlockData {
-            seller: BillParticipantBlockData::Identified(
+            seller: BillParticipantBlockData::Ident(
                 bill_identified_participant_only_node_id(
                     BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                         .unwrap()
@@ -423,7 +423,7 @@ pub fn offer_to_sell_block(
                 )
                 .into(),
             ),
-            buyer: BillParticipantBlockData::Identified(buyer.to_owned().into()),
+            buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             currency: "sat".to_string(),
             sum: 15000,
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
@@ -465,13 +465,13 @@ pub fn reject_buy_block(id: &str, first_block: &BillBlock) -> BillBlock {
 pub fn sell_block(
     id: &str,
     first_block: &BillBlock,
-    buyer: &BillIdentifiedParticipant,
+    buyer: &BillIdentParticipant,
 ) -> BillBlock {
     BillBlock::create_block_for_sell(
         id.to_string(),
         first_block,
         &BillSellBlockData {
-            seller: BillParticipantBlockData::Identified(
+            seller: BillParticipantBlockData::Ident(
                 bill_identified_participant_only_node_id(
                     BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                         .unwrap()
@@ -479,7 +479,7 @@ pub fn sell_block(
                 )
                 .into(),
             ),
-            buyer: BillParticipantBlockData::Identified(buyer.to_owned().into()),
+            buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             currency: "sat".to_string(),
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
             sum: 15000,
@@ -524,7 +524,7 @@ pub fn request_to_pay_block(id: &str, first_block: &BillBlock, ts: Option<u64>) 
         id.to_string(),
         first_block,
         &BillRequestToPayBlockData {
-            requester: BillParticipantBlockData::Identified(
+            requester: BillParticipantBlockData::Ident(
                 bill_identified_participant_only_node_id(
                     BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                         .unwrap()

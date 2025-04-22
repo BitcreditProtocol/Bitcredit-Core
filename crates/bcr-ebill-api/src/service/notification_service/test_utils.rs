@@ -1,5 +1,5 @@
 use crate::{
-    data::{bill::BitcreditBill, contact::BillIdentifiedParticipant},
+    data::{bill::BitcreditBill, contact::BillIdentParticipant},
     persistence::DbContext,
     tests::tests::{
         MockBackupStoreApiMock, MockBillChainStoreApiMock, MockBillStoreApiMock,
@@ -99,7 +99,7 @@ pub fn get_identity_public_data(
     node_id: &str,
     email: &str,
     nostr_relay: Option<&str>,
-) -> BillIdentifiedParticipant {
+) -> BillIdentParticipant {
     let mut identity = bill_identified_participant_only_node_id(node_id.to_owned());
     identity.email = Some(email.to_owned());
     identity.nostr_relay = nostr_relay.map(|nostr_relay| nostr_relay.to_owned());
@@ -108,19 +108,19 @@ pub fn get_identity_public_data(
 
 pub fn get_test_bitcredit_bill(
     id: &str,
-    payer: &BillIdentifiedParticipant,
-    payee: &BillIdentifiedParticipant,
-    drawer: Option<&BillIdentifiedParticipant>,
-    endorsee: Option<&BillIdentifiedParticipant>,
+    payer: &BillIdentParticipant,
+    payee: &BillIdentParticipant,
+    drawer: Option<&BillIdentParticipant>,
+    endorsee: Option<&BillIdentParticipant>,
 ) -> BitcreditBill {
     let mut bill = empty_bitcredit_bill();
     bill.id = id.to_owned();
-    bill.payee = BillParticipant::Identified(payee.clone());
+    bill.payee = BillParticipant::Ident(payee.clone());
     bill.drawee = payer.clone();
     if let Some(drawer) = drawer {
         bill.drawer = drawer.clone();
     }
-    bill.endorsee = endorsee.map(|e| BillParticipant::Identified(e.clone()));
+    bill.endorsee = endorsee.map(|e| BillParticipant::Ident(e.clone()));
     bill
 }
 pub async fn get_mock_relay() -> MockRelay {

@@ -633,7 +633,7 @@ mod tests {
                 // and send an event
                 client1
                     .send(
-                        &BillParticipant::Identified(contact),
+                        &BillParticipant::Ident(contact),
                         event.try_into().expect("could not convert event"),
                     )
                     .await

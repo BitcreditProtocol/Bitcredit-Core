@@ -102,13 +102,13 @@ impl BillService {
             language: data.language,
             drawee: public_data_drawee,
             drawer: data.drawer_public_data.clone(),
-            payee: BillParticipant::Identified(public_data_payee), // TODO: support anon
+            payee: BillParticipant::Ident(public_data_payee), // TODO: support anon
             endorsee: None,
             files: bill_files,
         };
 
         let signing_keys = self.get_bill_signing_keys(
-            &BillParticipant::Identified(data.drawer_public_data.clone()), // drawer has to be identified
+            &BillParticipant::Ident(data.drawer_public_data.clone()), // drawer has to be identified
             &data.drawer_keys,
             &identity,
         );
@@ -132,7 +132,7 @@ impl BillService {
         self.blockchain_store.add_block(&bill.id, block).await?;
 
         self.add_identity_and_company_chain_blocks_for_signed_bill_action(
-            &BillParticipant::Identified(data.drawer_public_data.clone()), // drawer is identified
+            &BillParticipant::Ident(data.drawer_public_data.clone()), // drawer is identified
             &bill_id,
             block,
             &identity.key_pair,

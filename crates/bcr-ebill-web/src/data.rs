@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bcr_ebill_api::data::contact::{
-    BillAnonymousParticipant, BillParticipant, LightBillAnonymousParticipant, LightBillParticipant,
+    BillAnonParticipant, BillParticipant, LightBillAnonParticipant, LightBillParticipant,
 };
 use bcr_ebill_api::service::Error;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
@@ -18,8 +18,8 @@ use bcr_ebill_api::{
         },
         company::Company,
         contact::{
-            BillIdentifiedParticipant, Contact, ContactType, LightBillIdentifiedParticipant,
-            LightBillIdentifiedParticipantWithAddress,
+            BillIdentParticipant, Contact, ContactType, LightBillIdentParticipant,
+            LightBillIdentParticipantWithAddress,
         },
         identity::{Identity, IdentityType},
         notification::{Notification, NotificationType},
@@ -284,7 +284,7 @@ impl FromWeb<BillsFilterRoleWeb> for BillsFilterRole {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PastEndorseeWeb {
-    pub pay_to_the_order_of: LightBillIdentifiedParticipantWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddressWeb>,
@@ -305,7 +305,7 @@ impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
 pub struct LightSignedByWeb {
     #[serde(flatten)]
     pub data: LightBillParticipantWeb,
-    pub signatory: Option<LightBillIdentifiedParticipantWeb>,
+    pub signatory: Option<LightBillIdentParticipantWeb>,
 }
 
 impl IntoWeb<LightSignedByWeb> for LightSignedBy {
@@ -319,7 +319,7 @@ impl IntoWeb<LightSignedByWeb> for LightSignedBy {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EndorsementWeb {
-    pub pay_to_the_order_of: LightBillIdentifiedParticipantWithAddressWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWithAddressWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddressWeb>,
@@ -862,7 +862,7 @@ impl IntoWeb<BillWaitingForSellStateWeb> for BillWaitingForSellState {
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillWaitingForPaymentStateWeb {
     pub time_of_request: u64,
-    pub payer: BillIdentifiedParticipantWeb,
+    pub payer: BillIdentParticipantWeb,
     pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
@@ -889,8 +889,8 @@ impl IntoWeb<BillWaitingForPaymentStateWeb> for BillWaitingForPaymentState {
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillWaitingForRecourseStateWeb {
     pub time_of_request: u64,
-    pub recourser: BillIdentifiedParticipantWeb,
-    pub recoursee: BillIdentifiedParticipantWeb,
+    pub recourser: BillIdentParticipantWeb,
+    pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -1056,8 +1056,8 @@ impl IntoWeb<BillDataWeb> for BillData {
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillParticipantsWeb {
-    pub drawee: BillIdentifiedParticipantWeb,
-    pub drawer: BillIdentifiedParticipantWeb,
+    pub drawee: BillIdentParticipantWeb,
+    pub drawer: BillIdentParticipantWeb,
     pub payee: BillParticipantWeb,
     pub endorsee: Option<BillParticipantWeb>,
     pub endorsements_count: u64,
@@ -1080,8 +1080,8 @@ impl IntoWeb<BillParticipantsWeb> for BillParticipants {
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct LightBitcreditBillWeb {
     pub id: String,
-    pub drawee: LightBillIdentifiedParticipantWeb,
-    pub drawer: LightBillIdentifiedParticipantWeb,
+    pub drawee: LightBillIdentParticipantWeb,
+    pub drawer: LightBillIdentParticipantWeb,
     pub payee: LightBillParticipantWeb,
     pub endorsee: Option<LightBillParticipantWeb>,
     pub active_notification: Option<NotificationWeb>,
@@ -1111,29 +1111,29 @@ impl IntoWeb<LightBitcreditBillWeb> for LightBitcreditBillResult {
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub enum BillParticipantWeb {
-    Anonymous(BillAnonymousParticipantWeb),
-    Identified(BillIdentifiedParticipantWeb),
+    Anon(BillAnonParticipantWeb),
+    Ident(BillIdentParticipantWeb),
 }
 
 impl IntoWeb<BillParticipantWeb> for BillParticipant {
     fn into_web(self) -> BillParticipantWeb {
         match self {
-            BillParticipant::Identified(data) => BillParticipantWeb::Identified(data.into_web()),
-            BillParticipant::Anonymous(data) => BillParticipantWeb::Anonymous(data.into_web()),
+            BillParticipant::Ident(data) => BillParticipantWeb::Ident(data.into_web()),
+            BillParticipant::Anon(data) => BillParticipantWeb::Anon(data.into_web()),
         }
     }
 }
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
-pub struct BillAnonymousParticipantWeb {
+pub struct BillAnonParticipantWeb {
     pub node_id: String,
     pub email: Option<String>,
     pub nostr_relay: Option<String>,
 }
 
-impl IntoWeb<BillAnonymousParticipantWeb> for BillAnonymousParticipant {
-    fn into_web(self) -> BillAnonymousParticipantWeb {
-        BillAnonymousParticipantWeb {
+impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
+    fn into_web(self) -> BillAnonParticipantWeb {
+        BillAnonParticipantWeb {
             node_id: self.node_id,
             email: self.email,
             nostr_relay: self.nostr_relay,
@@ -1142,7 +1142,7 @@ impl IntoWeb<BillAnonymousParticipantWeb> for BillAnonymousParticipant {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct BillIdentifiedParticipantWeb {
+pub struct BillIdentParticipantWeb {
     #[serde(rename = "type")]
     pub t: ContactTypeWeb,
     pub node_id: String,
@@ -1153,9 +1153,9 @@ pub struct BillIdentifiedParticipantWeb {
     pub nostr_relay: Option<String>,
 }
 
-impl IntoWeb<BillIdentifiedParticipantWeb> for BillIdentifiedParticipant {
-    fn into_web(self) -> BillIdentifiedParticipantWeb {
-        BillIdentifiedParticipantWeb {
+impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
+    fn into_web(self) -> BillIdentParticipantWeb {
+        BillIdentParticipantWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,
@@ -1168,47 +1168,47 @@ impl IntoWeb<BillIdentifiedParticipantWeb> for BillIdentifiedParticipant {
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub enum LightBillParticipantWeb {
-    Anonymous(LightBillAnonymousParticipantWeb),
-    Identified(LightBillIdentifiedParticipantWeb),
+    Anon(LightBillAnonParticipantWeb),
+    Ident(LightBillIdentParticipantWeb),
 }
 
 impl IntoWeb<LightBillParticipantWeb> for LightBillParticipant {
     fn into_web(self) -> LightBillParticipantWeb {
         match self {
-            LightBillParticipant::Identified(data) => {
-                LightBillParticipantWeb::Identified(data.into_web())
+            LightBillParticipant::Ident(data) => {
+                LightBillParticipantWeb::Ident(data.into_web())
             }
-            LightBillParticipant::Anonymous(data) => {
-                LightBillParticipantWeb::Anonymous(data.into_web())
+            LightBillParticipant::Anon(data) => {
+                LightBillParticipantWeb::Anon(data.into_web())
             }
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct LightBillAnonymousParticipantWeb {
+pub struct LightBillAnonParticipantWeb {
     pub node_id: String,
 }
 
-impl IntoWeb<LightBillAnonymousParticipantWeb> for LightBillAnonymousParticipant {
-    fn into_web(self) -> LightBillAnonymousParticipantWeb {
-        LightBillAnonymousParticipantWeb {
+impl IntoWeb<LightBillAnonParticipantWeb> for LightBillAnonParticipant {
+    fn into_web(self) -> LightBillAnonParticipantWeb {
+        LightBillAnonParticipantWeb {
             node_id: self.node_id,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct LightBillIdentifiedParticipantWeb {
+pub struct LightBillIdentParticipantWeb {
     #[serde(rename = "type")]
     pub t: ContactTypeWeb,
     pub name: String,
     pub node_id: String,
 }
 
-impl IntoWeb<LightBillIdentifiedParticipantWeb> for LightBillIdentifiedParticipant {
-    fn into_web(self) -> LightBillIdentifiedParticipantWeb {
-        LightBillIdentifiedParticipantWeb {
+impl IntoWeb<LightBillIdentParticipantWeb> for LightBillIdentParticipant {
+    fn into_web(self) -> LightBillIdentParticipantWeb {
+        LightBillIdentParticipantWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,
@@ -1217,7 +1217,7 @@ impl IntoWeb<LightBillIdentifiedParticipantWeb> for LightBillIdentifiedParticipa
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct LightBillIdentifiedParticipantWithAddressWeb {
+pub struct LightBillIdentParticipantWithAddressWeb {
     #[serde(rename = "type")]
     pub t: ContactTypeWeb,
     pub name: String,
@@ -1226,11 +1226,11 @@ pub struct LightBillIdentifiedParticipantWithAddressWeb {
     pub postal_address: PostalAddressWeb,
 }
 
-impl IntoWeb<LightBillIdentifiedParticipantWithAddressWeb>
-    for LightBillIdentifiedParticipantWithAddress
+impl IntoWeb<LightBillIdentParticipantWithAddressWeb>
+    for LightBillIdentParticipantWithAddress
 {
-    fn into_web(self) -> LightBillIdentifiedParticipantWithAddressWeb {
-        LightBillIdentifiedParticipantWithAddressWeb {
+    fn into_web(self) -> LightBillIdentParticipantWithAddressWeb {
+        LightBillIdentParticipantWithAddressWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,

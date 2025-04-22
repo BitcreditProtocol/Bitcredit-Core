@@ -1,7 +1,7 @@
 use super::super::Result;
 use super::PaymentInfo;
 use super::block::{
-    BillBlock, BillEndorseBlockData, BillIdentifiedParticipantBlockData, BillIssueBlockData,
+    BillBlock, BillEndorseBlockData, BillIdentParticipantBlockData, BillIssueBlockData,
     BillMintBlockData, BillOfferToSellBlockData, BillParticipantBlockData, BillRecourseBlockData,
     BillRequestRecourseBlockData, BillSellBlockData, NodeId,
 };
@@ -10,7 +10,7 @@ use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
 use crate::bill::{BillKeys, Endorsement, LightSignedBy, PastEndorsee, PastPaymentStatus};
 use crate::blockchain::{Block, Blockchain, Error};
 use crate::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
-use crate::contact::{ContactType, LightBillIdentifiedParticipant, LightBillParticipant};
+use crate::contact::{ContactType, LightBillIdentParticipant, LightBillParticipant};
 use crate::util::{self, BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -19,8 +19,8 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct BillParties {
-    pub drawee: BillIdentifiedParticipantBlockData,
-    pub drawer: BillIdentifiedParticipantBlockData,
+    pub drawee: BillIdentParticipantBlockData,
+    pub drawer: BillIdentParticipantBlockData,
     pub payee: BillParticipantBlockData,
     pub endorsee: Option<BillParticipantBlockData>,
 }
@@ -489,14 +489,14 @@ impl BillBlockchain {
             }
             if let Ok(Some(holder_from_block)) = block.get_holder_from_block(bill_keys) {
                 // we ignore blocks with an anonymous holder
-                if let BillParticipantBlockData::Identified(holder_data) = holder_from_block.holder
+                if let BillParticipantBlockData::Ident(holder_data) = holder_from_block.holder
                 {
                     result.push(Endorsement {
                         pay_to_the_order_of: holder_data.clone().into(),
                         signed: LightSignedBy {
                             data: holder_from_block.signer.clone().into(),
                             signatory: holder_from_block.signatory.map(|s| {
-                                LightBillIdentifiedParticipant {
+                                LightBillIdentParticipant {
                                     // signatories are always identified people
                                     t: ContactType::Person,
                                     name: s.name,
@@ -506,8 +506,8 @@ impl BillBlockchain {
                         },
                         signing_timestamp: block.timestamp,
                         signing_address: match holder_from_block.signer {
-                            BillParticipantBlockData::Anonymous(_) => None,
-                            BillParticipantBlockData::Identified(data) => Some(data.postal_address),
+                            BillParticipantBlockData::Anon(_) => None,
+                            BillParticipantBlockData::Ident(data) => Some(data.postal_address),
                         },
                     });
                 }
@@ -548,7 +548,7 @@ impl BillBlockchain {
             }
 
             // if the holder is anonymous, we don't add them, because they can't be recoursed against
-            if let BillParticipantBlockData::Identified(holder_data) = holder.holder {
+            if let BillParticipantBlockData::Ident(holder_data) = holder.holder {
                 // we add the holders before ourselves, if they're not in the list already
                 if found_last_endorsing_block_for_node
                     && holder_data.node_id() != *current_identity_node_id
@@ -560,7 +560,7 @@ impl BillBlockchain {
                             signed: LightSignedBy {
                                 data: holder.signer.clone().into(),
                                 signatory: holder.signatory.map(|s| {
-                                    LightBillIdentifiedParticipant {
+                                    LightBillIdentParticipant {
                                         t: ContactType::Person,
                                         name: s.name,
                                         node_id: s.node_id,
@@ -569,8 +569,8 @@ impl BillBlockchain {
                             },
                             signing_timestamp: timestamp,
                             signing_address: match holder.signer {
-                                BillParticipantBlockData::Anonymous(_) => None,
-                                BillParticipantBlockData::Identified(data) => {
+                                BillParticipantBlockData::Anon(_) => None,
+                                BillParticipantBlockData::Ident(data) => {
                                     Some(data.postal_address)
                                 }
                             },
@@ -588,11 +588,11 @@ impl BillBlockchain {
                 .or_insert(PastEndorsee {
                     pay_to_the_order_of: first_version_bill.drawer.clone().into(),
                     signed: LightSignedBy {
-                        data: LightBillParticipant::Identified(
+                        data: LightBillParticipant::Ident(
                             first_version_bill.drawer.clone().into(),
                         ),
                         signatory: first_version_bill.signatory.map(|s| {
-                            LightBillIdentifiedParticipant {
+                            LightBillIdentParticipant {
                                 t: ContactType::Person,
                                 name: s.name,
                                 node_id: s.node_id,
@@ -662,7 +662,7 @@ impl BillBlockchain {
         {
             Some((
                 recourse_block_encrypted.id,
-                BillParticipantBlockData::Identified(
+                BillParticipantBlockData::Ident(
                     recourse_block_encrypted
                         .get_decrypted_block_bytes::<BillRecourseBlockData>(bill_keys)?
                         .recoursee,
@@ -697,7 +697,7 @@ mod tests {
     use super::*;
     use crate::{
         blockchain::bill::{block::BillOfferToSellBlockData, tests::get_baseline_identity},
-        contact::BillIdentifiedParticipant,
+        contact::BillIdentParticipant,
         tests::tests::{
             TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, bill_participant_only_node_id,
             empty_bitcredit_bill, get_bill_keys, valid_address,
@@ -834,8 +834,8 @@ mod tests {
     fn get_all_nodes_from_bill_baseline() {
         let mut bill = empty_bitcredit_bill();
         let identity = get_baseline_identity();
-        bill.drawer = BillIdentifiedParticipant::new(identity.identity.clone()).unwrap();
-        bill.drawee = BillIdentifiedParticipant::new(identity.identity.clone()).unwrap();
+        bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
+        bill.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         bill.payee = bill_participant_only_node_id(BcrKeys::new().get_public_key());
 
         let mut chain = BillBlockchain::new(

@@ -588,7 +588,7 @@ mod tests {
                 tests::valid_bill_issue_block_data,
             },
         },
-        contact::{BillIdentifiedParticipant, BillParticipant},
+        contact::{BillIdentParticipant, BillParticipant},
         tests::tests::{
             OTHER_TEST_PUB_KEY_SECP, OTHER_VALID_PAYMENT_ADDRESS_TESTNET, TEST_BILL_ID,
             TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET, valid_address,
@@ -639,7 +639,7 @@ mod tests {
     #[case::drawee_equals_payee( BillIssueData { drawee: TEST_PUB_KEY_SECP.into(), payee: TEST_PUB_KEY_SECP.into(), ..valid_bill_issue_data() }, ValidationError::DraweeCantBePayee)]
     #[case::invalid_payee( BillIssueData { payee: "invalidkey".into(), ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
     #[case::invalid_drawee( BillIssueData { drawee: "invalidkey".into(),  ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
-    #[case::invalid_drawer( BillIssueData { drawer_public_data: BillIdentifiedParticipant { node_id: "invalidkey".into(), ..valid_bill_identified_participant() }, ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
+    #[case::invalid_drawer( BillIssueData { drawer_public_data: BillIdentParticipant { node_id: "invalidkey".into(), ..valid_bill_identified_participant() }, ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
     fn test_validate_bill_issue_data_errors(
         #[case] input: BillIssueData,
         #[case] expected: ValidationError,
@@ -687,15 +687,15 @@ mod tests {
 
     fn add_endorse_block(
         mut chain: BillBlockchain,
-        endorsee: BillIdentifiedParticipant,
-        endorser: BillIdentifiedParticipant,
+        endorsee: BillIdentParticipant,
+        endorser: BillIdentParticipant,
     ) -> BillBlockchain {
         let block = BillBlock::create_block_for_endorse(
             TEST_BILL_ID.into(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
-                endorser: BillParticipant::Identified(endorser).into(),
-                endorsee: BillParticipant::Identified(endorsee).into(),
+                endorser: BillParticipant::Ident(endorser).into(),
+                endorsee: BillParticipant::Ident(endorsee).into(),
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1,
                 signing_address: Some(valid_address()),

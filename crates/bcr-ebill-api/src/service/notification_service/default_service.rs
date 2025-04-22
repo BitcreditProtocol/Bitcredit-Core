@@ -12,7 +12,7 @@ use super::NotificationJsonTransportApi;
 use super::{NotificationServiceApi, Result};
 use crate::data::{
     bill::BitcreditBill,
-    contact::BillIdentifiedParticipant,
+    contact::BillIdentParticipant,
     notification::{Notification, NotificationType},
 };
 use crate::persistence::notification::{NotificationFilter, NotificationStoreApi};
@@ -56,9 +56,9 @@ impl DefaultNotificationService {
         }
     }
 
-    fn get_local_identity(&self, node_id: &str) -> Option<BillIdentifiedParticipant> {
+    fn get_local_identity(&self, node_id: &str) -> Option<BillIdentParticipant> {
         if self.notification_transport.contains_key(node_id) {
-            Some(BillIdentifiedParticipant {
+            Some(BillIdentParticipant {
                 t: ContactType::Person,
                 node_id: node_id.to_string(),
                 email: None,
@@ -71,7 +71,7 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn resolve_identity(&self, node_id: &str) -> Option<BillIdentifiedParticipant> {
+    async fn resolve_identity(&self, node_id: &str) -> Option<BillIdentParticipant> {
         match self.get_local_identity(node_id) {
             Some(id) => Some(id),
             None => {
@@ -96,7 +96,7 @@ impl DefaultNotificationService {
                 if let Some(identity) = self.resolve_identity(&event_to_process.node_id).await {
                     if let Err(e) = node
                         .send(
-                            &BillParticipant::Identified(identity), // TODO: support anon
+                            &BillParticipant::Ident(identity), // TODO: support anon
                             event_to_process.clone().try_into()?,
                         )
                         .await
@@ -141,7 +141,7 @@ impl DefaultNotificationService {
         if let Some(node) = self.notification_transport.get(sender) {
             if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
             {
-                node.send(&BillParticipant::Identified(identity), message) // TODO: support anon
+                node.send(&BillParticipant::Ident(identity), message) // TODO: support anon
                     .await?;
             }
         }
@@ -279,7 +279,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_recourse_paid_event(
         &self,
         event: &BillChainEvent,
-        recoursee: &BillIdentifiedParticipant,
+        recoursee: &BillIdentParticipant,
     ) -> Result<()> {
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
@@ -338,12 +338,12 @@ impl NotificationServiceApi for DefaultNotificationService {
         bill_id: &str,
         sum: Option<u64>,
         timed_out_action: ActionType,
-        recipients: Vec<BillIdentifiedParticipant>,
+        recipients: Vec<BillIdentParticipant>,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             if let Some(event_type) = timed_out_action.get_timeout_event_type() {
                 // only send to a recipient once
-                let unique: HashMap<String, BillIdentifiedParticipant> =
+                let unique: HashMap<String, BillIdentParticipant> =
                     HashMap::from_iter(recipients.iter().map(|r| (r.node_id.clone(), r.clone())));
 
                 let payload = BillChainEventPayload {
@@ -355,7 +355,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                 };
                 for (_, recipient) in unique {
                     let event = Event::new_bill(&recipient.node_id, payload.clone());
-                    node.send(&BillParticipant::Identified(recipient), event.try_into()?) // TODO: support anon
+                    node.send(&BillParticipant::Ident(recipient), event.try_into()?) // TODO: support anon
                         .await?;
                 }
             }
@@ -367,7 +367,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         &self,
         event: &BillChainEvent,
         action: ActionType,
-        recoursee: &BillIdentifiedParticipant,
+        recoursee: &BillIdentParticipant,
     ) -> Result<()> {
         if let Some(event_type) = action.get_recourse_event_type() {
             let all_events = event.generate_action_messages(
@@ -581,8 +581,8 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: BillParticipantBlockData::Identified(payee.clone().into()),
-                buyer: BillParticipantBlockData::Identified(buyer.clone().into()),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
@@ -699,8 +699,8 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: BillParticipantBlockData::Identified(payee.clone().into()),
-                buyer: BillParticipantBlockData::Identified(buyer.clone().into()),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
@@ -862,8 +862,8 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: BillParticipantBlockData::Identified(payee.clone().into()),
-                buyer: BillParticipantBlockData::Identified(buyer.clone().into()),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
@@ -964,8 +964,8 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: BillParticipantBlockData::Identified(payee.clone().into()),
-                buyer: BillParticipantBlockData::Identified(buyer.clone().into()),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
@@ -1082,7 +1082,7 @@ mod tests {
     }
 
     fn setup_chain_expectation(
-        participants: Vec<(BillIdentifiedParticipant, BillEventType, Option<ActionType>)>,
+        participants: Vec<(BillIdentParticipant, BillEventType, Option<ActionType>)>,
         bill: &BitcreditBill,
         chain: &BillBlockchain,
         new_blocks: bool,
@@ -1224,7 +1224,7 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillRequestToAcceptBlockData {
-                requester: BillParticipantBlockData::Identified(payee.clone().into()),
+                requester: BillParticipantBlockData::Ident(payee.clone().into()),
                 signatory: None,
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
@@ -1270,7 +1270,7 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillRequestToPayBlockData {
-                requester: BillParticipantBlockData::Identified(payee.clone().into()),
+                requester: BillParticipantBlockData::Ident(payee.clone().into()),
                 currency: "USD".to_string(),
                 signatory: None,
                 signing_timestamp: timestamp,
@@ -1369,8 +1369,8 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: BillParticipantBlockData::Identified(payee.clone().into()),
-                buyer: BillParticipantBlockData::Identified(buyer.clone().into()),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
@@ -1403,7 +1403,7 @@ mod tests {
         );
 
         service
-            .send_offer_to_sell_event(&event, &BillParticipant::Identified(buyer))
+            .send_offer_to_sell_event(&event, &BillParticipant::Ident(buyer))
             .await
             .expect("failed to send event");
     }
@@ -1421,8 +1421,8 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: BillParticipantBlockData::Identified(payee.clone().into()),
-                buyer: BillParticipantBlockData::Identified(buyer.clone().into()),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
@@ -1455,7 +1455,7 @@ mod tests {
         );
 
         service
-            .send_bill_is_sold_event(&event, &BillParticipant::Identified(buyer))
+            .send_bill_is_sold_event(&event, &BillParticipant::Ident(buyer))
             .await
             .expect("failed to send event");
     }

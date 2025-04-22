@@ -5,7 +5,7 @@ pub mod block;
 pub mod chain;
 
 pub use block::BillBlock;
-use block::{BillIdentifiedParticipantBlockData, BillRecourseReasonBlockData};
+use block::{BillIdentParticipantBlockData, BillRecourseReasonBlockData};
 pub use chain::BillBlockchain;
 
 use crate::contact::BillParticipant;
@@ -53,8 +53,8 @@ pub struct PaymentInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoursePaymentInfo {
-    pub recourser: BillIdentifiedParticipantBlockData, // recourser has to be identified
-    pub recoursee: BillIdentifiedParticipantBlockData, // recoursee has to be identified
+    pub recourser: BillIdentParticipantBlockData, // recourser has to be identified
+    pub recoursee: BillIdentParticipantBlockData, // recoursee has to be identified
     pub sum: u64,
     pub currency: String,
     pub reason: BillRecourseReasonBlockData,

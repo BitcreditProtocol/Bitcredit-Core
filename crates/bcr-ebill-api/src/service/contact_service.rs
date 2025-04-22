@@ -8,7 +8,7 @@ use mockall::automock;
 use crate::{
     data::{
         File, OptionalPostalAddress, PostalAddress,
-        contact::{BillIdentifiedParticipant, Contact, ContactType},
+        contact::{BillIdentParticipant, Contact, ContactType},
     },
     get_config,
     persistence::{
@@ -35,7 +35,7 @@ pub trait ContactServiceApi: Send + Sync {
     async fn get_identity_by_node_id(
         &self,
         node_id: &str,
-    ) -> Result<Option<BillIdentifiedParticipant>>;
+    ) -> Result<Option<BillIdentParticipant>>;
 
     /// Deletes the contact with the given node_id.
     async fn delete(&self, node_id: &str) -> Result<()>;
@@ -171,7 +171,7 @@ impl ContactServiceApi for ContactService {
     async fn get_identity_by_node_id(
         &self,
         node_id: &str,
-    ) -> Result<Option<BillIdentifiedParticipant>> {
+    ) -> Result<Option<BillIdentParticipant>> {
         let res = self.store.get(node_id).await?;
         Ok(res.map(|c| c.into()))
     }

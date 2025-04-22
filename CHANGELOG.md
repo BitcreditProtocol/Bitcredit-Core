@@ -1,11 +1,11 @@
 # 0.3.8
 
 * Add Blank Endorse Bill data model implementation
-    * Rename `IdentityPublicData` to `BillIdentifiedParticipant`
+    * Rename `IdentityPublicData` to `BillIdentParticipant`
         * same for `LightIdentityPublicData`
-    * Introduce the concept of `BillParticipant`, with the variants `Identified` and `Anonymous`
-        * `Anonymous` includes a `BillAnonymousParticipant`
-        * `Identified` includes a `BillIdentifiedParticipant`
+    * Introduce the concept of `BillParticipant`, with the variants `Ident` and `Anon`
+        * `Anon` includes a `BillAnonParticipant`
+        * `Ident` includes a `BillIdentParticipant`
     * Use `BillParticipant` in parts of the bill where a participant can be anonymous
 
 # 0.3.7

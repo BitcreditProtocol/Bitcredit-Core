@@ -7,7 +7,7 @@ pub mod tests {
             BillAcceptanceStatus, BillData, BillKeys, BillParticipants, BillPaymentStatus,
             BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill, BitcreditBillResult,
         },
-        contact::{BillIdentifiedParticipant, BillParticipant, ContactType},
+        contact::{BillIdentParticipant, BillParticipant, ContactType},
         identity::Identity,
         util::BcrKeys,
     };
@@ -46,8 +46,8 @@ pub mod tests {
         }
     }
 
-    pub fn empty_bill_identified_participant() -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: "".to_string(),
             name: "".to_string(),
@@ -57,8 +57,8 @@ pub mod tests {
         }
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentifiedParticipant {
-        BillIdentifiedParticipant {
+    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "".to_string(),
@@ -75,7 +75,7 @@ pub mod tests {
             city_of_issuing: "".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
-            payee: BillParticipant::Identified(bill_identified_participant_only_node_id(
+            payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
                 BcrKeys::new().get_public_key(),
             )),
             endorsee: None,
@@ -96,7 +96,7 @@ pub mod tests {
             participants: BillParticipants {
                 drawee: bill_identified_participant_only_node_id("drawee".to_string()),
                 drawer: bill_identified_participant_only_node_id("drawer".to_string()),
-                payee: BillParticipant::Identified(bill_identified_participant_only_node_id(
+                payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
                     "payee".to_string(),
                 )),
                 endorsee: None,
