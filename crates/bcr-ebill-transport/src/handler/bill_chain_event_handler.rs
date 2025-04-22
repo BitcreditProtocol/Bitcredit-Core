@@ -653,8 +653,7 @@ mod tests {
     async fn test_adds_block_for_existing_chain_event() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let mut endorsee =
-            BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         endorsee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
@@ -807,8 +806,7 @@ mod tests {
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         // endorser is different than block signer - signature won't be able to be validated
-        let mut endorser =
-            BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut endorser = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         endorser.node_id = BcrKeys::new().get_public_key();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));

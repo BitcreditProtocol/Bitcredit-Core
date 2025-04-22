@@ -7,8 +7,7 @@ use crate::{
 use super::{
     File, PostalAddress,
     contact::{
-        BillIdentParticipant, LightBillIdentParticipant,
-        LightBillIdentParticipantWithAddress,
+        BillIdentParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
     },
     notification::Notification,
 };

@@ -1175,12 +1175,8 @@ pub enum LightBillParticipantWeb {
 impl IntoWeb<LightBillParticipantWeb> for LightBillParticipant {
     fn into_web(self) -> LightBillParticipantWeb {
         match self {
-            LightBillParticipant::Ident(data) => {
-                LightBillParticipantWeb::Ident(data.into_web())
-            }
-            LightBillParticipant::Anon(data) => {
-                LightBillParticipantWeb::Anon(data.into_web())
-            }
+            LightBillParticipant::Ident(data) => LightBillParticipantWeb::Ident(data.into_web()),
+            LightBillParticipant::Anon(data) => LightBillParticipantWeb::Anon(data.into_web()),
         }
     }
 }
@@ -1226,9 +1222,7 @@ pub struct LightBillIdentParticipantWithAddressWeb {
     pub postal_address: PostalAddressWeb,
 }
 
-impl IntoWeb<LightBillIdentParticipantWithAddressWeb>
-    for LightBillIdentParticipantWithAddress
-{
+impl IntoWeb<LightBillIdentParticipantWithAddressWeb> for LightBillIdentParticipantWithAddress {
     fn into_web(self) -> LightBillIdentParticipantWithAddressWeb {
         LightBillIdentParticipantWithAddressWeb {
             t: self.t.into_web(),

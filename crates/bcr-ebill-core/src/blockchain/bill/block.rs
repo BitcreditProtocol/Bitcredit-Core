@@ -15,9 +15,8 @@ use crate::{
 };
 
 use crate::contact::{
-    BillAnonParticipant, BillParticipant, LightBillAnonParticipant,
-    LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
-    LightBillParticipant,
+    BillAnonParticipant, BillParticipant, LightBillAnonParticipant, LightBillIdentParticipant,
+    LightBillIdentParticipantWithAddress, LightBillParticipant,
 };
 use crate::identity::Identity;
 use crate::{Field, File, PostalAddress, Validate, ValidationError};
@@ -109,7 +108,7 @@ pub struct BillIssueBlockData {
     pub city_of_issuing: String,
     pub drawee: BillIdentParticipantBlockData, // drawee always has to be identified
     pub drawer: BillIdentParticipantBlockData, // drawer always has to be identified
-    pub payee: BillParticipantBlockData,            // payer can be anon
+    pub payee: BillParticipantBlockData,       // payer can be anon
     pub currency: String,
     pub sum: u64,
     pub maturity_date: String,
@@ -501,19 +500,15 @@ impl NodeId for BillParticipantBlockData {
 impl From<BillParticipant> for BillParticipantBlockData {
     fn from(value: BillParticipant) -> Self {
         match value {
-            BillParticipant::Ident(data) => {
-                Self::Ident(BillIdentParticipantBlockData {
-                    t: data.t,
-                    node_id: data.node_id,
-                    name: data.name,
-                    postal_address: data.postal_address,
-                })
-            }
-            BillParticipant::Anon(data) => {
-                Self::Anon(BillAnonParticipantBlockData {
-                    node_id: data.node_id,
-                })
-            }
+            BillParticipant::Ident(data) => Self::Ident(BillIdentParticipantBlockData {
+                t: data.t,
+                node_id: data.node_id,
+                name: data.name,
+                postal_address: data.postal_address,
+            }),
+            BillParticipant::Anon(data) => Self::Anon(BillAnonParticipantBlockData {
+                node_id: data.node_id,
+            }),
         }
     }
 }
@@ -521,23 +516,19 @@ impl From<BillParticipant> for BillParticipantBlockData {
 impl From<BillParticipantBlockData> for BillParticipant {
     fn from(value: BillParticipantBlockData) -> Self {
         match value {
-            BillParticipantBlockData::Ident(data) => {
-                Self::Ident(BillIdentParticipant {
-                    t: data.t,
-                    node_id: data.node_id,
-                    name: data.name,
-                    postal_address: data.postal_address,
-                    email: None,
-                    nostr_relay: None,
-                })
-            }
-            BillParticipantBlockData::Anon(data) => {
-                Self::Anon(BillAnonParticipant {
-                    node_id: data.node_id,
-                    email: None,
-                    nostr_relay: None,
-                })
-            }
+            BillParticipantBlockData::Ident(data) => Self::Ident(BillIdentParticipant {
+                t: data.t,
+                node_id: data.node_id,
+                name: data.name,
+                postal_address: data.postal_address,
+                email: None,
+                nostr_relay: None,
+            }),
+            BillParticipantBlockData::Anon(data) => Self::Anon(BillAnonParticipant {
+                node_id: data.node_id,
+                email: None,
+                nostr_relay: None,
+            }),
         }
     }
 }
@@ -639,12 +630,8 @@ impl From<BillIdentParticipantBlockData> for LightBillIdentParticipantWithAddres
 impl From<BillParticipantBlockData> for LightBillParticipant {
     fn from(value: BillParticipantBlockData) -> Self {
         match value {
-            BillParticipantBlockData::Anon(data) => {
-                LightBillParticipant::Anon(data.into())
-            }
-            BillParticipantBlockData::Ident(data) => {
-                LightBillParticipant::Ident(data.into())
-            }
+            BillParticipantBlockData::Anon(data) => LightBillParticipant::Anon(data.into()),
+            BillParticipantBlockData::Ident(data) => LightBillParticipant::Ident(data.into()),
         }
     }
 }

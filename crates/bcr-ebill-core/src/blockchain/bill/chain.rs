@@ -489,8 +489,7 @@ impl BillBlockchain {
             }
             if let Ok(Some(holder_from_block)) = block.get_holder_from_block(bill_keys) {
                 // we ignore blocks with an anonymous holder
-                if let BillParticipantBlockData::Ident(holder_data) = holder_from_block.holder
-                {
+                if let BillParticipantBlockData::Ident(holder_data) = holder_from_block.holder {
                     result.push(Endorsement {
                         pay_to_the_order_of: holder_data.clone().into(),
                         signed: LightSignedBy {
@@ -559,20 +558,16 @@ impl BillBlockchain {
                             pay_to_the_order_of: holder_data.clone().into(),
                             signed: LightSignedBy {
                                 data: holder.signer.clone().into(),
-                                signatory: holder.signatory.map(|s| {
-                                    LightBillIdentParticipant {
-                                        t: ContactType::Person,
-                                        name: s.name,
-                                        node_id: s.node_id,
-                                    }
+                                signatory: holder.signatory.map(|s| LightBillIdentParticipant {
+                                    t: ContactType::Person,
+                                    name: s.name,
+                                    node_id: s.node_id,
                                 }),
                             },
                             signing_timestamp: timestamp,
                             signing_address: match holder.signer {
                                 BillParticipantBlockData::Anon(_) => None,
-                                BillParticipantBlockData::Ident(data) => {
-                                    Some(data.postal_address)
-                                }
+                                BillParticipantBlockData::Ident(data) => Some(data.postal_address),
                             },
                         });
                 }
@@ -588,9 +583,7 @@ impl BillBlockchain {
                 .or_insert(PastEndorsee {
                     pay_to_the_order_of: first_version_bill.drawer.clone().into(),
                     signed: LightSignedBy {
-                        data: LightBillParticipant::Ident(
-                            first_version_bill.drawer.clone().into(),
-                        ),
+                        data: LightBillParticipant::Ident(first_version_bill.drawer.clone().into()),
                         signatory: first_version_bill.signatory.map(|s| {
                             LightBillIdentParticipant {
                                 t: ContactType::Person,

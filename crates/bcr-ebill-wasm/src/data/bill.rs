@@ -8,9 +8,8 @@ use bcr_ebill_api::data::{
         PastPaymentResult, PastPaymentStatus,
     },
     contact::{
-        BillAnonParticipant, BillIdentParticipant, BillParticipant,
-        LightBillAnonParticipant, LightBillIdentParticipant,
-        LightBillIdentParticipantWithAddress, LightBillParticipant,
+        BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
+        LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -813,9 +812,7 @@ pub struct LightBillIdentParticipantWithAddressWeb {
     pub postal_address: PostalAddressWeb,
 }
 
-impl IntoWeb<LightBillIdentParticipantWithAddressWeb>
-    for LightBillIdentParticipantWithAddress
-{
+impl IntoWeb<LightBillIdentParticipantWithAddressWeb> for LightBillIdentParticipantWithAddress {
     fn into_web(self) -> LightBillIdentParticipantWithAddressWeb {
         LightBillIdentParticipantWithAddressWeb {
             t: self.t.into_web(),
@@ -836,12 +833,8 @@ pub enum LightBillParticipantWeb {
 impl IntoWeb<LightBillParticipantWeb> for LightBillParticipant {
     fn into_web(self) -> LightBillParticipantWeb {
         match self {
-            LightBillParticipant::Ident(data) => {
-                LightBillParticipantWeb::Ident(data.into_web())
-            }
-            LightBillParticipant::Anon(data) => {
-                LightBillParticipantWeb::Anon(data.into_web())
-            }
+            LightBillParticipant::Ident(data) => LightBillParticipantWeb::Ident(data.into_web()),
+            LightBillParticipant::Anon(data) => LightBillParticipantWeb::Anon(data.into_web()),
         }
     }
 }

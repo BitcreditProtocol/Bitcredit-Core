@@ -651,14 +651,12 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut chain_bill = get_baseline_bill("4321");
-        chain_bill.payee = BillParticipant::Ident(
-            BillIdentParticipant::new(identity.identity.clone()).unwrap(),
-        );
+        chain_bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.payee = BillParticipant::Ident(
-            BillIdentParticipant::new(identity.identity.clone()).unwrap(),
-        );
+        bill.participants.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         bill.participants
             .all_participant_node_ids
             .push(identity.identity.node_id.clone());
@@ -698,14 +696,12 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut chain_bill = get_baseline_bill("4321");
-        chain_bill.payee = BillParticipant::Ident(
-            BillIdentParticipant::new(identity.identity.clone()).unwrap(),
-        );
+        chain_bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.payee = BillParticipant::Ident(
-            BillIdentParticipant::new(identity.identity.clone()).unwrap(),
-        );
+        bill.participants.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         bill.participants
             .all_participant_node_ids
             .push(identity.identity.node_id.clone());
@@ -891,8 +887,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.drawee =
-            BillIdentParticipant::new(identity.identity.clone()).unwrap();
+        bill.participants.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         let drawee_node_id = bill.participants.drawee.node_id.clone();
         bill.participants
             .all_participant_node_ids
@@ -935,8 +930,7 @@ pub mod tests {
             bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.drawee =
-            BillIdentParticipant::new(identity.identity.clone()).unwrap();
+        bill.participants.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         let drawee_node_id = bill.participants.drawee.node_id.clone();
         bill.participants
             .all_participant_node_ids
@@ -2772,9 +2766,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 TEST_BILL_ID,
-                BillAction::Endorse(BillParticipant::Ident(
-                    empty_bill_identified_participant(),
-                )),
+                BillAction::Endorse(BillParticipant::Ident(empty_bill_identified_participant())),
                 &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 &identity.key_pair,
                 1731593928,
@@ -2890,8 +2882,7 @@ pub mod tests {
 
         let company = get_baseline_company_data();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee =
-            BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
+        bill.payee = BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
 
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_sell_payment()
@@ -3170,9 +3161,7 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: BillParticipantBlockData::Ident(
-                            endorse_endorsee.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         // endorsed by payee
                         endorser: BillParticipantBlockData::Ident(
                             BillIdentParticipant::new(get_baseline_identity().identity)
@@ -3198,9 +3187,7 @@ pub mod tests {
                     &BillSellBlockData {
                         buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
-                        seller: BillParticipantBlockData::Ident(
-                            endorse_endorsee.clone().into(),
-                        ),
+                        seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
@@ -3221,13 +3208,9 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillMintBlockData {
-                        endorsee: BillParticipantBlockData::Ident(
-                            mint_endorsee.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
-                        endorser: BillParticipantBlockData::Ident(
-                            sell_endorsee.clone().into(),
-                        ),
+                        endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         signatory: None,
@@ -3373,9 +3356,7 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: BillParticipantBlockData::Ident(
-                            endorse_endorsee.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         // endorsed by payee
                         endorser: BillParticipantBlockData::Ident(
                             BillIdentParticipant::new(get_baseline_identity().identity)
@@ -3401,9 +3382,7 @@ pub mod tests {
                     &BillSellBlockData {
                         buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
-                        seller: BillParticipantBlockData::Ident(
-                            endorse_endorsee.clone().into(),
-                        ),
+                        seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
@@ -3424,13 +3403,9 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillMintBlockData {
-                        endorsee: BillParticipantBlockData::Ident(
-                            mint_endorsee.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
-                        endorser: BillParticipantBlockData::Ident(
-                            sell_endorsee.clone().into(),
-                        ),
+                        endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         signatory: None,
@@ -3450,13 +3425,9 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: BillParticipantBlockData::Ident(
-                            endorse_endorsee.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         // endorsed by payee
-                        endorser: BillParticipantBlockData::Ident(
-                            mint_endorsee.clone().into(),
-                        ),
+                        endorser: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         signatory: None,
                         signing_timestamp: now + 4,
                         signing_address: Some(empty_address()),
@@ -3480,9 +3451,7 @@ pub mod tests {
                                 .into(),
                         ),
                         // endorsed by payee
-                        endorser: BillParticipantBlockData::Ident(
-                            endorse_endorsee.clone().into(),
-                        ),
+                        endorser: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         signatory: None,
                         signing_timestamp: now + 5,
                         signing_address: Some(empty_address()),
@@ -4034,8 +4003,7 @@ pub mod tests {
 
         let company = get_baseline_company_data();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee =
-            BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
+        bill.payee = BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -4117,9 +4085,7 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
                         endorser: bill.payee.clone().into(),
-                        endorsee: BillParticipantBlockData::Ident(
-                            endorsee_caller.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
@@ -4209,9 +4175,7 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
                         endorser: bill.payee.clone().into(),
-                        endorsee: BillParticipantBlockData::Ident(
-                            endorsee_caller.clone().into(),
-                        ),
+                        endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
@@ -4287,9 +4251,8 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = BillParticipant::Ident(
-            BillIdentParticipant::new(identity.identity.clone()).unwrap(),
-        );
+        bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         let recoursee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let recoursee_clone = recoursee.clone();
         let identity_clone = identity.identity.clone();
