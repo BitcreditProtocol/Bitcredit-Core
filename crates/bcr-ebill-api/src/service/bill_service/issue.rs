@@ -7,6 +7,7 @@ use bcr_ebill_core::{
         Blockchain,
         bill::{BillBlockchain, block::BillIssueBlockData},
     },
+    contact::BillParticipant,
     util::BcrKeys,
 };
 use bcr_ebill_transport::BillChainEvent;
@@ -101,13 +102,16 @@ impl BillService {
             language: data.language,
             drawee: public_data_drawee,
             drawer: data.drawer_public_data.clone(),
-            payee: public_data_payee,
+            payee: BillParticipant::Ident(public_data_payee), // TODO: support anon
             endorsee: None,
             files: bill_files,
         };
 
-        let signing_keys =
-            self.get_bill_signing_keys(&data.drawer_public_data, &data.drawer_keys, &identity);
+        let signing_keys = self.get_bill_signing_keys(
+            &BillParticipant::Ident(data.drawer_public_data.clone()), // drawer has to be identified
+            &data.drawer_keys,
+            &identity,
+        );
         let block_data = BillIssueBlockData::from(
             bill.clone(),
             signing_keys.signatory_identity,
@@ -128,7 +132,7 @@ impl BillService {
         self.blockchain_store.add_block(&bill.id, block).await?;
 
         self.add_identity_and_company_chain_blocks_for_signed_bill_action(
-            &data.drawer_public_data,
+            &BillParticipant::Ident(data.drawer_public_data.clone()), // drawer is identified
             &bill_id,
             block,
             &identity.key_pair,

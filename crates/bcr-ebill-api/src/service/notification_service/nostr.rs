@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{contact::IdentityPublicData, util::crypto};
+use bcr_ebill_core::{blockchain::bill::block::NodeId, contact::BillParticipant, util::crypto};
 use bcr_ebill_transport::event::EventEnvelope;
 use bcr_ebill_transport::handler::NotificationHandlerApi;
 use log::{error, info, trace, warn};
@@ -180,10 +180,10 @@ impl NostrClient {
 
     pub async fn send_nip04_message(
         &self,
-        recipient: &IdentityPublicData,
+        recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id) {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id()) {
             let public_key = PublicKey::from_str(&npub).map_err(|e| {
                 error!("Failed to parse Nostr npub when sending a notification: {e}");
                 Error::Crypto("Failed to parse Nostr npub".to_string())
@@ -191,7 +191,7 @@ impl NostrClient {
             let message = serde_json::to_string(&event)?;
             let event =
                 create_nip04_event(self.get_nostr_keys().secret_key(), &public_key, &message)?;
-            if let Some(relay) = &recipient.nostr_relay {
+            if let Some(relay) = &recipient.nostr_relay() {
                 if let Err(e) = self.client.send_event_builder_to(vec![relay], event).await {
                     error!("Error sending Nostr message: {e}")
                 };
@@ -201,7 +201,7 @@ impl NostrClient {
         } else {
             error!(
                 "Try to send Nostr message but Nostr npub not found in contact {}",
-                recipient.name
+                recipient.node_id()
             );
         }
         Ok(())
@@ -209,16 +209,16 @@ impl NostrClient {
 
     async fn send_nip17_message(
         &self,
-        recipient: &IdentityPublicData,
+        recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id) {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id()) {
             let public_key = PublicKey::from_str(&npub).map_err(|e| {
                 error!("Failed to parse Nostr npub when sending a notification: {e}");
                 Error::Crypto("Failed to parse Nostr npub".to_string())
             })?;
             let message = serde_json::to_string(&event)?;
-            if let Some(relay) = &recipient.nostr_relay {
+            if let Some(relay) = &recipient.nostr_relay() {
                 if let Err(e) = self
                     .client
                     .send_private_msg_to(vec![relay], public_key, message, None)
@@ -236,7 +236,7 @@ impl NostrClient {
         } else {
             error!(
                 "Try to send Nostr message but Nostr npub not found in contact {}",
-                recipient.name
+                recipient.node_id()
             );
         }
         Ok(())
@@ -253,7 +253,7 @@ impl NotificationJsonTransportApi for NostrClient {
     }
     async fn send(
         &self,
-        recipient: &IdentityPublicData,
+        recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
         if self.use_nip04() {
@@ -496,6 +496,7 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
     use bcr_ebill_transport::event::{Event, EventType};
     use bcr_ebill_transport::handler::NotificationHandlerApi;
@@ -631,7 +632,10 @@ mod tests {
                 });
                 // and send an event
                 client1
-                    .send(&contact, event.try_into().expect("could not convert event"))
+                    .send(
+                        &BillParticipant::Ident(contact),
+                        event.try_into().expect("could not convert event"),
+                    )
                     .await
                     .expect("failed to send event");
 

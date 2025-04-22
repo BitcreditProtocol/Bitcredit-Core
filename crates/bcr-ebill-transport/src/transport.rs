@@ -1,12 +1,13 @@
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{
+    ServiceTraitBounds, blockchain::bill::block::NodeId, contact::BillParticipant,
+};
 use log::info;
 
 #[cfg(test)]
 use mockall::automock;
 
 use crate::{Result, event::EventEnvelope};
-use bcr_ebill_core::contact::IdentityPublicData;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
@@ -16,7 +17,7 @@ impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationJsonTransportApi: ServiceTraitBounds {
     fn get_sender_key(&self) -> String;
-    async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()>;
+    async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
 }
 
 /// A dummy transport that logs all events that are sent as json.
@@ -30,10 +31,13 @@ impl NotificationJsonTransportApi for LoggingNotificationJsonTransport {
     fn get_sender_key(&self) -> String {
         "log_sender".to_string()
     }
-    async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()> {
+    async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()> {
         info!(
             "Sending json event: {:?}({}) with payload: {:?} to peer: {}",
-            event.event_type, event.version, event.data, recipient.node_id
+            event.event_type,
+            event.version,
+            event.data,
+            recipient.node_id()
         );
         Ok(())
     }
