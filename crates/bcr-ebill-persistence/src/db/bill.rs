@@ -12,7 +12,9 @@ use bcr_ebill_core::bill::{
     BillWaitingForRecourseState, BillWaitingForSellState, BitcreditBillResult,
 };
 use bcr_ebill_core::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
-use bcr_ebill_core::contact::{ContactType, IdentityPublicData};
+use bcr_ebill_core::contact::{
+    BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
+};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode, util};
 use serde::{Deserialize, Serialize};
 use surrealdb::{Surreal, engine::any::Any, sql::Thing};
@@ -325,8 +327,8 @@ impl From<&BillCurrentWaitingState> for BillCurrentWaitingStateDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingForSellStateDb {
     pub time_of_request: u64,
-    pub buyer: IdentityDataDb,
-    pub seller: IdentityDataDb,
+    pub buyer: BillParticipantDb,
+    pub seller: BillParticipantDb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -367,8 +369,8 @@ impl From<&BillWaitingForSellState> for BillWaitingForSellStateDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingForPaymentStateDb {
     pub time_of_request: u64,
-    pub payer: IdentityDataDb,
-    pub payee: IdentityDataDb,
+    pub payer: BillIdentParticipantDb,
+    pub payee: BillParticipantDb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -409,8 +411,8 @@ impl From<&BillWaitingForPaymentState> for BillWaitingForPaymentStateDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingForRecourseStateDb {
     pub time_of_request: u64,
-    pub recourser: IdentityDataDb,
-    pub recoursee: IdentityDataDb,
+    pub recourser: BillIdentParticipantDb,
+    pub recoursee: BillIdentParticipantDb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -673,10 +675,10 @@ impl From<&BillData> for BillDataDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillParticipantsDb {
-    pub drawee: IdentityDataDb,
-    pub drawer: IdentityDataDb,
-    pub payee: IdentityDataDb,
-    pub endorsee: Option<IdentityDataDb>,
+    pub drawee: BillIdentParticipantDb,
+    pub drawer: BillIdentParticipantDb,
+    pub payee: BillParticipantDb,
+    pub endorsee: Option<BillParticipantDb>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<String>,
 }
@@ -708,15 +710,45 @@ impl From<&BillParticipants> for BillParticipantsDb {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct IdentityDataDb {
+pub enum BillParticipantDb {
+    Anon(BillAnonParticipantDb),
+    Ident(BillIdentParticipantDb),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BillIdentParticipantDb {
     pub t: ContactType,
     pub node_id: String,
     pub name: String,
     pub postal_address: PostalAddressDb,
 }
 
-impl From<IdentityDataDb> for IdentityPublicData {
-    fn from(value: IdentityDataDb) -> Self {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BillAnonParticipantDb {
+    pub node_id: String,
+}
+
+impl From<BillParticipantDb> for BillParticipant {
+    fn from(value: BillParticipantDb) -> Self {
+        match value {
+            BillParticipantDb::Anon(data) => BillParticipant::Anon(data.into()),
+            BillParticipantDb::Ident(data) => BillParticipant::Ident(data.into()),
+        }
+    }
+}
+
+impl From<BillAnonParticipantDb> for BillAnonParticipant {
+    fn from(value: BillAnonParticipantDb) -> Self {
+        Self {
+            node_id: value.node_id,
+            email: None,
+            nostr_relay: None,
+        }
+    }
+}
+
+impl From<BillIdentParticipantDb> for BillIdentParticipant {
+    fn from(value: BillIdentParticipantDb) -> Self {
         Self {
             t: value.t,
             node_id: value.node_id,
@@ -728,8 +760,25 @@ impl From<IdentityDataDb> for IdentityPublicData {
     }
 }
 
-impl From<&IdentityPublicData> for IdentityDataDb {
-    fn from(value: &IdentityPublicData) -> Self {
+impl From<&BillParticipant> for BillParticipantDb {
+    fn from(value: &BillParticipant) -> Self {
+        match value {
+            BillParticipant::Anon(data) => BillParticipantDb::Anon(data.into()),
+            BillParticipant::Ident(data) => BillParticipantDb::Ident(data.into()),
+        }
+    }
+}
+
+impl From<&BillAnonParticipant> for BillAnonParticipantDb {
+    fn from(value: &BillAnonParticipant) -> Self {
+        Self {
+            node_id: value.node_id.clone(),
+        }
+    }
+}
+
+impl From<&BillIdentParticipant> for BillIdentParticipantDb {
+    fn from(value: &BillIdentParticipant) -> Self {
         Self {
             t: value.t.clone(),
             node_id: value.node_id.clone(),
@@ -786,8 +835,8 @@ pub mod tests {
         bill::{BillChainStoreApi, BillStoreApi},
         db::{bill_chain::SurrealBillChainStore, get_memory_db},
         tests::tests::{
-            TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, cached_bill, empty_address,
-            empty_bitcredit_bill, get_bill_keys, identity_public_data_only_node_id,
+            TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, bill_identified_participant_only_node_id,
+            cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys,
         },
         util::{self, BcrKeys},
     };
@@ -796,11 +845,12 @@ pub mod tests {
         blockchain::bill::{
             BillBlock, BillOpCode,
             block::{
-                BillIssueBlockData, BillOfferToSellBlockData, BillRecourseBlockData,
-                BillRecourseReasonBlockData, BillRequestRecourseBlockData,
+                BillIssueBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
+                BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestRecourseBlockData,
                 BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
             },
         },
+        contact::BillParticipant,
     };
     use chrono::Months;
     use surrealdb::{Surreal, engine::any::Any};
@@ -823,9 +873,9 @@ pub mod tests {
         let mut bill = empty_bitcredit_bill();
         bill.maturity_date = "2099-05-05".to_string();
         bill.id = id.to_owned();
-        bill.drawer = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = bill.drawer.clone();
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill.drawer.clone());
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
 
         BillBlock::create_block_for_issue(
             id.to_owned(),
@@ -945,16 +995,18 @@ pub mod tests {
                     "1234".to_string(),
                     &first_block,
                     &BillRequestToPayBlockData {
-                        requester: identity_public_data_only_node_id(
-                            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                                .unwrap()
-                                .get_public_key(),
-                        )
-                        .into(),
+                        requester: BillParticipantBlockData::Ident(
+                            bill_identified_participant_only_node_id(
+                                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                                    .unwrap()
+                                    .get_public_key(),
+                            )
+                            .into(),
+                        ),
                         currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     None,
@@ -998,19 +1050,24 @@ pub mod tests {
             "1234".to_string(),
             &first_block,
             &BillOfferToSellBlockData {
-                seller: identity_public_data_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
-                buyer: identity_public_data_only_node_id(BcrKeys::new().get_public_key()).into(),
+                seller: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(
+                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                            .unwrap()
+                            .get_public_key(),
+                    )
+                    .into(),
+                ),
+                buyer: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key())
+                        .into(),
+                ),
                 currency: "sat".to_string(),
                 sum: 15000,
                 payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                 signatory: None,
                 signing_timestamp: now,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -1031,20 +1088,26 @@ pub mod tests {
                     "1234".to_string(),
                     &second_block,
                     &BillSellBlockData {
-                        seller: identity_public_data_only_node_id(
-                            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                                .unwrap()
-                                .get_public_key(),
-                        )
-                        .into(),
-                        buyer: identity_public_data_only_node_id(BcrKeys::new().get_public_key())
+                        seller: BillParticipantBlockData::Ident(
+                            bill_identified_participant_only_node_id(
+                                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                                    .unwrap()
+                                    .get_public_key(),
+                            )
                             .into(),
+                        ),
+                        buyer: BillParticipantBlockData::Ident(
+                            bill_identified_participant_only_node_id(
+                                BcrKeys::new().get_public_key(),
+                            )
+                            .into(),
+                        ),
                         currency: "sat".to_string(),
                         sum: 15000,
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     None,
@@ -1082,19 +1145,24 @@ pub mod tests {
             "1234".to_string(),
             &first_block,
             &BillOfferToSellBlockData {
-                seller: identity_public_data_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
-                buyer: identity_public_data_only_node_id(BcrKeys::new().get_public_key()).into(),
+                seller: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(
+                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                            .unwrap()
+                            .get_public_key(),
+                    )
+                    .into(),
+                ),
+                buyer: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key())
+                        .into(),
+                ),
                 currency: "sat".to_string(),
                 sum: 15000,
                 payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -1191,15 +1259,17 @@ pub mod tests {
             id.to_string(),
             first_block,
             &BillRequestToAcceptBlockData {
-                requester: identity_public_data_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
+                requester: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(
+                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                            .unwrap()
+                            .get_public_key(),
+                    )
+                    .into(),
+                ),
                 signatory: None,
                 signing_timestamp: ts,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -1214,16 +1284,18 @@ pub mod tests {
             id.to_string(),
             first_block,
             &BillRequestToPayBlockData {
-                requester: identity_public_data_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
+                requester: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(
+                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                            .unwrap()
+                            .get_public_key(),
+                    )
+                    .into(),
+                ),
                 currency: "SATS".to_string(),
                 signatory: None,
                 signing_timestamp: ts,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -1250,14 +1322,16 @@ pub mod tests {
             "1234".to_string(),
             &first_block,
             &BillRequestRecourseBlockData {
-                recourser: identity_public_data_only_node_id(
+                recourser: bill_identified_participant_only_node_id(
                     BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                         .unwrap()
                         .get_public_key(),
                 )
                 .into(),
-                recoursee: identity_public_data_only_node_id(BcrKeys::new().get_public_key())
-                    .into(),
+                recoursee: bill_identified_participant_only_node_id(
+                    BcrKeys::new().get_public_key(),
+                )
+                .into(),
                 currency: "sat".to_string(),
                 sum: 15000,
                 recourse_reason: BillRecourseReasonBlockData::Pay,
@@ -1284,13 +1358,13 @@ pub mod tests {
                     "1234".to_string(),
                     &second_block,
                     &BillRecourseBlockData {
-                        recourser: identity_public_data_only_node_id(
+                        recourser: bill_identified_participant_only_node_id(
                             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                                 .unwrap()
                                 .get_public_key(),
                         )
                         .into(),
-                        recoursee: identity_public_data_only_node_id(
+                        recoursee: bill_identified_participant_only_node_id(
                             BcrKeys::new().get_public_key(),
                         )
                         .into(),
@@ -1337,14 +1411,16 @@ pub mod tests {
             "1234".to_string(),
             &first_block,
             &BillRequestRecourseBlockData {
-                recourser: identity_public_data_only_node_id(
+                recourser: bill_identified_participant_only_node_id(
                     BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                         .unwrap()
                         .get_public_key(),
                 )
                 .into(),
-                recoursee: identity_public_data_only_node_id(BcrKeys::new().get_public_key())
-                    .into(),
+                recoursee: bill_identified_participant_only_node_id(
+                    BcrKeys::new().get_public_key(),
+                )
+                .into(),
                 currency: "sat".to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 sum: 15000,

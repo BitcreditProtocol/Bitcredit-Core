@@ -309,12 +309,19 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for ValidationError {
                 | bcr_ebill_api::util::ValidationError::InvalidCurrency
                 | bcr_ebill_api::util::ValidationError::InvalidPaymentAddress
                 | bcr_ebill_api::util::ValidationError::InvalidDate
+                | bcr_ebill_api::util::ValidationError::IdentityCantBeAnon
+                | bcr_ebill_api::util::ValidationError::IdentityIsNotBillIssuer
+                | bcr_ebill_api::util::ValidationError::InvalidContact(_)
+                | bcr_ebill_api::util::ValidationError::ContactIsAnonymous(_)
+                | bcr_ebill_api::util::ValidationError::SignerCantBeAnon
                 | bcr_ebill_api::util::ValidationError::IssueDateAfterMaturityDate
                 | bcr_ebill_api::util::ValidationError::MaturityDateInThePast
                 | bcr_ebill_api::util::ValidationError::InvalidFileUploadId
                 | bcr_ebill_api::util::ValidationError::InvalidBillType
                 | bcr_ebill_api::util::ValidationError::InvalidContentType
                 | bcr_ebill_api::util::ValidationError::InvalidContactType
+                | bcr_ebill_api::util::ValidationError::InvalidIdentityType
+                | bcr_ebill_api::util::ValidationError::SelfDraftedBillCantBeBlank
                 | bcr_ebill_api::util::ValidationError::DraweeCantBePayee
                 | bcr_ebill_api::util::ValidationError::EndorserCantBeEndorsee
                 | bcr_ebill_api::util::ValidationError::BuyerCantBeSeller

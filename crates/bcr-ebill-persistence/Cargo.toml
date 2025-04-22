@@ -1,6 +1,6 @@
 [package]
 name = "bcr-ebill-persistence"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2024"
 
 [lib]

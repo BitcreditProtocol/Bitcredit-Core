@@ -17,7 +17,7 @@ use crate::{
         BinaryFileResponse, FromWeb, IntoWeb, UploadFile,
         company::{
             AddSignatoryPayload, CompaniesResponse, CreateCompanyPayload, EditCompanyPayload,
-            ListSignatoriesResponse, RemoveSignatoryPayload,
+            ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
         },
     },
 };
@@ -96,9 +96,11 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "ListSignatoriesResponse")]
     pub async fn list_signatories(&self, id: &str) -> Result<JsValue> {
         let signatories = get_ctx().company_service.list_signatories(id).await?;
-        let res = serde_wasm_bindgen::to_value(&ListSignatoriesResponse {
-            signatories: signatories.into_iter().map(|c| c.into()).collect(),
-        })?;
+        let signatories: Vec<SignatoryResponse> = signatories
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect::<std::result::Result<_, _>>()?;
+        let res = serde_wasm_bindgen::to_value(&ListSignatoriesResponse { signatories })?;
         Ok(res)
     }
 

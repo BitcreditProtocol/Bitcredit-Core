@@ -235,7 +235,7 @@ mod tests {
     use bcr_ebill_core::{
         blockchain::{
             Blockchain,
-            bill::block::{BillAcceptBlockData, BillIdentityBlockData},
+            bill::block::{BillAcceptBlockData, BillIdentParticipantBlockData},
         },
         contact::ContactType,
         util::BcrKeys,
@@ -261,7 +261,7 @@ mod tests {
             "1234".to_string(),
             &block,
             &BillAcceptBlockData {
-                accepter: BillIdentityBlockData {
+                accepter: BillIdentParticipantBlockData {
                     t: ContactType::Person,
                     node_id: "555555".to_owned(),
                     name: "some dude".to_owned(),

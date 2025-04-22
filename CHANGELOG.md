@@ -1,3 +1,35 @@
+# 0.3.11
+
+* Add Blank Endorse Bill data model implementation
+    * Rename `IdentityPublicData` to `BillIdentParticipant`
+        * same for `LightIdentityPublicData`
+    * Introduce the concept of `BillParticipant`, with the variants `Ident` and `Anon`
+        * `Anon` includes a `BillAnonParticipant`
+        * `Ident` includes a `BillIdentParticipant`
+    * Use `BillParticipant` in parts of the bill where a participant can be anonymous
+* Add the possibility to add anonymous contacts
+    * They only have Node Id, Name and E-Mail as fields
+    * E-Mail is optional
+    * This changes the data model for contacts, `email` and `postal_address` are now optional
+        * Additional validation rules ensure the fields can only be set for non-anon contacts
+    * Adds an endpoint `Api.contact().deanonymize()` to de-anonymize a contact by adding all necessary fields for a personal, or company contact
+        * It takes the same payload as creating a contact and fails for non-anon contacts
+* Add the possibility to add an anonymous identity
+    * They only have Node Id, (nick)name and E-Mail as fields
+    * E-Mail is optional
+    * Adds an endpoint `Api.identity().deanonymize()` to de-anonymize an identity by adding all necessary fields for a personal identity
+        * It takes the same payload as creating an identity and fails for a non-anon identity
+    * Anon identity can't issue bills, or create a company
+* Add the possibility to issue and endorse blank
+    * New `Api.bill()` methods for blank endorsements
+      * `issue_blank`
+      * `offer_to_sell_blank`
+      * `endorse_bill_blank`
+      * `mint_bill_blank`
+    * Can issue (non-self-drafted) blank bills (payee is anon)
+    * Can endorse/mint/offer to sell to anon endorsee/mint/buyer
+    * If caller of a bill action is anonymous in the bill, any action they take stay anonymous (e.g. endorse)
+
 # 0.3.10
 
 * Fix a small issue, where bills were recalculated instead of taken from cache, once their payment/sell/recourse/accept requests expired

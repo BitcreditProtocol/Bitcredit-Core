@@ -2,10 +2,12 @@
 #[allow(clippy::module_inception)]
 pub mod tests {
     use crate::Validate;
+    use crate::contact::BillParticipant;
+    use crate::identity::IdentityType;
     use crate::{
         Field, OptionalPostalAddress, PostalAddress, ValidationError,
         bill::{BillKeys, BitcreditBill},
-        contact::{ContactType, IdentityPublicData},
+        contact::{BillIdentParticipant, ContactType},
         identity::Identity,
     };
     use rstest::rstest;
@@ -97,9 +99,10 @@ pub mod tests {
 
     pub fn empty_identity() -> Identity {
         Identity {
+            t: IdentityType::Ident,
             node_id: "".to_string(),
             name: "some name".to_string(),
-            email: "some@example.com".to_string(),
+            email: Some("some@example.com".to_string()),
             postal_address: valid_optional_address(),
             date_of_birth: None,
             country_of_birth: None,
@@ -111,8 +114,30 @@ pub mod tests {
         }
     }
 
-    pub fn valid_identity_public_data() -> IdentityPublicData {
-        IdentityPublicData {
+    pub fn valid_bill_participant() -> BillParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
+            t: ContactType::Person,
+            node_id: TEST_PUB_KEY_SECP.into(),
+            name: "Johanna Smith".into(),
+            postal_address: valid_address(),
+            email: None,
+            nostr_relay: None,
+        })
+    }
+
+    pub fn valid_other_bill_participant() -> BillParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
+            t: ContactType::Person,
+            node_id: OTHER_TEST_PUB_KEY_SECP.into(),
+            name: "John Smith".into(),
+            postal_address: valid_address(),
+            email: None,
+            nostr_relay: None,
+        })
+    }
+
+    pub fn valid_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: TEST_PUB_KEY_SECP.into(),
             name: "Johanna Smith".into(),
@@ -122,8 +147,8 @@ pub mod tests {
         }
     }
 
-    pub fn valid_other_identity_public_data() -> IdentityPublicData {
-        IdentityPublicData {
+    pub fn valid_other_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: OTHER_TEST_PUB_KEY_SECP.into(),
             name: "John Smith".into(),
@@ -133,8 +158,8 @@ pub mod tests {
         }
     }
 
-    pub fn empty_identity_public_data() -> IdentityPublicData {
-        IdentityPublicData {
+    pub fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: "".to_string(),
             name: "some name".to_string(),
@@ -144,8 +169,19 @@ pub mod tests {
         }
     }
 
-    pub fn identity_public_data_only_node_id(node_id: String) -> IdentityPublicData {
-        IdentityPublicData {
+    pub fn bill_participant_only_node_id(node_id: String) -> BillParticipant {
+        BillParticipant::Ident(BillIdentParticipant {
+            t: ContactType::Person,
+            node_id,
+            name: "some name".to_string(),
+            postal_address: valid_address(),
+            email: None,
+            nostr_relay: None,
+        })
+    }
+
+    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "some name".to_string(),
@@ -160,9 +196,9 @@ pub mod tests {
             id: TEST_BILL_ID.to_owned(),
             country_of_issuing: "AT".to_string(),
             city_of_issuing: "Vienna".to_string(),
-            drawee: empty_identity_public_data(),
-            drawer: empty_identity_public_data(),
-            payee: empty_identity_public_data(),
+            drawee: empty_bill_identified_participant(),
+            drawer: empty_bill_identified_participant(),
+            payee: valid_bill_participant(),
             endorsee: None,
             currency: "sat".to_string(),
             sum: 500,

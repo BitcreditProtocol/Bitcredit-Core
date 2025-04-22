@@ -7,8 +7,9 @@ pub mod tests {
             BillAcceptanceStatus, BillData, BillKeys, BillParticipants, BillPaymentStatus,
             BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill, BitcreditBillResult,
         },
-        contact::{ContactType, IdentityPublicData},
-        identity::Identity,
+        contact::{BillIdentParticipant, BillParticipant, ContactType},
+        identity::{Identity, IdentityType},
+        util::BcrKeys,
     };
 
     pub fn empty_address() -> PostalAddress {
@@ -31,9 +32,10 @@ pub mod tests {
 
     pub fn empty_identity() -> Identity {
         Identity {
+            t: IdentityType::Ident,
             node_id: "".to_string(),
             name: "".to_string(),
-            email: "".to_string(),
+            email: Some("".to_string()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,
@@ -45,8 +47,8 @@ pub mod tests {
         }
     }
 
-    pub fn empty_identity_public_data() -> IdentityPublicData {
-        IdentityPublicData {
+    pub fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: "".to_string(),
             name: "".to_string(),
@@ -56,8 +58,8 @@ pub mod tests {
         }
     }
 
-    pub fn identity_public_data_only_node_id(node_id: String) -> IdentityPublicData {
-        IdentityPublicData {
+    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id,
             name: "".to_string(),
@@ -72,9 +74,11 @@ pub mod tests {
             id: "".to_string(),
             country_of_issuing: "".to_string(),
             city_of_issuing: "".to_string(),
-            drawee: empty_identity_public_data(),
-            drawer: empty_identity_public_data(),
-            payee: empty_identity_public_data(),
+            drawee: empty_bill_identified_participant(),
+            drawer: empty_bill_identified_participant(),
+            payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
+                BcrKeys::new().get_public_key(),
+            )),
             endorsee: None,
             currency: "".to_string(),
             sum: 0,
@@ -91,9 +95,11 @@ pub mod tests {
         BitcreditBillResult {
             id,
             participants: BillParticipants {
-                drawee: identity_public_data_only_node_id("drawee".to_string()),
-                drawer: identity_public_data_only_node_id("drawer".to_string()),
-                payee: identity_public_data_only_node_id("payee".to_string()),
+                drawee: bill_identified_participant_only_node_id("drawee".to_string()),
+                drawer: bill_identified_participant_only_node_id("drawer".to_string()),
+                payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
+                    "payee".to_string(),
+                )),
                 endorsee: None,
                 endorsements_count: 5,
                 all_participant_node_ids: vec![],
