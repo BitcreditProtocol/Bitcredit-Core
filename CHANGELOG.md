@@ -1,3 +1,13 @@
+# 0.3.9
+
+* Add Blank Endorse Bill data model implementation
+    * Rename `IdentityPublicData` to `BillIdentParticipant`
+        * same for `LightIdentityPublicData`
+    * Introduce the concept of `BillParticipant`, with the variants `Ident` and `Anon`
+        * `Anon` includes a `BillAnonParticipant`
+        * `Ident` includes a `BillIdentParticipant`
+    * Use `BillParticipant` in parts of the bill where a participant can be anonymous
+
 # 0.3.8
 
 * Add `esplora_base_url` as config parameter to be able to use a custom esplora based block explorer

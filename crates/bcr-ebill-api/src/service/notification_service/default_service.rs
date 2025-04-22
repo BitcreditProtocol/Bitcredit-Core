@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bcr_ebill_core::contact::ContactType;
+use bcr_ebill_core::blockchain::bill::block::NodeId;
+use bcr_ebill_core::contact::{BillParticipant, ContactType};
 use bcr_ebill_persistence::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
 use bcr_ebill_transport::{BillChainEvent, BillChainEventPayload, Error, Event, EventEnvelope};
 use log::{error, warn};
@@ -11,7 +12,7 @@ use super::NotificationJsonTransportApi;
 use super::{NotificationServiceApi, Result};
 use crate::data::{
     bill::BitcreditBill,
-    contact::IdentityPublicData,
+    contact::BillIdentParticipant,
     notification::{Notification, NotificationType},
 };
 use crate::persistence::notification::{NotificationFilter, NotificationStoreApi};
@@ -55,9 +56,9 @@ impl DefaultNotificationService {
         }
     }
 
-    fn get_local_identity(&self, node_id: &str) -> Option<IdentityPublicData> {
+    fn get_local_identity(&self, node_id: &str) -> Option<BillIdentParticipant> {
         if self.notification_transport.contains_key(node_id) {
-            Some(IdentityPublicData {
+            Some(BillIdentParticipant {
                 t: ContactType::Person,
                 node_id: node_id.to_string(),
                 email: None,
@@ -70,7 +71,7 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn resolve_identity(&self, node_id: &str) -> Option<IdentityPublicData> {
+    async fn resolve_identity(&self, node_id: &str) -> Option<BillIdentParticipant> {
         match self.get_local_identity(node_id) {
             Some(id) => Some(id),
             None => {
@@ -94,7 +95,10 @@ impl DefaultNotificationService {
             for event_to_process in events.into_iter() {
                 if let Some(identity) = self.resolve_identity(&event_to_process.node_id).await {
                     if let Err(e) = node
-                        .send(&identity, event_to_process.clone().try_into()?)
+                        .send(
+                            &BillParticipant::Ident(identity), // TODO: support anon
+                            event_to_process.clone().try_into()?,
+                        )
                         .await
                     {
                         error!(
@@ -137,7 +141,8 @@ impl DefaultNotificationService {
         if let Some(node) = self.notification_transport.get(sender) {
             if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
             {
-                node.send(&identity, message).await?;
+                node.send(&BillParticipant::Ident(identity), message) // TODO: support anon
+                    .await?;
             }
         }
         Ok(())
@@ -157,7 +162,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                     (event_type.clone(), ActionType::AcceptBill),
                 ),
                 (
-                    event.bill.payee.node_id.clone(),
+                    event.bill.payee.node_id().clone(),
                     (event_type, ActionType::CheckBill),
                 ),
             ]),
@@ -172,7 +177,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> Result<()> {
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                event.bill.payee.node_id.clone(),
+                event.bill.payee.node_id().clone(),
                 (BillEventType::BillAccepted, ActionType::CheckBill),
             )]),
             None,
@@ -214,7 +219,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()> {
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                event.bill.payee.node_id.clone(),
+                event.bill.payee.node_id().clone(),
                 (BillEventType::BillPaid, ActionType::CheckBill),
             )]),
             None,
@@ -227,7 +232,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_is_endorsed_event(&self, bill: &BillChainEvent) -> Result<()> {
         let all_events = bill.generate_action_messages(
             HashMap::from_iter(vec![(
-                bill.bill.endorsee.as_ref().unwrap().node_id.clone(),
+                bill.bill.endorsee.as_ref().unwrap().node_id().clone(),
                 (BillEventType::BillEndorsed, ActionType::CheckBill),
             )]),
             None,
@@ -240,11 +245,11 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_offer_to_sell_event(
         &self,
         event: &BillChainEvent,
-        buyer: &IdentityPublicData,
+        buyer: &BillParticipant,
     ) -> Result<()> {
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                buyer.node_id.clone(),
+                buyer.node_id().clone(),
                 (BillEventType::BillSellOffered, ActionType::CheckBill),
             )]),
             None,
@@ -257,11 +262,11 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_is_sold_event(
         &self,
         event: &BillChainEvent,
-        buyer: &IdentityPublicData,
+        buyer: &BillParticipant,
     ) -> Result<()> {
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                buyer.node_id.clone(),
+                buyer.node_id().clone(),
                 (BillEventType::BillSold, ActionType::CheckBill),
             )]),
             None,
@@ -274,7 +279,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_recourse_paid_event(
         &self,
         event: &BillChainEvent,
-        recoursee: &IdentityPublicData,
+        recoursee: &BillIdentParticipant,
     ) -> Result<()> {
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
@@ -294,7 +299,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         bill: &BitcreditBill,
     ) -> Result<()> {
         let event = Event::new_bill(
-            &bill.endorsee.as_ref().unwrap().node_id,
+            &bill.endorsee.as_ref().unwrap().node_id(),
             BillChainEventPayload {
                 event_type: BillEventType::BillMintingRequested,
                 bill_id: bill.id.clone(),
@@ -333,12 +338,12 @@ impl NotificationServiceApi for DefaultNotificationService {
         bill_id: &str,
         sum: Option<u64>,
         timed_out_action: ActionType,
-        recipients: Vec<IdentityPublicData>,
+        recipients: Vec<BillIdentParticipant>,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             if let Some(event_type) = timed_out_action.get_timeout_event_type() {
                 // only send to a recipient once
-                let unique: HashMap<String, IdentityPublicData> =
+                let unique: HashMap<String, BillIdentParticipant> =
                     HashMap::from_iter(recipients.iter().map(|r| (r.node_id.clone(), r.clone())));
 
                 let payload = BillChainEventPayload {
@@ -350,7 +355,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 };
                 for (_, recipient) in unique {
                     let event = Event::new_bill(&recipient.node_id, payload.clone());
-                    node.send(&recipient, event.try_into()?).await?;
+                    node.send(&BillParticipant::Ident(recipient), event.try_into()?) // TODO: support anon
+                        .await?;
                 }
             }
         }
@@ -361,7 +367,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         &self,
         event: &BillChainEvent,
         action: ActionType,
-        recoursee: &IdentityPublicData,
+        recoursee: &BillIdentParticipant,
     ) -> Result<()> {
         if let Some(event_type) = action.get_recourse_event_type() {
             let all_events = event.generate_action_messages(
@@ -510,8 +516,9 @@ mod tests {
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::Blockchain;
     use bcr_ebill_core::blockchain::bill::block::{
-        BillAcceptBlockData, BillOfferToSellBlockData, BillRecourseBlockData,
-        BillRecourseReasonBlockData, BillRequestToAcceptBlockData, BillRequestToPayBlockData,
+        BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
+        BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestToAcceptBlockData,
+        BillRequestToPayBlockData,
     };
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::util::date::now;
@@ -531,7 +538,7 @@ mod tests {
         #[async_trait]
         impl NotificationJsonTransportApi for NotificationJsonTransport {
             fn get_sender_key(&self) -> String;
-            async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
         }
 
     }
@@ -574,14 +581,14 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: payee.clone().into(),
-                buyer: buyer.clone().into(),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -692,14 +699,14 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: payee.clone().into(),
-                buyer: buyer.clone().into(),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -855,14 +862,14 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: payee.clone().into(),
-                buyer: buyer.clone().into(),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -957,14 +964,14 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: payee.clone().into(),
-                buyer: buyer.clone().into(),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -1075,7 +1082,7 @@ mod tests {
     }
 
     fn setup_chain_expectation(
-        participants: Vec<(IdentityPublicData, BillEventType, Option<ActionType>)>,
+        participants: Vec<(BillIdentParticipant, BillEventType, Option<ActionType>)>,
         bill: &BitcreditBill,
         chain: &BillBlockchain,
         new_blocks: bool,
@@ -1096,7 +1103,8 @@ mod tests {
             mock.expect_send()
                 .withf(move |r, e| {
                     let part = clone2.clone();
-                    let valid_node_id = r.node_id == part.0.node_id && e.node_id == part.0.node_id;
+                    let valid_node_id =
+                        r.node_id() == part.0.node_id && e.node_id == part.0.node_id;
                     let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
                     let valid_event_type = event.data.event_type == part.1;
                     valid_node_id && valid_event_type && event.data.action_type == part.2
@@ -1216,10 +1224,10 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillRequestToAcceptBlockData {
-                requester: payee.clone().into(),
+                requester: BillParticipantBlockData::Ident(payee.clone().into()),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -1262,11 +1270,11 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillRequestToPayBlockData {
-                requester: payee.clone().into(),
+                requester: BillParticipantBlockData::Ident(payee.clone().into()),
                 currency: "USD".to_string(),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -1361,14 +1369,14 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: payee.clone().into(),
-                buyer: buyer.clone().into(),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -1395,7 +1403,7 @@ mod tests {
         );
 
         service
-            .send_offer_to_sell_event(&event, &buyer)
+            .send_offer_to_sell_event(&event, &BillParticipant::Ident(buyer))
             .await
             .expect("failed to send event");
     }
@@ -1413,14 +1421,14 @@ mod tests {
             bill.id.to_owned(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
-                seller: payee.clone().into(),
-                buyer: buyer.clone().into(),
+                seller: BillParticipantBlockData::Ident(payee.clone().into()),
+                buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: 100,
                 currency: "USD".to_string(),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: Some(PostalAddress::default()),
             },
             &keys,
             None,
@@ -1447,7 +1455,7 @@ mod tests {
         );
 
         service
-            .send_bill_is_sold_event(&event, &buyer)
+            .send_bill_is_sold_event(&event, &BillParticipant::Ident(buyer))
             .await
             .expect("failed to send event");
     }
@@ -1594,7 +1602,7 @@ mod tests {
             .returning(move || "node_id".to_owned());
         mock.expect_send()
             .withf(move |r, e| {
-                let valid_node_id = r.node_id == node_id && e.node_id == node_id;
+                let valid_node_id = r.node_id() == node_id && e.node_id == node_id;
                 let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
                 valid_node_id
                     && event.data.event_type == event_type

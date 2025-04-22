@@ -1,3 +1,5 @@
+use crate::blockchain::bill::block::NodeId;
+
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -39,14 +41,69 @@ pub struct Contact {
     pub nostr_relays: Vec<String>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum BillParticipant {
+    Anon(BillAnonParticipant),
+    Ident(BillIdentParticipant),
+}
+
+impl BillParticipant {
+    pub fn postal_address(&self) -> Option<PostalAddress> {
+        match self {
+            BillParticipant::Ident(data) => Some(data.postal_address.clone()),
+            BillParticipant::Anon(_) => None,
+        }
+    }
+
+    pub fn name(&self) -> Option<String> {
+        match self {
+            BillParticipant::Ident(data) => Some(data.name.to_owned()),
+            BillParticipant::Anon(_) => None,
+        }
+    }
+
+    pub fn email(&self) -> Option<String> {
+        match self {
+            BillParticipant::Ident(data) => data.email.to_owned(),
+            BillParticipant::Anon(data) => data.email.to_owned(),
+        }
+    }
+
+    pub fn nostr_relay(&self) -> Option<String> {
+        match self {
+            BillParticipant::Ident(data) => data.nostr_relay.to_owned(),
+            BillParticipant::Anon(data) => data.nostr_relay.to_owned(),
+        }
+    }
+}
+
+impl NodeId for BillParticipant {
+    fn node_id(&self) -> String {
+        match self {
+            BillParticipant::Ident(data) => data.node_id.clone(),
+            BillParticipant::Anon(data) => data.node_id.clone(),
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct BillAnonParticipant {
+    /// The node id of the participant
+    pub node_id: String,
+    /// email address of the participant
+    pub email: Option<String>,
+    /// The preferred Nostr relay to deliver Nostr messages to
+    pub nostr_relay: Option<String>,
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Default,
 )]
-pub struct IdentityPublicData {
+pub struct BillIdentParticipant {
     /// The type of identity (0 = person, 1 = company)
     #[serde(rename = "type")]
     pub t: ContactType,
-    /// The P2P node id of the identity
+    /// The node id of the identity
     pub node_id: String,
     /// The name of the identity
     pub name: String,
@@ -59,16 +116,36 @@ pub struct IdentityPublicData {
     pub nostr_relay: Option<String>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
+pub enum LightBillParticipant {
+    Anon(LightBillAnonParticipant),
+    Ident(LightBillIdentParticipant),
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Default)]
-pub struct LightIdentityPublicData {
+pub struct LightBillAnonParticipant {
+    pub node_id: String,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Default)]
+pub struct LightBillIdentParticipant {
     #[serde(rename = "type")]
     pub t: ContactType,
     pub name: String,
     pub node_id: String,
 }
 
-impl From<IdentityPublicData> for LightIdentityPublicData {
-    fn from(value: IdentityPublicData) -> Self {
+impl From<BillParticipant> for LightBillParticipant {
+    fn from(value: BillParticipant) -> Self {
+        match value {
+            BillParticipant::Ident(data) => LightBillParticipant::Ident(data.into()),
+            BillParticipant::Anon(data) => LightBillParticipant::Anon(data.into()),
+        }
+    }
+}
+
+impl From<BillIdentParticipant> for LightBillIdentParticipant {
+    fn from(value: BillIdentParticipant) -> Self {
         Self {
             t: value.t,
             name: value.name,
@@ -77,8 +154,16 @@ impl From<IdentityPublicData> for LightIdentityPublicData {
     }
 }
 
+impl From<BillAnonParticipant> for LightBillAnonParticipant {
+    fn from(value: BillAnonParticipant) -> Self {
+        Self {
+            node_id: value.node_id,
+        }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Default)]
-pub struct LightIdentityPublicDataWithAddress {
+pub struct LightBillIdentParticipantWithAddress {
     #[serde(rename = "type")]
     pub t: ContactType,
     pub name: String,
@@ -87,8 +172,8 @@ pub struct LightIdentityPublicDataWithAddress {
     pub postal_address: PostalAddress,
 }
 
-impl From<IdentityPublicData> for LightIdentityPublicDataWithAddress {
-    fn from(value: IdentityPublicData) -> Self {
+impl From<BillIdentParticipant> for LightBillIdentParticipantWithAddress {
+    fn from(value: BillIdentParticipant) -> Self {
         Self {
             t: value.t,
             name: value.name,
@@ -98,7 +183,7 @@ impl From<IdentityPublicData> for LightIdentityPublicDataWithAddress {
     }
 }
 
-impl From<Contact> for IdentityPublicData {
+impl From<Contact> for BillIdentParticipant {
     fn from(value: Contact) -> Self {
         Self {
             t: value.t,
@@ -111,7 +196,7 @@ impl From<Contact> for IdentityPublicData {
     }
 }
 
-impl From<Company> for IdentityPublicData {
+impl From<Company> for BillIdentParticipant {
     fn from(value: Company) -> Self {
         Self {
             t: ContactType::Company,
@@ -124,7 +209,7 @@ impl From<Company> for IdentityPublicData {
     }
 }
 
-impl IdentityPublicData {
+impl BillIdentParticipant {
     pub fn new(identity: Identity) -> Option<Self> {
         match identity.postal_address.to_full_postal_address() {
             Some(postal_address) => Some(Self {
