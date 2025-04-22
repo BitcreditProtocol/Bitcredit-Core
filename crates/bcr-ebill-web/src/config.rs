@@ -14,10 +14,14 @@ pub struct Config {
     pub data_dir: String,
     #[arg(default_value_t = String::from("ws://localhost:8800"), long, env = "SURREAL_DB_CONNECTION")]
     pub surreal_db_connection: String,
+    #[arg(default_value_t = String::from("ebills"), long, env = "SURREAL_DB_DATABASE")]
+    pub surreal_db_database: String,
+    #[arg(default_value_t = String::from("default"), long, env = "SURREAL_DB_NAMESPACE")]
+    pub surreal_db_namespace: String,
     #[arg(default_value_t = String::from("testnet"),  long, env = "BITCOIN_NETWORK")]
     pub bitcoin_network: String,
-    #[arg(default_value_t = String::from("ws://localhost:8080"), long, env = "NOSTR_RELAY")]
-    pub nostr_relay: String,
+    #[arg(default_value = "ws://localhost:8080", value_delimiter = ',', num_args = 1.., long, env = "NOSTR_RELAYS")]
+    pub nostr_relays: Vec<String>,
     #[arg(default_value_t = String::from("https://moksha.minibill.tech"), long, env = "MINT_URL")]
     pub mint_url: String,
     #[arg(default_value_t = 1, long, env = "JOB_RUNNER_INITIAL_DELAY_SECONDS")]

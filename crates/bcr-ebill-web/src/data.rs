@@ -1,4 +1,8 @@
 use async_trait::async_trait;
+use bcr_ebill_api::data::contact::{
+    BillAnonParticipant, BillParticipant, LightBillAnonParticipant, LightBillParticipant,
+};
+use bcr_ebill_api::data::identity::IdentityType;
 use bcr_ebill_api::service::Error;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
 use bcr_ebill_api::util::{BcrKeys, date::DateTimeUtc};
@@ -15,10 +19,10 @@ use bcr_ebill_api::{
         },
         company::Company,
         contact::{
-            Contact, ContactType, IdentityPublicData, LightIdentityPublicData,
-            LightIdentityPublicDataWithAddress,
+            BillIdentParticipant, Contact, ContactType, LightBillIdentParticipant,
+            LightBillIdentParticipantWithAddress,
         },
-        identity::{Identity, IdentityType},
+        identity::{Identity, SwitchIdentityType},
         notification::{Notification, NotificationType},
     },
     util::ValidationError,
@@ -281,10 +285,10 @@ impl FromWeb<BillsFilterRoleWeb> for BillsFilterRole {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PastEndorseeWeb {
-    pub pay_to_the_order_of: LightIdentityPublicDataWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddressWeb,
+    pub signing_address: Option<PostalAddressWeb>,
 }
 
 impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
@@ -293,7 +297,7 @@ impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
             pay_to_the_order_of: self.pay_to_the_order_of.into_web(),
             signed: self.signed.into_web(),
             signing_timestamp: self.signing_timestamp,
-            signing_address: self.signing_address.into_web(),
+            signing_address: self.signing_address.map(|s| s.into_web()),
         }
     }
 }
@@ -301,8 +305,8 @@ impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LightSignedByWeb {
     #[serde(flatten)]
-    pub data: LightIdentityPublicDataWeb,
-    pub signatory: Option<LightIdentityPublicDataWeb>,
+    pub data: LightBillParticipantWeb,
+    pub signatory: Option<LightBillIdentParticipantWeb>,
 }
 
 impl IntoWeb<LightSignedByWeb> for LightSignedBy {
@@ -316,10 +320,10 @@ impl IntoWeb<LightSignedByWeb> for LightSignedBy {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EndorsementWeb {
-    pub pay_to_the_order_of: LightIdentityPublicDataWithAddressWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWithAddressWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddressWeb,
+    pub signing_address: Option<PostalAddressWeb>,
 }
 
 impl IntoWeb<EndorsementWeb> for Endorsement {
@@ -328,7 +332,7 @@ impl IntoWeb<EndorsementWeb> for Endorsement {
             pay_to_the_order_of: self.pay_to_the_order_of.into_web(),
             signed: self.signed.into_web(),
             signing_timestamp: self.signing_timestamp,
-            signing_address: self.signing_address.into_web(),
+            signing_address: self.signing_address.map(|s| s.into_web()),
         }
     }
 }
@@ -336,7 +340,7 @@ impl IntoWeb<EndorsementWeb> for Endorsement {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SwitchIdentity {
     #[serde(rename = "type")]
-    pub t: Option<IdentityTypeWeb>,
+    pub t: Option<SwitchIdentityTypeWeb>,
     pub node_id: String,
 }
 
@@ -344,16 +348,60 @@ pub struct SwitchIdentity {
 #[derive(
     Debug, Clone, serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Eq, ToSchema,
 )]
-pub enum IdentityTypeWeb {
+pub enum SwitchIdentityTypeWeb {
     Person = 0,
     Company = 1,
+}
+
+impl IntoWeb<SwitchIdentityTypeWeb> for SwitchIdentityType {
+    fn into_web(self) -> SwitchIdentityTypeWeb {
+        match self {
+            SwitchIdentityType::Person => SwitchIdentityTypeWeb::Person,
+            SwitchIdentityType::Company => SwitchIdentityTypeWeb::Company,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    PartialEq,
+    Eq,
+    ToSchema,
+)]
+pub enum IdentityTypeWeb {
+    Ident = 0,
+    Anon = 1,
+}
+
+impl TryFrom<u64> for IdentityTypeWeb {
+    type Error = Error;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        Ok(IdentityType::try_from(value)
+            .map_err(Self::Error::Validation)?
+            .into_web())
+    }
 }
 
 impl IntoWeb<IdentityTypeWeb> for IdentityType {
     fn into_web(self) -> IdentityTypeWeb {
         match self {
-            IdentityType::Person => IdentityTypeWeb::Person,
-            IdentityType::Company => IdentityTypeWeb::Company,
+            IdentityType::Ident => IdentityTypeWeb::Ident,
+            IdentityType::Anon => IdentityTypeWeb::Anon,
+        }
+    }
+}
+
+impl FromWeb<IdentityTypeWeb> for IdentityType {
+    fn from_web(value: IdentityTypeWeb) -> Self {
+        match value {
+            IdentityTypeWeb::Ident => IdentityType::Ident,
+            IdentityTypeWeb::Anon => IdentityType::Anon,
         }
     }
 }
@@ -399,8 +447,10 @@ pub struct ChangeIdentityPayload {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct NewIdentityPayload {
+    #[serde(rename = "type")]
+    pub t: u64,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     #[serde(flatten)]
     pub postal_address: OptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
@@ -417,9 +467,9 @@ pub struct NewContactPayload {
     pub t: u64,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     #[serde(flatten)]
-    pub postal_address: PostalAddressWeb,
+    pub postal_address: Option<PostalAddressWeb>,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -521,23 +571,32 @@ pub struct SignatoryResponse {
     pub avatar_file: Option<FileWeb>,
 }
 
-impl From<Contact> for SignatoryResponse {
-    fn from(value: Contact) -> Self {
-        Self {
-            t: value.t.into_web(),
-            node_id: value.node_id,
-            name: value.name,
-            postal_address: value.postal_address.into_web(),
-            avatar_file: value.avatar_file.map(|f| f.into_web()),
+impl TryFrom<Contact> for SignatoryResponse {
+    type Error = ValidationError;
+
+    fn try_from(value: Contact) -> Result<Self, Self::Error> {
+        if value.t == ContactType::Anon {
+            return Err(ValidationError::InvalidContact(value.node_id));
         }
+        Ok(Self {
+            t: value.t.into_web(),
+            node_id: value.node_id.clone(),
+            name: value.name,
+            postal_address: value
+                .postal_address
+                .ok_or(ValidationError::InvalidContact(value.node_id))
+                .map(|pa| pa.into_web())?,
+            avatar_file: value.avatar_file.map(|f| f.into_web()),
+        })
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IdentityWeb {
+    pub t: IdentityTypeWeb,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     pub bitcoin_public_key: String,
     pub npub: String,
     #[serde(flatten)]
@@ -548,12 +607,13 @@ pub struct IdentityWeb {
     pub identification_number: Option<String>,
     pub profile_picture_file: Option<FileWeb>,
     pub identity_document_file: Option<FileWeb>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IdentityWeb {
     pub fn from(identity: Identity, keys: BcrKeys) -> Self {
         Self {
+            t: identity.t.into_web(),
             node_id: identity.node_id.clone(),
             name: identity.name,
             email: identity.email,
@@ -566,7 +626,7 @@ impl IdentityWeb {
             identification_number: identity.identification_number,
             profile_picture_file: identity.profile_picture_file.map(|f| f.into_web()),
             identity_document_file: identity.identity_document_file.map(|f| f.into_web()),
-            nostr_relay: identity.nostr_relay,
+            nostr_relays: identity.nostr_relays,
         }
     }
 }
@@ -671,6 +731,7 @@ impl IntoWeb<FileWeb> for File {
 pub enum ContactTypeWeb {
     Person = 0,
     Company = 1,
+    Anon = 2,
 }
 
 impl TryFrom<u64> for ContactTypeWeb {
@@ -680,6 +741,7 @@ impl TryFrom<u64> for ContactTypeWeb {
         match value {
             0 => Ok(ContactTypeWeb::Person),
             1 => Ok(ContactTypeWeb::Company),
+            2 => Ok(ContactTypeWeb::Anon),
             _ => Err(Error::Validation(ValidationError::InvalidContactType)),
         }
     }
@@ -690,6 +752,7 @@ impl IntoWeb<ContactTypeWeb> for ContactType {
         match self {
             ContactType::Person => ContactTypeWeb::Person,
             ContactType::Company => ContactTypeWeb::Company,
+            ContactType::Anon => ContactTypeWeb::Anon,
         }
     }
 }
@@ -699,6 +762,7 @@ impl FromWeb<ContactTypeWeb> for ContactType {
         match value {
             ContactTypeWeb::Person => ContactType::Person,
             ContactTypeWeb::Company => ContactType::Company,
+            ContactTypeWeb::Anon => ContactType::Anon,
         }
     }
 }
@@ -709,9 +773,9 @@ pub struct ContactWeb {
     pub t: ContactTypeWeb,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     #[serde(flatten)]
-    pub postal_address: PostalAddressWeb,
+    pub postal_address: Option<PostalAddressWeb>,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -728,7 +792,7 @@ impl IntoWeb<ContactWeb> for Contact {
             node_id: self.node_id,
             name: self.name,
             email: self.email,
-            postal_address: self.postal_address.into_web(),
+            postal_address: self.postal_address.map(|pa| pa.into_web()),
             date_of_birth_or_registration: self.date_of_birth_or_registration,
             country_of_birth_or_registration: self.country_of_birth_or_registration,
             city_of_birth_or_registration: self.city_of_birth_or_registration,
@@ -832,8 +896,8 @@ impl IntoWeb<BillCurrentWaitingStateWeb> for BillCurrentWaitingState {
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillWaitingForSellStateWeb {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicDataWeb,
-    pub seller: IdentityPublicDataWeb,
+    pub buyer: BillParticipantWeb,
+    pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -859,8 +923,8 @@ impl IntoWeb<BillWaitingForSellStateWeb> for BillWaitingForSellState {
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillWaitingForPaymentStateWeb {
     pub time_of_request: u64,
-    pub payer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
+    pub payer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -886,8 +950,8 @@ impl IntoWeb<BillWaitingForPaymentStateWeb> for BillWaitingForPaymentState {
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillWaitingForRecourseStateWeb {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicDataWeb,
-    pub recoursee: IdentityPublicDataWeb,
+    pub recourser: BillIdentParticipantWeb,
+    pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -1053,10 +1117,10 @@ impl IntoWeb<BillDataWeb> for BillData {
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BillParticipantsWeb {
-    pub drawee: IdentityPublicDataWeb,
-    pub drawer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
-    pub endorsee: Option<IdentityPublicDataWeb>,
+    pub drawee: BillIdentParticipantWeb,
+    pub drawer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
+    pub endorsee: Option<BillParticipantWeb>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<String>,
 }
@@ -1077,10 +1141,10 @@ impl IntoWeb<BillParticipantsWeb> for BillParticipants {
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct LightBitcreditBillWeb {
     pub id: String,
-    pub drawee: LightIdentityPublicDataWeb,
-    pub drawer: LightIdentityPublicDataWeb,
-    pub payee: LightIdentityPublicDataWeb,
-    pub endorsee: Option<LightIdentityPublicDataWeb>,
+    pub drawee: LightBillIdentParticipantWeb,
+    pub drawer: LightBillIdentParticipantWeb,
+    pub payee: LightBillParticipantWeb,
+    pub endorsee: Option<LightBillParticipantWeb>,
     pub active_notification: Option<NotificationWeb>,
     pub sum: String,
     pub currency: String,
@@ -1106,8 +1170,40 @@ impl IntoWeb<LightBitcreditBillWeb> for LightBitcreditBillResult {
     }
 }
 
+#[derive(Debug, Serialize, Clone, ToSchema)]
+pub enum BillParticipantWeb {
+    Anon(BillAnonParticipantWeb),
+    Ident(BillIdentParticipantWeb),
+}
+
+impl IntoWeb<BillParticipantWeb> for BillParticipant {
+    fn into_web(self) -> BillParticipantWeb {
+        match self {
+            BillParticipant::Ident(data) => BillParticipantWeb::Ident(data.into_web()),
+            BillParticipant::Anon(data) => BillParticipantWeb::Anon(data.into_web()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone, ToSchema)]
+pub struct BillAnonParticipantWeb {
+    pub node_id: String,
+    pub email: Option<String>,
+    pub nostr_relays: Vec<String>,
+}
+
+impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
+    fn into_web(self) -> BillAnonParticipantWeb {
+        BillAnonParticipantWeb {
+            node_id: self.node_id,
+            email: self.email,
+            nostr_relays: self.nostr_relays,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct IdentityPublicDataWeb {
+pub struct BillIdentParticipantWeb {
     #[serde(rename = "type")]
     pub t: ContactTypeWeb,
     pub node_id: String,
@@ -1115,24 +1211,70 @@ pub struct IdentityPublicDataWeb {
     #[serde(flatten)]
     pub postal_address: PostalAddressWeb,
     pub email: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
-impl IntoWeb<IdentityPublicDataWeb> for IdentityPublicData {
-    fn into_web(self) -> IdentityPublicDataWeb {
-        IdentityPublicDataWeb {
+impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
+    fn into_web(self) -> BillIdentParticipantWeb {
+        BillIdentParticipantWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,
             postal_address: self.postal_address.into_web(),
             email: self.email,
-            nostr_relay: self.nostr_relay,
+            nostr_relays: self.nostr_relays,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct LightIdentityPublicDataWithAddressWeb {
+pub enum LightBillParticipantWeb {
+    Anon(LightBillAnonParticipantWeb),
+    Ident(LightBillIdentParticipantWeb),
+}
+
+impl IntoWeb<LightBillParticipantWeb> for LightBillParticipant {
+    fn into_web(self) -> LightBillParticipantWeb {
+        match self {
+            LightBillParticipant::Ident(data) => LightBillParticipantWeb::Ident(data.into_web()),
+            LightBillParticipant::Anon(data) => LightBillParticipantWeb::Anon(data.into_web()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct LightBillAnonParticipantWeb {
+    pub node_id: String,
+}
+
+impl IntoWeb<LightBillAnonParticipantWeb> for LightBillAnonParticipant {
+    fn into_web(self) -> LightBillAnonParticipantWeb {
+        LightBillAnonParticipantWeb {
+            node_id: self.node_id,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct LightBillIdentParticipantWeb {
+    #[serde(rename = "type")]
+    pub t: ContactTypeWeb,
+    pub name: String,
+    pub node_id: String,
+}
+
+impl IntoWeb<LightBillIdentParticipantWeb> for LightBillIdentParticipant {
+    fn into_web(self) -> LightBillIdentParticipantWeb {
+        LightBillIdentParticipantWeb {
+            t: self.t.into_web(),
+            name: self.name,
+            node_id: self.node_id,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct LightBillIdentParticipantWithAddressWeb {
     #[serde(rename = "type")]
     pub t: ContactTypeWeb,
     pub name: String,
@@ -1141,31 +1283,13 @@ pub struct LightIdentityPublicDataWithAddressWeb {
     pub postal_address: PostalAddressWeb,
 }
 
-impl IntoWeb<LightIdentityPublicDataWithAddressWeb> for LightIdentityPublicDataWithAddress {
-    fn into_web(self) -> LightIdentityPublicDataWithAddressWeb {
-        LightIdentityPublicDataWithAddressWeb {
+impl IntoWeb<LightBillIdentParticipantWithAddressWeb> for LightBillIdentParticipantWithAddress {
+    fn into_web(self) -> LightBillIdentParticipantWithAddressWeb {
+        LightBillIdentParticipantWithAddressWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,
             postal_address: self.postal_address.into_web(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct LightIdentityPublicDataWeb {
-    #[serde(rename = "type")]
-    pub t: ContactTypeWeb,
-    pub name: String,
-    pub node_id: String,
-}
-
-impl IntoWeb<LightIdentityPublicDataWeb> for LightIdentityPublicData {
-    fn into_web(self) -> LightIdentityPublicDataWeb {
-        LightIdentityPublicDataWeb {
-            t: self.t.into_web(),
-            name: self.name,
-            node_id: self.node_id,
         }
     }
 }

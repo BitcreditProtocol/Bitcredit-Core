@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::{
     bill::BitcreditBill,
-    contact::IdentityPublicData,
+    contact::{BillIdentParticipant, BillParticipant},
     notification::{ActionType, Notification},
 };
 use bcr_ebill_persistence::notification::NotificationFilter;
@@ -50,7 +50,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn send_offer_to_sell_event(
         &self,
         event: &BillChainEvent,
-        buyer: &IdentityPublicData,
+        buyer: &BillParticipant,
     ) -> Result<()>;
 
     /// Sent when: A bill is sold by: Seller (old holder)
@@ -58,7 +58,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn send_bill_is_sold_event(
         &self,
         event: &BillChainEvent,
-        buyer: &IdentityPublicData,
+        buyer: &BillParticipant,
     ) -> Result<()>;
 
     /// Sent when: A bill recourse was paid, by: Recourser (old holder)
@@ -66,7 +66,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn send_bill_recourse_paid_event(
         &self,
         event: &BillChainEvent,
-        recoursee: &IdentityPublicData,
+        recoursee: &BillIdentParticipant,
     ) -> Result<()>;
 
     /// In case a participant rejects one of the 'request to' actions (e.g. request to accept,
@@ -95,7 +95,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         bill_id: &str,
         sum: Option<u64>,
         timed_out_action: ActionType,
-        recipients: Vec<IdentityPublicData>,
+        recipients: Vec<BillParticipant>,
     ) -> Result<()>;
 
     /// In case an action was rejected or timed out a holder can request a recourse action
@@ -110,7 +110,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         &self,
         event: &BillChainEvent,
         action: ActionType,
-        recoursee: &IdentityPublicData,
+        recoursee: &BillIdentParticipant,
     ) -> Result<()>;
 
     /// Sent when: A bill is requested to be minted, Sent by: Holder

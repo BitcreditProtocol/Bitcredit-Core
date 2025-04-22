@@ -9,7 +9,7 @@ use bcr_ebill_api::service::notification_service::{
     NostrConsumer, create_nostr_clients, create_nostr_consumer, create_notification_service,
 };
 use bcr_ebill_api::service::search_service::{SearchService, SearchServiceApi};
-use bcr_ebill_api::{Config, DbContext, SurrealDbConfig, service::Result};
+use bcr_ebill_api::{Config, DbContext, service::Result};
 use bcr_ebill_transport::{
     NotificationServiceApi,
     push_notification::{PushApi, PushService},
@@ -98,7 +98,7 @@ pub async fn create_service_context(
         db.notification_store.clone(),
         contact_service.clone(),
         db.queued_message_store.clone(),
-        &config.nostr_relay,
+        config.nostr_relays.clone(),
     )
     .await?;
 
@@ -152,7 +152,7 @@ pub async fn create_service_context(
     let backup_service = BackupService::new(
         db.backup_store.clone(),
         db.identity_store.clone(),
-        SurrealDbConfig::new(&config.surreal_db_connection),
+        config.db_config.clone(),
         reboot_sender.clone(),
     );
 

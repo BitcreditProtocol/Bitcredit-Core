@@ -10,7 +10,7 @@ The following options are available:
 * `SURREAL_DB_CONNECTION` - the surreal DB connection (default: "ws://localhost:8800") - set to `rocksdb://data/surreal` for embedded mode
 * `BITCOIN_NETWORK` - bitcoin network to use (default: testnet), possible values: `mainnet`, `regtest`, `testnet4` and `testnet`
 * `RUST_LOG` - the log level, e.g.: info, trace, debug, error (default: error)
-* `NOSTR_RELAY` - nostr relay endpoint (default: ws://localhost:8080)
+* `NOSTR_RELAYS` - nostr relay endpoints (default: [ws://localhost:8080])
 * `MINT_URL` - cashu mint endpoint (default: https://moksha.minibill.tech)
 * `JOB_RUNNER_INITIAL_DELAY_SECONDS` - initial delay until cron jobs run (default: 1)
 * `JOB_RUNNER_CHECK_INTERVAL_SECONDS` - interval in which cron jobs run (default: 600)
