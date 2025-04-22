@@ -462,11 +462,7 @@ pub fn reject_buy_block(id: &str, first_block: &BillBlock) -> BillBlock {
     .expect("block could not be created")
 }
 
-pub fn sell_block(
-    id: &str,
-    first_block: &BillBlock,
-    buyer: &BillIdentParticipant,
-) -> BillBlock {
+pub fn sell_block(id: &str, first_block: &BillBlock, buyer: &BillIdentParticipant) -> BillBlock {
     BillBlock::create_block_for_sell(
         id.to_string(),
         first_block,
