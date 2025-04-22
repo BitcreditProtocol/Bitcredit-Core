@@ -404,7 +404,7 @@ pub async fn offer_to_sell_bill(
         .execute_bill_action(
             &offer_to_sell_payload.bill_id,
             BillAction::OfferToSell(
-                BillParticipant::Ident(public_data_buyer.clone()), // TODO: support anon
+                public_data_buyer.clone(),
                 sum,
                 offer_to_sell_payload.currency.clone(),
             ),
@@ -440,7 +440,7 @@ pub async fn endorse_bill(
         .bill_service
         .execute_bill_action(
             &endorse_bill_payload.bill_id,
-            BillAction::Endorse(BillParticipant::Ident(public_data_endorsee.clone())), // TODO: support anon
+            BillAction::Endorse(public_data_endorsee.clone()),
             &signer_public_data,
             &signer_keys,
             timestamp,
@@ -569,11 +569,7 @@ pub async fn mint_bill(
         .bill_service
         .execute_bill_action(
             &mint_bill_payload.bill_id,
-            BillAction::Mint(
-                BillParticipant::Ident(public_mint_node), // TODO: support anon
-                sum,
-                mint_bill_payload.currency.clone(),
-            ),
+            BillAction::Mint(public_mint_node, sum, mint_bill_payload.currency.clone()),
             &signer_public_data,
             &signer_keys,
             timestamp,
@@ -729,7 +725,16 @@ async fn request_recourse(
         .get_identity_by_node_id(recoursee_node_id)
         .await
     {
-        Ok(Some(buyer)) => buyer,
+        Ok(Some(BillParticipant::Ident(recoursee))) => recoursee,
+        Ok(Some(BillParticipant::Anon(_))) => {
+            // recoursee has to be identified
+            return Err(
+                BillServiceError::Validation(ValidationError::ContactIsAnonymous(
+                    recoursee_node_id.to_owned(),
+                ))
+                .into(),
+            );
+        }
         Ok(None) | Err(_) => {
             return Err(BillServiceError::RecourseeNotInContacts.into());
         }

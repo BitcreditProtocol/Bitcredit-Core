@@ -7,6 +7,13 @@
         * `Anon` includes a `BillAnonParticipant`
         * `Ident` includes a `BillIdentParticipant`
     * Use `BillParticipant` in parts of the bill where a participant can be anonymous
+* Add the possibility to add anonymous contacts
+    * They only have Node Id, Name and E-Mail as fields
+    * E-Mail is optional
+    * This changes the data model for contacts, `email` and `postal_address` are now optional
+        * Additional validation rules ensure the fields can only be set for non-anon contacts
+    * Adds an endpoint `Api.contact().deanonymize()` to de-anonymize a contact by adding all necessary fields for a personal, or company contact
+        * It takes the same payload as creating a contact and fails for non-anon contacts
 
 # 0.3.7
 

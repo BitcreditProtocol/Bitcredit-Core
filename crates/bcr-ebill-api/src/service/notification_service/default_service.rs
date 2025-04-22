@@ -71,9 +71,9 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn resolve_identity(&self, node_id: &str) -> Option<BillIdentParticipant> {
+    async fn resolve_identity(&self, node_id: &str) -> Option<BillParticipant> {
         match self.get_local_identity(node_id) {
-            Some(id) => Some(id),
+            Some(id) => Some(BillParticipant::Ident(id)), // TODO: support anon identity
             None => {
                 if let Ok(Some(identity)) =
                     self.contact_service.get_identity_by_node_id(node_id).await
@@ -95,10 +95,7 @@ impl DefaultNotificationService {
             for event_to_process in events.into_iter() {
                 if let Some(identity) = self.resolve_identity(&event_to_process.node_id).await {
                     if let Err(e) = node
-                        .send(
-                            &BillParticipant::Ident(identity), // TODO: support anon
-                            event_to_process.clone().try_into()?,
-                        )
+                        .send(&identity, event_to_process.clone().try_into()?)
                         .await
                     {
                         error!(
@@ -141,8 +138,7 @@ impl DefaultNotificationService {
         if let Some(node) = self.notification_transport.get(sender) {
             if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
             {
-                node.send(&BillParticipant::Ident(identity), message) // TODO: support anon
-                    .await?;
+                node.send(&identity, message).await?;
             }
         }
         Ok(())
@@ -338,13 +334,13 @@ impl NotificationServiceApi for DefaultNotificationService {
         bill_id: &str,
         sum: Option<u64>,
         timed_out_action: ActionType,
-        recipients: Vec<BillIdentParticipant>,
+        recipients: Vec<BillParticipant>,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             if let Some(event_type) = timed_out_action.get_timeout_event_type() {
                 // only send to a recipient once
-                let unique: HashMap<String, BillIdentParticipant> =
-                    HashMap::from_iter(recipients.iter().map(|r| (r.node_id.clone(), r.clone())));
+                let unique: HashMap<String, BillParticipant> =
+                    HashMap::from_iter(recipients.iter().map(|r| (r.node_id().clone(), r.clone())));
 
                 let payload = BillChainEventPayload {
                     event_type,
@@ -354,9 +350,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                     ..Default::default()
                 };
                 for (_, recipient) in unique {
-                    let event = Event::new_bill(&recipient.node_id, payload.clone());
-                    node.send(&BillParticipant::Ident(recipient), event.try_into()?) // TODO: support anon
-                        .await?;
+                    let event = Event::new_bill(&recipient.node_id(), payload.clone());
+                    node.send(&recipient, event.try_into()?).await?;
                 }
             }
         }
@@ -617,15 +612,15 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq("buyer"))
-            .returning(move |_| Ok(Some(buyer.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(buyer.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq("drawee"))
-            .returning(move |_| Ok(Some(payer.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq("payee"))
-            .returning(move |_| Ok(Some(payee.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
 
         let mut mock = MockNotificationJsonTransport::new();
 
@@ -760,9 +755,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_event() {
         let recipients = vec![
-            get_identity_public_data("part1", "part1@example.com", None),
-            get_identity_public_data("part2", "part2@example.com", None),
-            get_identity_public_data("part3", "part3@example.com", None),
+            BillParticipant::Ident(get_identity_public_data("part1", "part1@example.com", None)),
+            BillParticipant::Ident(get_identity_public_data("part2", "part2@example.com", None)),
+            BillParticipant::Ident(get_identity_public_data("part3", "part3@example.com", None)),
         ];
 
         let mut mock = MockNotificationJsonTransport::new();
@@ -817,9 +812,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
         let recipients = vec![
-            get_identity_public_data("part1", "part1@example.com", None),
-            get_identity_public_data("part2", "part2@example.com", None),
-            get_identity_public_data("part3", "part3@example.com", None),
+            BillParticipant::Ident(get_identity_public_data("part1", "part1@example.com", None)),
+            BillParticipant::Ident(get_identity_public_data("part2", "part2@example.com", None)),
+            BillParticipant::Ident(get_identity_public_data("part3", "part3@example.com", None)),
         ];
 
         let mut mock = MockNotificationJsonTransport::new();
@@ -898,13 +893,13 @@ mod tests {
         // participants should receive events
         mock_contact_service
             .expect_get_identity_by_node_id()
-            .returning(move |_| Ok(Some(buyer_clone.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(buyer_clone.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
-            .returning(move |_| Ok(Some(payee.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
-            .returning(move |_| Ok(Some(payer.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
 
         let mut mock = MockNotificationJsonTransport::new();
 
@@ -1034,12 +1029,12 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(payer.node_id.clone()))
-            .returning(move |_| Ok(Some(payer.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
 
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(payee.node_id.clone()))
-            .returning(move |_| Ok(Some(payee.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
 
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
@@ -1094,7 +1089,7 @@ mod tests {
             mock_contact_service
                 .expect_get_identity_by_node_id()
                 .with(eq(p.0.node_id.clone()))
-                .returning(move |_| Ok(Some(clone1.0.clone())));
+                .returning(move |_| Ok(Some(BillParticipant::Ident(clone1.0.clone()))));
 
             mock.expect_get_sender_key()
                 .returning(|| "node_id".to_string());
@@ -1684,7 +1679,7 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(node_id))
-            .returning(move |_| Ok(Some(identity.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -1746,7 +1741,7 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(node_id))
-            .returning(move |_| Ok(Some(identity.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -1830,11 +1825,11 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(node_id1))
-            .returning(move |_| Ok(Some(identity1.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity1.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(node_id2))
-            .returning(move |_| Ok(Some(identity2.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity2.clone()))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
 
@@ -1962,7 +1957,7 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(node_id))
-            .returning(move |_| Ok(Some(identity.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2032,7 +2027,7 @@ mod tests {
         mock_contact_service
             .expect_get_identity_by_node_id()
             .with(eq(node_id))
-            .returning(move |_| Ok(Some(identity.clone())));
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport

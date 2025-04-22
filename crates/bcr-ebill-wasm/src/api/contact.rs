@@ -97,14 +97,37 @@ impl Contact {
     }
 
     #[wasm_bindgen(unchecked_return_type = "ContactWeb")]
+    pub async fn deanonymize(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "NewContactPayload")] payload: JsValue,
+    ) -> Result<JsValue> {
+        let contact_payload: NewContactPayload = serde_wasm_bindgen::from_value(payload)?;
+        let contact = get_ctx()
+            .contact_service
+            .deanonymize_contact(
+                &contact_payload.node_id,
+                ContactType::from_web(ContactTypeWeb::try_from(contact_payload.t)?),
+                contact_payload.name,
+                contact_payload.email,
+                contact_payload.postal_address.map(PostalAddress::from_web),
+                contact_payload.date_of_birth_or_registration,
+                contact_payload.country_of_birth_or_registration,
+                contact_payload.city_of_birth_or_registration,
+                contact_payload.identification_number,
+                contact_payload.avatar_file_upload_id,
+                contact_payload.proof_document_file_upload_id,
+            )
+            .await?;
+        let res = serde_wasm_bindgen::to_value(&contact.into_web())?;
+        Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "ContactWeb")]
     pub async fn create(
         &self,
         #[wasm_bindgen(unchecked_param_type = "NewContactPayload")] payload: JsValue,
     ) -> Result<JsValue> {
         let contact_payload: NewContactPayload = serde_wasm_bindgen::from_value(payload)?;
-        validate_file_upload_id(contact_payload.avatar_file_upload_id.as_deref())?;
-        validate_file_upload_id(contact_payload.proof_document_file_upload_id.as_deref())?;
-
         let contact = get_ctx()
             .contact_service
             .add_contact(
@@ -112,7 +135,7 @@ impl Contact {
                 ContactType::from_web(ContactTypeWeb::try_from(contact_payload.t)?),
                 contact_payload.name,
                 contact_payload.email,
-                PostalAddress::from_web(contact_payload.postal_address),
+                contact_payload.postal_address.map(PostalAddress::from_web),
                 contact_payload.date_of_birth_or_registration,
                 contact_payload.country_of_birth_or_registration,
                 contact_payload.city_of_birth_or_registration,

@@ -3062,7 +3062,7 @@ pub mod tests {
             .returning(|_, _, _| Ok(false));
 
         // we should have at least two participants
-        let recipient_check = function(|r: &Vec<BillIdentParticipant>| r.len() >= 2);
+        let recipient_check = function(|r: &Vec<BillParticipant>| r.len() >= 2);
 
         // send accept timeout notification
         ctx.notification_service

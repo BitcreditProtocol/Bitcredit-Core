@@ -104,7 +104,7 @@ impl BillService {
         match signer_public_data {
             BillParticipant::Ident(identified) => {
                 let (signatory_keys, company_keys, signatory_identity) = match identified.t {
-                    ContactType::Person => (signer_keys.clone(), None, None),
+                    ContactType::Person | ContactType::Anon => (signer_keys.clone(), None, None),
                     ContactType::Company => (
                         signatory_identity.key_pair.clone(),
                         Some(signer_keys.clone()),
