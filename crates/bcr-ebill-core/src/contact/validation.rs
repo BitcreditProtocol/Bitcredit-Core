@@ -1,4 +1,4 @@
-use crate::{Field, OptionalPostalAddress, PostalAddress, ValidationError, util};
+use crate::{Field, OptionalPostalAddress, PostalAddress, Validate, ValidationError, util};
 
 use super::ContactType;
 
@@ -25,7 +25,9 @@ pub fn validate_create_contact(
         }
         ContactType::Person | ContactType::Company => {
             // email and address need to be set
-            if postal_address.is_none() {
+            if let Some(pa) = postal_address {
+                pa.validate()?;
+            } else {
                 return Err(ValidationError::FieldEmpty(Field::Address));
             }
             if email.is_none() {
@@ -62,26 +64,7 @@ pub fn validate_update_contact(
     match t {
         ContactType::Anon => {}
         ContactType::Person | ContactType::Company => {
-            if let Some(ref set_zip) = postal_address.zip {
-                if set_zip.trim().is_empty() {
-                    return Err(ValidationError::FieldEmpty(Field::Zip));
-                }
-            }
-            if let Some(ref set_country) = postal_address.zip {
-                if set_country.trim().is_empty() {
-                    return Err(ValidationError::FieldEmpty(Field::Country));
-                }
-            }
-            if let Some(ref set_city) = postal_address.zip {
-                if set_city.trim().is_empty() {
-                    return Err(ValidationError::FieldEmpty(Field::City));
-                }
-            }
-            if let Some(ref set_address) = postal_address.zip {
-                if set_address.trim().is_empty() {
-                    return Err(ValidationError::FieldEmpty(Field::Address));
-                }
-            }
+            postal_address.validate()?;
             util::validate_file_upload_id(avatar_file_upload_id.as_deref())?;
             util::validate_file_upload_id(proof_document_file_upload_id.as_deref())?;
         }
