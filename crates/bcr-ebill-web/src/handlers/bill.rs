@@ -12,9 +12,10 @@ use crate::data::{
 };
 use crate::service_context::ServiceContext;
 use bcr_ebill_api::data::bill::BillIssueData;
+use bcr_ebill_api::data::contact::BillParticipant;
 use bcr_ebill_api::data::{
     bill::{BillAction, BillsFilterRole, LightBitcreditBillResult, RecourseReason},
-    contact::IdentityPublicData,
+    contact::BillIdentParticipant,
 };
 use bcr_ebill_api::service::bill_service::error::Error as BillServiceError;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
@@ -36,13 +37,13 @@ pub async fn get_current_identity_node_id(state: &State<ServiceContext>) -> Stri
 
 pub async fn get_signer_public_data_and_keys(
     state: &State<ServiceContext>,
-) -> Result<(IdentityPublicData, BcrKeys)> {
+) -> Result<(BillIdentParticipant, BcrKeys)> {
     let current_identity = state.get_current_identity().await;
     let local_node_id = current_identity.personal;
     let (signer_public_data, signer_keys) = match current_identity.company {
         None => {
             let identity = state.identity_service.get_full_identity().await?;
-            match IdentityPublicData::new(identity.identity) {
+            match BillIdentParticipant::new(identity.identity) {
                 Some(identity_public_data) => (identity_public_data, identity.key_pair),
                 None => {
                     return Err(
@@ -63,7 +64,7 @@ pub async fn get_signer_public_data_and_keys(
                 .into());
             }
             (
-                IdentityPublicData::from(company),
+                BillIdentParticipant::from(company),
                 BcrKeys::from_private_key(&keys.private_key).map_err(service::Error::CryptoUtil)?,
             )
         }
@@ -403,7 +404,7 @@ pub async fn offer_to_sell_bill(
         .execute_bill_action(
             &offer_to_sell_payload.bill_id,
             BillAction::OfferToSell(
-                public_data_buyer.clone(),
+                BillParticipant::Ident(public_data_buyer.clone()), // TODO: support anon
                 sum,
                 offer_to_sell_payload.currency.clone(),
             ),
@@ -439,7 +440,7 @@ pub async fn endorse_bill(
         .bill_service
         .execute_bill_action(
             &endorse_bill_payload.bill_id,
-            BillAction::Endorse(public_data_endorsee.clone()),
+            BillAction::Endorse(BillParticipant::Ident(public_data_endorsee.clone())), // TODO: support anon
             &signer_public_data,
             &signer_keys,
             timestamp,
@@ -568,7 +569,11 @@ pub async fn mint_bill(
         .bill_service
         .execute_bill_action(
             &mint_bill_payload.bill_id,
-            BillAction::Mint(public_mint_node, sum, mint_bill_payload.currency.clone()),
+            BillAction::Mint(
+                BillParticipant::Ident(public_mint_node), // TODO: support anon
+                sum,
+                mint_bill_payload.currency.clone(),
+            ),
             &signer_public_data,
             &signer_keys,
             timestamp,

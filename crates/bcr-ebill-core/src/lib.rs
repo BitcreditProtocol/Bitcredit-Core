@@ -61,6 +61,15 @@ impl Validate for PostalAddress {
     }
 }
 
+impl Validate for Option<PostalAddress> {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(data) = self {
+            data.validate()?;
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for PostalAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.zip {
@@ -179,6 +188,10 @@ pub enum ValidationError {
     /// error returned if the date was invalid
     #[error("invalid date")]
     InvalidDate,
+
+    /// error returned if the signer for a certain action is not allowed to be anonymous
+    #[error("The signer can't be anonymous")]
+    SignerCantBeAnon,
 
     /// error returned if the maturity date is in the past
     #[error("maturity date can't be in the past")]
