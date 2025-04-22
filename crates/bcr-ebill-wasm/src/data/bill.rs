@@ -7,7 +7,10 @@ use bcr_ebill_api::data::{
         PastEndorsee, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
         PastPaymentResult, PastPaymentStatus,
     },
-    contact::{IdentityPublicData, LightIdentityPublicData, LightIdentityPublicDataWithAddress},
+    contact::{
+        BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
+        LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -159,10 +162,10 @@ impl FromWeb<BillsFilterRoleWeb> for BillsFilterRole {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct PastEndorseeWeb {
-    pub pay_to_the_order_of: LightIdentityPublicDataWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddressWeb,
+    pub signing_address: Option<PostalAddressWeb>,
 }
 
 impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
@@ -171,7 +174,7 @@ impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
             pay_to_the_order_of: self.pay_to_the_order_of.into_web(),
             signed: self.signed.into_web(),
             signing_timestamp: self.signing_timestamp,
-            signing_address: self.signing_address.into_web(),
+            signing_address: self.signing_address.map(|s| s.into_web()),
         }
     }
 }
@@ -179,8 +182,8 @@ impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct LightSignedByWeb {
-    pub data: LightIdentityPublicDataWeb,
-    pub signatory: Option<LightIdentityPublicDataWeb>,
+    pub data: LightBillParticipantWeb,
+    pub signatory: Option<LightBillIdentParticipantWeb>,
 }
 
 impl IntoWeb<LightSignedByWeb> for LightSignedBy {
@@ -195,10 +198,10 @@ impl IntoWeb<LightSignedByWeb> for LightSignedBy {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct EndorsementWeb {
-    pub pay_to_the_order_of: LightIdentityPublicDataWithAddressWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWithAddressWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddressWeb,
+    pub signing_address: Option<PostalAddressWeb>,
 }
 
 impl IntoWeb<EndorsementWeb> for Endorsement {
@@ -207,7 +210,7 @@ impl IntoWeb<EndorsementWeb> for Endorsement {
             pay_to_the_order_of: self.pay_to_the_order_of.into_web(),
             signed: self.signed.into_web(),
             signing_timestamp: self.signing_timestamp,
-            signing_address: self.signing_address.into_web(),
+            signing_address: self.signing_address.map(|s| s.into_web()),
         }
     }
 }
@@ -304,8 +307,8 @@ impl IntoWeb<PastPaymentStatusWeb> for PastPaymentStatus {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataSellWeb {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicDataWeb,
-    pub seller: IdentityPublicDataWeb,
+    pub buyer: BillParticipantWeb,
+    pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -336,8 +339,8 @@ impl IntoWeb<PastPaymentDataSellWeb> for PastPaymentDataSell {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataPaymentWeb {
     pub time_of_request: u64,
-    pub payer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
+    pub payer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -367,8 +370,8 @@ impl IntoWeb<PastPaymentDataPaymentWeb> for PastPaymentDataPayment {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataRecourseWeb {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicDataWeb,
-    pub recoursee: IdentityPublicDataWeb,
+    pub recourser: BillIdentParticipantWeb,
+    pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -457,8 +460,8 @@ impl IntoWeb<BillCurrentWaitingStateWeb> for BillCurrentWaitingState {
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForSellStateWeb {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicDataWeb,
-    pub seller: IdentityPublicDataWeb,
+    pub buyer: BillParticipantWeb,
+    pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -485,8 +488,8 @@ impl IntoWeb<BillWaitingForSellStateWeb> for BillWaitingForSellState {
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForPaymentStateWeb {
     pub time_of_request: u64,
-    pub payer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
+    pub payer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -513,8 +516,8 @@ impl IntoWeb<BillWaitingForPaymentStateWeb> for BillWaitingForPaymentState {
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForRecourseStateWeb {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicDataWeb,
-    pub recoursee: IdentityPublicDataWeb,
+    pub recourser: BillIdentParticipantWeb,
+    pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -687,10 +690,10 @@ impl IntoWeb<BillDataWeb> for BillData {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillParticipantsWeb {
-    pub drawee: IdentityPublicDataWeb,
-    pub drawer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
-    pub endorsee: Option<IdentityPublicDataWeb>,
+    pub drawee: BillIdentParticipantWeb,
+    pub drawer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
+    pub endorsee: Option<BillParticipantWeb>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<String>,
 }
@@ -712,10 +715,10 @@ impl IntoWeb<BillParticipantsWeb> for BillParticipants {
 #[tsify(into_wasm_abi)]
 pub struct LightBitcreditBillWeb {
     pub id: String,
-    pub drawee: LightIdentityPublicDataWeb,
-    pub drawer: LightIdentityPublicDataWeb,
-    pub payee: LightIdentityPublicDataWeb,
-    pub endorsee: Option<LightIdentityPublicDataWeb>,
+    pub drawee: LightBillIdentParticipantWeb,
+    pub drawer: LightBillIdentParticipantWeb,
+    pub payee: LightBillParticipantWeb,
+    pub endorsee: Option<LightBillParticipantWeb>,
     pub active_notification: Option<NotificationWeb>,
     pub sum: String,
     pub currency: String,
@@ -744,7 +747,41 @@ impl IntoWeb<LightBitcreditBillWeb> for LightBitcreditBillResult {
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct IdentityPublicDataWeb {
+pub enum BillParticipantWeb {
+    Anon(BillAnonParticipantWeb),
+    Ident(BillIdentParticipantWeb),
+}
+
+impl IntoWeb<BillParticipantWeb> for BillParticipant {
+    fn into_web(self) -> BillParticipantWeb {
+        match self {
+            BillParticipant::Ident(data) => BillParticipantWeb::Ident(data.into_web()),
+            BillParticipant::Anon(data) => BillParticipantWeb::Anon(data.into_web()),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillAnonParticipantWeb {
+    pub node_id: String,
+    pub email: Option<String>,
+    pub nostr_relay: Option<String>,
+}
+
+impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
+    fn into_web(self) -> BillAnonParticipantWeb {
+        BillAnonParticipantWeb {
+            node_id: self.node_id,
+            email: self.email,
+            nostr_relay: self.nostr_relay,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillIdentParticipantWeb {
     pub t: ContactTypeWeb,
     pub node_id: String,
     pub name: String,
@@ -753,9 +790,9 @@ pub struct IdentityPublicDataWeb {
     pub nostr_relay: Option<String>,
 }
 
-impl IntoWeb<IdentityPublicDataWeb> for IdentityPublicData {
-    fn into_web(self) -> IdentityPublicDataWeb {
-        IdentityPublicDataWeb {
+impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
+    fn into_web(self) -> BillIdentParticipantWeb {
+        BillIdentParticipantWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,
@@ -768,16 +805,16 @@ impl IntoWeb<IdentityPublicDataWeb> for IdentityPublicData {
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct LightIdentityPublicDataWithAddressWeb {
+pub struct LightBillIdentParticipantWithAddressWeb {
     pub t: ContactTypeWeb,
     pub name: String,
     pub node_id: String,
     pub postal_address: PostalAddressWeb,
 }
 
-impl IntoWeb<LightIdentityPublicDataWithAddressWeb> for LightIdentityPublicDataWithAddress {
-    fn into_web(self) -> LightIdentityPublicDataWithAddressWeb {
-        LightIdentityPublicDataWithAddressWeb {
+impl IntoWeb<LightBillIdentParticipantWithAddressWeb> for LightBillIdentParticipantWithAddress {
+    fn into_web(self) -> LightBillIdentParticipantWithAddressWeb {
+        LightBillIdentParticipantWithAddressWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,
@@ -788,15 +825,45 @@ impl IntoWeb<LightIdentityPublicDataWithAddressWeb> for LightIdentityPublicDataW
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct LightIdentityPublicDataWeb {
+pub enum LightBillParticipantWeb {
+    Anon(LightBillAnonParticipantWeb),
+    Ident(LightBillIdentParticipantWeb),
+}
+
+impl IntoWeb<LightBillParticipantWeb> for LightBillParticipant {
+    fn into_web(self) -> LightBillParticipantWeb {
+        match self {
+            LightBillParticipant::Ident(data) => LightBillParticipantWeb::Ident(data.into_web()),
+            LightBillParticipant::Anon(data) => LightBillParticipantWeb::Anon(data.into_web()),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct LightBillAnonParticipantWeb {
+    pub node_id: String,
+}
+
+impl IntoWeb<LightBillAnonParticipantWeb> for LightBillAnonParticipant {
+    fn into_web(self) -> LightBillAnonParticipantWeb {
+        LightBillAnonParticipantWeb {
+            node_id: self.node_id,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct LightBillIdentParticipantWeb {
     pub t: ContactTypeWeb,
     pub name: String,
     pub node_id: String,
 }
 
-impl IntoWeb<LightIdentityPublicDataWeb> for LightIdentityPublicData {
-    fn into_web(self) -> LightIdentityPublicDataWeb {
-        LightIdentityPublicDataWeb {
+impl IntoWeb<LightBillIdentParticipantWeb> for LightBillIdentParticipant {
+    fn into_web(self) -> LightBillIdentParticipantWeb {
+        LightBillIdentParticipantWeb {
             t: self.t.into_web(),
             name: self.name,
             node_id: self.node_id,

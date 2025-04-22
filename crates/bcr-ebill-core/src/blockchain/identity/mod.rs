@@ -44,7 +44,7 @@ pub struct IdentityBlock {
 pub struct IdentityCreateBlockData {
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
     pub date_of_birth: Option<String>,
     pub city_of_birth: Option<String>,

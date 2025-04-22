@@ -112,10 +112,6 @@ pub async fn new_contact(
     new_contact_payload: Json<NewContactPayload>,
 ) -> Result<Json<ContactWeb>> {
     let payload = new_contact_payload.0;
-
-    validate_file_upload_id(payload.avatar_file_upload_id.as_deref())?;
-    validate_file_upload_id(payload.proof_document_file_upload_id.as_deref())?;
-
     let contact = state
         .contact_service
         .add_contact(
@@ -123,7 +119,7 @@ pub async fn new_contact(
             ContactType::from_web(ContactTypeWeb::try_from(payload.t)?),
             payload.name,
             payload.email,
-            PostalAddress::from_web(payload.postal_address),
+            payload.postal_address.map(PostalAddress::from_web),
             payload.date_of_birth_or_registration,
             payload.country_of_birth_or_registration,
             payload.city_of_birth_or_registration,

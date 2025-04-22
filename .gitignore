@@ -1,7 +1,7 @@
 /target
 /contacts/*
 /esplora/.docker_data/
-data/
+./data/
 /frontend_build/*
 /identity/*
 /bills/*
