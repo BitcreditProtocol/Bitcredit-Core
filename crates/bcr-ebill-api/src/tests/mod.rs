@@ -275,7 +275,7 @@ pub mod tests {
                 bill_id: &str,
                 sum: Option<u64>,
                 timed_out_action: ActionType,
-                recipients: Vec<BillIdentParticipant>,
+                recipients: Vec<BillParticipant>,
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_recourse_action_event(
                 &self,

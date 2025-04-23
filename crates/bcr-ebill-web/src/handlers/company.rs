@@ -2,8 +2,8 @@ use super::Result;
 use super::middleware::IdentityCheck;
 use crate::data::{
     AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload, EditCompanyPayload,
-    FromWeb, IntoWeb, ListSignatoriesResponse, RemoveSignatoryPayload, SuccessResponse,
-    TempFileWrapper, UploadFileForm, UploadFileResponse,
+    FromWeb, IntoWeb, ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
+    SuccessResponse, TempFileWrapper, UploadFileForm, UploadFileResponse,
 };
 use crate::service_context::ServiceContext;
 use bcr_ebill_api::data::{OptionalPostalAddress, PostalAddress};
@@ -33,9 +33,11 @@ pub async fn list_signatories(
     id: &str,
 ) -> Result<Json<ListSignatoriesResponse>> {
     let signatories = state.company_service.list_signatories(id).await?;
-    Ok(Json(ListSignatoriesResponse {
-        signatories: signatories.into_iter().map(|c| c.into()).collect(),
-    }))
+    let signatories: Vec<SignatoryResponse> = signatories
+        .into_iter()
+        .map(|c| c.try_into())
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(Json(ListSignatoriesResponse { signatories }))
 }
 
 #[get("/file/<id>/<file_name>")]

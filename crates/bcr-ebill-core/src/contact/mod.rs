@@ -1,8 +1,10 @@
-use crate::blockchain::bill::block::NodeId;
+use crate::{ValidationError, blockchain::bill::block::NodeId};
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+
+pub mod validation;
 
 #[repr(u8)]
 #[derive(
@@ -21,6 +23,20 @@ pub enum ContactType {
     #[default]
     Person = 0,
     Company = 1,
+    Anon = 2,
+}
+
+impl TryFrom<u64> for ContactType {
+    type Error = ValidationError;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(ContactType::Person),
+            1 => Ok(ContactType::Company),
+            2 => Ok(ContactType::Anon),
+            _ => Err(ValidationError::InvalidContactType),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,9 +45,9 @@ pub struct Contact {
     pub t: ContactType,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>, // optional for anon only
     #[serde(flatten)]
-    pub postal_address: PostalAddress,
+    pub postal_address: Option<PostalAddress>, // optional for anon only
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -183,15 +199,48 @@ impl From<BillIdentParticipant> for LightBillIdentParticipantWithAddress {
     }
 }
 
-impl From<Contact> for BillIdentParticipant {
-    fn from(value: Contact) -> Self {
-        Self {
-            t: value.t,
-            node_id: value.node_id.clone(),
-            name: value.name,
-            postal_address: value.postal_address,
-            email: Some(value.email),
-            nostr_relay: value.nostr_relays.first().cloned(),
+impl TryFrom<Contact> for BillIdentParticipant {
+    type Error = ValidationError;
+    fn try_from(value: Contact) -> Result<Self, Self::Error> {
+        match value.t {
+            ContactType::Company | ContactType::Person => Ok(Self {
+                t: value.t,
+                node_id: value.node_id.clone(),
+                name: value.name,
+                postal_address: value
+                    .postal_address
+                    .ok_or(ValidationError::InvalidContact(value.node_id.to_owned()))?,
+                email: value.email,
+                nostr_relay: value.nostr_relays.first().cloned(),
+            }),
+            ContactType::Anon => Err(ValidationError::ContactIsAnonymous(
+                value.node_id.to_owned(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<Contact> for BillParticipant {
+    type Error = ValidationError;
+    fn try_from(value: Contact) -> Result<Self, Self::Error> {
+        match value.t {
+            ContactType::Company | ContactType::Person => {
+                Ok(BillParticipant::Ident(BillIdentParticipant {
+                    t: value.t,
+                    node_id: value.node_id.clone(),
+                    name: value.name,
+                    postal_address: value
+                        .postal_address
+                        .ok_or(ValidationError::InvalidContact(value.node_id.to_owned()))?,
+                    email: value.email,
+                    nostr_relay: value.nostr_relays.first().cloned(),
+                }))
+            }
+            ContactType::Anon => Ok(BillParticipant::Anon(BillAnonParticipant {
+                node_id: value.node_id.clone(),
+                email: value.email,
+                nostr_relay: value.nostr_relays.first().cloned(),
+            })),
         }
     }
 }
