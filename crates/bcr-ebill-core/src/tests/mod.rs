@@ -3,6 +3,7 @@
 pub mod tests {
     use crate::Validate;
     use crate::contact::BillParticipant;
+    use crate::identity::IdentityType;
     use crate::{
         Field, OptionalPostalAddress, PostalAddress, ValidationError,
         bill::{BillKeys, BitcreditBill},
@@ -98,9 +99,10 @@ pub mod tests {
 
     pub fn empty_identity() -> Identity {
         Identity {
+            t: IdentityType::Ident,
             node_id: "".to_string(),
             name: "some name".to_string(),
-            email: "some@example.com".to_string(),
+            email: Some("some@example.com".to_string()),
             postal_address: valid_optional_address(),
             date_of_birth: None,
             country_of_birth: None,

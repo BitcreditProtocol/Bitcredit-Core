@@ -11,7 +11,9 @@ use crate::data::{
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
-use bcr_ebill_core::identity::ActiveIdentityState;
+use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
+use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use log::{debug, info};
 use std::sync::Arc;
 
@@ -40,8 +42,24 @@ pub trait IdentityServiceApi: Send + Sync {
     /// Creates the identity
     async fn create_identity(
         &self,
+        t: IdentityType,
         name: String,
-        email: String,
+        email: Option<String>,
+        postal_address: OptionalPostalAddress,
+        date_of_birth: Option<String>,
+        country_of_birth: Option<String>,
+        city_of_birth: Option<String>,
+        identification_number: Option<String>,
+        profile_picture_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<String>,
+        timestamp: u64,
+    ) -> Result<()>;
+    /// Deanonymizes an anon identity
+    async fn deanonymize_identity(
+        &self,
+        t: IdentityType,
+        name: String,
+        email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
         country_of_birth: Option<String>,
@@ -159,6 +177,19 @@ impl IdentityServiceApi for IdentityService {
         let mut identity = self.store.get().await?;
         let mut changed = false;
 
+        let mut profile_picture_file = None;
+        let mut identity_document_file = None;
+        let keys = self.store.get_key_pair().await?;
+
+        validate_update_identity(
+            identity.t.clone(),
+            &name,
+            &email,
+            &postal_address,
+            &profile_picture_file_upload_id,
+            &identity_document_file_upload_id,
+        )?;
+
         if let Some(ref name_to_set) = name {
             if identity.name != name_to_set.trim() {
                 identity.name = name_to_set.trim().to_owned();
@@ -166,82 +197,86 @@ impl IdentityServiceApi for IdentityService {
             }
         }
 
-        if let Some(ref email_to_set) = email {
-            if identity.email != email_to_set.trim() {
-                identity.email = email_to_set.trim().to_owned();
-                changed = true;
+        // for anonymous identity, we only consider email and name
+        if identity.t == IdentityType::Anon {
+            util::update_optional_field(&mut identity.email, &email, &mut changed);
+        } else {
+            if let Some(ref email_to_set) = email {
+                if identity.email != Some(email_to_set.trim().to_string()) {
+                    identity.email = Some(email_to_set.trim().to_owned());
+                    changed = true;
+                }
             }
-        }
 
-        util::update_optional_field(
-            &mut identity.postal_address.country,
-            &postal_address.country,
-            &mut changed,
-        );
+            util::update_optional_field(
+                &mut identity.postal_address.country,
+                &postal_address.country,
+                &mut changed,
+            );
 
-        util::update_optional_field(
-            &mut identity.postal_address.city,
-            &postal_address.city,
-            &mut changed,
-        );
+            util::update_optional_field(
+                &mut identity.postal_address.city,
+                &postal_address.city,
+                &mut changed,
+            );
 
-        util::update_optional_field(
-            &mut identity.postal_address.zip,
-            &postal_address.zip,
-            &mut changed,
-        );
+            util::update_optional_field(
+                &mut identity.postal_address.zip,
+                &postal_address.zip,
+                &mut changed,
+            );
 
-        util::update_optional_field(
-            &mut identity.postal_address.address,
-            &postal_address.address,
-            &mut changed,
-        );
+            util::update_optional_field(
+                &mut identity.postal_address.address,
+                &postal_address.address,
+                &mut changed,
+            );
 
-        util::update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
+            util::update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
 
-        util::update_optional_field(
-            &mut identity.country_of_birth,
-            &country_of_birth,
-            &mut changed,
-        );
+            util::update_optional_field(
+                &mut identity.country_of_birth,
+                &country_of_birth,
+                &mut changed,
+            );
 
-        util::update_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
+            util::update_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
 
-        util::update_optional_field(
-            &mut identity.identification_number,
-            &identification_number,
-            &mut changed,
-        );
+            util::update_optional_field(
+                &mut identity.identification_number,
+                &identification_number,
+                &mut changed,
+            );
 
-        if !changed
-            && profile_picture_file_upload_id.is_none()
-            && identity_document_file_upload_id.is_none()
-        {
-            return Ok(());
-        }
+            if !changed
+                && profile_picture_file_upload_id.is_none()
+                && identity_document_file_upload_id.is_none()
+            {
+                return Ok(());
+            }
 
-        let keys = self.store.get_key_pair().await?;
-        let profile_picture_file = self
-            .process_upload_file(
-                &profile_picture_file_upload_id,
-                &identity.node_id,
-                &keys.get_public_key(),
-            )
-            .await?;
-        // only override the picture, if there is a new one
-        if profile_picture_file.is_some() {
-            identity.profile_picture_file = profile_picture_file.clone();
-        }
-        let identity_document_file = self
-            .process_upload_file(
-                &identity_document_file_upload_id,
-                &identity.node_id,
-                &keys.get_public_key(),
-            )
-            .await?;
-        // only override the document, if there is a new one
-        if identity_document_file.is_some() {
-            identity.identity_document_file = identity_document_file.clone();
+            profile_picture_file = self
+                .process_upload_file(
+                    &profile_picture_file_upload_id,
+                    &identity.node_id,
+                    &keys.get_public_key(),
+                )
+                .await?;
+            // only override the picture, if there is a new one
+            if profile_picture_file.is_some() {
+                identity.profile_picture_file = profile_picture_file.clone();
+            }
+            identity_document_file = self
+                .process_upload_file(
+                    &identity_document_file_upload_id,
+                    &identity.node_id,
+                    &keys.get_public_key(),
+                )
+                .await?;
+            // only override the document, if there is a new one
+            if identity_document_file.is_some() {
+                identity.identity_document_file = identity_document_file.clone();
+            }
         }
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
@@ -279,8 +314,9 @@ impl IdentityServiceApi for IdentityService {
 
     async fn create_identity(
         &self,
+        t: IdentityType,
         name: String,
-        email: String,
+        email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
         country_of_birth: Option<String>,
@@ -293,35 +329,63 @@ impl IdentityServiceApi for IdentityService {
         debug!("creating identity");
         let keys = self.store.get_or_create_key_pair().await?;
         let node_id = keys.get_public_key();
+        validate_create_identity(
+            t.clone(),
+            &node_id,
+            &name,
+            &email,
+            &postal_address,
+            &profile_picture_file_upload_id,
+            &identity_document_file_upload_id,
+        )?;
 
-        let profile_picture_file = self
-            .process_upload_file(
-                &profile_picture_file_upload_id,
-                &node_id,
-                &keys.get_public_key(),
-            )
-            .await?;
+        let identity = match t {
+            IdentityType::Ident => {
+                let profile_picture_file = self
+                    .process_upload_file(
+                        &profile_picture_file_upload_id,
+                        &node_id,
+                        &keys.get_public_key(),
+                    )
+                    .await?;
 
-        let identity_document_file = self
-            .process_upload_file(
-                &identity_document_file_upload_id,
-                &node_id,
-                &keys.get_public_key(),
-            )
-            .await?;
+                let identity_document_file = self
+                    .process_upload_file(
+                        &identity_document_file_upload_id,
+                        &node_id,
+                        &keys.get_public_key(),
+                    )
+                    .await?;
 
-        let identity = Identity {
-            node_id: node_id.clone(),
-            name,
-            email,
-            postal_address,
-            date_of_birth,
-            country_of_birth,
-            city_of_birth,
-            identification_number,
-            profile_picture_file,
-            identity_document_file,
-            nostr_relay: Some(get_config().nostr_relay.to_owned()),
+                Identity {
+                    t: t.clone(),
+                    node_id: node_id.clone(),
+                    name,
+                    email,
+                    postal_address,
+                    date_of_birth,
+                    country_of_birth,
+                    city_of_birth,
+                    identification_number,
+                    profile_picture_file,
+                    identity_document_file,
+                    nostr_relay: Some(get_config().nostr_relay.to_owned()),
+                }
+            }
+            IdentityType::Anon => Identity {
+                t: t.clone(),
+                node_id: node_id.clone(),
+                name,
+                email,
+                postal_address: OptionalPostalAddress::empty(),
+                date_of_birth: None,
+                country_of_birth: None,
+                city_of_birth: None,
+                identification_number: None,
+                profile_picture_file: None,
+                identity_document_file: None,
+                nostr_relay: Some(get_config().nostr_relay.to_owned()),
+            },
         };
 
         // create new identity chain and persist it
@@ -332,6 +396,103 @@ impl IdentityServiceApi for IdentityService {
         // persist the identity in the DB
         self.store.save(&identity).await?;
         debug!("created identity");
+        Ok(())
+    }
+
+    async fn deanonymize_identity(
+        &self,
+        t: IdentityType,
+        name: String,
+        email: Option<String>,
+        postal_address: OptionalPostalAddress,
+        date_of_birth: Option<String>,
+        country_of_birth: Option<String>,
+        city_of_birth: Option<String>,
+        identification_number: Option<String>,
+        profile_picture_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<String>,
+        timestamp: u64,
+    ) -> Result<()> {
+        debug!("deanonymizing identity");
+        let existing_identity = self.store.get().await?;
+        let keys = self.store.get_key_pair().await?;
+
+        // can't de-anonymize to an anonymous identity
+        if t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ValidationError::IdentityCantBeAnon,
+            ));
+        }
+
+        // if the exitsing identity is not anon, the action is not valid
+        if existing_identity.t != IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ValidationError::InvalidIdentityType,
+            ));
+        }
+
+        validate_create_identity(
+            t.clone(),
+            &existing_identity.node_id,
+            &name,
+            &email,
+            &postal_address,
+            &profile_picture_file_upload_id,
+            &identity_document_file_upload_id,
+        )?;
+
+        let profile_picture_file = self
+            .process_upload_file(
+                &profile_picture_file_upload_id,
+                &existing_identity.node_id,
+                &keys.get_public_key(),
+            )
+            .await?;
+
+        let identity_document_file = self
+            .process_upload_file(
+                &identity_document_file_upload_id,
+                &existing_identity.node_id,
+                &keys.get_public_key(),
+            )
+            .await?;
+
+        let identity = Identity {
+            t: t.clone(),
+            node_id: existing_identity.node_id.clone(),
+            name: name.clone(),
+            email: email.clone(),
+            postal_address: postal_address.clone(),
+            date_of_birth: date_of_birth.clone(),
+            country_of_birth: country_of_birth.clone(),
+            city_of_birth: city_of_birth.clone(),
+            identification_number: identification_number.clone(),
+            profile_picture_file: profile_picture_file.clone(),
+            identity_document_file: identity_document_file.clone(),
+            nostr_relay: Some(get_config().nostr_relay.to_owned()),
+        };
+
+        let previous_block = self.blockchain_store.get_latest_block().await?;
+        let new_block = IdentityBlock::create_block_for_update(
+            &previous_block,
+            &IdentityUpdateBlockData {
+                name: Some(name),
+                email,
+                postal_address,
+                date_of_birth,
+                country_of_birth,
+                city_of_birth,
+                identification_number,
+                profile_picture_file,
+                identity_document_file,
+            },
+            &keys,
+            timestamp,
+        )?;
+        self.blockchain_store.add_block(&new_block).await?;
+
+        self.store.save(&identity).await?;
+        debug!("deanonymized identity");
         Ok(())
     }
 
@@ -436,8 +597,9 @@ mod tests {
         let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
             .create_identity(
+                IdentityType::Ident,
                 "name".to_string(),
-                "email".to_string(),
+                Some("email".to_string()),
                 empty_optional_address(),
                 None,
                 None,
@@ -450,6 +612,142 @@ mod tests {
             .await;
 
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn deanonymize_identity_baseline() {
+        init_test_cfg();
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_save().returning(move |_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_get().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = BcrKeys::new().get_public_key();
+            identity.t = IdentityType::Anon;
+            Ok(identity)
+        });
+        let mut chain_storage = MockIdentityChainStoreApiMock::new();
+        chain_storage.expect_add_block().returning(|_| Ok(()));
+        chain_storage.expect_get_latest_block().returning(|| {
+            let identity = empty_identity();
+            Ok(
+                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
+                    .unwrap()
+                    .get_latest_block()
+                    .clone(),
+            )
+        });
+
+        let service = get_service_with_chain_storage(storage, chain_storage);
+        let res = service
+            .deanonymize_identity(
+                IdentityType::Ident,
+                "name".to_string(),
+                Some("email".to_string()),
+                empty_optional_address(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                1731593928,
+            )
+            .await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn deanonymize_identity_fails_with_anon() {
+        init_test_cfg();
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_save().returning(move |_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_get().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = BcrKeys::new().get_public_key();
+            identity.t = IdentityType::Anon;
+            Ok(identity)
+        });
+        let mut chain_storage = MockIdentityChainStoreApiMock::new();
+        chain_storage.expect_add_block().returning(|_| Ok(()));
+
+        let service = get_service_with_chain_storage(storage, chain_storage);
+        let res = service
+            .deanonymize_identity(
+                IdentityType::Anon,
+                "name".to_string(),
+                Some("email".to_string()),
+                empty_optional_address(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                1731593928,
+            )
+            .await;
+
+        assert!(res.is_err());
+        assert!(matches!(
+            res.unwrap_err(),
+            crate::service::Error::Validation(ValidationError::IdentityCantBeAnon)
+        ));
+    }
+
+    #[tokio::test]
+    async fn deanonymize_identity_fails_for_non_anon() {
+        init_test_cfg();
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_save().returning(move |_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_get().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = BcrKeys::new().get_public_key();
+            Ok(identity)
+        });
+        let mut chain_storage = MockIdentityChainStoreApiMock::new();
+        chain_storage.expect_add_block().returning(|_| Ok(()));
+
+        let service = get_service_with_chain_storage(storage, chain_storage);
+        let res = service
+            .deanonymize_identity(
+                IdentityType::Ident,
+                "name".to_string(),
+                Some("email".to_string()),
+                empty_optional_address(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                1731593928,
+            )
+            .await;
+
+        assert!(res.is_err());
+        assert!(matches!(
+            res.unwrap_err(),
+            crate::service::Error::Validation(ValidationError::InvalidIdentityType)
+        ));
     }
 
     #[tokio::test]

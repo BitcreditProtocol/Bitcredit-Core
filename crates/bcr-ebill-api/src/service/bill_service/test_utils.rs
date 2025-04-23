@@ -34,7 +34,7 @@ use bcr_ebill_core::{
         },
         identity::IdentityBlockchain,
     },
-    contact::BillParticipant,
+    contact::{BillIdentParticipant, BillParticipant},
 };
 use core::str;
 use external::bitcoin::MockBitcoinClientApi;

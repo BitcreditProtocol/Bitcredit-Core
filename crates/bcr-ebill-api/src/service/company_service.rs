@@ -24,6 +24,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::identity::IdentityType;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -233,6 +234,12 @@ impl CompanyServiceApi for CompanyService {
         };
 
         let full_identity = self.identity_store.get_full().await?;
+        // company can only be created by identified identity
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ValidationError::IdentityCantBeAnon,
+            ));
+        }
 
         // Save the files locally with the identity public key
         let proof_of_registration_file = self
@@ -332,6 +339,12 @@ impl CompanyServiceApi for CompanyService {
             return Err(super::Error::NotFound);
         }
         let full_identity = self.identity_store.get_full().await?;
+        // company can only be edited by identified identity
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ValidationError::IdentityCantBeAnon,
+            ));
+        }
         let node_id = full_identity.identity.node_id;
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
@@ -481,6 +494,12 @@ impl CompanyServiceApi for CompanyService {
             return Err(super::Error::NotFound);
         }
         let full_identity = self.identity_store.get_full().await?;
+        // only non-anon identities can add signatories
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ValidationError::IdentityCantBeAnon,
+            ));
+        }
         let contacts = self.contact_store.get_map().await?;
         let is_in_contacts = contacts.iter().any(|(node_id, contact)| {
             *node_id == signatory_node_id && contact.t == ContactType::Person // only non-anon persons can be added
@@ -559,6 +578,12 @@ impl CompanyServiceApi for CompanyService {
         }
 
         let full_identity = self.identity_store.get_full().await?;
+        // only non-anon identities can remove signatories
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ValidationError::IdentityCantBeAnon,
+            ));
+        }
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
         if company.signatories.len() == 1 {

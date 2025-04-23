@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use bcr_ebill_api::data::contact::{
     BillAnonParticipant, BillParticipant, LightBillAnonParticipant, LightBillParticipant,
 };
+use bcr_ebill_api::data::identity::IdentityType;
 use bcr_ebill_api::service::Error;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
 use bcr_ebill_api::util::{BcrKeys, date::DateTimeUtc};
@@ -21,7 +22,7 @@ use bcr_ebill_api::{
             BillIdentParticipant, Contact, ContactType, LightBillIdentParticipant,
             LightBillIdentParticipantWithAddress,
         },
-        identity::{Identity, IdentityType},
+        identity::{Identity, SwitchIdentityType},
         notification::{Notification, NotificationType},
     },
     util::ValidationError,
@@ -339,7 +340,7 @@ impl IntoWeb<EndorsementWeb> for Endorsement {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SwitchIdentity {
     #[serde(rename = "type")]
-    pub t: Option<IdentityTypeWeb>,
+    pub t: Option<SwitchIdentityTypeWeb>,
     pub node_id: String,
 }
 
@@ -347,16 +348,60 @@ pub struct SwitchIdentity {
 #[derive(
     Debug, Clone, serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Eq, ToSchema,
 )]
-pub enum IdentityTypeWeb {
+pub enum SwitchIdentityTypeWeb {
     Person = 0,
     Company = 1,
+}
+
+impl IntoWeb<SwitchIdentityTypeWeb> for SwitchIdentityType {
+    fn into_web(self) -> SwitchIdentityTypeWeb {
+        match self {
+            SwitchIdentityType::Person => SwitchIdentityTypeWeb::Person,
+            SwitchIdentityType::Company => SwitchIdentityTypeWeb::Company,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    PartialEq,
+    Eq,
+    ToSchema,
+)]
+pub enum IdentityTypeWeb {
+    Ident = 0,
+    Anon = 1,
+}
+
+impl TryFrom<u64> for IdentityTypeWeb {
+    type Error = Error;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        Ok(IdentityType::try_from(value)
+            .map_err(Self::Error::Validation)?
+            .into_web())
+    }
 }
 
 impl IntoWeb<IdentityTypeWeb> for IdentityType {
     fn into_web(self) -> IdentityTypeWeb {
         match self {
-            IdentityType::Person => IdentityTypeWeb::Person,
-            IdentityType::Company => IdentityTypeWeb::Company,
+            IdentityType::Ident => IdentityTypeWeb::Ident,
+            IdentityType::Anon => IdentityTypeWeb::Anon,
+        }
+    }
+}
+
+impl FromWeb<IdentityTypeWeb> for IdentityType {
+    fn from_web(value: IdentityTypeWeb) -> Self {
+        match value {
+            IdentityTypeWeb::Ident => IdentityType::Ident,
+            IdentityTypeWeb::Anon => IdentityType::Anon,
         }
     }
 }
@@ -402,8 +447,10 @@ pub struct ChangeIdentityPayload {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct NewIdentityPayload {
+    #[serde(rename = "type")]
+    pub t: u64,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     #[serde(flatten)]
     pub postal_address: OptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
@@ -546,9 +593,10 @@ impl TryFrom<Contact> for SignatoryResponse {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IdentityWeb {
+    pub t: IdentityTypeWeb,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     pub bitcoin_public_key: String,
     pub npub: String,
     #[serde(flatten)]
@@ -565,6 +613,7 @@ pub struct IdentityWeb {
 impl IdentityWeb {
     pub fn from(identity: Identity, keys: BcrKeys) -> Self {
         Self {
+            t: identity.t.into_web(),
             node_id: identity.node_id.clone(),
             name: identity.name,
             email: identity.email,

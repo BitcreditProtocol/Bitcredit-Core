@@ -13,7 +13,7 @@ pub mod tests {
         },
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
-        identity::{ActiveIdentityState, Identity, IdentityWithAll},
+        identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
     };
@@ -345,9 +345,10 @@ pub mod tests {
 
     pub fn empty_identity() -> Identity {
         Identity {
+            t: IdentityType::Ident,
             node_id: "".to_string(),
             name: "some name".to_string(),
-            email: "some@example.com".to_string(),
+            email: Some("some@example.com".to_string()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,

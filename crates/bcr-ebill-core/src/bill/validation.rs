@@ -8,6 +8,7 @@ use crate::{
         },
     },
     constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
+    contact::BillParticipant,
     util::{self, date::start_of_day_as_timestamp},
 };
 
@@ -28,10 +29,15 @@ pub fn validate_bill_issue(data: &BillIssueData) -> Result<(u64, BillType), Vali
         return Err(ValidationError::InvalidSecp256k1Key(data.payee.clone()));
     }
 
-    if util::crypto::validate_pub_key(&data.drawer_public_data.node_id).is_err() {
+    if util::crypto::validate_pub_key(&data.drawer_public_data.node_id()).is_err() {
         return Err(ValidationError::InvalidSecp256k1Key(
-            data.drawer_public_data.node_id.clone(),
+            data.drawer_public_data.node_id().clone(),
         ));
+    }
+
+    // anon users can't issue bill
+    if let BillParticipant::Anon(_) = data.drawer_public_data {
+        return Err(ValidationError::DrawerIsNotBillIssuer);
     }
 
     let issue_date_ts = util::date::date_string_to_timestamp(&data.issue_date, None)?;
@@ -616,7 +622,7 @@ mod tests {
             city_of_payment: "Paris".into(),
             language: "de".into(),
             file_upload_ids: vec![],
-            drawer_public_data: valid_bill_identified_participant(),
+            drawer_public_data: BillParticipant::Ident(valid_bill_identified_participant()),
             drawer_keys: BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             timestamp: 1731593928,
         }
@@ -639,7 +645,7 @@ mod tests {
     #[case::drawee_equals_payee( BillIssueData { drawee: TEST_PUB_KEY_SECP.into(), payee: TEST_PUB_KEY_SECP.into(), ..valid_bill_issue_data() }, ValidationError::DraweeCantBePayee)]
     #[case::invalid_payee( BillIssueData { payee: "invalidkey".into(), ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
     #[case::invalid_drawee( BillIssueData { drawee: "invalidkey".into(),  ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
-    #[case::invalid_drawer( BillIssueData { drawer_public_data: BillIdentParticipant { node_id: "invalidkey".into(), ..valid_bill_identified_participant() }, ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
+    #[case::invalid_drawer( BillIssueData { drawer_public_data: BillParticipant::Ident(BillIdentParticipant { node_id: "invalidkey".into(), ..valid_bill_identified_participant() }), ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
     fn test_validate_bill_issue_data_errors(
         #[case] input: BillIssueData,
         #[case] expected: ValidationError,

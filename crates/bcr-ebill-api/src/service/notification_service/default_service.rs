@@ -56,16 +56,17 @@ impl DefaultNotificationService {
         }
     }
 
-    fn get_local_identity(&self, node_id: &str) -> Option<BillIdentParticipant> {
+    fn get_local_identity(&self, node_id: &str) -> Option<BillParticipant> {
         if self.notification_transport.contains_key(node_id) {
-            Some(BillIdentParticipant {
+            Some(BillParticipant::Ident(BillIdentParticipant {
+                // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
                 t: ContactType::Person,
                 node_id: node_id.to_string(),
                 email: None,
                 name: String::new(),
                 postal_address: PostalAddress::default(),
                 nostr_relay: Some(self.nostr_relay.clone()),
-            })
+            }))
         } else {
             None
         }
@@ -73,7 +74,7 @@ impl DefaultNotificationService {
 
     async fn resolve_identity(&self, node_id: &str) -> Option<BillParticipant> {
         match self.get_local_identity(node_id) {
-            Some(id) => Some(BillParticipant::Ident(id)), // TODO: support anon identity
+            Some(id) => Some(id),
             None => {
                 if let Ok(Some(identity)) =
                     self.contact_service.get_identity_by_node_id(node_id).await
