@@ -483,7 +483,7 @@ impl CompanyServiceApi for CompanyService {
         let full_identity = self.identity_store.get_full().await?;
         let contacts = self.contact_store.get_map().await?;
         let is_in_contacts = contacts.iter().any(|(node_id, contact)| {
-            *node_id == signatory_node_id && contact.t == ContactType::Person
+            *node_id == signatory_node_id && contact.t == ContactType::Person // only non-anon persons can be added
         });
         if !is_in_contacts {
             return Err(super::Error::Validation(

@@ -22,13 +22,13 @@ impl BillService {
             // Drawer is payee
             BillType::SelfDrafted => {
                 let public_data_drawee = match self.contact_store.get(&data.drawee).await {
-                    Ok(Some(drawee)) => drawee.into(),
+                    Ok(Some(drawee)) => drawee.try_into()?,
                     Ok(None) | Err(_) => {
                         return Err(Error::DraweeNotInContacts);
                     }
                 };
 
-                let public_data_payee = data.drawer_public_data.clone();
+                let public_data_payee = BillParticipant::Ident(data.drawer_public_data.clone());
 
                 (public_data_drawee, public_data_payee)
             }
@@ -37,7 +37,7 @@ impl BillService {
                 let public_data_drawee = data.drawer_public_data.clone();
 
                 let public_data_payee = match self.contact_store.get(&data.payee).await {
-                    Ok(Some(drawee)) => drawee.into(),
+                    Ok(Some(payee)) => payee.try_into()?,
                     Ok(None) | Err(_) => {
                         return Err(Error::PayeeNotInContacts);
                     }
@@ -48,14 +48,14 @@ impl BillService {
             // Drawer is neither drawee nor payee
             BillType::ThreeParties => {
                 let public_data_drawee = match self.contact_store.get(&data.drawee).await {
-                    Ok(Some(drawee)) => drawee.into(),
+                    Ok(Some(drawee)) => drawee.try_into()?,
                     Ok(None) | Err(_) => {
                         return Err(Error::DraweeNotInContacts);
                     }
                 };
 
                 let public_data_payee = match self.contact_store.get(&data.payee).await {
-                    Ok(Some(drawee)) => drawee.into(),
+                    Ok(Some(payee)) => payee.try_into()?,
                     Ok(None) | Err(_) => {
                         return Err(Error::PayeeNotInContacts);
                     }
@@ -102,7 +102,7 @@ impl BillService {
             language: data.language,
             drawee: public_data_drawee,
             drawer: data.drawer_public_data.clone(),
-            payee: BillParticipant::Ident(public_data_payee), // TODO: support anon
+            payee: public_data_payee,
             endorsee: None,
             files: bill_files,
         };

@@ -420,9 +420,9 @@ pub struct NewContactPayload {
     pub t: u64,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     #[serde(flatten)]
-    pub postal_address: PostalAddressWeb,
+    pub postal_address: Option<PostalAddressWeb>,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -524,15 +524,23 @@ pub struct SignatoryResponse {
     pub avatar_file: Option<FileWeb>,
 }
 
-impl From<Contact> for SignatoryResponse {
-    fn from(value: Contact) -> Self {
-        Self {
-            t: value.t.into_web(),
-            node_id: value.node_id,
-            name: value.name,
-            postal_address: value.postal_address.into_web(),
-            avatar_file: value.avatar_file.map(|f| f.into_web()),
+impl TryFrom<Contact> for SignatoryResponse {
+    type Error = ValidationError;
+
+    fn try_from(value: Contact) -> Result<Self, Self::Error> {
+        if value.t == ContactType::Anon {
+            return Err(ValidationError::InvalidContact(value.node_id));
         }
+        Ok(Self {
+            t: value.t.into_web(),
+            node_id: value.node_id.clone(),
+            name: value.name,
+            postal_address: value
+                .postal_address
+                .ok_or(ValidationError::InvalidContact(value.node_id))
+                .map(|pa| pa.into_web())?,
+            avatar_file: value.avatar_file.map(|f| f.into_web()),
+        })
     }
 }
 
@@ -674,6 +682,7 @@ impl IntoWeb<FileWeb> for File {
 pub enum ContactTypeWeb {
     Person = 0,
     Company = 1,
+    Anon = 2,
 }
 
 impl TryFrom<u64> for ContactTypeWeb {
@@ -683,6 +692,7 @@ impl TryFrom<u64> for ContactTypeWeb {
         match value {
             0 => Ok(ContactTypeWeb::Person),
             1 => Ok(ContactTypeWeb::Company),
+            2 => Ok(ContactTypeWeb::Anon),
             _ => Err(Error::Validation(ValidationError::InvalidContactType)),
         }
     }
@@ -693,6 +703,7 @@ impl IntoWeb<ContactTypeWeb> for ContactType {
         match self {
             ContactType::Person => ContactTypeWeb::Person,
             ContactType::Company => ContactTypeWeb::Company,
+            ContactType::Anon => ContactTypeWeb::Anon,
         }
     }
 }
@@ -702,6 +713,7 @@ impl FromWeb<ContactTypeWeb> for ContactType {
         match value {
             ContactTypeWeb::Person => ContactType::Person,
             ContactTypeWeb::Company => ContactType::Company,
+            ContactTypeWeb::Anon => ContactType::Anon,
         }
     }
 }
@@ -712,9 +724,9 @@ pub struct ContactWeb {
     pub t: ContactTypeWeb,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     #[serde(flatten)]
-    pub postal_address: PostalAddressWeb,
+    pub postal_address: Option<PostalAddressWeb>,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -731,7 +743,7 @@ impl IntoWeb<ContactWeb> for Contact {
             node_id: self.node_id,
             name: self.name,
             email: self.email,
-            postal_address: self.postal_address.into_web(),
+            postal_address: self.postal_address.map(|pa| pa.into_web()),
             date_of_birth_or_registration: self.date_of_birth_or_registration,
             country_of_birth_or_registration: self.country_of_birth_or_registration,
             city_of_birth_or_registration: self.city_of_birth_or_registration,

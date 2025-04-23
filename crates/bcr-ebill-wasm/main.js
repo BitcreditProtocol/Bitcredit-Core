@@ -3,6 +3,8 @@ import * as wasm from '../pkg/index.js';
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("notif").addEventListener("click", triggerNotif);
 document.getElementById("contact_test").addEventListener("click", triggerContact);
+document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
+document.getElementById("fetch_contacts").addEventListener("click", fetchContacts);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
@@ -174,22 +176,9 @@ async function uploadFile(event) {
 }
 
 async function triggerContact() {
-  let node_id = document.getElementById("node_id_bill").value;
+  let node_id = document.getElementById("node_id_contact").value;
   try {
     let contact = await contactApi.detail(node_id);
-    console.log("contact:", contact);
-    console.log("changing contact");
-    await contactApi.edit({
-      node_id: node_id,
-      name: "Weird Contact",
-      postal_address: {
-        country: "DE",
-        city: "Berlin",
-        zip: "10200",
-        address: "street 2",
-      }
-    });
-    contact = await contactApi.detail(node_id);
     console.log("contact:", contact);
   } catch (err) {
     console.log("No contact found - creating..");
@@ -208,14 +197,29 @@ async function triggerContact() {
       avatar_file_upload_id: file_upload_id,
     });
   }
-  let contacts = await contactApi.list();
-  console.log("contacts: ", contacts);
-  let contact = await contactApi.detail(node_id);
-  console.log("contact: ", contact);
   document.getElementById("contact_id").value = node_id;
+  document.getElementById("node_id_bill").value = node_id;
   if (contact.avatar_file) {
     document.getElementById("contact_file_name").value = contact.avatar_file.name;
   }
+}
+
+async function triggerAnonContact() {
+  let node_id = document.getElementById("node_id_contact").value;
+  try {
+    let contact = await contactApi.detail(node_id);
+    console.log("anon contact:", contact);
+  } catch (err) {
+    console.log("No contact found - creating..");
+    await contactApi.create({
+      t: 2,
+      node_id: node_id,
+      name: "some anon dude",
+      email: "text@example.com",
+    });
+  }
+  document.getElementById("contact_id").value = node_id;
+  document.getElementById("node_id_bill").value = node_id;
 }
 
 async function triggerBill() {
@@ -434,3 +438,11 @@ function measure(promiseFunction) {
     return result;
   };
 }
+
+async function fetchContacts() {
+  let measured = measure(async () => {
+    return await contactApi.list();
+  });
+  await measured();
+}
+
