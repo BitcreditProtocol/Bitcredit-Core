@@ -1,6 +1,6 @@
 /target
 /contacts/*
-data/
+./data/
 /frontend_build/*
 /identity/*
 /bills/*

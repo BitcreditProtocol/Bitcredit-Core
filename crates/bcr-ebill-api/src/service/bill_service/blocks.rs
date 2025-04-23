@@ -383,7 +383,7 @@ impl BillService {
         match signer_public_data {
             BillParticipant::Ident(identified) => {
                 match identified.t {
-                    ContactType::Person => {
+                    ContactType::Person | ContactType::Anon => {
                         self.add_block_to_identity_chain_for_signed_bill_action(
                             bill_id,
                             block,

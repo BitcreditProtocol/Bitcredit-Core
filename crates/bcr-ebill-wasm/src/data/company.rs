@@ -1,4 +1,10 @@
-use bcr_ebill_api::data::{company::Company, contact::Contact};
+use bcr_ebill_api::{
+    data::{
+        company::Company,
+        contact::{Contact, ContactType},
+    },
+    util::ValidationError,
+};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
@@ -106,14 +112,22 @@ pub struct SignatoryResponse {
     pub avatar_file: Option<FileWeb>,
 }
 
-impl From<Contact> for SignatoryResponse {
-    fn from(value: Contact) -> Self {
-        Self {
-            t: value.t.into_web(),
-            node_id: value.node_id,
-            name: value.name,
-            postal_address: value.postal_address.into_web(),
-            avatar_file: value.avatar_file.map(|f| f.into_web()),
+impl TryFrom<Contact> for SignatoryResponse {
+    type Error = ValidationError;
+
+    fn try_from(value: Contact) -> Result<Self, Self::Error> {
+        if value.t == ContactType::Anon {
+            return Err(ValidationError::InvalidContact(value.node_id));
         }
+        Ok(Self {
+            t: value.t.into_web(),
+            node_id: value.node_id.clone(),
+            name: value.name,
+            postal_address: value
+                .postal_address
+                .ok_or(ValidationError::InvalidContact(value.node_id))
+                .map(|pa| pa.into_web())?,
+            avatar_file: value.avatar_file.map(|f| f.into_web()),
+        })
     }
 }

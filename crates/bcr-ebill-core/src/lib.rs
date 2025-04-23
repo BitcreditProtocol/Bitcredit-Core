@@ -166,6 +166,7 @@ pub enum Field {
     Zip,
     Address,
     Name,
+    Email,
     Id,
     CountryOfIssuing,
     CityOfIssuing,
@@ -189,9 +190,17 @@ pub enum ValidationError {
     #[error("invalid date")]
     InvalidDate,
 
+    /// error returned if the contact is invalid, e.g. a non-anon contact with no address
+    #[error("the contact {0} is invalid")]
+    InvalidContact(String),
+
     /// error returned if the signer for a certain action is not allowed to be anonymous
     #[error("The signer can't be anonymous")]
     SignerCantBeAnon,
+
+    /// error returned if an anonymous contact is used in place where only an identified can't be used
+    #[error("The contact {0} is anonymous, but an identified contact is needed")]
+    ContactIsAnonymous(String),
 
     /// error returned if the maturity date is in the past
     #[error("maturity date can't be in the past")]

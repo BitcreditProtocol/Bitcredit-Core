@@ -182,10 +182,7 @@ impl BillService {
             }
             other_node_id => {
                 if let Some(contact) = contacts.get(other_node_id) {
-                    (
-                        Some(contact.email.clone()),
-                        contact.nostr_relays.first().cloned(),
-                    )
+                    (contact.email.clone(), contact.nostr_relays.first().cloned())
                 } else if t == ContactType::Company {
                     if let Ok(company) = self.company_store.get(other_node_id).await {
                         (
@@ -234,23 +231,24 @@ impl BillService {
 
             if !sent {
                 let identity = self.identity_store.get().await?;
-                let current_identity = BillIdentParticipant::new(identity.clone());
+                let current_identity =
+                    BillIdentParticipant::new(identity.clone()).map(BillParticipant::Ident);
                 let participants = chain.get_all_nodes_from_bill(&bill_keys)?;
-                let mut recipient_options = vec![current_identity];
+                let mut recipient_options: Vec<Option<BillParticipant>> = vec![current_identity];
                 let bill = self
                     .get_last_version_bill(&chain, &bill_keys, &identity, &contacts)
                     .await?;
 
                 for node_id in participants {
-                    let contact: Option<BillIdentParticipant> =
-                        self.contact_store.get(&node_id).await?.map(|c| c.into());
-                    recipient_options.push(contact);
+                    if let Some(contact) = self.contact_store.get(&node_id).await? {
+                        recipient_options.push(Some(contact.try_into()?));
+                    }
                 }
 
                 let recipients = recipient_options
                     .into_iter()
                     .flatten()
-                    .collect::<Vec<BillIdentParticipant>>();
+                    .collect::<Vec<BillParticipant>>();
 
                 self.notification_service
                     .send_request_to_action_timed_out_event(
@@ -598,7 +596,7 @@ impl BillServiceApi for BillService {
             &mut blockchain,
             &bill_keys,
             &bill_action,
-            &BillParticipant::Ident(signer_public_data.clone()), // TODO: support anon
+            &BillParticipant::Ident(signer_public_data.clone()), // TODO: support anon identity
             signer_keys,
             &identity,
             timestamp,
