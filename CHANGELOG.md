@@ -14,6 +14,12 @@
         * Additional validation rules ensure the fields can only be set for non-anon contacts
     * Adds an endpoint `Api.contact().deanonymize()` to de-anonymize a contact by adding all necessary fields for a personal, or company contact
         * It takes the same payload as creating a contact and fails for non-anon contacts
+* Add the possibility to add an anonymous identity
+    * They only have Node Id, (nick)name and E-Mail as fields
+    * E-Mail is optional
+    * Adds an endpoint `Api.identity().deanonymize()` to de-anonymize an identity by adding all necessary fields for a personal identity
+        * It takes the same payload as creating an identity and fails for a non-anon identity
+    * Anon identity can't issue bills, or create a company
 
 # 0.3.7
 

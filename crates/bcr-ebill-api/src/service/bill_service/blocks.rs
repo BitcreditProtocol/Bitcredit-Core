@@ -38,10 +38,11 @@ impl BillService {
         timestamp: u64,
     ) -> Result<()> {
         let bill_id = bill.id.clone();
-        let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity);
+        let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity)?;
         let previous_block = blockchain.get_latest_block();
 
         let block = match bill_action {
+            // has to be ident to accept
             BillAction::Accept => {
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillAcceptBlockData {
@@ -64,6 +65,7 @@ impl BillService {
                     return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
+            // can req to accept as anon
             BillAction::RequestAcceptance => {
                 let block_data = BillRequestToAcceptBlockData {
                     requester: signer_public_data.clone().into(),
@@ -82,6 +84,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can req to pay as anon
             BillAction::RequestToPay(currency) => {
                 let block_data = BillRequestToPayBlockData {
                     requester: signer_public_data.clone().into(),
@@ -101,6 +104,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // has to be ident to req recourse
             BillAction::RequestRecourse(recoursee, recourse_reason) => {
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let (sum, currency, reason) = match *recourse_reason {
@@ -137,6 +141,7 @@ impl BillService {
                     return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
+            // has to be ident to recourse
             BillAction::Recourse(recoursee, sum, currency, recourse_reason) => {
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let reason = match *recourse_reason {
@@ -167,6 +172,7 @@ impl BillService {
                     return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
+            // can be anon to mint
             BillAction::Mint(mint, sum, currency) => {
                 let block_data = BillMintBlockData {
                     endorser: signer_public_data.clone().into(),
@@ -188,6 +194,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, currency) => {
                 let address_to_pay = self
                     .bitcoin_client
@@ -213,6 +220,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can be anon to sell
             BillAction::Sell(buyer, sum, currency, payment_address) => {
                 let block_data = BillSellBlockData {
                     seller: signer_public_data.clone().into(),
@@ -235,6 +243,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can be anon to endorse
             BillAction::Endorse(endorsee) => {
                 let block_data = BillEndorseBlockData {
                     endorser: signer_public_data.clone().into(),
@@ -254,6 +263,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // has to be ident to reject acceptance
             BillAction::RejectAcceptance => {
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillRejectBlockData {
@@ -276,6 +286,7 @@ impl BillService {
                     return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
+            // can be anon to reject buying
             BillAction::RejectBuying => {
                 let block_data = BillRejectToBuyBlockData {
                     rejecter: signer_public_data.clone().into(),
@@ -294,6 +305,7 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // has to be ident to reject payment
             BillAction::RejectPayment => {
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillRejectBlockData {
@@ -316,6 +328,7 @@ impl BillService {
                     return Err(Error::Validation(ValidationError::SignerCantBeAnon));
                 }
             }
+            // has to be ident to reject recourse
             BillAction::RejectPaymentForRecourse => {
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let block_data = BillRejectBlockData {

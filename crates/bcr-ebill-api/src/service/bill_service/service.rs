@@ -34,6 +34,7 @@ use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
+use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{ServiceTraitBounds, Validate};
@@ -177,9 +178,7 @@ impl BillService {
         contacts: &HashMap<String, Contact>,
     ) -> (Option<String>, Option<String>) {
         match node_id {
-            v if v == identity.node_id => {
-                (Some(identity.email.clone()), identity.nostr_relay.clone())
-            }
+            v if v == identity.node_id => (identity.email.clone(), identity.nostr_relay.clone()),
             other_node_id => {
                 if let Some(contact) = contacts.get(other_node_id) {
                     (contact.email.clone(), contact.nostr_relays.first().cloned())
@@ -231,8 +230,14 @@ impl BillService {
 
             if !sent {
                 let identity = self.identity_store.get().await?;
-                let current_identity =
-                    BillIdentParticipant::new(identity.clone()).map(BillParticipant::Ident);
+                let current_identity = match identity.t {
+                    IdentityType::Ident => BillIdentParticipant::new(identity.clone())
+                        .map(BillParticipant::Ident)
+                        .ok(),
+                    IdentityType::Anon => Some(BillParticipant::Anon(BillAnonParticipant::new(
+                        identity.clone(),
+                    ))),
+                };
                 let participants = chain.get_all_nodes_from_bill(&bill_keys)?;
                 let mut recipient_options: Vec<Option<BillParticipant>> = vec![current_identity];
                 let bill = self
@@ -455,7 +460,7 @@ impl BillServiceApi for BillService {
     async fn get_combined_bitcoin_key_for_bill(
         &self,
         bill_id: &str,
-        caller_public_data: &BillIdentParticipant,
+        caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
@@ -465,7 +470,7 @@ impl BillServiceApi for BillService {
         if !chain
             .get_all_nodes_from_bill(&bill_keys)?
             .iter()
-            .any(|p| p == &caller_public_data.node_id)
+            .any(|p| p == &caller_public_data.node_id())
         {
             debug!("caller is not a participant of bill {bill_id}");
             return Err(Error::NotFound);
@@ -557,7 +562,7 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         bill_action: BillAction,
-        signer_public_data: &BillIdentParticipant,
+        signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<BillBlockchain> {
@@ -584,7 +589,7 @@ impl BillServiceApi for BillService {
             maturity_date: bill.maturity_date.clone(),
             bill_keys: bill_keys.clone(),
             timestamp,
-            signer_node_id: signer_public_data.node_id.clone(),
+            signer_node_id: signer_public_data.node_id().clone(),
             bill_action: bill_action.clone(),
             is_paid,
         }
@@ -596,7 +601,7 @@ impl BillServiceApi for BillService {
             &mut blockchain,
             &bill_keys,
             &bill_action,
-            &BillParticipant::Ident(signer_public_data.clone()), // TODO: support anon identity
+            &signer_public_data.clone(),
             signer_keys,
             &identity,
             timestamp,
@@ -609,7 +614,7 @@ impl BillServiceApi for BillService {
             &blockchain,
             &bill_keys,
             &identity.identity,
-            &signer_public_data.node_id,
+            &signer_public_data.node_id(),
             timestamp,
         )
         .await?;
@@ -728,7 +733,7 @@ impl BillServiceApi for BillService {
     async fn get_past_payments(
         &self,
         bill_id: &str,
-        caller_public_data: &BillIdentParticipant,
+        caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Vec<PastPaymentResult>> {
@@ -756,7 +761,7 @@ impl BillServiceApi for BillService {
         )?;
 
         // Request to Pay
-        if holder.node_id() == caller_public_data.node_id {
+        if holder.node_id() == caller_public_data.node_id() {
             if let Some(req_to_pay) =
                 chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
             {
@@ -816,7 +821,7 @@ impl BillServiceApi for BillService {
         // OfferToSell
         let past_sell_payments = chain.get_past_sell_payments_for_node_id(
             &bill_keys,
-            &caller_public_data.node_id,
+            &caller_public_data.node_id(),
             timestamp,
         )?;
         for past_sell_payment in past_sell_payments {
@@ -847,7 +852,7 @@ impl BillServiceApi for BillService {
         // Recourse
         let past_recourse_payments = chain.get_past_recourse_payments_for_node_id(
             &bill_keys,
-            &caller_public_data.node_id,
+            &caller_public_data.node_id(),
             timestamp,
         )?;
         for past_sell_payment in past_recourse_payments {

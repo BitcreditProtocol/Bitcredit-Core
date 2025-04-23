@@ -2,10 +2,12 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
+use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::bill::validation::get_deadline_base_for_req_to_pay;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
+use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::{
     bill::{
         BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillKeys, BillParticipants,
@@ -100,28 +102,33 @@ impl BillService {
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         signatory_identity: &IdentityWithAll,
-    ) -> BillSigningKeys {
+    ) -> Result<BillSigningKeys> {
         match signer_public_data {
             BillParticipant::Ident(identified) => {
                 let (signatory_keys, company_keys, signatory_identity) = match identified.t {
                     ContactType::Person | ContactType::Anon => (signer_keys.clone(), None, None),
-                    ContactType::Company => (
-                        signatory_identity.key_pair.clone(),
-                        Some(signer_keys.clone()),
-                        Some(signatory_identity.identity.clone().into()),
-                    ),
+                    ContactType::Company => {
+                        if signatory_identity.identity.t == IdentityType::Anon {
+                            return Err(Error::Validation(ValidationError::IdentityCantBeAnon));
+                        }
+                        (
+                            signatory_identity.key_pair.clone(),
+                            Some(signer_keys.clone()),
+                            Some(signatory_identity.identity.clone().into()),
+                        )
+                    }
                 };
-                BillSigningKeys {
+                Ok(BillSigningKeys {
                     signatory_keys,
                     company_keys,
                     signatory_identity,
-                }
+                })
             }
-            BillParticipant::Anon(_) => BillSigningKeys {
+            BillParticipant::Anon(_) => Ok(BillSigningKeys {
                 signatory_keys: signer_keys.clone(),
                 company_keys: None,
                 signatory_identity: None,
-            },
+            }),
         }
     }
 

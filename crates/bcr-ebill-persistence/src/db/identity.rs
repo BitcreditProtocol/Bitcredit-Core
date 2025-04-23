@@ -3,7 +3,7 @@ use super::get_new_surreal_db;
 use super::{FileDb, OptionalPostalAddressDb, Result};
 use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
 use async_trait::async_trait;
-use bcr_ebill_core::identity::{ActiveIdentityState, Identity, IdentityWithAll};
+use bcr_ebill_core::identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll};
 use serde::{Deserialize, Serialize};
 use surrealdb::{Surreal, engine::any::Any};
 
@@ -174,9 +174,11 @@ impl From<&ActiveIdentityState> for ActiveIdentityDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityDb {
+    #[serde(rename = "type")]
+    pub t: IdentityType,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     pub postal_address: OptionalPostalAddressDb,
     pub date_of_birth: Option<String>,
     pub country_of_birth: Option<String>,
@@ -190,6 +192,7 @@ pub struct IdentityDb {
 impl From<IdentityDb> for Identity {
     fn from(identity: IdentityDb) -> Self {
         Self {
+            t: identity.t,
             node_id: identity.node_id,
             name: identity.name,
             email: identity.email,
@@ -208,6 +211,7 @@ impl From<IdentityDb> for Identity {
 impl From<&Identity> for IdentityDb {
     fn from(identity: &Identity) -> Self {
         Self {
+            t: identity.t.clone(),
             node_id: identity.node_id.clone(),
             name: identity.name.clone(),
             email: identity.email.clone(),

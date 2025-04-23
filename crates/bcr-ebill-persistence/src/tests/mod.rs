@@ -8,7 +8,7 @@ pub mod tests {
             BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill, BitcreditBillResult,
         },
         contact::{BillIdentParticipant, BillParticipant, ContactType},
-        identity::Identity,
+        identity::{Identity, IdentityType},
         util::BcrKeys,
     };
 
@@ -32,9 +32,10 @@ pub mod tests {
 
     pub fn empty_identity() -> Identity {
         Identity {
+            t: IdentityType::Ident,
             node_id: "".to_string(),
             name: "".to_string(),
-            email: "".to_string(),
+            email: Some("".to_string()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,

@@ -63,7 +63,7 @@ pub struct BillIssueData {
     pub city_of_payment: String,
     pub language: String,
     pub file_upload_ids: Vec<String>,
-    pub drawer_public_data: BillIdentParticipant,
+    pub drawer_public_data: BillParticipant,
     pub drawer_keys: BcrKeys,
     pub timestamp: u64,
 }

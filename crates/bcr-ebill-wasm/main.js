@@ -53,8 +53,19 @@ async function start() {
     identity = await identityApi.detail();
     console.log("local identity:", identity);
   } catch (err) {
-    console.log("No local identity found - creating..");
+    console.log("No local identity found - creating anon identity..");
     await identityApi.create({
+      t: 1,
+      name: "Cypherpunk",
+      email: "cypher@example.com",
+      postal_address: {},
+    });
+
+    identity = await identityApi.detail();
+
+    console.log("Deanonymizing identity..");
+    await identityApi.deanonymize({
+      t: 0,
       name: "Johanna Smith",
       email: "jsmith@example.com",
       postal_address: {
@@ -64,8 +75,6 @@ async function start() {
         address: "street 1",
       }
     });
-
-    identity = await identityApi.detail();
 
     // add self to contacts
     await contactApi.create({

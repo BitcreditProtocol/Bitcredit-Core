@@ -11,8 +11,8 @@ use bcr_ebill_core::{
         },
     },
     company::{Company, CompanyKeys},
-    contact::BillIdentParticipant,
-    identity::{Identity, IdentityWithAll},
+    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+    identity::{Identity, IdentityType, IdentityWithAll},
     util::BcrKeys,
 };
 use log::{debug, info};
@@ -89,7 +89,7 @@ impl BillService {
                     );
                     // If we are the recourser and a bill issuer and it's paid, we add a Recourse block
                     if payment_info.recourser.node_id == identity.identity.node_id {
-                        if let Some(signer_identity) =
+                        if let Ok(signer_identity) =
                             BillIdentParticipant::new(identity.identity.clone())
                         {
                             let reason = match payment_info.reason {
@@ -109,11 +109,16 @@ impl BillService {
                                             &contacts
                                         )
                                         .await, payment_info.sum, payment_info.currency, reason),
-                                    &signer_identity,
+                                    &BillParticipant::Ident(signer_identity),
                                     &identity.key_pair,
                                     now,
                                 )
                                 .await?;
+                        } else {
+                            log::error!(
+                                "Signer {} for bill {bill_id} is not a valid signer",
+                                &identity.identity.node_id
+                            );
                         }
                         return Ok(()); // return early
                     }
@@ -147,7 +152,7 @@ impl BillService {
                                     )
                                     .await, payment_info.sum, payment_info.currency, reason),
                                     // signer identity (company)
-                                    &BillIdentParticipant::from(recourser_company.0.clone()),
+                                    &BillParticipant::Ident(BillIdentParticipant::from(recourser_company.0.clone())),
                                     // signer keys (company keys)
                                     &BcrKeys::from_private_key(&recourser_company.1.private_key)?,
                                     now,
@@ -182,12 +187,27 @@ impl BillService {
             {
                 if paid && sum > 0 {
                     debug!("bill {bill_id} got bought - creating sell block if we're seller");
-                    // If we are the seller and a bill issuer and it's paid, we add a Sell block
+                    // If we are the seller and anon, or a bill issuer and it's paid, we add a Sell block
                     if payment_info.seller.node_id() == identity.identity.node_id {
-                        if let Some(signer_identity) =
-                            BillIdentParticipant::new(identity.identity.clone())
-                        {
-                            let _ = self
+                        let signer_identity = match identity.identity.t {
+                            IdentityType::Ident => {
+                                if let Ok(signer_identity) =
+                                    BillIdentParticipant::new(identity.identity.clone())
+                                {
+                                    BillParticipant::Ident(signer_identity)
+                                } else {
+                                    log::error!(
+                                        "Signer {} for bill {bill_id} is not a valid signer",
+                                        &identity.identity.node_id
+                                    );
+                                    return Ok(()); // return early
+                                }
+                            }
+                            IdentityType::Anon => BillParticipant::Anon(BillAnonParticipant::new(
+                                identity.identity.clone(),
+                            )),
+                        };
+                        let _ = self
                                 .execute_bill_action(
                                     bill_id,
                                     BillAction::Sell(
@@ -205,7 +225,6 @@ impl BillService {
                                     now,
                                 )
                                 .await?;
-                        }
                         return Ok(()); // return early
                     }
 
@@ -235,7 +254,7 @@ impl BillService {
                                     payment_info.currency,
                                     payment_info.payment_address),
                                     // signer identity (company)
-                                    &BillIdentParticipant::from(seller_company.0.clone()),
+                                    &BillParticipant::Ident(BillIdentParticipant::from(seller_company.0.clone())),
                                     // signer keys (company keys)
                                     &BcrKeys::from_private_key(&seller_company.1.private_key)?,
                                     now,

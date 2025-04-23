@@ -3,11 +3,13 @@ use std::env;
 use super::Result;
 use super::middleware::IdentityCheck;
 use crate::data::{
-    ChangeIdentityPayload, FromWeb, IdentityWeb, IntoWeb, NewIdentityPayload, SeedPhrase,
-    SuccessResponse, SwitchIdentity, TempFileWrapper, UploadFileForm, UploadFileResponse,
+    ChangeIdentityPayload, FromWeb, IdentityTypeWeb, IdentityWeb, IntoWeb, NewIdentityPayload,
+    SeedPhrase, SuccessResponse, SwitchIdentity, TempFileWrapper, UploadFileForm,
+    UploadFileResponse,
 };
 use crate::service_context::ServiceContext;
-use bcr_ebill_api::data::{OptionalPostalAddress, identity::IdentityType};
+use bcr_ebill_api::data::identity::IdentityType;
+use bcr_ebill_api::data::{OptionalPostalAddress, identity::SwitchIdentityType};
 use bcr_ebill_api::external;
 use bcr_ebill_api::service::Error;
 use bcr_ebill_api::util::date::{format_date_string, now};
@@ -109,6 +111,7 @@ pub async fn create_identity(
     state
         .identity_service
         .create_identity(
+            IdentityType::from_web(IdentityTypeWeb::try_from(identity.t)?),
             identity.name,
             identity.email,
             OptionalPostalAddress::from_web(identity.postal_address),
@@ -187,8 +190,8 @@ pub async fn change_identity(
 pub async fn active(state: &State<ServiceContext>) -> Result<Json<SwitchIdentity>> {
     let current_identity_state = state.get_current_identity().await;
     let (node_id, t) = match current_identity_state.company {
-        None => (current_identity_state.personal, IdentityType::Person),
-        Some(company_node_id) => (company_node_id, IdentityType::Company),
+        None => (current_identity_state.personal, SwitchIdentityType::Person),
+        Some(company_node_id) => (company_node_id, SwitchIdentityType::Company),
     };
     Ok(Json(SwitchIdentity {
         t: Some(t.into_web()),
