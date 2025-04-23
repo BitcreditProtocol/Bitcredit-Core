@@ -24,7 +24,7 @@ impl BillService {
         let drawer = match data.drawer_public_data {
             BillParticipant::Ident(ref drawer_data) => drawer_data,
             BillParticipant::Anon(_) => {
-                return Err(Error::Validation(ValidationError::DrawerIsNotBillIssuer));
+                return Err(Error::Validation(ValidationError::SignerCantBeAnon));
             }
         };
 

@@ -468,7 +468,7 @@ impl IdentityServiceApi for IdentityService {
             city_of_birth: city_of_birth.clone(),
             identification_number: identification_number.clone(),
             profile_picture_file: profile_picture_file.clone(),
-            identity_document_file: profile_picture_file.clone(),
+            identity_document_file: identity_document_file.clone(),
             nostr_relay: Some(get_config().nostr_relay.to_owned()),
         };
 
