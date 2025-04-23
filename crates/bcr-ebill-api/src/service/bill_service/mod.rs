@@ -5,7 +5,7 @@ use crate::data::{
         BillCombinedBitcoinKey, BillKeys, BillsBalanceOverview, BillsFilterRole, BitcreditBill,
         BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastEndorsee,
     },
-    contact::BillIdentParticipant,
+    contact::BillParticipant,
     identity::Identity,
 };
 use crate::util::BcrKeys;
@@ -62,7 +62,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn get_combined_bitcoin_key_for_bill(
         &self,
         bill_id: &str,
-        caller_public_data: &BillIdentParticipant,
+        caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey>;
 
@@ -104,7 +104,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         bill_id: &str,
         bill_action: BillAction,
-        signer_public_data: &BillIdentParticipant,
+        signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<BillBlockchain>;
@@ -137,7 +137,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn get_past_payments(
         &self,
         bill_id: &str,
-        caller_public_data: &BillIdentParticipant,
+        caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Vec<PastPaymentResult>>;
@@ -184,7 +184,7 @@ pub mod tests {
             },
         },
         constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
-        contact::BillParticipant,
+        contact::{BillIdentParticipant, BillParticipant},
         notification::ActionType,
     };
     use core::str;
@@ -443,7 +443,9 @@ pub mod tests {
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
                 file_upload_ids: vec![TEST_BILL_ID.to_string()],
-                drawer_public_data: BillIdentParticipant::new(drawer.identity).unwrap(),
+                drawer_public_data: BillParticipant::Ident(
+                    BillIdentParticipant::new(drawer.identity).unwrap(),
+                ),
                 drawer_keys: drawer.key_pair,
                 timestamp: 1731593928,
             })
@@ -500,7 +502,7 @@ pub mod tests {
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
                 file_upload_ids: vec![TEST_BILL_ID.to_string()],
-                drawer_public_data: BillIdentParticipant::from(drawer.1.0),
+                drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
                 drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
                 timestamp: 1731593928,
             })
@@ -2057,7 +2059,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2092,7 +2096,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &BillIdentParticipant::from(company.1.0),
+                &BillParticipant::Ident(BillIdentParticipant::from(company.1.0)),
                 &BcrKeys::from_private_key(&company.1.1.private_key).unwrap(),
                 1731593928,
             )
@@ -2127,7 +2131,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2166,7 +2172,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2201,7 +2209,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestToPay("sat".to_string()),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2228,7 +2238,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestToPay("sat".to_string()),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2261,7 +2273,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestAcceptance,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2288,7 +2302,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestAcceptance,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2331,7 +2347,9 @@ pub mod tests {
                     5000,
                     "sat".to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2369,7 +2387,9 @@ pub mod tests {
                     5000,
                     "sat".to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2398,7 +2418,9 @@ pub mod tests {
                     5000,
                     "sat".to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2436,7 +2458,9 @@ pub mod tests {
                     15000,
                     "sat".to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2469,7 +2493,9 @@ pub mod tests {
                     15000,
                     "sat".to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2532,7 +2558,9 @@ pub mod tests {
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2594,7 +2622,9 @@ pub mod tests {
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2630,7 +2660,9 @@ pub mod tests {
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2662,7 +2694,9 @@ pub mod tests {
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2696,7 +2730,9 @@ pub mod tests {
                 BillAction::Endorse(BillParticipant::Ident(
                     bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
                 )),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2735,7 +2771,9 @@ pub mod tests {
                 BillAction::Endorse(BillParticipant::Ident(
                     bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
                 )),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2767,7 +2805,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Endorse(BillParticipant::Ident(empty_bill_identified_participant())),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2792,7 +2832,9 @@ pub mod tests {
         let res = service
             .get_combined_bitcoin_key_for_bill(
                 TEST_BILL_ID,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
             )
             .await;
@@ -2815,7 +2857,9 @@ pub mod tests {
         let res = service
             .get_combined_bitcoin_key_for_bill(
                 TEST_BILL_ID,
-                &bill_identified_participant_only_node_id(non_participant_keys.get_public_key()),
+                &BillParticipant::Ident(bill_identified_participant_only_node_id(
+                    non_participant_keys.get_public_key(),
+                )),
                 &non_participant_keys,
             )
             .await;
@@ -3564,7 +3608,9 @@ pub mod tests {
         let res_past_payments = service
             .get_past_payments(
                 TEST_BILL_ID,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1931593928,
             )
@@ -3674,7 +3720,9 @@ pub mod tests {
         let res_past_payments = service
             .get_past_payments(
                 TEST_BILL_ID,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1931593928,
             )
@@ -3754,7 +3802,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectAcceptance,
-                &BillIdentParticipant::new(identity.identity).unwrap(),
+                &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
                 &identity.key_pair,
                 now + 2,
             )
@@ -3802,7 +3850,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectBuying,
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -3862,7 +3912,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectPayment,
-                &BillIdentParticipant::new(identity.identity).unwrap(),
+                &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
                 &identity.key_pair,
                 now + 1,
             )
@@ -3927,7 +3977,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectPaymentForRecourse,
-                &BillIdentParticipant::new(identity.identity).unwrap(),
+                &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
                 &identity.key_pair,
                 now + 1,
             )
@@ -4141,7 +4191,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestRecourse(recoursee, RecourseReason::Accept),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -4235,7 +4287,9 @@ pub mod tests {
                     recoursee,
                     RecourseReason::Pay(15000, "sat".to_string()),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -4305,7 +4359,9 @@ pub mod tests {
                     "sat".to_string(),
                     RecourseReason::Pay(15000, "sat".into()),
                 ),
-                &BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )

@@ -1,7 +1,26 @@
 use super::{File, OptionalPostalAddress};
-use crate::util::BcrKeys;
+use crate::{ValidationError, util::BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+
+pub mod validation;
+
+#[repr(u8)]
+#[derive(
+    Debug,
+    Clone,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[borsh(use_discriminant = true)]
+pub enum SwitchIdentityType {
+    Person = 0,
+    Company = 1,
+}
 
 #[repr(u8)]
 #[derive(
@@ -16,8 +35,20 @@ use serde::{Deserialize, Serialize};
 )]
 #[borsh(use_discriminant = true)]
 pub enum IdentityType {
-    Person = 0,
-    Company = 1,
+    Ident = 0,
+    Anon = 1,
+}
+
+impl TryFrom<u64> for IdentityType {
+    type Error = ValidationError;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(IdentityType::Ident),
+            1 => Ok(IdentityType::Anon),
+            _ => Err(ValidationError::InvalidIdentityType),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -28,9 +59,11 @@ pub struct IdentityWithAll {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Identity {
+    #[serde(rename = "type")]
+    pub t: IdentityType,
     pub node_id: String,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
     pub date_of_birth: Option<String>,
     pub country_of_birth: Option<String>,

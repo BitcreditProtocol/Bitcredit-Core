@@ -117,6 +117,15 @@ impl Validate for OptionalPostalAddress {
 }
 
 impl OptionalPostalAddress {
+    pub fn empty() -> Self {
+        Self {
+            country: None,
+            city: None,
+            zip: None,
+            address: None,
+        }
+    }
+
     pub fn is_fully_set(&self) -> bool {
         self.country.is_some() && self.city.is_some() && self.address.is_some()
     }
@@ -197,6 +206,10 @@ pub enum ValidationError {
     /// error returned if the signer for a certain action is not allowed to be anonymous
     #[error("The signer can't be anonymous")]
     SignerCantBeAnon,
+
+    /// error returned if the identity for a certain action is not allowed to be anonymous
+    #[error("The identity can't be anonymous")]
+    IdentityCantBeAnon,
 
     /// error returned if an anonymous contact is used in place where only an identified can't be used
     #[error("The contact {0} is anonymous, but an identified contact is needed")]
@@ -390,6 +403,10 @@ pub enum ValidationError {
     #[error("Drawer is not a bill issuer - does not have a postal address set")]
     DrawerIsNotBillIssuer,
 
+    /// error returned if the identity is not a bill issuer
+    #[error("Identity is not a bill issuer - does not have a postal address set")]
+    IdentityIsNotBillIssuer,
+
     /// error returned if the signatory is not in the contacts
     #[error("Node Id {0} is not a person in the contacts.")]
     SignatoryNotInContacts(String),
@@ -425,6 +442,10 @@ pub enum ValidationError {
     /// error returned if the contact type is not valid
     #[error("Invalid contact type")]
     InvalidContactType,
+
+    /// error returned if the identity type is not valid
+    #[error("Invalid identity type")]
+    InvalidIdentityType,
 
     /// error returned if the given node is not a local one (company or identity)
     #[error("The provided node_id: {0} is not a valid company id, or personal node_id")]

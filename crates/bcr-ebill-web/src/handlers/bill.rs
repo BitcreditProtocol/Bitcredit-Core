@@ -12,11 +12,13 @@ use crate::data::{
 };
 use crate::service_context::ServiceContext;
 use bcr_ebill_api::data::bill::BillIssueData;
-use bcr_ebill_api::data::contact::BillParticipant;
+use bcr_ebill_api::data::contact::{BillAnonParticipant, BillParticipant};
+use bcr_ebill_api::data::identity::IdentityType;
 use bcr_ebill_api::data::{
     bill::{BillAction, BillsFilterRole, LightBitcreditBillResult, RecourseReason},
     contact::BillIdentParticipant,
 };
+use bcr_ebill_api::service::Error;
 use bcr_ebill_api::service::bill_service::error::Error as BillServiceError;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
 use bcr_ebill_api::util::{self, BcrKeys, ValidationError, currency};
@@ -37,19 +39,31 @@ pub async fn get_current_identity_node_id(state: &State<ServiceContext>) -> Stri
 
 pub async fn get_signer_public_data_and_keys(
     state: &State<ServiceContext>,
-) -> Result<(BillIdentParticipant, BcrKeys)> {
+) -> Result<(BillParticipant, BcrKeys)> {
     let current_identity = state.get_current_identity().await;
     let local_node_id = current_identity.personal;
     let (signer_public_data, signer_keys) = match current_identity.company {
         None => {
             let identity = state.identity_service.get_full_identity().await?;
-            match BillIdentParticipant::new(identity.identity) {
-                Some(identity_public_data) => (identity_public_data, identity.key_pair),
-                None => {
-                    return Err(
-                        service::Error::Validation(ValidationError::DrawerIsNotBillIssuer).into(),
-                    );
+            match identity.identity.t {
+                IdentityType::Ident => {
+                    match BillIdentParticipant::new(identity.identity) {
+                        Ok(identity_public_data) => (
+                            BillParticipant::Ident(identity_public_data),
+                            identity.key_pair,
+                        ),
+                        Err(_) => {
+                            // only non-anon bill issuers with a postal address can sign a bill
+                            return Err(
+                                Error::Validation(ValidationError::DrawerIsNotBillIssuer).into()
+                            );
+                        }
+                    }
                 }
+                IdentityType::Anon => (
+                    BillParticipant::Anon(BillAnonParticipant::new(identity.identity)),
+                    identity.key_pair,
+                ),
             }
         }
         Some(company_node_id) => {
@@ -64,7 +78,7 @@ pub async fn get_signer_public_data_and_keys(
                 .into());
             }
             (
-                BillIdentParticipant::from(company),
+                BillParticipant::Ident(BillIdentParticipant::from(company)),
                 BcrKeys::from_private_key(&keys.private_key).map_err(service::Error::CryptoUtil)?,
             )
         }

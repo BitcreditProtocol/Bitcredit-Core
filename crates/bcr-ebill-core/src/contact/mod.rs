@@ -1,4 +1,4 @@
-use crate::{ValidationError, blockchain::bill::block::NodeId};
+use crate::{ValidationError, blockchain::bill::block::NodeId, identity::IdentityType};
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -259,17 +259,30 @@ impl From<Company> for BillIdentParticipant {
 }
 
 impl BillIdentParticipant {
-    pub fn new(identity: Identity) -> Option<Self> {
+    pub fn new(identity: Identity) -> Result<Self, ValidationError> {
+        if identity.t == IdentityType::Anon {
+            return Err(ValidationError::IdentityCantBeAnon);
+        }
         match identity.postal_address.to_full_postal_address() {
-            Some(postal_address) => Some(Self {
+            Some(postal_address) => Ok(Self {
                 t: ContactType::Person,
                 node_id: identity.node_id,
                 name: identity.name,
                 postal_address,
-                email: Some(identity.email),
+                email: identity.email,
                 nostr_relay: identity.nostr_relay,
             }),
-            None => None,
+            None => Err(ValidationError::IdentityIsNotBillIssuer),
+        }
+    }
+}
+
+impl BillAnonParticipant {
+    pub fn new(identity: Identity) -> Self {
+        Self {
+            node_id: identity.node_id,
+            email: identity.email,
+            nostr_relay: identity.nostr_relay,
         }
     }
 }
