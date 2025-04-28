@@ -55,7 +55,7 @@ import * as wasm from '../pkg/bcr_ebill_wasm.js';
 async function start() {
     let config = {
         bitcoin_network: "testnet",
-        nostr_relay: "wss://bitcr-cloud-run-04-550030097098.europe-west1.run.app",
+        nostr_relay: "wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app",
         surreal_db_connection: "indxdb://default",
         data_dir: ".",
         job_runner_initial_delay_seconds: 1,
@@ -269,7 +269,7 @@ import * as wasm from '@bitcredit/bcr-ebill-wasm';
 async function start() {
     let config = {
         bitcoin_network: "testnet",
-        nostr_relay: "wss://bitcr-cloud-run-04-550030097098.europe-west1.run.app",
+        nostr_relay: "wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app",
         surreal_db_connection: "indxdb://default",
         data_dir: ".",
         job_runner_initial_delay_seconds: 1,
