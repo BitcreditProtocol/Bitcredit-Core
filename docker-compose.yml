@@ -6,7 +6,7 @@ services:
       - HTTP_PORT=8001
       - RUST_LOG=info
       - SURREAL_DB_CONNECTION=ws://surrealdb:8000
-      - NOSTR_RELAY=wss://bitcr-cloud-run-04-550030097098.europe-west1.run.app
+      - NOSTR_RELAY=wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app
     ports:
       - "8001:8001"
       - "1909:1909"

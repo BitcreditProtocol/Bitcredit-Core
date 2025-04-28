@@ -31,7 +31,7 @@ async function start() {
   let config = {
     log_level: "debug",
     bitcoin_network: "testnet",
-    nostr_relay: "wss://bitcr-cloud-run-04-550030097098.europe-west1.run.app",
+    nostr_relay: "wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app",
     job_runner_initial_delay_seconds: 1,
     job_runner_check_interval_seconds: 600,
   };
