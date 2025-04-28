@@ -448,6 +448,7 @@ pub mod tests {
                 ),
                 drawer_keys: drawer.key_pair,
                 timestamp: 1731593928,
+                blank_issue: false,
             })
             .await
             .unwrap();
@@ -505,6 +506,7 @@ pub mod tests {
                 drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
                 drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
                 timestamp: 1731593928,
+                blank_issue: false,
             })
             .await
             .unwrap();

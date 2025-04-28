@@ -91,6 +91,17 @@ impl BillParticipant {
             BillParticipant::Anon(data) => data.nostr_relay.to_owned(),
         }
     }
+
+    /// Returns an anon version of the given participant
+    pub fn as_anon(&self) -> Self {
+        match self {
+            BillParticipant::Ident(identified) => {
+                let anon: BillAnonParticipant = identified.clone().into();
+                BillParticipant::Anon(anon)
+            }
+            BillParticipant::Anon(anon) => BillParticipant::Anon(anon.clone()),
+        }
+    }
 }
 
 impl NodeId for BillParticipant {
@@ -110,6 +121,25 @@ pub struct BillAnonParticipant {
     pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
     pub nostr_relay: Option<String>,
+}
+
+impl From<BillIdentParticipant> for BillAnonParticipant {
+    fn from(value: BillIdentParticipant) -> Self {
+        Self {
+            node_id: value.node_id,
+            email: value.email,
+            nostr_relay: value.nostr_relay,
+        }
+    }
+}
+
+impl From<BillParticipant> for BillAnonParticipant {
+    fn from(value: BillParticipant) -> Self {
+        match value {
+            BillParticipant::Ident(data) => data.into(),
+            BillParticipant::Anon(data) => data,
+        }
+    }
 }
 
 #[derive(

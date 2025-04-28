@@ -26,7 +26,9 @@ document.getElementById("reject_accept").addEventListener("click", rejectAcceptB
 document.getElementById("reject_pay").addEventListener("click", rejectPayBill);
 document.getElementById("reject_buying").addEventListener("click", rejectBuyingBill);
 document.getElementById("reject_recourse").addEventListener("click", rejectRecourseBill);
-document.getElementById("bill_test").addEventListener("click", triggerBill);
+document.getElementById("bill_test_self_drafted").addEventListener("click", triggerBill.bind(null, 1, false));
+document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
+document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 
 async function start() {
@@ -204,6 +206,8 @@ async function triggerContact() {
       avatar_file_upload_id: file_upload_id,
     });
   }
+  let contact = await contactApi.detail(node_id);
+  console.log("contact:", contact);
   document.getElementById("contact_id").value = node_id;
   document.getElementById("node_id_bill").value = node_id;
   if (contact.avatar_file) {
@@ -229,7 +233,7 @@ async function triggerAnonContact() {
   document.getElementById("node_id_bill").value = node_id;
 }
 
-async function triggerBill() {
+async function triggerBill(t, blank) {
   let measured = measure(async () => {
     console.log("creating bill");
 
@@ -242,23 +246,27 @@ async function triggerBill() {
     let file_upload_id = document.getElementById("file_upload_id").value || undefined;
     let node_id = document.getElementById("node_id_bill").value;
     let identity = await identityApi.detail();
-    let bill = await billApi.issue(
-      {
-        t: 1,
-        country_of_issuing: "AT",
-        city_of_issuing: "Vienna",
-        issue_date,
-        maturity_date,
-        payee: identity.node_id,
-        drawee: node_id,
-        sum: "1500",
-        currency: "sat",
-        country_of_payment: "UK",
-        city_of_payment: "London",
-        language: "en-UK",
-        file_upload_ids: file_upload_id ? [file_upload_id] : []
-      }
-    );
+    let bill_issue_data = {
+      t,
+      country_of_issuing: "AT",
+      city_of_issuing: "Vienna",
+      issue_date,
+      maturity_date,
+      payee: node_id,
+      drawee: identity.node_id,
+      sum: "1500",
+      currency: "sat",
+      country_of_payment: "UK",
+      city_of_payment: "London",
+      language: "en-UK",
+      file_upload_ids: file_upload_id ? [file_upload_id] : []
+    };
+    let bill;
+    if (blank) {
+      bill = await billApi.issue_blank(bill_issue_data);
+    } else {
+      bill = await billApi.issue(bill_issue_data);
+    }
     let bill_id = bill.id;
     console.log("created bill with id: ", bill_id);
   });

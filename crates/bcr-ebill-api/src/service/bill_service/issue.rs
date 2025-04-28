@@ -10,7 +10,7 @@ use bcr_ebill_core::{
             block::{BillIssueBlockData, NodeId},
         },
     },
-    contact::{BillIdentParticipant, BillParticipant},
+    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     util::BcrKeys,
 };
 use bcr_ebill_transport::BillChainEvent;
@@ -18,7 +18,10 @@ use log::{debug, error};
 
 impl BillService {
     pub(super) async fn issue_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {
-        debug!("issuing bill with type {}", &data.t);
+        debug!(
+            "issuing bill with type {}, blank: {}",
+            &data.t, &data.blank_issue
+        );
         let (sum, bill_type) = validate_bill_issue(&data)?;
 
         let drawer = match data.drawer_public_data {
@@ -39,6 +42,12 @@ impl BillService {
                         }
                     };
 
+                    if data.blank_issue {
+                        return Err(Error::Validation(
+                            ValidationError::SelfDraftedBillCantBeBlank,
+                        ));
+                    }
+
                     let public_data_payee = BillParticipant::Ident(drawer.clone());
 
                     (public_data_drawee, public_data_payee)
@@ -47,12 +56,23 @@ impl BillService {
                 BillType::PromissoryNote => {
                     let public_data_drawee = drawer.clone();
 
-                    let public_data_payee = match self.contact_store.get(&data.payee).await {
+                    let mut public_data_payee = match self.contact_store.get(&data.payee).await {
                         Ok(Some(payee)) => payee.try_into()?,
                         Ok(None) | Err(_) => {
                             return Err(Error::PayeeNotInContacts);
                         }
                     };
+
+                    // if it's a blank issue, convert the payee to anon
+                    if data.blank_issue {
+                        match public_data_payee {
+                            BillParticipant::Anon(_) => (),
+                            BillParticipant::Ident(identified) => {
+                                let anon: BillAnonParticipant = identified.into();
+                                public_data_payee = BillParticipant::Anon(anon);
+                            }
+                        };
+                    }
 
                     (public_data_drawee, public_data_payee)
                 }
@@ -65,13 +85,23 @@ impl BillService {
                         }
                     };
 
-                    let public_data_payee = match self.contact_store.get(&data.payee).await {
+                    let mut public_data_payee = match self.contact_store.get(&data.payee).await {
                         Ok(Some(payee)) => payee.try_into()?,
                         Ok(None) | Err(_) => {
                             return Err(Error::PayeeNotInContacts);
                         }
                     };
 
+                    // if it's a blank issue, convert the payee to anon
+                    if data.blank_issue {
+                        match public_data_payee {
+                            BillParticipant::Anon(_) => (),
+                            BillParticipant::Ident(identified) => {
+                                let anon: BillAnonParticipant = identified.into();
+                                public_data_payee = BillParticipant::Anon(anon);
+                            }
+                        };
+                    }
                     (public_data_drawee, public_data_payee)
                 }
             };
@@ -195,7 +225,7 @@ impl BillService {
         debug!("issued bill with id {bill_id}");
 
         // If we're the drawee, we immediately accept the bill with timestamp increased by 1 sec
-        if bill.drawer == bill.drawee {
+        if bill.drawer.node_id == bill.drawee.node_id {
             debug!("we are drawer and drawee of bill: {bill_id} - immediately accepting");
             self.execute_bill_action(
                 &bill_id,

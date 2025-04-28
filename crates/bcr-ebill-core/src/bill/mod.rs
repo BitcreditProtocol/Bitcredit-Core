@@ -66,6 +66,7 @@ pub struct BillIssueData {
     pub drawer_public_data: BillParticipant,
     pub drawer_keys: BcrKeys,
     pub timestamp: u64,
+    pub blank_issue: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -384,6 +384,7 @@ pub async fn issue_bill(
             drawer_public_data: drawer_public_data.clone(),
             drawer_keys: drawer_keys.clone(),
             timestamp,
+            blank_issue: false,
         })
         .await?;
 

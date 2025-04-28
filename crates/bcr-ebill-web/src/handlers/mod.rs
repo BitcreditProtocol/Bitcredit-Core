@@ -321,6 +321,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for ValidationError {
                 | bcr_ebill_api::util::ValidationError::InvalidContentType
                 | bcr_ebill_api::util::ValidationError::InvalidContactType
                 | bcr_ebill_api::util::ValidationError::InvalidIdentityType
+                | bcr_ebill_api::util::ValidationError::SelfDraftedBillCantBeBlank
                 | bcr_ebill_api::util::ValidationError::DraweeCantBePayee
                 | bcr_ebill_api::util::ValidationError::EndorserCantBeEndorsee
                 | bcr_ebill_api::util::ValidationError::BuyerCantBeSeller
