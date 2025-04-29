@@ -41,6 +41,16 @@ impl BillService {
         let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity)?;
         let previous_block = blockchain.get_latest_block();
 
+        let holder = match bill.endorsee {
+            None => bill.payee.clone(),
+            Some(ref endorsee) => endorsee.clone(),
+        };
+
+        let holder_is_anon = match holder {
+            BillParticipant::Anon(_) => true,
+            BillParticipant::Ident(_) => false,
+        };
+
         let block = match bill_action {
             // has to be ident to accept
             BillAction::Accept => {
@@ -68,7 +78,12 @@ impl BillService {
             // can req to accept as anon
             BillAction::RequestAcceptance => {
                 let block_data = BillRequestToAcceptBlockData {
-                    requester: signer_public_data.clone().into(),
+                    requester: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
@@ -87,7 +102,12 @@ impl BillService {
             // can req to pay as anon
             BillAction::RequestToPay(currency) => {
                 let block_data = BillRequestToPayBlockData {
-                    requester: signer_public_data.clone().into(),
+                    requester: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     currency: currency.to_owned(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
@@ -175,7 +195,12 @@ impl BillService {
             // can be anon to mint
             BillAction::Mint(mint, sum, currency) => {
                 let block_data = BillMintBlockData {
-                    endorser: signer_public_data.clone().into(),
+                    endorser: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     endorsee: mint.clone().into(),
                     currency: currency.to_owned(),
                     sum: *sum,
@@ -200,7 +225,12 @@ impl BillService {
                     .bitcoin_client
                     .get_address_to_pay(&bill_keys.public_key, &signer_public_data.node_id())?;
                 let block_data = BillOfferToSellBlockData {
-                    seller: signer_public_data.clone().into(),
+                    seller: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     buyer: buyer.clone().into(),
                     currency: currency.to_owned(),
                     sum: *sum,
@@ -223,7 +253,12 @@ impl BillService {
             // can be anon to sell
             BillAction::Sell(buyer, sum, currency, payment_address) => {
                 let block_data = BillSellBlockData {
-                    seller: signer_public_data.clone().into(),
+                    seller: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     buyer: buyer.clone().into(),
                     currency: currency.to_owned(),
                     sum: *sum,
@@ -246,7 +281,12 @@ impl BillService {
             // can be anon to endorse
             BillAction::Endorse(endorsee) => {
                 let block_data = BillEndorseBlockData {
-                    endorser: signer_public_data.clone().into(),
+                    endorser: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     endorsee: endorsee.clone().into(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
@@ -289,7 +329,12 @@ impl BillService {
             // can be anon to reject buying
             BillAction::RejectBuying => {
                 let block_data = BillRejectToBuyBlockData {
-                    rejecter: signer_public_data.clone().into(),
+                    rejecter: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),

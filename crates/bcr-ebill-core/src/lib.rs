@@ -330,6 +330,11 @@ pub enum ValidationError {
     #[error("The bill was already paid")]
     BillAlreadyPaid,
 
+    /// error returned if the bill is self drafted and blank (anon payee) - because it doesn't make
+    /// sense as the drawer is identified already
+    #[error("A self-drafted bill can't be blank")]
+    SelfDraftedBillCantBeBlank,
+
     /// error returned if the bill was not requested to accept, e.g. when rejecting to accept
     #[error("Bill was not requested to accept")]
     BillWasNotRequestedToAccept,

@@ -127,13 +127,7 @@ impl BillService {
             ),
             BillParticipantBlockData::Anon(data) => {
                 let (email, nostr_relay) = self
-                    .get_email_and_nostr_relay(
-                        &data.node_id,
-                        // treat anon as person, since they can't be one of our companies
-                        ContactType::Person,
-                        identity,
-                        contacts,
-                    )
+                    .get_email_and_nostr_relay(&data.node_id, ContactType::Anon, identity, contacts)
                     .await;
                 BillParticipant::Anon(BillAnonParticipant {
                     node_id: data.node_id,

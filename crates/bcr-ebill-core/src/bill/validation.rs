@@ -625,6 +625,7 @@ mod tests {
             drawer_public_data: BillParticipant::Ident(valid_bill_identified_participant()),
             drawer_keys: BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             timestamp: 1731593928,
+            blank_issue: false,
         }
     }
 
