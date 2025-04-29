@@ -84,6 +84,9 @@ impl NotificationStoreApi for SurrealNotificationStore {
         if let Some(notification_type) = filter.get_notification_type() {
             query = query.bind(notification_type.to_owned());
         }
+        if let Some(node_ids) = filter.get_node_ids() {
+            query = query.bind(node_ids.to_owned());
+        }
         let result: Vec<NotificationDb> = query.await?.take(0)?;
         Ok(result.into_iter().map(|n| n.into()).collect())
     }

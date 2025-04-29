@@ -133,7 +133,8 @@ async function start() {
   console.log("status: ", status);
 
   // Notifications
-  let notifications = await notificationApi.list();
+  let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
+  let notifications = await notificationApi.list(filter);
   console.log("notifications: ", notifications);
   return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi };
 }

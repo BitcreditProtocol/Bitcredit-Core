@@ -52,6 +52,7 @@ pub struct NotificationFilter {
     pub active: Option<bool>,
     pub reference_id: Option<String>,
     pub notification_type: Option<String>,
+    pub node_ids: Vec<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -67,6 +68,10 @@ impl NotificationFilter {
         }
         if self.notification_type.is_some() {
             parts.push("notification_type = $notification_type");
+        }
+
+        if !self.node_ids.is_empty() {
+            parts.push("node_id IN $node_ids");
         }
 
         let filters = parts.join(" AND ");
@@ -103,6 +108,14 @@ impl NotificationFilter {
             )
         })
     }
+
+    pub fn get_node_ids(&self) -> Option<(String, Vec<String>)> {
+        if !self.node_ids.is_empty() {
+            Some(("node_ids".to_string(), self.node_ids.clone()))
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -118,16 +131,32 @@ mod tests {
         };
         assert_eq!(active.filters(), "WHERE active = $active");
 
+        let node_ids = super::NotificationFilter {
+            node_ids: vec!["123".to_string(), "456".to_string()],
+            ..Default::default()
+        };
+
+        assert_eq!(node_ids.filters(), "WHERE node_id IN $node_ids");
+
+        assert_eq!(
+            node_ids.get_node_ids(),
+            Some((
+                "node_ids".to_string(),
+                vec!["123".to_string(), "456".to_string()]
+            ))
+        );
+
         let all = super::NotificationFilter {
             active: Some(true),
             reference_id: Some("123".to_string()),
             notification_type: Some("Bill".to_string()),
+            node_ids: vec!["123".to_string()],
             ..Default::default()
         };
 
         assert_eq!(
             all.filters(),
-            "WHERE active = $active AND reference_id = $reference_id AND notification_type = $notification_type"
+            "WHERE active = $active AND reference_id = $reference_id AND notification_type = $notification_type AND node_id IN $node_ids"
         );
     }
 }

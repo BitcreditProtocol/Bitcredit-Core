@@ -1,7 +1,7 @@
 use crate::Result;
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
-use log::info;
+use log::trace;
 #[cfg(test)]
 use mockall::automock;
 
@@ -47,7 +47,7 @@ impl NotificationHandlerApi for LoggingEventHandler {
     }
 
     async fn handle_event(&self, event: EventEnvelope, identity: &str) -> Result<()> {
-        info!("Received event: {event:?} for identity: {identity}");
+        trace!("Received event: {event:?} for identity: {identity}");
         Ok(())
     }
 }

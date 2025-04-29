@@ -19,16 +19,18 @@ use serde_json::Value;
         ("active" = Option<bool>, Query, description = "Returns only active notifications when true, inactive when false and all when left out"),
         ("reference_id" = Option<String>, Query, description = "The id of the entity to filter by (eg. a bill id)"),
         ("notification_type" = Option<String>, Query, description = "The type of notifications to return (eg. Bill)"),
+        ("node_ids" = Option<Vec<String>>, Query, description = "The node_ids of the identity for which to query notifications"),
         ("limit" = Option<i64>, Query, description = "The max number of notifications to return"),
         ("offset" = Option<i64>, Query, description = "The number of notifications to skip at the start of the result")
     )
 )]
-#[get("/notifications?<active>&<reference_id>&<notification_type>&<limit>&<offset>")]
+#[get("/notifications?<active>&<reference_id>&<notification_type>&<limit>&<offset>&<node_ids>")]
 pub async fn list_notifications(
     state: &State<ServiceContext>,
     active: Option<bool>,
     reference_id: Option<String>,
     notification_type: Option<String>,
+    node_ids: Option<Vec<String>>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Json<Vec<NotificationWeb>>> {
@@ -38,6 +40,7 @@ pub async fn list_notifications(
             active,
             reference_id,
             notification_type,
+            node_ids: node_ids.unwrap_or_default(),
             limit,
             offset,
         })

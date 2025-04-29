@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use bcr_ebill_api::{
+    NotificationFilter,
     data::{
         File, GeneralSearchFilterItemType, GeneralSearchResult, OptionalPostalAddress,
         PostalAddress, UploadFileResult,
@@ -184,6 +185,30 @@ impl IntoWeb<PostalAddressWeb> for PostalAddress {
             city: self.city,
             zip: self.zip,
             address: self.address,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize, Deserialize, Default)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct NotificationFilters {
+    pub active: Option<bool>,
+    pub reference_id: Option<String>,
+    pub notification_type: Option<String>,
+    pub node_ids: Option<Vec<String>>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+impl FromWeb<NotificationFilters> for NotificationFilter {
+    fn from_web(value: NotificationFilters) -> Self {
+        Self {
+            active: value.active,
+            reference_id: value.reference_id,
+            notification_type: value.notification_type,
+            node_ids: value.node_ids.unwrap_or_default(),
+            limit: value.limit,
+            offset: value.offset,
         }
     }
 }
