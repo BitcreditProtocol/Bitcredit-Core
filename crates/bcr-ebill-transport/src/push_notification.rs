@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use log::error;
+use log::trace;
 use std::sync::Arc;
 
 use async_broadcast::{InactiveReceiver, Receiver, Sender};
@@ -23,7 +23,9 @@ pub struct PushService {
 
 impl PushService {
     pub fn new() -> Self {
-        let (tx, rx) = async_broadcast::broadcast::<Value>(5);
+        let (mut tx, rx) = async_broadcast::broadcast::<Value>(5);
+        tx.set_overflow(true);
+        tx.set_await_active(false);
         let inactive = rx.deactivate();
         Self {
             sender: Arc::new(tx),
@@ -44,7 +46,7 @@ impl PushApi for PushService {
         match self.sender.broadcast(value).await {
             Ok(_) => {}
             Err(err) => {
-                error!("Error sending push message: {}", err);
+                trace!("Error sending push message: {}", err);
             }
         }
     }

@@ -16,10 +16,7 @@ use bcr_ebill_core::notification::{Notification, NotificationType};
 use bcr_ebill_persistence::NotificationStoreApi;
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
+use log::{debug, error, info, trace, warn};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -50,7 +47,7 @@ impl BillChainEventHandler {
         event: &BillChainEventPayload,
         node_id: &str,
     ) -> Result<()> {
-        debug!("creating notification {event:?} for {node_id}");
+        trace!("creating notification {event:?} for {node_id}");
         // no action no notification required
         if event.action_type.is_none() {
             return Ok(());
@@ -95,7 +92,7 @@ impl BillChainEventHandler {
         // send push notification to connected clients
         match serde_json::to_value(notification) {
             Ok(notification) => {
-                debug!("sending notification {notification:?} for {node_id}");
+                trace!("sending notification {notification:?} for {node_id}");
                 self.push_service.send(notification).await;
             }
             Err(e) => {
@@ -384,7 +381,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
     }
 
     async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()> {
-        debug!("incoming bill chain event {event:?} for {node_id}");
+        debug!("incoming bill chain event for {node_id}");
         if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
             if !decoded.data.blocks.is_empty() {
                 if let Err(e) = self

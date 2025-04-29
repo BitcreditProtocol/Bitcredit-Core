@@ -1,7 +1,7 @@
 use super::Result;
 use crate::{
     context::get_ctx,
-    data::{IntoWeb, notification::NotificationWeb},
+    data::{FromWeb, IntoWeb, NotificationFilters, notification::NotificationWeb},
 };
 use bcr_ebill_api::NotificationFilter;
 use log::{error, info};
@@ -40,21 +40,17 @@ impl Notification {
     #[wasm_bindgen(unchecked_return_type = "NotificationWeb[]")]
     pub async fn list(
         &self,
-        active: Option<bool>,
-        reference_id: Option<String>,
-        notification_type: Option<String>,
-        limit: Option<i64>,
-        offset: Option<i64>,
+        #[wasm_bindgen(unchecked_param_type = "NotificationFilters")] filters: JsValue,
     ) -> Result<JsValue> {
+        let filter = NotificationFilter::from_web(
+            serde_wasm_bindgen::from_value::<NotificationFilters>(filters)
+                .ok()
+                .unwrap_or_default(),
+        );
+
         let notifications = get_ctx()
             .notification_service
-            .get_client_notifications(NotificationFilter {
-                active,
-                reference_id,
-                notification_type,
-                limit,
-                offset,
-            })
+            .get_client_notifications(filter)
             .await?;
 
         let web: Vec<NotificationWeb> = notifications.into_iter().map(|n| n.into_web()).collect();
