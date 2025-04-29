@@ -642,6 +642,15 @@ impl From<BillAnonParticipantBlockData> for LightBillAnonParticipant {
         }
     }
 }
+
+impl From<BillAnonParticipant> for BillAnonParticipantBlockData {
+    fn from(value: BillAnonParticipant) -> Self {
+        Self {
+            node_id: value.node_id,
+        }
+    }
+}
+
 impl From<BillIdentParticipantBlockData> for LightBillIdentParticipant {
     fn from(value: BillIdentParticipantBlockData) -> Self {
         Self {

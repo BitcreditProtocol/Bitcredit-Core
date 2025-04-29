@@ -615,6 +615,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_anon_identity_baseline() {
+        init_test_cfg();
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_save().returning(move |_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        let mut chain_storage = MockIdentityChainStoreApiMock::new();
+        chain_storage.expect_add_block().returning(|_| Ok(()));
+
+        let service = get_service_with_chain_storage(storage, chain_storage);
+        let res = service
+            .create_identity(
+                IdentityType::Anon,
+                "name".to_string(),
+                Some("email".to_string()),
+                empty_optional_address(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                1731593928,
+            )
+            .await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
     async fn deanonymize_identity_baseline() {
         init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();

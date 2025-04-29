@@ -18,6 +18,7 @@ document.getElementById("bill_fetch_bills").addEventListener("click", fetchBillB
 document.getElementById("bill_balances").addEventListener("click", fetchBillBalances);
 document.getElementById("bill_search").addEventListener("click", fetchBillSearch);
 document.getElementById("endorse_bill").addEventListener("click", endorseBill);
+document.getElementById("blank_endorse_bill").addEventListener("click", endorseBillBlank);
 document.getElementById("req_to_accept_bill").addEventListener("click", requestToAcceptBill);
 document.getElementById("req_to_pay_bill").addEventListener("click", requestToPayBill);
 document.getElementById("offer_to_sell_bill").addEventListener("click", offerToSellBill);
@@ -315,6 +316,15 @@ async function endorseBill() {
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
     return await billApi.endorse_bill({ bill_id, endorsee });
+  });
+  await measured();
+}
+
+async function endorseBillBlank() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let endorsee = document.getElementById("endorsee_id").value;
+  let measured = measure(async () => {
+    return await billApi.endorse_bill_blank({ bill_id, endorsee });
   });
   await measured();
 }

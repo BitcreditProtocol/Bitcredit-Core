@@ -670,6 +670,32 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn add_anon_contact_calls_store() {
+        init_test_cfg();
+        let (mut store, file_upload_store, mut identity_store) = get_storages();
+        identity_store
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        store.expect_insert().returning(|_, _| Ok(()));
+        let result = get_service(store, file_upload_store, identity_store)
+            .add_contact(
+                TEST_NODE_ID_SECP,
+                ContactType::Anon,
+                "some_name".to_string(),
+                Some("some_email@example.com".to_string()),
+                Some(empty_address()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
     async fn deanonymize_contact_calls_store() {
         init_test_cfg();
         let (mut store, file_upload_store, mut identity_store) = get_storages();
