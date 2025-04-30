@@ -91,9 +91,10 @@ pub async fn initialize_api(
     // start jobs
     wasm_bindgen_futures::spawn_local(async move {
         TimeoutFuture::new(config.job_runner_initial_delay_seconds * 1000).await;
+        run_jobs(); // initial run
         IntervalStream::new(config.job_runner_check_interval_seconds * 1000)
             .for_each(|_| {
-                run_jobs();
+                run_jobs(); // regular run
                 ready(())
             })
             .await;
