@@ -79,10 +79,10 @@ impl BitcoinClient {
     pub fn request_url(&self, path: &str) -> String {
         match get_config().bitcoin_network() {
             Network::Bitcoin => {
-                format!("https://blockstream.info/api{path}")
+                format!("{}/api{path}", get_config().esplora_base_url)
             }
             _ => {
-                format!("https://blockstream.info/testnet/api{path}")
+                format!("{}/testnet/api{path}", get_config().esplora_base_url)
             }
         }
     }
@@ -90,10 +90,10 @@ impl BitcoinClient {
     pub fn link_url(&self, path: &str) -> String {
         match get_config().bitcoin_network() {
             Network::Bitcoin => {
-                format!("https://blockstream.info{path}")
+                format!("{}{path}", get_config().esplora_base_url)
             }
             _ => {
-                format!("https://blockstream.info/testnet{path}")
+                format!("{}/testnet{path}", get_config().esplora_base_url)
             }
         }
     }

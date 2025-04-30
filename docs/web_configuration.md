@@ -17,6 +17,7 @@ The following options are available:
 * `FRONTEND_URL_PATH` - default path to serve the frontend from (default: /)
 * `FRONTEND_SERVE_FOLDER` - folder where the static frontend is served from (default: ./frontend)
 * `LAUNCH_FRONTEND_AT_STARTUP` - open the frontend in a browser on startup (default: false)
+* `ESPLORA_BASE_URL` - The base url of the esplora URL for payment checks (default: https://blockstream.info)
 
 ## Example
 

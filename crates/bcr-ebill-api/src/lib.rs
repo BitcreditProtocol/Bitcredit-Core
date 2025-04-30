@@ -23,6 +23,7 @@ pub use persistence::notification::NotificationFilter;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bitcoin_network: String,
+    pub esplora_base_url: String,
     pub nostr_relay: String,
     pub surreal_db_connection: String,
     pub data_dir: String,
