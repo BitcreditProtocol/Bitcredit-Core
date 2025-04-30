@@ -3,6 +3,7 @@
 * Add `esplora_base_url` as config parameter to be able to use a custom esplora based block explorer
 * Add `node_ids` filter to `list` notifications endpoint
 * Fixed an issue where events weren't propagated if no one was subscribed to the push notifications
+* Run payment checks on startup
 
 # 0.3.7
 
