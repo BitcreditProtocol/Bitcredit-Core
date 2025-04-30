@@ -1,3 +1,7 @@
+# 0.3.9
+
+* Add possibility to use a local regtest esplora setup for payment
+
 # 0.3.8
 
 * Add `esplora_base_url` as config parameter to be able to use a custom esplora based block explorer

@@ -1,0 +1,12 @@
+services:
+  esplora:
+    image: blockstream/esplora:latest
+    command: >
+      bash -c "/srv/explorer/run.sh bitcoin-regtest explorer"
+    volumes:
+      - ./.docker_data/esplora/:/data
+    ports:
+      - "50001:50001"  # Electrum server
+      - "18443:18443"  # Bitcoin core
+      - "18444:18444"  # Bitcoin core
+      - "8094:80"      # Esplora frontend

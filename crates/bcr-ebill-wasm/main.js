@@ -30,8 +30,10 @@ document.getElementById("clear_bill_cache").addEventListener("click", clearBillC
 async function start() {
   let config = {
     log_level: "debug",
-    bitcoin_network: "testnet",
-    esplora_base_url: "https://blockstream.info",
+    bitcoin_network: "regtest", // local reg test
+    esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
+    // bitcoin_network: "testnet",
+    // esplora_base_url: "https://blockstream.info",
     nostr_relay: "wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app",
     job_runner_initial_delay_seconds: 1,
     job_runner_check_interval_seconds: 600,
@@ -224,9 +226,9 @@ async function triggerBill() {
 
     const now = new Date();
     const issue_date = now.toISOString().split('T')[0];
-    const threeMonthsLater = new Date(now);
-    threeMonthsLater.setMonth(now.getMonth() + 3);
-    const maturity_date = threeMonthsLater.toISOString().split('T')[0];
+    const nMonthsLater = new Date(now);
+    nMonthsLater.setMonth(now.getMonth() + 0); // use to set maturity date after issue date
+    const maturity_date = nMonthsLater.toISOString().split('T')[0];
 
     let file_upload_id = document.getElementById("file_upload_id").value || undefined;
     let node_id = document.getElementById("node_id_bill").value;
