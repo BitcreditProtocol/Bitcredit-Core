@@ -81,6 +81,9 @@ impl BitcoinClient {
             Network::Bitcoin => {
                 format!("{}/api{path}", get_config().esplora_base_url)
             }
+            Network::Regtest => {
+                format!("{}/regtest/api{path}", get_config().esplora_base_url)
+            }
             _ => {
                 format!("{}/testnet/api{path}", get_config().esplora_base_url)
             }
@@ -91,6 +94,9 @@ impl BitcoinClient {
         match get_config().bitcoin_network() {
             Network::Bitcoin => {
                 format!("{}{path}", get_config().esplora_base_url)
+            }
+            Network::Regtest => {
+                format!("{}/regtest{path}", get_config().esplora_base_url)
             }
             _ => {
                 format!("{}/testnet{path}", get_config().esplora_base_url)
