@@ -4244,10 +4244,22 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_payment, 1531593929)
                 .unwrap()
         );
-        // 2 days after req to pay, but not yet 2 days after end of day maturity date
+        // 2 days after req to pay, but not yet 2 days after end of day maturity date, req expired
+        assert!(
+            service
+                .check_requests_for_expiration(&bill_payment, 1531780429)
+                .unwrap()
+        );
+        // after req to pay, and after end of day maturity date, payment expired
+        assert!(
+            service
+                .check_requests_for_expiration(&bill_payment, 1831593928)
+                .unwrap()
+        );
+        // 1 sec after req to pay, not expired at all
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1531780429)
+                .check_requests_for_expiration(&bill_payment, 1531593929)
                 .unwrap()
         );
 

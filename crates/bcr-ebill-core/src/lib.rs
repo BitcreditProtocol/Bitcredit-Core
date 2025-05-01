@@ -317,10 +317,6 @@ pub enum ValidationError {
     #[error("Bill request to pay did not expire and was not rejected")]
     BillRequestToPayDidNotExpireAndWasNotRejected,
 
-    /// error returned if the bill was requested to pay before the maturity date started
-    #[error("Bill requested to pay before maturity date started")]
-    BillRequestedToPayBeforeMaturityDate,
-
     /// error returned if the bill was not requester to recourse, e.g. when rejecting to pay for
     /// recourse
     #[error("Bill was not requested to recourse")]

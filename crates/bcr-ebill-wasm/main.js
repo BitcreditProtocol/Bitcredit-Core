@@ -227,7 +227,7 @@ async function triggerBill() {
     const now = new Date();
     const issue_date = now.toISOString().split('T')[0];
     const nMonthsLater = new Date(now);
-    nMonthsLater.setMonth(now.getMonth() + 0); // use to set maturity date after issue date
+    nMonthsLater.setMonth(now.getMonth() + 3); // use to set maturity date after issue date
     const maturity_date = nMonthsLater.toISOString().split('T')[0];
 
     let file_upload_id = document.getElementById("file_upload_id").value || undefined;
