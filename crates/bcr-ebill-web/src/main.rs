@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let api_config = bcr_ebill_api::Config {
         bitcoin_network: conf.bitcoin_network.clone(),
         esplora_base_url: conf.esplora_base_url.clone(),
-        nostr_relay: conf.nostr_relay.clone(),
+        nostr_relays: conf.nostr_relays.clone(),
         surreal_db_connection: conf.surreal_db_connection.clone(),
         data_dir: conf.data_dir.clone(),
     };

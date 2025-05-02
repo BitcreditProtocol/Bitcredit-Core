@@ -184,7 +184,7 @@ pub struct IdentityDb {
     pub country_of_birth: Option<String>,
     pub city_of_birth: Option<String>,
     pub identification_number: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
     pub profile_picture_file: Option<FileDb>,
     pub identity_document_file: Option<FileDb>,
 }
@@ -201,7 +201,7 @@ impl From<IdentityDb> for Identity {
             country_of_birth: identity.country_of_birth,
             city_of_birth: identity.city_of_birth,
             identification_number: identity.identification_number,
-            nostr_relay: identity.nostr_relay,
+            nostr_relays: identity.nostr_relays,
             profile_picture_file: identity.profile_picture_file.map(|f| f.into()),
             identity_document_file: identity.identity_document_file.map(|f| f.into()),
         }
@@ -220,7 +220,7 @@ impl From<&Identity> for IdentityDb {
             country_of_birth: identity.country_of_birth.clone(),
             city_of_birth: identity.city_of_birth.clone(),
             identification_number: identity.identification_number.clone(),
-            nostr_relay: identity.nostr_relay.clone(),
+            nostr_relays: identity.nostr_relays.clone(),
             profile_picture_file: identity.profile_picture_file.clone().map(|f| (&f).into()),
             identity_document_file: identity.identity_document_file.clone().map(|f| (&f).into()),
         }

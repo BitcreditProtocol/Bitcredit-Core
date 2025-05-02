@@ -85,10 +85,10 @@ impl BillParticipant {
         }
     }
 
-    pub fn nostr_relay(&self) -> Option<String> {
+    pub fn nostr_relays(&self) -> Vec<String> {
         match self {
-            BillParticipant::Ident(data) => data.nostr_relay.to_owned(),
-            BillParticipant::Anon(data) => data.nostr_relay.to_owned(),
+            BillParticipant::Ident(data) => data.nostr_relays.to_owned(),
+            BillParticipant::Anon(data) => data.nostr_relays.to_owned(),
         }
     }
 
@@ -120,7 +120,7 @@ pub struct BillAnonParticipant {
     /// email address of the participant
     pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl From<BillIdentParticipant> for BillAnonParticipant {
@@ -128,7 +128,7 @@ impl From<BillIdentParticipant> for BillAnonParticipant {
         Self {
             node_id: value.node_id,
             email: value.email,
-            nostr_relay: value.nostr_relay,
+            nostr_relays: value.nostr_relays,
         }
     }
 }
@@ -159,7 +159,7 @@ pub struct BillIdentParticipant {
     /// email address of the identity
     pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
@@ -241,7 +241,7 @@ impl TryFrom<Contact> for BillIdentParticipant {
                     .postal_address
                     .ok_or(ValidationError::InvalidContact(value.node_id.to_owned()))?,
                 email: value.email,
-                nostr_relay: value.nostr_relays.first().cloned(),
+                nostr_relays: value.nostr_relays,
             }),
             ContactType::Anon => Err(ValidationError::ContactIsAnonymous(
                 value.node_id.to_owned(),
@@ -263,13 +263,13 @@ impl TryFrom<Contact> for BillParticipant {
                         .postal_address
                         .ok_or(ValidationError::InvalidContact(value.node_id.to_owned()))?,
                     email: value.email,
-                    nostr_relay: value.nostr_relays.first().cloned(),
+                    nostr_relays: value.nostr_relays,
                 }))
             }
             ContactType::Anon => Ok(BillParticipant::Anon(BillAnonParticipant {
                 node_id: value.node_id.clone(),
                 email: value.email,
-                nostr_relay: value.nostr_relays.first().cloned(),
+                nostr_relays: value.nostr_relays,
             })),
         }
     }
@@ -283,7 +283,7 @@ impl From<Company> for BillIdentParticipant {
             name: value.name,
             postal_address: value.postal_address,
             email: Some(value.email),
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 }
@@ -300,7 +300,7 @@ impl BillIdentParticipant {
                 name: identity.name,
                 postal_address,
                 email: identity.email,
-                nostr_relay: identity.nostr_relay,
+                nostr_relays: identity.nostr_relays,
             }),
             None => Err(ValidationError::IdentityIsNotBillIssuer),
         }
@@ -312,7 +312,7 @@ impl BillAnonParticipant {
         Self {
             node_id: identity.node_id,
             email: identity.email,
-            nostr_relay: identity.nostr_relay,
+            nostr_relays: identity.nostr_relays,
         }
     }
 }

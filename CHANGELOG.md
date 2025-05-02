@@ -1,5 +1,6 @@
 # 0.3.11
 
+* Use a list of Nostr relays everywhere, instead of a single one, including in the config
 * Add Blank Endorse Bill data model implementation
     * Rename `IdentityPublicData` to `BillIdentParticipant`
         * same for `LightIdentityPublicData`

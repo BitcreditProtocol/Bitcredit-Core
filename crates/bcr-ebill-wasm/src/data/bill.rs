@@ -766,7 +766,7 @@ impl IntoWeb<BillParticipantWeb> for BillParticipant {
 pub struct BillAnonParticipantWeb {
     pub node_id: String,
     pub email: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
@@ -774,7 +774,7 @@ impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
         BillAnonParticipantWeb {
             node_id: self.node_id,
             email: self.email,
-            nostr_relay: self.nostr_relay,
+            nostr_relays: self.nostr_relays,
         }
     }
 }
@@ -787,7 +787,7 @@ pub struct BillIdentParticipantWeb {
     pub name: String,
     pub postal_address: PostalAddressWeb,
     pub email: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
@@ -798,7 +798,7 @@ impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
             node_id: self.node_id,
             postal_address: self.postal_address.into_web(),
             email: self.email,
-            nostr_relay: self.nostr_relay,
+            nostr_relays: self.nostr_relays,
         }
     }
 }

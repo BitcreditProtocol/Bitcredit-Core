@@ -369,7 +369,7 @@ impl IdentityServiceApi for IdentityService {
                     identification_number,
                     profile_picture_file,
                     identity_document_file,
-                    nostr_relay: Some(get_config().nostr_relay.to_owned()),
+                    nostr_relays: get_config().nostr_relays.to_owned(),
                 }
             }
             IdentityType::Anon => Identity {
@@ -384,7 +384,7 @@ impl IdentityServiceApi for IdentityService {
                 identification_number: None,
                 profile_picture_file: None,
                 identity_document_file: None,
-                nostr_relay: Some(get_config().nostr_relay.to_owned()),
+                nostr_relays: get_config().nostr_relays.to_owned(),
             },
         };
 
@@ -469,7 +469,7 @@ impl IdentityServiceApi for IdentityService {
             identification_number: identification_number.clone(),
             profile_picture_file: profile_picture_file.clone(),
             identity_document_file: identity_document_file.clone(),
-            nostr_relay: Some(get_config().nostr_relay.to_owned()),
+            nostr_relays: get_config().nostr_relays.to_owned(),
         };
 
         let previous_block = self.blockchain_store.get_latest_block().await?;

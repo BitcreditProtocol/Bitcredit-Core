@@ -118,7 +118,7 @@ pub struct IdentityWeb {
     pub identification_number: Option<String>,
     pub profile_picture_file: Option<FileWeb>,
     pub identity_document_file: Option<FileWeb>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IdentityWeb {
@@ -137,7 +137,7 @@ impl IdentityWeb {
             identification_number: identity.identification_number,
             profile_picture_file: identity.profile_picture_file.map(|f| f.into_web()),
             identity_document_file: identity.identity_document_file.map(|f| f.into_web()),
-            nostr_relay: identity.nostr_relay,
+            nostr_relays: identity.nostr_relays,
         })
     }
 }

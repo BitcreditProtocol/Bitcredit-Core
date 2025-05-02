@@ -191,8 +191,9 @@ impl NostrClient {
             let message = serde_json::to_string(&event)?;
             let event =
                 create_nip04_event(self.get_nostr_keys().secret_key(), &public_key, &message)?;
-            if let Some(relay) = &recipient.nostr_relay() {
-                if let Err(e) = self.client.send_event_builder_to(vec![relay], event).await {
+            let relays = recipient.nostr_relays();
+            if !relays.is_empty() {
+                if let Err(e) = self.client.send_event_builder_to(&relays, event).await {
                     error!("Error sending Nostr message: {e}")
                 };
             } else if let Err(e) = self.client.send_event_builder(event).await {
@@ -218,10 +219,11 @@ impl NostrClient {
                 Error::Crypto("Failed to parse Nostr npub".to_string())
             })?;
             let message = serde_json::to_string(&event)?;
-            if let Some(relay) = &recipient.nostr_relay() {
+            let relays = recipient.nostr_relays();
+            if !relays.is_empty() {
                 if let Err(e) = self
                     .client
-                    .send_private_msg_to(vec![relay], public_key, message, None)
+                    .send_private_msg_to(&relays, public_key, message, None)
                     .await
                 {
                     error!("Error sending Nostr message: {e}")
@@ -556,7 +558,7 @@ mod tests {
 
         // and a contact we want to send an event to
         let contact =
-            get_identity_public_data(&keys2.get_public_key(), "payee@example.com", Some(&url));
+            get_identity_public_data(&keys2.get_public_key(), "payee@example.com", vec![&url]);
         let mut event = create_test_event(&BillEventType::BillSigned);
         event.node_id = contact.node_id.to_owned();
 

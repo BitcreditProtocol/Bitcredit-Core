@@ -1116,7 +1116,7 @@ mod tests {
             name: "some name".to_string(),
             postal_address: empty_address(),
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
     fn empty_address() -> PostalAddress {
@@ -1138,7 +1138,7 @@ mod tests {
             country_of_birth: None,
             city_of_birth: None,
             identification_number: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
             profile_picture_file: None,
             identity_document_file: None,
         }

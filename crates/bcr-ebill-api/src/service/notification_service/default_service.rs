@@ -28,7 +28,7 @@ pub struct DefaultNotificationService {
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
-    nostr_relay: String,
+    nostr_relays: Vec<String>,
 }
 
 impl ServiceTraitBounds for DefaultNotificationService {}
@@ -42,7 +42,7 @@ impl DefaultNotificationService {
         notification_store: Arc<dyn NotificationStoreApi>,
         contact_service: Arc<dyn ContactServiceApi>,
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
-        nostr_relay: &str,
+        nostr_relays: Vec<String>,
     ) -> Self {
         Self {
             notification_transport: notification_transport
@@ -52,7 +52,7 @@ impl DefaultNotificationService {
             notification_store,
             contact_service,
             queued_message_store,
-            nostr_relay: nostr_relay.to_string(),
+            nostr_relays,
         }
     }
 
@@ -65,7 +65,7 @@ impl DefaultNotificationService {
                 email: None,
                 name: String::new(),
                 postal_address: PostalAddress::default(),
-                nostr_relay: Some(self.nostr_relay.clone()),
+                nostr_relays: self.nostr_relays.clone(),
             }))
         } else {
             None
@@ -566,9 +566,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -658,7 +658,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -684,9 +684,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_does_not_send_non_rejectable_action() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -744,7 +744,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -756,9 +756,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_event() {
         let recipients = vec![
-            BillParticipant::Ident(get_identity_public_data("part1", "part1@example.com", None)),
-            BillParticipant::Ident(get_identity_public_data("part2", "part2@example.com", None)),
-            BillParticipant::Ident(get_identity_public_data("part3", "part3@example.com", None)),
+            BillParticipant::Ident(get_identity_public_data(
+                "part1",
+                "part1@example.com",
+                vec![],
+            )),
+            BillParticipant::Ident(get_identity_public_data(
+                "part2",
+                "part2@example.com",
+                vec![],
+            )),
+            BillParticipant::Ident(get_identity_public_data(
+                "part3",
+                "part3@example.com",
+                vec![],
+            )),
         ];
 
         let mut mock = MockNotificationJsonTransport::new();
@@ -784,7 +796,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -813,9 +825,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
         let recipients = vec![
-            BillParticipant::Ident(get_identity_public_data("part1", "part1@example.com", None)),
-            BillParticipant::Ident(get_identity_public_data("part2", "part2@example.com", None)),
-            BillParticipant::Ident(get_identity_public_data("part3", "part3@example.com", None)),
+            BillParticipant::Ident(get_identity_public_data(
+                "part1",
+                "part1@example.com",
+                vec![],
+            )),
+            BillParticipant::Ident(get_identity_public_data(
+                "part2",
+                "part2@example.com",
+                vec![],
+            )),
+            BillParticipant::Ident(get_identity_public_data(
+                "part3",
+                "part3@example.com",
+                vec![],
+            )),
         ];
 
         let mut mock = MockNotificationJsonTransport::new();
@@ -830,7 +854,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -847,9 +871,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -933,7 +957,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -949,9 +973,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event_does_not_send_non_recurse_action() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1009,7 +1033,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -1021,8 +1045,8 @@ mod tests {
     #[tokio::test]
     async fn test_failed_to_send_is_added_to_retry_queue() {
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
@@ -1056,7 +1080,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(queue_mock),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let event = BillChainEvent::new(
@@ -1113,7 +1137,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         (
@@ -1135,8 +1159,8 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_signed_event() {
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let (service, event) = setup_chain_expectation(
@@ -1164,8 +1188,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_accepted_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1210,8 +1234,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_accept_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1256,8 +1280,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_pay_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1303,8 +1327,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_paid_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let (service, event) = setup_chain_expectation(
@@ -1325,9 +1349,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_endorsed_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let endorsee = get_identity_public_data("endorsee", "endorsee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let endorsee = get_identity_public_data("endorsee", "endorsee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, Some(&endorsee));
         let chain = get_genesis_chain(Some(bill.clone()));
 
@@ -1354,9 +1378,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_offer_to_sell_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1406,9 +1430,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_sold_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1458,9 +1482,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_recourse_paid_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None);
-        let recoursee = get_identity_public_data("recoursee", "recoursee@example.com", None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
+        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
+        let recoursee = get_identity_public_data("recoursee", "recoursee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1549,7 +1573,7 @@ mod tests {
             Arc::new(mock_store),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let res = service
@@ -1578,7 +1602,7 @@ mod tests {
             Arc::new(mock_store),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         service
@@ -1610,24 +1634,24 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         )
     }
 
     fn get_test_bill() -> BitcreditBill {
         get_test_bitcredit_bill(
             "bill",
-            &get_identity_public_data("drawee", "drawee@example.com", None),
-            &get_identity_public_data("payee", "payee@example.com", None),
+            &get_identity_public_data("drawee", "drawee@example.com", vec![]),
+            &get_identity_public_data("payee", "payee@example.com", vec![]),
             Some(&get_identity_public_data(
                 "drawer",
                 "drawer@example.com",
-                None,
+                vec![],
             )),
             Some(&get_identity_public_data(
                 "endorsee",
                 "endorsee@example.com",
-                None,
+                vec![],
             )),
         )
     }
@@ -1673,7 +1697,7 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", None);
+        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -1708,7 +1732,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
@@ -1735,7 +1759,7 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", None);
+        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -1773,7 +1797,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
@@ -1818,8 +1842,8 @@ mod tests {
             payload: payload2.clone(),
         };
 
-        let identity1 = get_identity_public_data(node_id1, "test1@example.com", None);
-        let identity2 = get_identity_public_data(node_id2, "test2@example.com", None);
+        let identity1 = get_identity_public_data(node_id1, "test1@example.com", vec![]);
+        let identity2 = get_identity_public_data(node_id2, "test2@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -1880,7 +1904,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
@@ -1924,7 +1948,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
@@ -1951,7 +1975,7 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", None);
+        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -1994,7 +2018,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
@@ -2021,7 +2045,7 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", None);
+        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -2062,7 +2086,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
@@ -2087,7 +2111,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(mock_queue),
-            "ws://test.relay",
+            vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;

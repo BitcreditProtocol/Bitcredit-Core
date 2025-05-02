@@ -522,12 +522,12 @@ impl From<BillParticipantBlockData> for BillParticipant {
                 name: data.name,
                 postal_address: data.postal_address,
                 email: None,
-                nostr_relay: None,
+                nostr_relays: vec![],
             }),
             BillParticipantBlockData::Anon(data) => Self::Anon(BillAnonParticipant {
                 node_id: data.node_id,
                 email: None,
-                nostr_relay: None,
+                nostr_relays: vec![],
             }),
         }
     }
@@ -611,7 +611,7 @@ impl From<BillIdentParticipantBlockData> for BillIdentParticipant {
             name: value.name,
             postal_address: value.postal_address,
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 }
