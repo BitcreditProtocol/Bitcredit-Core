@@ -34,6 +34,7 @@ uuid = { version = "1", default-features = false, features = ["v4", "js"] }
 bitcoin = { version = "0.32", default-features = false }
 bip39 = { version = "2.1", features = ["rand"] }
 ecies = { version = "0.2", default-features = false, features = ["pure"] }
+nostr = { version = "0.40"}
 nostr-sdk = { version = "0.40", features = ["nip04", "nip59"] }
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
 reqwest = { version = "0.12", default-features = false, features = ["json"] }

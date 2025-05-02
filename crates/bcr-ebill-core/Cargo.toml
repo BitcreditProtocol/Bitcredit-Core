@@ -19,7 +19,7 @@ thiserror.workspace = true
 bitcoin.workspace = true
 bip39.workspace = true
 ecies.workspace = true
-nostr-sdk.workspace = true
+nostr.workspace = true
 secp256k1 = { workspace = true, features = ["global-context"] }
 rust_decimal = { version = "1.36.0", default-features = false }
 
