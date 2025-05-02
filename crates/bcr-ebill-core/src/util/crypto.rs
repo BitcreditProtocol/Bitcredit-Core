@@ -10,7 +10,7 @@ use bitcoin::{
         self, Keypair, Message, PublicKey, SECP256K1, Scalar, SecretKey, rand, schnorr::Signature,
     },
 };
-use nostr_sdk::ToBech32;
+use nostr::ToBech32;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -19,12 +19,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("Private key error: {0}")]
     PrivateKey(#[from] secp256k1::Error),
-
-    #[error("Nostr key error: {0}")]
-    NostrKey(#[from] nostr_sdk::key::Error),
-
-    #[error("Nostr bech32 key error: {0}")]
-    NostrNip19(#[from] nostr_sdk::nips::nip19::Error),
 
     #[error("Ecies encryption error: {0}")]
     Ecies(String),
@@ -111,8 +105,8 @@ impl BcrKeys {
     }
 
     /// Returns the key pair as a nostr key pair
-    pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
-        nostr_sdk::Keys::new(self.inner.secret_key().into())
+    pub fn get_nostr_keys(&self) -> nostr::Keys {
+        nostr::Keys::new(self.inner.secret_key().into())
     }
 
     /// Returns the nostr public key as an XOnlyPublicKey hex string
@@ -172,7 +166,7 @@ pub fn is_node_id_nostr_hex_npub(node_id: &str, npub: &str) -> bool {
         Ok(pub_key) => pub_key,
         Err(_) => return false,
     };
-    match nostr_sdk::PublicKey::from_hex(&x_only_pub_key) {
+    match nostr::PublicKey::from_hex(&x_only_pub_key) {
         Ok(npub_from_node_id) => npub == npub_from_node_id.to_hex(),
         Err(_) => false,
     }
@@ -738,14 +732,14 @@ mod tests {
             npub_as_hex.to_string()
         );
         let npub =
-            nostr_sdk::PublicKey::from_hex(&get_nostr_npub_as_hex_from_node_id(node_id).unwrap())
+            nostr::PublicKey::from_hex(&get_nostr_npub_as_hex_from_node_id(node_id).unwrap())
                 .unwrap();
         assert_eq!(npub.to_hex(), npub_as_hex);
         assert_eq!(
             get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
             TEST_NODE_ID_SECP_AS_NPUB_HEX.to_string()
         );
-        let npub = nostr_sdk::PublicKey::from_hex(
+        let npub = nostr::PublicKey::from_hex(
             &get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
         )
         .unwrap();
