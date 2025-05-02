@@ -105,7 +105,6 @@ enum JsErrorType {
     BillIsOfferedToSellAndWaitingForPayment,
     BillIsInRecourseAndWaitingForPayment,
     BillWasRequestedToPay,
-    BillRequestedToPayBeforeMaturityDate,
     // general
     DrawerIsNotBillIssuer,
     SignatoryNotInContacts,
@@ -270,9 +269,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         }
         ValidationError::BillRecourseDataInvalid => {
             err_400(e, JsErrorType::BillRecourseDataInvalid)
-        }
-        ValidationError::BillRequestedToPayBeforeMaturityDate => {
-            err_400(e, JsErrorType::BillRequestedToPayBeforeMaturityDate)
         }
         ValidationError::RecourseeNotPastHolder => err_400(e, JsErrorType::RecourseeNotPastHolder),
         ValidationError::CallerIsNotDrawee => err_400(e, JsErrorType::CallerIsNotDrawee),

@@ -2,7 +2,7 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
-use bcr_ebill_core::bill::validation::get_deadline_base_for_req_to_pay;
+use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::Contact;
 use bcr_ebill_core::{
@@ -152,8 +152,10 @@ impl BillService {
             time_of_request_to_pay = Some(req_to_pay_block.timestamp);
             paid = self.store.is_paid(&bill.id).await?;
             rejected_to_pay = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
-            let deadline_base =
-                get_deadline_base_for_req_to_pay(req_to_pay_block.timestamp, &bill.maturity_date)?;
+            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
+                req_to_pay_block.timestamp,
+                &bill.maturity_date,
+            )?;
             if !paid
                 && !rejected_to_pay
                 && util::date::check_if_deadline_has_passed(
@@ -162,6 +164,7 @@ impl BillService {
                     PAYMENT_DEADLINE_SECONDS,
                 )
             {
+                // this is true, if the payment is expired (after maturity date)
                 request_to_pay_timed_out = true;
             }
         }
@@ -325,7 +328,14 @@ impl BillService {
                     // it's paid - we're not waiting anymore
                     None
                 } else if request_to_pay_timed_out {
-                    // it timed out, we're not waiting anymore
+                    // payment expired, we're not waiting anymore
+                    None
+                } else if util::date::check_if_deadline_has_passed(
+                    last_block.timestamp,
+                    current_timestamp,
+                    PAYMENT_DEADLINE_SECONDS,
+                ) {
+                    // the request timed out, we're not waiting anymore, but the payment isn't expired
                     None
                 } else {
                     // we're waiting, collect data
@@ -508,12 +518,21 @@ impl BillService {
         let payment = &bill.status.payment;
         if payment.requested_to_pay && !payment.paid && !payment.rejected_to_pay {
             if let Some(time_of_request_to_pay) = payment.time_of_request_to_pay {
-                let deadline_base = get_deadline_base_for_req_to_pay(
+                let deadline_base = get_expiration_deadline_base_for_req_to_pay(
                     time_of_request_to_pay,
                     &bill.data.maturity_date,
                 )?;
+                // payment has expired (after maturity date)
                 if util::date::check_if_deadline_has_passed(
                     deadline_base,
+                    current_timestamp,
+                    PAYMENT_DEADLINE_SECONDS,
+                ) {
+                    invalidate_and_recalculate = true;
+                }
+                // req to pay has expired (after maturity date)
+                if util::date::check_if_deadline_has_passed(
+                    time_of_request_to_pay,
                     current_timestamp,
                     PAYMENT_DEADLINE_SECONDS,
                 ) {

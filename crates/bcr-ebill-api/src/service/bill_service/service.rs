@@ -24,7 +24,7 @@ use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::util::BcrKeys;
 use crate::{external, util};
 use async_trait::async_trait;
-use bcr_ebill_core::bill::validation::get_deadline_base_for_req_to_pay;
+use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{
     BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
     PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
@@ -724,8 +724,12 @@ impl BillServiceApi for BillService {
                     .bitcoin_client
                     .get_mempool_link_for_address(&address_to_pay);
 
-                let deadline_base =
-                    get_deadline_base_for_req_to_pay(req_to_pay.timestamp, &bill.maturity_date)?;
+                // we check for the payment expiration, not the request expiration
+                // if the request expired, but the payment deadline hasn't, it's not a past payment
+                let deadline_base = get_expiration_deadline_base_for_req_to_pay(
+                    req_to_pay.timestamp,
+                    &bill.maturity_date,
+                )?;
                 let is_expired = util::date::check_if_deadline_has_passed(
                     deadline_base,
                     timestamp,
@@ -756,9 +760,7 @@ impl BillServiceApi for BillService {
                             };
                             PastPaymentStatus::Rejected(ts)
                         } else {
-                            PastPaymentStatus::Expired(
-                                req_to_pay.timestamp + PAYMENT_DEADLINE_SECONDS,
-                            )
+                            PastPaymentStatus::Expired(deadline_base + PAYMENT_DEADLINE_SECONDS)
                         },
                     }));
                 }

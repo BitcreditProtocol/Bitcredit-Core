@@ -256,6 +256,14 @@ impl Bill {
         {
             error!("Error while checking bills offer to sell payment: {e}");
         }
+
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_bills_in_recourse_payment()
+            .await
+        {
+            error!("Error while checking bills recourse payment: {e}");
+        }
         Ok(())
     }
 

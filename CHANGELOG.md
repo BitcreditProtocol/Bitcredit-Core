@@ -1,3 +1,15 @@
+# 0.3.10
+
+* Change behaviour of request to pay
+    * it's now possible to req to pay before the maturity date
+    * The actual payment expiry still only happens 2 workdays after the end of the maturity date,
+    or end of the req to pay end of day if that was after the maturity date
+    * the `request_to_pay_timed_out` flag is set after payment expired, not after the req to pay expired
+    * The waiting state for payment is only active during the req to pay (while it's blocked)
+      * Afterwards, the bill is not blocked anymore, can still be rejected to pay and paid
+      * But recourse is only possible after the payment expired (after maturity date)
+    * An expired req to pay, which expired before the maturity date does not show up in `past_payments`
+
 # 0.3.9
 
 * Add possibility to use a local regtest esplora setup for payment

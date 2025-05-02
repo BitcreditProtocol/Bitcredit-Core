@@ -151,12 +151,6 @@ impl Validate for BillValidateActionData {
                 self.bill_is_blocked()?;
                 self.bill_can_only_be_recoursed()?;
                 // not already requested to pay - checked above already
-                // maturity date must have started
-                let maturity_date_start =
-                    util::date::date_string_to_timestamp(&self.maturity_date, None)?;
-                if self.timestamp < maturity_date_start {
-                    return Err(ValidationError::BillRequestedToPayBeforeMaturityDate);
-                }
                 // the caller has to be the bill holder
                 if self.signer_node_id != holder_node_id {
                     return Err(ValidationError::CallerIsNotHolder);
@@ -217,8 +211,8 @@ impl Validate for BillValidateActionData {
                         {
                             // only if the bill is not paid already - checked above
 
-                            // only if the request to pay expired or was rejected
-                            let deadline_base = get_deadline_base_for_req_to_pay(
+                            // only if the deadline to pay expired or was rejected
+                            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
                                 req_to_pay.timestamp,
                                 &self.maturity_date,
                             )?;
@@ -428,18 +422,20 @@ impl Validate for BillValidateActionData {
 }
 
 /// calculates the base for the expiration deadline of a request to pay - if it was before the
-/// maturity date, we take the end of the day of the maturity date, otherwise the req to pay
-/// timestamp
-pub fn get_deadline_base_for_req_to_pay(
+/// maturity date, we take the end of the day of the maturity date, otherwise the end of
+/// day of the req to pay timestamp
+pub fn get_expiration_deadline_base_for_req_to_pay(
     req_to_pay_ts: u64,
     bill_maturity_date: &str,
 ) -> Result<u64, ValidationError> {
     let maturity_date = util::date::date_string_to_timestamp(bill_maturity_date, None)?;
+    // we calculate from the end of the day
     let maturity_date_end_of_day = util::date::end_of_day_as_timestamp(maturity_date);
-    let mut deadline_base = req_to_pay_ts;
+    // we calculate from the end of the day of the request to pay
+    let mut deadline_base = util::date::end_of_day_as_timestamp(req_to_pay_ts);
     // requested to pay after maturity date - deadline base is req to pay
     if deadline_base < maturity_date_end_of_day {
-        // requested to pay before end of maturity date - deadline base is maturity
+        // requested to pay before end of day of maturity date - deadline base is maturity
         // date end of day
         deadline_base = maturity_date_end_of_day;
     }
@@ -476,7 +472,7 @@ impl BillValidateActionData {
                     .blockchain
                     .get_last_version_block_with_op_code(BillOpCode::RequestToPay)
                 {
-                    let deadline_base = get_deadline_base_for_req_to_pay(
+                    let deadline_base = get_expiration_deadline_base_for_req_to_pay(
                         req_to_pay_block.timestamp,
                         &self.maturity_date,
                     )?;
@@ -551,17 +547,16 @@ impl BillValidateActionData {
         Ok(())
     }
 
+    /// active req to pay, calculated from the start of the request
     fn bill_waiting_for_req_to_pay(&self) -> Result<(), ValidationError> {
         if self.blockchain.get_latest_block().op_code == BillOpCode::RequestToPay {
             if let Some(req_to_pay) = self
                 .blockchain
                 .get_last_version_block_with_op_code(BillOpCode::RequestToPay)
             {
-                let deadline_base =
-                    get_deadline_base_for_req_to_pay(req_to_pay.timestamp, &self.maturity_date)?;
                 if !self.is_paid
                     && !util::date::check_if_deadline_has_passed(
-                        deadline_base,
+                        req_to_pay.timestamp, // calculated from start of request
                         self.timestamp,
                         PAYMENT_DEADLINE_SECONDS,
                     )
@@ -593,7 +588,10 @@ mod tests {
             TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET, valid_address,
             valid_identity_public_data, valid_other_identity_public_data,
         },
-        util::{BcrKeys, date::now},
+        util::{
+            BcrKeys,
+            date::{format_date_string, now},
+        },
     };
 
     use super::*;
@@ -1000,6 +998,8 @@ mod tests {
 
     #[rstest]
     #[case::req_to_pay(BillValidateActionData { signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: "2022-11-12".into(), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
     fn test_validate_bill_req_to_pay_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1019,7 +1019,6 @@ mod tests {
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
     #[case::req_to_pay_not_holder(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::req_to_pay_before_maturity_date(BillValidateActionData { maturity_date: "2099-01-01".into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillRequestedToPayBeforeMaturityDate))]
     #[case::req_to_pay_already_req_to_payed(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     fn test_validate_bill_req_to_pay_errors(
         #[case] input: BillValidateActionData,
@@ -1173,6 +1172,7 @@ mod tests {
 
     #[rstest]
     #[case::offer_to_sell(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_identity_public_data(), 500, "sat".into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) ,bill_action: BillAction::OfferToSell(valid_other_identity_public_data(), 500, "sat".into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_offer_to_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1200,7 +1200,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::sell_invalid_data_buyer(BillValidateActionData { bill_action: BillAction::Sell(valid_identity_public_data(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::sell(BillValidateActionData { bill_action: BillAction::Sell(valid_identity_public_data(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    // minus 8 seconds so timestamp is before offer to sell expiry and after req to pay expiry
+    // as every block adds 1 sec to issue block, which is now() - 10
+    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), bill_action: BillAction::Sell(valid_identity_public_data(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
     fn test_validate_bill_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1291,7 +1294,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::reject_to_pay_expired(BillValidateActionData { bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::reject_to_pay(BillValidateActionData { bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::reject_to_pay_maturity_not_expired(BillValidateActionData { maturity_date: format_date_string(now()),  bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_reject_payment_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
