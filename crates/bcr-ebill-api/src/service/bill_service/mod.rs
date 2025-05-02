@@ -168,8 +168,8 @@ pub mod tests {
     use bcr_ebill_core::{
         ValidationError,
         bill::{
-            BillAcceptanceStatus, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
-            PastPaymentStatus, RecourseReason,
+            BillAcceptanceStatus, BillCurrentWaitingState, BillPaymentStatus, BillRecourseStatus,
+            BillSellStatus, BillWaitingForPaymentState, PastPaymentStatus, RecourseReason,
         },
         blockchain::{
             Blockchain,
@@ -4233,6 +4233,14 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_payment, 1731593928)
                 .unwrap()
         );
+        bill_payment.status.payment.request_to_pay_timed_out = true;
+        // if it already timed out, we don't need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_payment, 1731593928)
+                .unwrap()
+        );
+        bill_payment.status.payment.request_to_pay_timed_out = false;
         assert!(
             !service
                 .check_requests_for_expiration(&bill_payment, 1431593928)
@@ -4244,10 +4252,37 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_payment, 1531593929)
                 .unwrap()
         );
-        // 2 days after req to pay, but not yet 2 days after end of day maturity date, req expired
+        bill_payment.current_waiting_state = Some(BillCurrentWaitingState::Payment(
+            BillWaitingForPaymentState {
+                time_of_request: 1531593928,
+                payer: empty_identity_public_data(),
+                payee: empty_identity_public_data(),
+                currency: "sat".into(),
+                sum: "10".into(),
+                link_to_pay: String::default(),
+                address_to_pay: String::default(),
+                mempool_link_for_address_to_pay: String::default(),
+            },
+        ));
+        // req to pay expired, but not yet 2 days after end of day maturity date
+        // current waiting state set, so wasnt recalculated yet
         assert!(
             service
-                .check_requests_for_expiration(&bill_payment, 1531780429)
+                .check_requests_for_expiration(
+                    &bill_payment,
+                    1531593929 + PAYMENT_DEADLINE_SECONDS + 1
+                )
+                .unwrap()
+        );
+        bill_payment.current_waiting_state = None;
+        // req to pay expired, but not yet 2 days after end of day maturity date
+        // but no current waiting state, so was already checked
+        assert!(
+            !service
+                .check_requests_for_expiration(
+                    &bill_payment,
+                    1531593929 + PAYMENT_DEADLINE_SECONDS + 1
+                )
                 .unwrap()
         );
         // after req to pay, and after end of day maturity date, payment expired
@@ -4262,6 +4297,22 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_payment, 1531593929)
                 .unwrap()
         );
+        bill_payment.status.payment.rejected_to_pay = true;
+        // already rejected, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_payment, 1831593928)
+                .unwrap()
+        );
+        bill_payment.status.payment.rejected_to_pay = false;
+        bill_payment.status.payment.paid = true;
+        // already paid, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_payment, 1831593928)
+                .unwrap()
+        );
+        bill_payment.status.payment.paid = false;
 
         let mut bill_acceptance = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         bill_acceptance.status.acceptance = BillAcceptanceStatus {
@@ -4277,6 +4328,36 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_acceptance, 1731593928)
                 .unwrap()
         );
+        bill_acceptance
+            .status
+            .acceptance
+            .request_to_accept_timed_out = true;
+        // already expired, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .unwrap()
+        );
+        bill_acceptance
+            .status
+            .acceptance
+            .request_to_accept_timed_out = false;
+        bill_acceptance.status.acceptance.rejected_to_accept = true;
+        // already rejected, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .unwrap()
+        );
+        bill_acceptance.status.acceptance.rejected_to_accept = false;
+        bill_acceptance.status.acceptance.accepted = true;
+        // already accepted, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .unwrap()
+        );
+        bill_acceptance.status.acceptance.accepted = false;
 
         let mut bill_sell = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         bill_sell.status.sell = BillSellStatus {
@@ -4293,6 +4374,31 @@ pub mod tests {
                 .unwrap()
         );
 
+        bill_sell.status.sell.offer_to_sell_timed_out = true;
+        // already expired, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .unwrap()
+        );
+        bill_sell.status.sell.offer_to_sell_timed_out = false;
+        bill_sell.status.sell.rejected_offer_to_sell = true;
+        // already rejected, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .unwrap()
+        );
+        bill_sell.status.sell.rejected_offer_to_sell = false;
+        bill_sell.status.sell.sold = true;
+        // already sold, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .unwrap()
+        );
+        bill_sell.status.sell.sold = false;
+
         let mut bill_recourse = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         bill_recourse.status.recourse = BillRecourseStatus {
             time_of_last_request_to_recourse: Some(1531593928),
@@ -4307,5 +4413,28 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_recourse, 1731593928)
                 .unwrap()
         );
+        bill_recourse.status.recourse.request_to_recourse_timed_out = true;
+        // already expired, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .unwrap()
+        );
+        bill_recourse.status.recourse.rejected_request_to_recourse = true;
+        // already rejected, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .unwrap()
+        );
+        bill_recourse.status.recourse.rejected_request_to_recourse = false;
+        bill_recourse.status.recourse.recoursed = true;
+        // already recoursed, no need to check anymore
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .unwrap()
+        );
+        bill_recourse.status.recourse.recoursed = false;
     }
 }
