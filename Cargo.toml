@@ -9,6 +9,11 @@ members = [
   "crates/bcr-ebill-wasm",
 ]
 
+[profile.release]
+opt-level = "s"      # Optimize for size ("z" can be used for even more aggressive size reduction)
+lto = true           # Enable Link-Time Optimization
+codegen-units = 1    # Reduces binary size at the cost of compile time
+strip = true         # Strips debug symbols from the final binary
 
 [workspace.dependencies]
 sha2 = { version = "0.10", default-features = false }
