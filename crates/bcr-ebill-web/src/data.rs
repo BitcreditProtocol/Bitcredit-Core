@@ -607,7 +607,7 @@ pub struct IdentityWeb {
     pub identification_number: Option<String>,
     pub profile_picture_file: Option<FileWeb>,
     pub identity_document_file: Option<FileWeb>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IdentityWeb {
@@ -626,7 +626,7 @@ impl IdentityWeb {
             identification_number: identity.identification_number,
             profile_picture_file: identity.profile_picture_file.map(|f| f.into_web()),
             identity_document_file: identity.identity_document_file.map(|f| f.into_web()),
-            nostr_relay: identity.nostr_relay,
+            nostr_relays: identity.nostr_relays,
         }
     }
 }
@@ -1189,7 +1189,7 @@ impl IntoWeb<BillParticipantWeb> for BillParticipant {
 pub struct BillAnonParticipantWeb {
     pub node_id: String,
     pub email: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
@@ -1197,7 +1197,7 @@ impl IntoWeb<BillAnonParticipantWeb> for BillAnonParticipant {
         BillAnonParticipantWeb {
             node_id: self.node_id,
             email: self.email,
-            nostr_relay: self.nostr_relay,
+            nostr_relays: self.nostr_relays,
         }
     }
 }
@@ -1211,7 +1211,7 @@ pub struct BillIdentParticipantWeb {
     #[serde(flatten)]
     pub postal_address: PostalAddressWeb,
     pub email: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
 impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
@@ -1222,7 +1222,7 @@ impl IntoWeb<BillIdentParticipantWeb> for BillIdentParticipant {
             node_id: self.node_id,
             postal_address: self.postal_address.into_web(),
             email: self.email,
-            nostr_relay: self.nostr_relay,
+            nostr_relays: self.nostr_relays,
         }
     }
 }

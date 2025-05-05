@@ -98,7 +98,7 @@ pub async fn create_service_context(
         db.notification_store.clone(),
         contact_service.clone(),
         db.queued_message_store.clone(),
-        &config.nostr_relay,
+        config.nostr_relays.clone(),
     )
     .await?;
 

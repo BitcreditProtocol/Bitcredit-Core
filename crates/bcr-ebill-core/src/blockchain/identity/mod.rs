@@ -50,7 +50,7 @@ pub struct IdentityCreateBlockData {
     pub city_of_birth: Option<String>,
     pub country_of_birth: Option<String>,
     pub identification_number: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
     pub profile_picture_file: Option<File>,
     pub identity_document_file: Option<File>,
 }
@@ -66,7 +66,7 @@ impl From<Identity> for IdentityCreateBlockData {
             city_of_birth: value.city_of_birth,
             postal_address: value.postal_address,
             identification_number: value.identification_number,
-            nostr_relay: value.nostr_relay,
+            nostr_relays: value.nostr_relays,
             profile_picture_file: value.profile_picture_file,
             identity_document_file: value.identity_document_file,
         }

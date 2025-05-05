@@ -28,7 +28,7 @@ pub struct Config {
     pub log_level: Option<String>,
     pub bitcoin_network: String,
     pub esplora_base_url: String,
-    pub nostr_relay: String,
+    pub nostr_relays: Vec<String>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
 }
@@ -62,7 +62,7 @@ pub async fn initialize_api(
     let api_config = ApiConfig {
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
-        nostr_relay: config.nostr_relay,
+        nostr_relays: config.nostr_relays,
         surreal_db_connection: SURREAL_DB_CON_INDXDB_DATA.to_owned(),
         data_dir: "./".to_owned(), // unused in wasm
     };

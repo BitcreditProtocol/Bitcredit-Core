@@ -742,7 +742,7 @@ impl From<BillAnonParticipantDb> for BillAnonParticipant {
         Self {
             node_id: value.node_id,
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 }
@@ -755,7 +755,7 @@ impl From<BillIdentParticipantDb> for BillIdentParticipant {
             name: value.name,
             postal_address: value.postal_address.into(),
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 }

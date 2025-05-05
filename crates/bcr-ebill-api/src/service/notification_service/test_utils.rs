@@ -98,11 +98,14 @@ pub fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> 
 pub fn get_identity_public_data(
     node_id: &str,
     email: &str,
-    nostr_relay: Option<&str>,
+    nostr_relays: Vec<&str>,
 ) -> BillIdentParticipant {
     let mut identity = bill_identified_participant_only_node_id(node_id.to_owned());
     identity.email = Some(email.to_owned());
-    identity.nostr_relay = nostr_relay.map(|nostr_relay| nostr_relay.to_owned());
+    identity.nostr_relays = nostr_relays
+        .iter()
+        .map(|nostr_relay| String::from(*nostr_relay))
+        .collect();
     identity
 }
 

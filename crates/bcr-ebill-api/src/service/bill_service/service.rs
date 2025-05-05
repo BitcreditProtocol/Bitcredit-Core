@@ -126,13 +126,13 @@ impl BillService {
                 .await,
             ),
             BillParticipantBlockData::Anon(data) => {
-                let (email, nostr_relay) = self
+                let (email, nostr_relays) = self
                     .get_email_and_nostr_relay(&data.node_id, ContactType::Anon, identity, contacts)
                     .await;
                 BillParticipant::Anon(BillAnonParticipant {
                     node_id: data.node_id,
                     email,
-                    nostr_relay,
+                    nostr_relays,
                 })
             }
         }
@@ -146,7 +146,7 @@ impl BillService {
         identity: &Identity,
         contacts: &HashMap<String, Contact>,
     ) -> BillIdentParticipant {
-        let (email, nostr_relay) = self
+        let (email, nostr_relays) = self
             .get_email_and_nostr_relay(
                 &chain_identity.node_id,
                 chain_identity.t.clone(),
@@ -160,7 +160,7 @@ impl BillService {
             name: chain_identity.name,
             postal_address: chain_identity.postal_address,
             email,
-            nostr_relay,
+            nostr_relays,
         }
     }
 
@@ -170,23 +170,23 @@ impl BillService {
         t: ContactType,
         identity: &Identity,
         contacts: &HashMap<String, Contact>,
-    ) -> (Option<String>, Option<String>) {
+    ) -> (Option<String>, Vec<String>) {
         match node_id {
-            v if v == identity.node_id => (identity.email.clone(), identity.nostr_relay.clone()),
+            v if v == identity.node_id => (identity.email.clone(), identity.nostr_relays.clone()),
             other_node_id => {
                 if let Some(contact) = contacts.get(other_node_id) {
-                    (contact.email.clone(), contact.nostr_relays.first().cloned())
+                    (contact.email.clone(), contact.nostr_relays.clone())
                 } else if t == ContactType::Company {
                     if let Ok(company) = self.company_store.get(other_node_id).await {
                         (
                             Some(company.email.clone()),
-                            identity.nostr_relay.clone(), // if it's a local company, we take our relay
+                            identity.nostr_relays.clone(), // if it's a local company, we take our relay
                         )
                     } else {
-                        (None, None)
+                        (None, vec![])
                     }
                 } else {
-                    (None, None)
+                    (None, vec![])
                 }
             }
         }

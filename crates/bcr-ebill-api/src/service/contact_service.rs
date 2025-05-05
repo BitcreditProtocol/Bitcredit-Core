@@ -382,7 +382,7 @@ impl ContactServiceApi for ContactService {
                     identification_number,
                     avatar_file,
                     proof_document_file,
-                    nostr_relays: vec![get_config().nostr_relay.clone()], // Use the configured relay for now
+                    nostr_relays: get_config().nostr_relays.clone(), // Use the configured relays for now
                 }
             }
             ContactType::Anon => {
@@ -398,7 +398,7 @@ impl ContactServiceApi for ContactService {
                     identification_number: None,
                     avatar_file: None,
                     proof_document_file: None,
-                    nostr_relays: vec![get_config().nostr_relay.clone()], // Use the configured relay for now
+                    nostr_relays: get_config().nostr_relays.clone(), // Use the configured relays for now
                 }
             }
         };
@@ -479,7 +479,7 @@ impl ContactServiceApi for ContactService {
             identification_number,
             avatar_file,
             proof_document_file,
-            nostr_relays: vec![get_config().nostr_relay.clone()], // Use the configured relay for now
+            nostr_relays: get_config().nostr_relays.clone(), // Use the configured relays for now
         };
 
         self.store.update(node_id, contact.clone()).await?;

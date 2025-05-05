@@ -316,7 +316,7 @@ pub mod tests {
                 crate::init(crate::Config {
                     bitcoin_network: "mainnet".to_string(),
                     esplora_base_url: "https://blockstream.info".to_string(),
-                    nostr_relay: "ws://localhost:8080".to_string(),
+                    nostr_relays: vec!["ws://localhost:8080".to_string()],
                     surreal_db_connection: "ws://localhost:8800".to_string(),
                     data_dir: ".".to_string(),
                 })
@@ -354,7 +354,7 @@ pub mod tests {
             country_of_birth: None,
             city_of_birth: None,
             identification_number: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
             profile_picture_file: None,
             identity_document_file: None,
         }
@@ -367,7 +367,7 @@ pub mod tests {
             name: "some@example.com".to_string(),
             postal_address: empty_address(),
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 
@@ -378,7 +378,7 @@ pub mod tests {
             name: "some name".to_string(),
             postal_address: empty_address(),
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         })
     }
 
@@ -389,7 +389,7 @@ pub mod tests {
             name: "some name".to_string(),
             postal_address: empty_address(),
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 
