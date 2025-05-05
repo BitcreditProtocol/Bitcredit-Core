@@ -1,5 +1,7 @@
 # 0.3.10
 
+* Add LICENSE to npm package
+* Reduce size of the WASM binary
 * Fix a small issue, where bills were recalculated instead of taken from cache, once their payment/sell/recourse/accept requests expired
 * Change behaviour of request to pay
     * it's now possible to req to pay before the maturity date
