@@ -3,6 +3,9 @@ name = "bcr-ebill-wasm"
 version = "0.3.10"
 edition = "2024"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Os']
+
 [lib]
 crate-type = ["cdylib"]
 
