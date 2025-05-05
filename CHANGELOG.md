@@ -1,5 +1,6 @@
 # 0.3.10
 
+* Fix a small issue, where bills were recalculated instead of taken from cache, once their payment/sell/recourse/accept requests expired
 * Change behaviour of request to pay
     * it's now possible to req to pay before the maturity date
     * The actual payment expiry still only happens 2 workdays after the end of the maturity date,

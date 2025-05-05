@@ -502,7 +502,12 @@ impl BillService {
     ) -> Result<bool> {
         let mut invalidate_and_recalculate = false;
         let acceptance = &bill.status.acceptance;
-        if acceptance.requested_to_accept && !acceptance.accepted && !acceptance.rejected_to_accept
+        // if it was requested, but not "finished" (accepted, rejected, or expired), we have to
+        // check if the deadline expired and recalculate
+        if acceptance.requested_to_accept
+            && !acceptance.accepted
+            && !acceptance.rejected_to_accept
+            && !acceptance.request_to_accept_timed_out
         {
             if let Some(time_of_request_to_accept) = acceptance.time_of_request_to_accept {
                 if util::date::check_if_deadline_has_passed(
@@ -515,8 +520,14 @@ impl BillService {
             }
         }
 
+        // if it was requested, but not "finished" (paid, rejected, or expired), we have to
+        // check if the deadline expired and recalculate
         let payment = &bill.status.payment;
-        if payment.requested_to_pay && !payment.paid && !payment.rejected_to_pay {
+        if payment.requested_to_pay
+            && !payment.paid
+            && !payment.rejected_to_pay
+            && !payment.request_to_pay_timed_out
+        {
             if let Some(time_of_request_to_pay) = payment.time_of_request_to_pay {
                 let deadline_base = get_expiration_deadline_base_for_req_to_pay(
                     time_of_request_to_pay,
@@ -530,19 +541,29 @@ impl BillService {
                 ) {
                     invalidate_and_recalculate = true;
                 }
-                // req to pay has expired (after maturity date)
-                if util::date::check_if_deadline_has_passed(
-                    time_of_request_to_pay,
-                    current_timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                ) {
-                    invalidate_and_recalculate = true;
+                // if it was req to pay and is currently waiting, we have to check, if it's expired
+                // once it's expired, we don't have to check this anymore
+                if let Some(BillCurrentWaitingState::Payment(_)) = bill.current_waiting_state {
+                    // req to pay has expired (before maturity date)
+                    if util::date::check_if_deadline_has_passed(
+                        time_of_request_to_pay,
+                        current_timestamp,
+                        PAYMENT_DEADLINE_SECONDS,
+                    ) {
+                        invalidate_and_recalculate = true;
+                    }
                 }
             }
         }
 
         let sell = &bill.status.sell;
-        if sell.offered_to_sell && !sell.sold && !sell.rejected_offer_to_sell {
+        // if it was requested, but not "finished" (sold, rejected, or expired), we have to
+        // check if the deadline expired and recalculate
+        if sell.offered_to_sell
+            && !sell.sold
+            && !sell.rejected_offer_to_sell
+            && !sell.offer_to_sell_timed_out
+        {
             if let Some(time_of_last_offer_to_sell) = sell.time_of_last_offer_to_sell {
                 if util::date::check_if_deadline_has_passed(
                     time_of_last_offer_to_sell,
@@ -555,9 +576,12 @@ impl BillService {
         }
 
         let recourse = &bill.status.recourse;
+        // if it was requested, but not "finished" (recoursed, rejected, or expired), we have to
+        // check if the deadline expired and recalculate
         if recourse.requested_to_recourse
             && !recourse.recoursed
             && !recourse.rejected_request_to_recourse
+            && !recourse.request_to_recourse_timed_out
         {
             if let Some(time_of_last_request_to_recourse) =
                 recourse.time_of_last_request_to_recourse
