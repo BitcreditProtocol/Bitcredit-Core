@@ -19,7 +19,7 @@ pub mod tests {
     };
     use bcr_ebill_persistence::{
         BackupStoreApi, ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
-        NotificationStoreApi, Result,
+        NotificationStoreApi, Result, SurrealDbConfig,
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
@@ -317,7 +317,10 @@ pub mod tests {
                     bitcoin_network: "mainnet".to_string(),
                     esplora_base_url: "https://blockstream.info".to_string(),
                     nostr_relays: vec!["ws://localhost:8080".to_string()],
-                    surreal_db_connection: "ws://localhost:8800".to_string(),
+                    db_config: SurrealDbConfig {
+                        connection_string: "ws://localhost:8800".to_string(),
+                        ..SurrealDbConfig::default()
+                    },
                     data_dir: ".".to_string(),
                 })
                 .unwrap();
