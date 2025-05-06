@@ -1,7 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
-use bcr_ebill_api::{Config as ApiConfig, get_db_context, init};
-use constants::SURREAL_DB_CON_INDXDB_DATA;
+use bcr_ebill_api::{Config as ApiConfig, SurrealDbConfig, get_db_context, init};
 use context::{Context, get_ctx};
 use futures::{StreamExt, future::ready};
 use gloo_timers::future::{IntervalStream, TimeoutFuture};
@@ -16,7 +15,6 @@ use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
 pub mod api;
-mod constants;
 mod context;
 mod data;
 mod error;
@@ -63,7 +61,7 @@ pub async fn initialize_api(
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
         nostr_relays: config.nostr_relays,
-        surreal_db_connection: SURREAL_DB_CON_INDXDB_DATA.to_owned(),
+        db_config: SurrealDbConfig::default(),
         data_dir: "./".to_owned(), // unused in wasm
     };
     init(api_config.clone())?;

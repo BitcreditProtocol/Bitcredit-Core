@@ -25,7 +25,7 @@ pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: String,
     pub nostr_relays: Vec<String>,
-    pub surreal_db_connection: String,
+    pub db_config: SurrealDbConfig,
     pub data_dir: String,
 }
 

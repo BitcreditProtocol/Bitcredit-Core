@@ -14,6 +14,10 @@ pub struct Config {
     pub data_dir: String,
     #[arg(default_value_t = String::from("ws://localhost:8800"), long, env = "SURREAL_DB_CONNECTION")]
     pub surreal_db_connection: String,
+    #[arg(default_value_t = String::from("ebills"), long, env = "SURREAL_DB_DATABASE")]
+    pub surreal_db_database: String,
+    #[arg(default_value_t = String::from("default"), long, env = "SURREAL_DB_NAMESPACE")]
+    pub surreal_db_namespace: String,
     #[arg(default_value_t = String::from("testnet"),  long, env = "BITCOIN_NETWORK")]
     pub bitcoin_network: String,
     #[arg(default_value = "ws://localhost:8080", value_delimiter = ',', num_args = 1.., long, env = "NOSTR_RELAYS")]
