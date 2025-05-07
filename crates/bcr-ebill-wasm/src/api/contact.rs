@@ -1,7 +1,7 @@
 use crate::data::contact::{
     ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload, NewContactPayload,
 };
-use crate::data::{BinaryFileResponse, FromWeb, IntoWeb, UploadFile};
+use crate::data::{BinaryFileResponse, UploadFile, UploadFileResponse};
 use crate::{Result, context::get_ctx};
 use bcr_ebill_api::data::contact::ContactType;
 use bcr_ebill_api::data::{OptionalPostalAddress, PostalAddress};
@@ -66,7 +66,7 @@ impl Contact {
             .upload_file(upload_file_handler)
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&file_upload_response.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<UploadFileResponse>(&file_upload_response.into())?;
         Ok(res)
     }
 
@@ -74,18 +74,14 @@ impl Contact {
     pub async fn list(&self) -> Result<JsValue> {
         let contacts = get_ctx().contact_service.get_contacts().await?;
         let res = serde_wasm_bindgen::to_value(&ContactsResponse {
-            contacts: contacts.into_iter().map(|c| c.into_web()).collect(),
+            contacts: contacts.into_iter().map(|c| c.into()).collect(),
         })?;
         Ok(res)
     }
 
     #[wasm_bindgen(unchecked_return_type = "ContactWeb")]
     pub async fn detail(&self, node_id: &str) -> Result<JsValue> {
-        let contact: ContactWeb = get_ctx()
-            .contact_service
-            .get_contact(node_id)
-            .await?
-            .into_web();
+        let contact: ContactWeb = get_ctx().contact_service.get_contact(node_id).await?.into();
         let res = serde_wasm_bindgen::to_value(&contact)?;
         Ok(res)
     }
@@ -106,10 +102,10 @@ impl Contact {
             .contact_service
             .deanonymize_contact(
                 &contact_payload.node_id,
-                ContactType::from_web(ContactTypeWeb::try_from(contact_payload.t)?),
+                ContactType::from(ContactTypeWeb::try_from(contact_payload.t)?),
                 contact_payload.name,
                 contact_payload.email,
-                contact_payload.postal_address.map(PostalAddress::from_web),
+                contact_payload.postal_address.map(PostalAddress::from),
                 contact_payload.date_of_birth_or_registration,
                 contact_payload.country_of_birth_or_registration,
                 contact_payload.city_of_birth_or_registration,
@@ -118,7 +114,7 @@ impl Contact {
                 contact_payload.proof_document_file_upload_id,
             )
             .await?;
-        let res = serde_wasm_bindgen::to_value(&contact.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<ContactWeb>(&contact.into())?;
         Ok(res)
     }
 
@@ -132,10 +128,10 @@ impl Contact {
             .contact_service
             .add_contact(
                 &contact_payload.node_id,
-                ContactType::from_web(ContactTypeWeb::try_from(contact_payload.t)?),
+                ContactType::from(ContactTypeWeb::try_from(contact_payload.t)?),
                 contact_payload.name,
                 contact_payload.email,
-                contact_payload.postal_address.map(PostalAddress::from_web),
+                contact_payload.postal_address.map(PostalAddress::from),
                 contact_payload.date_of_birth_or_registration,
                 contact_payload.country_of_birth_or_registration,
                 contact_payload.city_of_birth_or_registration,
@@ -144,7 +140,7 @@ impl Contact {
                 contact_payload.proof_document_file_upload_id,
             )
             .await?;
-        let res = serde_wasm_bindgen::to_value(&contact.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<ContactWeb>(&contact.into())?;
         Ok(res)
     }
 
@@ -162,7 +158,7 @@ impl Contact {
                 &contact_payload.node_id,
                 contact_payload.name,
                 contact_payload.email,
-                OptionalPostalAddress::from_web(contact_payload.postal_address),
+                OptionalPostalAddress::from(contact_payload.postal_address),
                 contact_payload.date_of_birth_or_registration,
                 contact_payload.country_of_birth_or_registration,
                 contact_payload.city_of_birth_or_registration,

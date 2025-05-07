@@ -2,7 +2,7 @@ use crate::{
     Result,
     context::get_ctx,
     data::{
-        BinaryFileResponse, FromWeb, IntoWeb, UploadFile,
+        BinaryFileResponse, UploadFile, UploadFileResponse,
         identity::{
             ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
             SwitchIdentity,
@@ -82,7 +82,7 @@ impl Identity {
             .upload_file(upload_file_handler)
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&file_upload_response.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<UploadFileResponse>(&file_upload_response.into())?;
         Ok(res)
     }
 
@@ -113,10 +113,10 @@ impl Identity {
         get_ctx()
             .identity_service
             .deanonymize_identity(
-                IdentityType::from_web(IdentityTypeWeb::try_from(identity.t)?),
+                IdentityType::from(IdentityTypeWeb::try_from(identity.t)?),
                 identity.name,
                 identity.email,
-                OptionalPostalAddress::from_web(identity.postal_address),
+                OptionalPostalAddress::from(identity.postal_address),
                 identity.date_of_birth,
                 identity.country_of_birth,
                 identity.city_of_birth,
@@ -145,10 +145,10 @@ impl Identity {
         get_ctx()
             .identity_service
             .create_identity(
-                IdentityType::from_web(IdentityTypeWeb::try_from(identity.t)?),
+                IdentityType::from(IdentityTypeWeb::try_from(identity.t)?),
                 identity.name,
                 identity.email,
-                OptionalPostalAddress::from_web(identity.postal_address),
+                OptionalPostalAddress::from(identity.postal_address),
                 identity.date_of_birth,
                 identity.country_of_birth,
                 identity.city_of_birth,
@@ -190,7 +190,7 @@ impl Identity {
             .update_identity(
                 identity_payload.name,
                 identity_payload.email,
-                OptionalPostalAddress::from_web(identity_payload.postal_address),
+                OptionalPostalAddress::from(identity_payload.postal_address),
                 identity_payload.date_of_birth,
                 identity_payload.country_of_birth,
                 identity_payload.city_of_birth,
@@ -211,7 +211,7 @@ impl Identity {
             Some(company_node_id) => (company_node_id, SwitchIdentityType::Company),
         };
         let switch_identity = SwitchIdentity {
-            t: Some(t.into_web()),
+            t: Some(t.into()),
             node_id,
         };
         let res = serde_wasm_bindgen::to_value(&switch_identity)?;

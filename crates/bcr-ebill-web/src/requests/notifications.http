@@ -1,6 +1,0 @@
-### get active notifications
-GET {{host}}/notifications
-Accept: application/json
-
-### mark notification as done
-POST {{host}}/notifications/done/asdf

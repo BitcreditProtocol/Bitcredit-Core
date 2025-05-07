@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::{
-    FileWeb, IntoWeb, OptionalPostalAddressWeb, PostalAddressWeb, contact::ContactTypeWeb,
-};
+use super::{FileWeb, OptionalPostalAddressWeb, PostalAddressWeb, contact::ContactTypeWeb};
 
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -35,20 +33,20 @@ pub struct CompanyWeb {
     pub signatories: Vec<String>,
 }
 
-impl IntoWeb<CompanyWeb> for Company {
-    fn into_web(self) -> CompanyWeb {
+impl From<Company> for CompanyWeb {
+    fn from(val: Company) -> Self {
         CompanyWeb {
-            id: self.id,
-            name: self.name,
-            country_of_registration: self.country_of_registration,
-            city_of_registration: self.city_of_registration,
-            postal_address: self.postal_address.into_web(),
-            email: self.email,
-            registration_number: self.registration_number,
-            registration_date: self.registration_date,
-            proof_of_registration_file: self.proof_of_registration_file.map(|f| f.into_web()),
-            logo_file: self.logo_file.map(|f| f.into_web()),
-            signatories: self.signatories,
+            id: val.id,
+            name: val.name,
+            country_of_registration: val.country_of_registration,
+            city_of_registration: val.city_of_registration,
+            postal_address: val.postal_address.into(),
+            email: val.email,
+            registration_number: val.registration_number,
+            registration_date: val.registration_date,
+            proof_of_registration_file: val.proof_of_registration_file.map(|f| f.into()),
+            logo_file: val.logo_file.map(|f| f.into()),
+            signatories: val.signatories,
         }
     }
 }
@@ -120,14 +118,14 @@ impl TryFrom<Contact> for SignatoryResponse {
             return Err(ValidationError::InvalidContact(value.node_id));
         }
         Ok(Self {
-            t: value.t.into_web(),
+            t: value.t.into(),
             node_id: value.node_id.clone(),
             name: value.name,
             postal_address: value
                 .postal_address
                 .ok_or(ValidationError::InvalidContact(value.node_id))
-                .map(|pa| pa.into_web())?,
-            avatar_file: value.avatar_file.map(|f| f.into_web()),
+                .map(|pa| pa.into())?,
+            avatar_file: value.avatar_file.map(|f| f.into()),
         })
     }
 }

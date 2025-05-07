@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::{FileWeb, FromWeb, IntoWeb, OptionalPostalAddressWeb};
+use super::{FileWeb, OptionalPostalAddressWeb};
 
 #[derive(Tsify, Debug, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -26,9 +26,9 @@ pub enum SwitchIdentityTypeWeb {
     Company = 1,
 }
 
-impl IntoWeb<SwitchIdentityTypeWeb> for SwitchIdentityType {
-    fn into_web(self) -> SwitchIdentityTypeWeb {
-        match self {
+impl From<SwitchIdentityType> for SwitchIdentityTypeWeb {
+    fn from(val: SwitchIdentityType) -> Self {
+        match val {
             SwitchIdentityType::Person => SwitchIdentityTypeWeb::Person,
             SwitchIdentityType::Company => SwitchIdentityTypeWeb::Company,
         }
@@ -51,21 +51,21 @@ impl TryFrom<u64> for IdentityTypeWeb {
     fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
         Ok(IdentityType::try_from(value)
             .map_err(Self::Error::Validation)?
-            .into_web())
+            .into())
     }
 }
 
-impl IntoWeb<IdentityTypeWeb> for IdentityType {
-    fn into_web(self) -> IdentityTypeWeb {
-        match self {
+impl From<IdentityType> for IdentityTypeWeb {
+    fn from(val: IdentityType) -> Self {
+        match val {
             IdentityType::Ident => IdentityTypeWeb::Ident,
             IdentityType::Anon => IdentityTypeWeb::Anon,
         }
     }
 }
 
-impl FromWeb<IdentityTypeWeb> for IdentityType {
-    fn from_web(value: IdentityTypeWeb) -> Self {
+impl From<IdentityTypeWeb> for IdentityType {
+    fn from(value: IdentityTypeWeb) -> Self {
         match value {
             IdentityTypeWeb::Ident => IdentityType::Ident,
             IdentityTypeWeb::Anon => IdentityType::Anon,
@@ -124,19 +124,19 @@ pub struct IdentityWeb {
 impl IdentityWeb {
     pub fn from(identity: Identity, keys: BcrKeys) -> Result<Self> {
         Ok(Self {
-            t: identity.t.into_web(),
+            t: identity.t.into(),
             node_id: identity.node_id.clone(),
             name: identity.name,
             email: identity.email,
             bitcoin_public_key: identity.node_id.clone(),
             npub: keys.get_nostr_npub(),
-            postal_address: identity.postal_address.into_web(),
+            postal_address: identity.postal_address.into(),
             date_of_birth: identity.date_of_birth,
             country_of_birth: identity.country_of_birth,
             city_of_birth: identity.city_of_birth,
             identification_number: identity.identification_number,
-            profile_picture_file: identity.profile_picture_file.map(|f| f.into_web()),
-            identity_document_file: identity.identity_document_file.map(|f| f.into_web()),
+            profile_picture_file: identity.profile_picture_file.map(|f| f.into()),
+            identity_document_file: identity.identity_document_file.map(|f| f.into()),
             nostr_relays: identity.nostr_relays,
         })
     }

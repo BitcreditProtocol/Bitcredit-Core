@@ -21,10 +21,11 @@ use crate::{
     api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
-        BinaryFileResponse, FromWeb, IntoWeb, UploadFile,
+        BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
-            AcceptBitcreditBillPayload, BillId, BillNumbersToWordsForSum, BillsResponse,
-            BillsSearchFilterPayload, BitcreditBillPayload, EndorseBitcreditBillPayload,
+            AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillId,
+            BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
+            BitcreditBillPayload, BitcreditBillWeb, EndorseBitcreditBillPayload,
             EndorsementsResponse, LightBillsResponse, MintBitcreditBillPayload,
             OfferToSellBitcreditBillPayload, PastEndorseesResponse, PastPaymentsResponse,
             RejectActionBillPayload, RequestRecourseForAcceptancePayload,
@@ -53,7 +54,7 @@ impl Bill {
             .get_endorsements(id, &get_current_identity_node_id().await?)
             .await?;
         let res = serde_wasm_bindgen::to_value(&EndorsementsResponse {
-            endorsements: result.into_iter().map(|e| e.into_web()).collect(),
+            endorsements: result.into_iter().map(|e| e.into()).collect(),
         })?;
         Ok(res)
     }
@@ -71,7 +72,7 @@ impl Bill {
             )
             .await?;
         let res = serde_wasm_bindgen::to_value(&PastPaymentsResponse {
-            past_payments: result.into_iter().map(|e| e.into_web()).collect(),
+            past_payments: result.into_iter().map(|e| e.into()).collect(),
         })?;
         Ok(res)
     }
@@ -83,7 +84,7 @@ impl Bill {
             .get_past_endorsees(id, &get_current_identity_node_id().await?)
             .await?;
         let res = serde_wasm_bindgen::to_value(&PastEndorseesResponse {
-            past_endorsees: result.into_iter().map(|e| e.into_web()).collect(),
+            past_endorsees: result.into_iter().map(|e| e.into()).collect(),
         })?;
         Ok(res)
     }
@@ -95,7 +96,7 @@ impl Bill {
             .bill_service
             .get_combined_bitcoin_key_for_bill(id, &caller_public_data, &caller_keys)
             .await?;
-        let res = serde_wasm_bindgen::to_value(&combined_key.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<BillCombinedBitcoinKeyWeb>(&combined_key.into())?;
         Ok(res)
     }
 
@@ -136,7 +137,7 @@ impl Bill {
             .upload_file(upload_file_handler)
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&file_upload_response.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<UploadFileResponse>(&file_upload_response.into())?;
         Ok(res)
     }
 
@@ -165,13 +166,13 @@ impl Bill {
                 &filter.search_term,
                 from,
                 to,
-                &BillsFilterRole::from_web(filter.role),
+                &BillsFilterRole::from(filter.role),
                 &get_current_identity_node_id().await?,
             )
             .await?;
 
         let res = serde_wasm_bindgen::to_value(&LightBillsResponse {
-            bills: bills.into_iter().map(|b| b.into_web()).collect(),
+            bills: bills.into_iter().map(|b| b.into()).collect(),
         })?;
         Ok(res)
     }
@@ -186,7 +187,7 @@ impl Bill {
             .map(|b| b.into())
             .collect();
         let res = serde_wasm_bindgen::to_value(&LightBillsResponse {
-            bills: bills.into_iter().map(|b| b.into_web()).collect(),
+            bills: bills.into_iter().map(|b| b.into()).collect(),
         })?;
         Ok(res)
     }
@@ -198,7 +199,7 @@ impl Bill {
             .get_bills(&get_current_identity_node_id().await?)
             .await?;
         let res = serde_wasm_bindgen::to_value(&BillsResponse {
-            bills: bills.into_iter().map(|b| b.into_web()).collect(),
+            bills: bills.into_iter().map(|b| b.into()).collect(),
         })?;
         Ok(res)
     }
@@ -240,7 +241,7 @@ impl Bill {
             )
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&bill_detail.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<BitcreditBillWeb>(&bill_detail.into())?;
         Ok(res)
     }
 

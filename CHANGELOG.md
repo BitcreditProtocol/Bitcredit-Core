@@ -1,5 +1,7 @@
 # 0.3.11
 
+* Add LICENSE to crates
+* Remove the `bcr-ebill-web` crate
 * Use a list of Nostr relays everywhere, instead of a single one, including in the config
 * Add Blank Endorse Bill data model implementation
     * Rename `IdentityPublicData` to `BillIdentParticipant`
