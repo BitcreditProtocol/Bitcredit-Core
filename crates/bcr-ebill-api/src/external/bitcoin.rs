@@ -85,6 +85,7 @@ impl BitcoinClient {
                 format!("{}/regtest/api{path}", get_config().esplora_base_url)
             }
             _ => {
+                // for testnet and testnet4
                 format!("{}/testnet/api{path}", get_config().esplora_base_url)
             }
         }
@@ -99,6 +100,7 @@ impl BitcoinClient {
                 format!("{}/regtest{path}", get_config().esplora_base_url)
             }
             _ => {
+                // for testnet and testnet4
                 format!("{}/testnet{path}", get_config().esplora_base_url)
             }
         }

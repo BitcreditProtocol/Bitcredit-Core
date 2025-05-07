@@ -36,6 +36,7 @@ impl Config {
         match self.bitcoin_network.as_str() {
             "mainnet" => Network::Bitcoin,
             "testnet" => Network::Testnet,
+            "testnet4" => Network::Testnet4,
             "regtest" => Network::Regtest,
             _ => Network::Testnet,
         }

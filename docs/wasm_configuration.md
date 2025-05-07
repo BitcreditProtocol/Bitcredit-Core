@@ -16,7 +16,7 @@ pub struct Config {
 
 It contains the following options:
 
-* `bitcoin_network` - bitcoin network to use, possible values: `mainnet`, `regtest` and `testnet`
+* `bitcoin_network` - bitcoin network to use, possible values: `mainnet`, `regtest`, `testnet4` and `testnet`
 * `esplora_base_url` - bitcoin explorer base url for payment checks
 * `nostr_relay` - nostr relay endpoint
 * `surreal_db_connection` - the surreal DB connection
