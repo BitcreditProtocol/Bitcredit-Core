@@ -2,6 +2,7 @@
 name = "bcr-ebill-web"
 version = "0.3.10"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 env_logger.workspace = true
