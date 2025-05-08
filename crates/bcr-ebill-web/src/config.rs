@@ -30,7 +30,7 @@ pub struct Config {
     pub frontend_url_path: String,
     #[arg(default_value_t = false, long, env = "LAUNCH_FRONTEND_AT_STARTUP")]
     pub launch_frontend_at_startup: bool,
-    #[arg(default_value_t = String::from("https://blockstream.info"), long, env = "ESPLORA_BASE_URL")]
+    #[arg(default_value_t = String::from("https://esplora.minibill.tech"), long, env = "ESPLORA_BASE_URL")]
     pub esplora_base_url: String,
 }
 

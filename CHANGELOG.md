@@ -1,5 +1,6 @@
 # 0.3.10
 
+* Change default testnet block explorer to `https://esplora.minibill.tech`
 * Add LICENSE to npm package
 * Reduce size of the WASM binary
 * Fix a small issue, where bills were recalculated instead of taken from cache, once their payment/sell/recourse/accept requests expired

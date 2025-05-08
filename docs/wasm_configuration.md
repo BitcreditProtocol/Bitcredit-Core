@@ -29,7 +29,7 @@ It contains the following options:
 ```javascript
     let config = {
         bitcoin_network: "testnet",
-        esplora_base_url: "https://blockstream.info",
+        esplora_base_url: "https://esplora.minibill.tech",
         nostr_relay: "wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app",
         surreal_db_connection: "indxdb://default",
         data_dir: ".",

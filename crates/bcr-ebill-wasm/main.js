@@ -30,10 +30,10 @@ document.getElementById("clear_bill_cache").addEventListener("click", clearBillC
 async function start() {
   let config = {
     log_level: "debug",
-    bitcoin_network: "regtest", // local reg test
-    esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
-    // bitcoin_network: "testnet",
-    // esplora_base_url: "https://blockstream.info",
+    // bitcoin_network: "regtest", // local reg test
+    // esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
+    bitcoin_network: "testnet",
+    esplora_base_url: "https://esplora.minibill.tech",
     nostr_relay: "wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app",
     job_runner_initial_delay_seconds: 1,
     job_runner_check_interval_seconds: 600,
