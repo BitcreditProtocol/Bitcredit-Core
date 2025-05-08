@@ -2,6 +2,7 @@
 name = "bcr-ebill-wasm"
 version = "0.3.10"
 edition = "2024"
+license = "MIT"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ['-Os']

@@ -2,6 +2,7 @@
 name = "bcr-ebill-api"
 version = "0.3.10"
 edition = "2024"
+license = "MIT"
 
 [lib]
 doctest = false
