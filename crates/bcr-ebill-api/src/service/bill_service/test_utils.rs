@@ -173,7 +173,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_mempool_link_for_address()
         .returning(|_| {
             String::from(
-                "http://blockstream.info/testnet/address/1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2",
+                "https://esplora.minibill.tech/testnet/address/1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2",
             )
         });
     bitcoin_client.expect_generate_link_to_pay().returning(|_,_,_| String::from("bitcoin:1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2?amount=0.01&message=Payment in relation to bill some bill"));

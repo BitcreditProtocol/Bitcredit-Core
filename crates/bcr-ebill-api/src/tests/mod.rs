@@ -315,7 +315,7 @@ pub mod tests {
             None => {
                 crate::init(crate::Config {
                     bitcoin_network: "mainnet".to_string(),
-                    esplora_base_url: "https://blockstream.info".to_string(),
+                    esplora_base_url: "https://esplora.minibill.tech".to_string(),
                     nostr_relay: "ws://localhost:8080".to_string(),
                     surreal_db_connection: "ws://localhost:8800".to_string(),
                     data_dir: ".".to_string(),
