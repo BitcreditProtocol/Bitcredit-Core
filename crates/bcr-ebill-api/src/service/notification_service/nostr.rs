@@ -4,13 +4,15 @@ use bcr_ebill_transport::event::EventEnvelope;
 use bcr_ebill_transport::handler::NotificationHandlerApi;
 use log::{error, info, trace, warn};
 use nostr_sdk::{
-    Client, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
-    RelayPoolNotification, SecretKey, Tag, Timestamp, ToBech32, UnsignedEvent,
+    Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
+    RelayPoolNotification, RelayUrl, SecretKey, SingleLetterTag, Tag, TagKind, TagStandard,
+    Timestamp, ToBech32, UnsignedEvent,
     nips::{nip04, nip59::UnwrappedGift},
 };
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::util::BcrKeys;
 use crate::{constants::NOSTR_EVENT_TIME_SLACK, service::contact_service::ContactServiceApi};
@@ -44,6 +46,14 @@ impl NostrConfig {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
+const DEFAULT_TIMEOUT: &Duration = &Duration::from_secs(20);
+
 /// A wrapper around nostr_sdk that implements the NotificationJsonTransportApi.
 ///
 /// # Example:
@@ -63,6 +73,7 @@ impl NostrConfig {
 pub struct NostrClient {
     pub keys: BcrKeys,
     pub client: Client,
+    config: NostrConfig,
 }
 
 impl NostrClient {
@@ -88,7 +99,22 @@ impl NostrClient {
             error!("Failed to set and send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
-        Ok(Self { keys, client })
+
+        let client = Self {
+            keys,
+            client,
+            config: config.clone(),
+        };
+
+        client
+            .update_relay_list(config.relays.clone())
+            .await
+            .map_err(|e| {
+                error!("Failed to update relay list: {e}");
+                Error::Network("Failed to update relay list".to_string())
+            })?;
+
+        Ok(client)
     }
 
     pub fn get_node_id(&self) -> String {
@@ -113,6 +139,86 @@ impl NostrClient {
                 Error::Network("Failed to subscribe to Nostr events".to_string())
             })?;
         Ok(())
+    }
+
+    /// Returns the latest metadata event for the given npub either from the provided relays or
+    /// from this clients relays.
+    pub async fn fetch_metadata(&self, npub: PublicKey) -> Result<Option<Metadata>> {
+        let result = self
+            .client
+            .fetch_metadata(npub, *DEFAULT_TIMEOUT)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch Nostr metadata: {e}");
+                Error::Network("Failed to fetch Nostr metadata".to_string())
+            })?;
+        Ok(result)
+    }
+
+    /// Returns the realays a given npub is reading from or writing to.
+    pub async fn fetch_relay_list(
+        &self,
+        npub: PublicKey,
+        relays: Vec<String>,
+    ) -> Result<Vec<RelayUrl>> {
+        let filter = Filter::new().author(npub).kind(Kind::RelayList).limit(1);
+        let events = self.fetch_events(filter, None, Some(relays)).await?;
+        Ok(events
+            .first()
+            .map(|e| {
+                e.tags
+                    .filter_standardized(TagKind::SingleLetter(SingleLetterTag::lowercase(
+                        Alphabet::R,
+                    )))
+                    .filter_map(|f| match f {
+                        TagStandard::RelayMetadata { relay_url, .. } => Some(relay_url.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// Updates our relay list on all our configured write relays.
+    async fn update_relay_list(&self, relays: Vec<String>) -> Result<()> {
+        let event = EventBuilder::relay_list(
+            relays
+                .iter()
+                .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None))),
+        );
+        self.client.send_event_builder(event).await.map_err(|e| {
+            error!("Failed to send Nostr relay list: {e}");
+            Error::Network("Failed to send Nostr relay list".to_string())
+        })?;
+        Ok(())
+    }
+
+    /// Returns events that match filter from either the provided relays or from this clients
+    /// relays. If a order is provided, the events are sorted accordingly otherwise the default
+    /// descending order is used.
+    pub async fn fetch_events(
+        &self,
+        filter: Filter,
+        order: Option<SortOrder>,
+        relays: Option<Vec<String>>,
+    ) -> Result<Vec<Event>> {
+        let events = self
+            .client
+            .fetch_events_from(
+                relays.unwrap_or(self.config.relays.clone()),
+                filter,
+                *DEFAULT_TIMEOUT,
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch Nostr events: {e}");
+                Error::Network("Failed to fetch Nostr events".to_string())
+            })?;
+        let mut events = events.into_iter().collect::<Vec<Event>>();
+        if Some(SortOrder::Asc) == order {
+            events.reverse();
+        }
+        Ok(events)
     }
 
     pub async fn unwrap_envelope(
@@ -170,7 +276,7 @@ impl NostrClient {
                 }
             } else {
                 info!(
-                    "Received event with kind {} but expected GiftWrap",
+                    "Received event with kind {} but expected EncryptedDirectMessage",
                     event.kind
                 );
             }
