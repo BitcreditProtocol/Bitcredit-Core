@@ -1,6 +1,6 @@
 [env]
 # our dev nostr relay
-NOSTR_RELAY = "ws://localhost:8080"
+NOSTR_RELAY = "ws://bitcr-cloud-run-05-550030097098.europe-west1.run.app"
 
 # more detailed logs
 RUST_LOG = "info"
