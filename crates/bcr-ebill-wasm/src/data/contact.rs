@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::{FileWeb, FromWeb, IntoWeb, OptionalPostalAddressWeb, PostalAddressWeb};
+use super::{FileWeb, OptionalPostalAddressWeb, PostalAddressWeb};
 
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -62,13 +62,13 @@ impl TryFrom<u64> for ContactTypeWeb {
     fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
         Ok(ContactType::try_from(value)
             .map_err(Self::Error::Validation)?
-            .into_web())
+            .into())
     }
 }
 
-impl IntoWeb<ContactTypeWeb> for ContactType {
-    fn into_web(self) -> ContactTypeWeb {
-        match self {
+impl From<ContactType> for ContactTypeWeb {
+    fn from(val: ContactType) -> Self {
+        match val {
             ContactType::Person => ContactTypeWeb::Person,
             ContactType::Company => ContactTypeWeb::Company,
             ContactType::Anon => ContactTypeWeb::Anon,
@@ -76,8 +76,8 @@ impl IntoWeb<ContactTypeWeb> for ContactType {
     }
 }
 
-impl FromWeb<ContactTypeWeb> for ContactType {
-    fn from_web(value: ContactTypeWeb) -> Self {
+impl From<ContactTypeWeb> for ContactType {
+    fn from(value: ContactTypeWeb) -> Self {
         match value {
             ContactTypeWeb::Person => ContactType::Person,
             ContactTypeWeb::Company => ContactType::Company,
@@ -103,21 +103,21 @@ pub struct ContactWeb {
     pub nostr_relays: Vec<String>,
 }
 
-impl IntoWeb<ContactWeb> for Contact {
-    fn into_web(self) -> ContactWeb {
+impl From<Contact> for ContactWeb {
+    fn from(val: Contact) -> Self {
         ContactWeb {
-            t: self.t.into_web(),
-            node_id: self.node_id,
-            name: self.name,
-            email: self.email,
-            postal_address: self.postal_address.map(|pa| pa.into_web()),
-            date_of_birth_or_registration: self.date_of_birth_or_registration,
-            country_of_birth_or_registration: self.country_of_birth_or_registration,
-            city_of_birth_or_registration: self.city_of_birth_or_registration,
-            identification_number: self.identification_number,
-            avatar_file: self.avatar_file.map(|f| f.into_web()),
-            proof_document_file: self.proof_document_file.map(|f| f.into_web()),
-            nostr_relays: self.nostr_relays,
+            t: val.t.into(),
+            node_id: val.node_id,
+            name: val.name,
+            email: val.email,
+            postal_address: val.postal_address.map(|pa| pa.into()),
+            date_of_birth_or_registration: val.date_of_birth_or_registration,
+            country_of_birth_or_registration: val.country_of_birth_or_registration,
+            city_of_birth_or_registration: val.city_of_birth_or_registration,
+            identification_number: val.identification_number,
+            avatar_file: val.avatar_file.map(|f| f.into()),
+            proof_document_file: val.proof_document_file.map(|f| f.into()),
+            nostr_relays: val.nostr_relays,
         }
     }
 }

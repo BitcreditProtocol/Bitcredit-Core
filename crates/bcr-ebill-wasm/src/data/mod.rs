@@ -20,14 +20,6 @@ pub mod contact;
 pub mod identity;
 pub mod notification;
 
-pub trait IntoWeb<T> {
-    fn into_web(self) -> T;
-}
-
-pub trait FromWeb<T> {
-    fn from_web(value: T) -> Self;
-}
-
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct StatusResponse {
@@ -43,12 +35,12 @@ pub struct GeneralSearchResponse {
     pub companies: Vec<CompanyWeb>,
 }
 
-impl IntoWeb<GeneralSearchResponse> for GeneralSearchResult {
-    fn into_web(self) -> GeneralSearchResponse {
+impl From<GeneralSearchResult> for GeneralSearchResponse {
+    fn from(val: GeneralSearchResult) -> Self {
         GeneralSearchResponse {
-            bills: self.bills.into_iter().map(|b| b.into_web()).collect(),
-            contacts: self.contacts.into_iter().map(|c| c.into_web()).collect(),
-            companies: self.companies.into_iter().map(|c| c.into_web()).collect(),
+            bills: val.bills.into_iter().map(|b| b.into()).collect(),
+            contacts: val.contacts.into_iter().map(|c| c.into()).collect(),
+            companies: val.companies.into_iter().map(|c| c.into()).collect(),
         }
     }
 }
@@ -67,8 +59,8 @@ pub enum GeneralSearchFilterItemTypeWeb {
     Contact,
 }
 
-impl FromWeb<GeneralSearchFilterItemTypeWeb> for GeneralSearchFilterItemType {
-    fn from_web(value: GeneralSearchFilterItemTypeWeb) -> Self {
+impl From<GeneralSearchFilterItemTypeWeb> for GeneralSearchFilterItemType {
+    fn from(value: GeneralSearchFilterItemTypeWeb) -> Self {
         match value {
             GeneralSearchFilterItemTypeWeb::Company => GeneralSearchFilterItemType::Company,
             GeneralSearchFilterItemTypeWeb::Bill => GeneralSearchFilterItemType::Bill,
@@ -136,8 +128,8 @@ impl OptionalPostalAddressWeb {
     }
 }
 
-impl FromWeb<OptionalPostalAddressWeb> for OptionalPostalAddress {
-    fn from_web(value: OptionalPostalAddressWeb) -> Self {
+impl From<OptionalPostalAddressWeb> for OptionalPostalAddress {
+    fn from(value: OptionalPostalAddressWeb) -> Self {
         Self {
             country: value.country,
             city: value.city,
@@ -147,13 +139,13 @@ impl FromWeb<OptionalPostalAddressWeb> for OptionalPostalAddress {
     }
 }
 
-impl IntoWeb<OptionalPostalAddressWeb> for OptionalPostalAddress {
-    fn into_web(self) -> OptionalPostalAddressWeb {
-        OptionalPostalAddressWeb {
-            country: self.country,
-            city: self.city,
-            zip: self.zip,
-            address: self.address,
+impl From<OptionalPostalAddress> for OptionalPostalAddressWeb {
+    fn from(value: OptionalPostalAddress) -> Self {
+        Self {
+            country: value.country,
+            city: value.city,
+            zip: value.zip,
+            address: value.address,
         }
     }
 }
@@ -167,8 +159,8 @@ pub struct PostalAddressWeb {
     pub address: String,
 }
 
-impl FromWeb<PostalAddressWeb> for PostalAddress {
-    fn from_web(value: PostalAddressWeb) -> Self {
+impl From<PostalAddressWeb> for PostalAddress {
+    fn from(value: PostalAddressWeb) -> Self {
         Self {
             country: value.country,
             city: value.city,
@@ -178,13 +170,13 @@ impl FromWeb<PostalAddressWeb> for PostalAddress {
     }
 }
 
-impl IntoWeb<PostalAddressWeb> for PostalAddress {
-    fn into_web(self) -> PostalAddressWeb {
+impl From<PostalAddress> for PostalAddressWeb {
+    fn from(val: PostalAddress) -> Self {
         PostalAddressWeb {
-            country: self.country,
-            city: self.city,
-            zip: self.zip,
-            address: self.address,
+            country: val.country,
+            city: val.city,
+            zip: val.zip,
+            address: val.address,
         }
     }
 }
@@ -200,8 +192,8 @@ pub struct NotificationFilters {
     pub offset: Option<i64>,
 }
 
-impl FromWeb<NotificationFilters> for NotificationFilter {
-    fn from_web(value: NotificationFilters) -> Self {
+impl From<NotificationFilters> for NotificationFilter {
+    fn from(value: NotificationFilters) -> Self {
         Self {
             active: value.active,
             reference_id: value.reference_id,
@@ -220,8 +212,8 @@ pub struct FileWeb {
     pub hash: String,
 }
 
-impl FromWeb<FileWeb> for File {
-    fn from_web(value: FileWeb) -> Self {
+impl From<FileWeb> for File {
+    fn from(value: FileWeb) -> Self {
         Self {
             name: value.name,
             hash: value.hash,
@@ -229,11 +221,11 @@ impl FromWeb<FileWeb> for File {
     }
 }
 
-impl IntoWeb<FileWeb> for File {
-    fn into_web(self) -> FileWeb {
+impl From<File> for FileWeb {
+    fn from(val: File) -> Self {
         FileWeb {
-            name: self.name,
-            hash: self.hash,
+            name: val.name,
+            hash: val.hash,
         }
     }
 }
@@ -283,10 +275,10 @@ pub struct UploadFileResponse {
     pub file_upload_id: String,
 }
 
-impl IntoWeb<UploadFileResponse> for UploadFileResult {
-    fn into_web(self) -> UploadFileResponse {
+impl From<UploadFileResult> for UploadFileResponse {
+    fn from(val: UploadFileResult) -> Self {
         UploadFileResponse {
-            file_upload_id: self.file_upload_id,
+            file_upload_id: val.file_upload_id,
         }
     }
 }
