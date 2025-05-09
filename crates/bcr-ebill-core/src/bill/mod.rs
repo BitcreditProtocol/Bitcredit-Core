@@ -1,8 +1,14 @@
-use crate::{blockchain::bill::BillBlockchain, util::BcrKeys};
+use crate::{
+    blockchain::bill::{BillBlockchain, block::NodeId},
+    contact::{BillParticipant, LightBillParticipant},
+    util::BcrKeys,
+};
 
 use super::{
     File, PostalAddress,
-    contact::{IdentityPublicData, LightIdentityPublicData, LightIdentityPublicDataWithAddress},
+    contact::{
+        BillIdentParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
+    },
     notification::Notification,
 };
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -17,17 +23,17 @@ pub enum BillAction {
     // currency
     RequestToPay(String),
     // buyer, sum, currency
-    OfferToSell(IdentityPublicData, u64, String),
+    OfferToSell(BillParticipant, u64, String),
     // buyer, sum, currency, payment_address
-    Sell(IdentityPublicData, u64, String, String),
+    Sell(BillParticipant, u64, String, String),
     // endorsee
-    Endorse(IdentityPublicData),
+    Endorse(BillParticipant),
     // recoursee, recourse reason
-    RequestRecourse(IdentityPublicData, RecourseReason),
+    RequestRecourse(BillIdentParticipant, RecourseReason),
     // recoursee, sum, currency reason/
-    Recourse(IdentityPublicData, u64, String, RecourseReason),
+    Recourse(BillIdentParticipant, u64, String, RecourseReason),
     // mint, sum, currency
-    Mint(IdentityPublicData, u64, String),
+    Mint(BillParticipant, u64, String),
     RejectAcceptance,
     RejectPayment,
     RejectBuying,
@@ -57,9 +63,10 @@ pub struct BillIssueData {
     pub city_of_payment: String,
     pub language: String,
     pub file_upload_ids: Vec<String>,
-    pub drawer_public_data: IdentityPublicData,
+    pub drawer_public_data: BillParticipant,
     pub drawer_keys: BcrKeys,
     pub timestamp: u64,
+    pub blank_issue: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -82,12 +89,12 @@ pub struct BitcreditBill {
     pub country_of_issuing: String,
     pub city_of_issuing: String,
     // The party obliged to pay a Bill
-    pub drawee: IdentityPublicData,
+    pub drawee: BillIdentParticipant,
     // The party issuing a Bill
-    pub drawer: IdentityPublicData,
-    pub payee: IdentityPublicData,
+    pub drawer: BillIdentParticipant,
+    pub payee: BillParticipant,
     // The person to whom the Payee or an Endorsee endorses a bill
-    pub endorsee: Option<IdentityPublicData>,
+    pub endorsee: Option<BillParticipant>,
     pub currency: String,
     pub sum: u64,
     pub maturity_date: String,
@@ -129,8 +136,8 @@ pub enum BillCurrentWaitingState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForSellState {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicData,
-    pub seller: IdentityPublicData,
+    pub buyer: BillParticipant,
+    pub seller: BillParticipant,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -141,8 +148,8 @@ pub struct BillWaitingForSellState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForPaymentState {
     pub time_of_request: u64,
-    pub payer: IdentityPublicData,
-    pub payee: IdentityPublicData,
+    pub payer: BillIdentParticipant,
+    pub payee: BillParticipant,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -153,8 +160,8 @@ pub struct BillWaitingForPaymentState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForRecourseState {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicData,
-    pub recoursee: IdentityPublicData,
+    pub recourser: BillIdentParticipant,
+    pub recoursee: BillIdentParticipant,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -227,10 +234,10 @@ pub struct BillData {
 
 #[derive(Debug, Clone)]
 pub struct BillParticipants {
-    pub drawee: IdentityPublicData,
-    pub drawer: IdentityPublicData,
-    pub payee: IdentityPublicData,
-    pub endorsee: Option<IdentityPublicData>,
+    pub drawee: BillIdentParticipant,
+    pub drawer: BillIdentParticipant,
+    pub payee: BillParticipant,
+    pub endorsee: Option<BillParticipant>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<String>,
 }
@@ -256,10 +263,10 @@ impl BitcreditBillResult {
 
         // Node id is payee, or, if an endorsee is set and node id is endorsee, node id is payee
         if let Some(ref endorsee) = self.participants.endorsee {
-            if endorsee.node_id == *node_id {
+            if endorsee.node_id() == *node_id {
                 return Some(BillRole::Payee);
             }
-        } else if self.participants.payee.node_id == *node_id {
+        } else if self.participants.payee.node_id() == *node_id {
             return Some(BillRole::Payee);
         }
 
@@ -274,9 +281,10 @@ impl BitcreditBillResult {
         if self
             .participants
             .payee
-            .name
-            .to_lowercase()
-            .contains(&search_term_lc)
+            .name()
+            .as_ref()
+            .map(|n| n.to_lowercase().contains(&search_term_lc))
+            .unwrap_or(false)
         {
             return true;
         }
@@ -302,7 +310,12 @@ impl BitcreditBillResult {
         }
 
         if let Some(ref endorsee) = self.participants.endorsee {
-            if endorsee.name.to_lowercase().contains(&search_term_lc) {
+            if endorsee
+                .name()
+                .as_ref()
+                .map(|n| n.to_lowercase().contains(&search_term_lc))
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -312,18 +325,20 @@ impl BitcreditBillResult {
         {
             if sell_waiting_state
                 .buyer
-                .name
-                .to_lowercase()
-                .contains(&search_term_lc)
+                .name()
+                .as_ref()
+                .map(|n| n.to_lowercase().contains(&search_term_lc))
+                .unwrap_or(false)
             {
                 return true;
             }
 
             if sell_waiting_state
                 .seller
-                .name
-                .to_lowercase()
-                .contains(&search_term_lc)
+                .name()
+                .as_ref()
+                .map(|n| n.to_lowercase().contains(&search_term_lc))
+                .unwrap_or(false)
             {
                 return true;
             }
@@ -336,10 +351,10 @@ impl BitcreditBillResult {
 #[derive(Debug, Clone)]
 pub struct LightBitcreditBillResult {
     pub id: String,
-    pub drawee: LightIdentityPublicData,
-    pub drawer: LightIdentityPublicData,
-    pub payee: LightIdentityPublicData,
-    pub endorsee: Option<LightIdentityPublicData>,
+    pub drawee: LightBillIdentParticipant,
+    pub drawer: LightBillIdentParticipant,
+    pub payee: LightBillParticipant,
+    pub endorsee: Option<LightBillParticipant>,
     pub active_notification: Option<Notification>,
     pub sum: String,
     pub currency: String,
@@ -400,24 +415,24 @@ pub enum BillsFilterRole {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct PastEndorsee {
-    pub pay_to_the_order_of: LightIdentityPublicData,
+    pub pay_to_the_order_of: LightBillIdentParticipant,
     pub signed: LightSignedBy,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress,
+    pub signing_address: Option<PostalAddress>,
 }
 
 #[derive(Debug)]
 pub struct Endorsement {
-    pub pay_to_the_order_of: LightIdentityPublicDataWithAddress,
+    pub pay_to_the_order_of: LightBillIdentParticipantWithAddress,
     pub signed: LightSignedBy,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress,
+    pub signing_address: Option<PostalAddress>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct LightSignedBy {
-    pub data: LightIdentityPublicData,
-    pub signatory: Option<LightIdentityPublicData>,
+    pub data: LightBillParticipant,
+    pub signatory: Option<LightBillIdentParticipant>,
 }
 
 #[derive(Debug, Clone)]
@@ -437,8 +452,8 @@ pub enum PastPaymentStatus {
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataSell {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicData,
-    pub seller: IdentityPublicData,
+    pub buyer: BillParticipant,
+    pub seller: BillParticipant,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -451,8 +466,8 @@ pub struct PastPaymentDataSell {
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataPayment {
     pub time_of_request: u64,
-    pub payer: IdentityPublicData,
-    pub payee: IdentityPublicData,
+    pub payer: BillIdentParticipant,
+    pub payee: BillParticipant,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -465,8 +480,8 @@ pub struct PastPaymentDataPayment {
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataRecourse {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicData,
-    pub recoursee: IdentityPublicData,
+    pub recourser: BillIdentParticipant,
+    pub recoursee: BillIdentParticipant,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,

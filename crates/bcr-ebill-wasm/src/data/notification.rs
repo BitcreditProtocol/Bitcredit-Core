@@ -4,8 +4,6 @@ use serde_json::Value;
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::IntoWeb;
-
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct NotificationWeb {
@@ -20,19 +18,19 @@ pub struct NotificationWeb {
     pub payload: Option<Value>,
 }
 
-impl IntoWeb<NotificationWeb> for Notification {
-    fn into_web(self) -> NotificationWeb {
+impl From<Notification> for NotificationWeb {
+    fn from(val: Notification) -> Self {
         NotificationWeb {
-            id: self.id,
-            node_id: self.node_id,
-            notification_type: self.notification_type.into_web(),
-            reference_id: self.reference_id,
-            description: self.description,
-            datetime: self
+            id: val.id,
+            node_id: val.node_id,
+            notification_type: val.notification_type.into(),
+            reference_id: val.reference_id,
+            description: val.description,
+            datetime: val
                 .datetime
                 .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            active: self.active,
-            payload: self.payload,
+            active: val.active,
+            payload: val.payload,
         }
     }
 }
@@ -44,9 +42,9 @@ pub enum NotificationTypeWeb {
     Bill,
 }
 
-impl IntoWeb<NotificationTypeWeb> for NotificationType {
-    fn into_web(self) -> NotificationTypeWeb {
-        match self {
+impl From<NotificationType> for NotificationTypeWeb {
+    fn from(val: NotificationType) -> Self {
+        match val {
             NotificationType::Bill => NotificationTypeWeb::Bill,
             NotificationType::General => NotificationTypeWeb::General,
         }

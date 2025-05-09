@@ -19,7 +19,7 @@ pub enum WasmError {
     #[error("notification service error: {0}")]
     NotificationService(#[from] NotificationServiceError),
 
-    #[error("bill service error: {0}")]
+    #[error("wasm serialization error: {0}")]
     WasmSerialization(#[from] serde_wasm_bindgen::Error),
 
     #[error("crypto error: {0}")]
@@ -43,8 +43,15 @@ enum JsErrorType {
     InvalidCurrency,
     InvalidPaymentAddress,
     InvalidContentType,
+    IdentityCantBeAnon,
+    IdentityIsNotBillIssuer,
     InvalidContactType,
+    InvalidIdentityType,
     InvalidDate,
+    SelfDraftedBillCantBeBlank,
+    SignerCantBeAnon,
+    ContactIsAnonymous,
+    InvalidContact,
     IssueDateAfterMaturityDate,
     MaturityDateInThePast,
     InvalidFileUploadId,
@@ -193,8 +200,19 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::InvalidCurrency => err_400(e, JsErrorType::InvalidCurrency),
         ValidationError::InvalidPaymentAddress => err_400(e, JsErrorType::InvalidPaymentAddress),
         ValidationError::InvalidContactType => err_400(e, JsErrorType::InvalidContactType),
+        ValidationError::InvalidIdentityType => err_400(e, JsErrorType::InvalidIdentityType),
         ValidationError::InvalidContentType => err_400(e, JsErrorType::InvalidContentType),
         ValidationError::InvalidDate => err_400(e, JsErrorType::InvalidDate),
+        ValidationError::SelfDraftedBillCantBeBlank => {
+            err_400(e, JsErrorType::SelfDraftedBillCantBeBlank)
+        }
+        ValidationError::IdentityCantBeAnon => err_400(e, JsErrorType::IdentityCantBeAnon),
+        ValidationError::IdentityIsNotBillIssuer => {
+            err_400(e, JsErrorType::IdentityIsNotBillIssuer)
+        }
+        ValidationError::SignerCantBeAnon => err_400(e, JsErrorType::SignerCantBeAnon),
+        ValidationError::ContactIsAnonymous(_) => err_400(e, JsErrorType::ContactIsAnonymous),
+        ValidationError::InvalidContact(_) => err_400(e, JsErrorType::InvalidContact),
         ValidationError::MaturityDateInThePast => err_400(e, JsErrorType::MaturityDateInThePast),
         ValidationError::IssueDateAfterMaturityDate => {
             err_400(e, JsErrorType::IssueDateAfterMaturityDate)

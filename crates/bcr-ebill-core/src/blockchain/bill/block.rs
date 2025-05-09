@@ -11,10 +11,13 @@ use crate::util::BcrKeys;
 use crate::util::{self, crypto};
 use crate::{
     bill::{BillKeys, BitcreditBill},
-    contact::{ContactType, IdentityPublicData},
+    contact::{BillIdentParticipant, ContactType},
 };
 
-use crate::contact::{LightIdentityPublicData, LightIdentityPublicDataWithAddress};
+use crate::contact::{
+    BillAnonParticipant, BillParticipant, LightBillAnonParticipant, LightBillIdentParticipant,
+    LightBillIdentParticipantWithAddress, LightBillParticipant,
+};
 use crate::identity::Identity;
 use crate::{Field, File, PostalAddress, Validate, ValidationError};
 use borsh::{from_slice, to_vec};
@@ -23,6 +26,10 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::str::FromStr;
+
+pub trait NodeId {
+    fn node_id(&self) -> String;
+}
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BillBlock {
@@ -48,9 +55,10 @@ pub struct BillBlockDataToHash {
     op_code: BillOpCode,
 }
 
+/// Data for reject to accept/pay/recourse
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillRejectBlockData {
-    pub rejecter: BillIdentityBlockData,
+    pub rejecter: BillIdentParticipantBlockData, // reject to accept/pay/recourse has to be identified
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: PostalAddress,
@@ -70,14 +78,37 @@ impl Validate for BillRejectBlockData {
     }
 }
 
+/// Data for reject to buy
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct BillRejectToBuyBlockData {
+    pub rejecter: BillParticipantBlockData, // reject to buy can be done by anon
+    pub signatory: Option<BillSignatoryBlockData>,
+    pub signing_timestamp: u64,
+    pub signing_address: Option<PostalAddress>,
+}
+
+impl Validate for BillRejectToBuyBlockData {
+    fn validate(&self) -> std::result::Result<(), ValidationError> {
+        self.rejecter.validate()?;
+
+        if let Some(ref signatory) = self.signatory {
+            signatory.validate()?;
+        }
+
+        self.signing_address.validate()?;
+
+        Ok(())
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillIssueBlockData {
     pub id: String,
     pub country_of_issuing: String,
     pub city_of_issuing: String,
-    pub drawee: BillIdentityBlockData,
-    pub drawer: BillIdentityBlockData,
-    pub payee: BillIdentityBlockData,
+    pub drawee: BillIdentParticipantBlockData, // drawee always has to be identified
+    pub drawer: BillIdentParticipantBlockData, // drawer always has to be identified
+    pub payee: BillParticipantBlockData,       // payer can be anon
     pub currency: String,
     pub sum: u64,
     pub maturity_date: String,
@@ -105,7 +136,7 @@ impl Validate for BillIssueBlockData {
             return Err(ValidationError::FieldEmpty(Field::CityOfIssuing));
         }
 
-        if self.drawee.node_id == self.payee.node_id {
+        if self.drawee.node_id == self.payee.node_id() {
             return Err(ValidationError::DraweeCantBePayee);
         }
 
@@ -172,7 +203,7 @@ impl BillIssueBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillAcceptBlockData {
-    pub accepter: BillIdentityBlockData,
+    pub accepter: BillIdentParticipantBlockData, // accepter is drawer and has to be identified
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: PostalAddress, // address of the accepter
@@ -194,11 +225,11 @@ impl Validate for BillAcceptBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToPayBlockData {
-    pub requester: BillIdentityBlockData,
+    pub requester: BillParticipantBlockData, // requester is holder and can be anon
     pub currency: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the requester
+    pub signing_address: Option<PostalAddress>, // address of the requester
 }
 
 impl Validate for BillRequestToPayBlockData {
@@ -219,10 +250,10 @@ impl Validate for BillRequestToPayBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToAcceptBlockData {
-    pub requester: BillIdentityBlockData,
+    pub requester: BillParticipantBlockData, // requester is holder and can be anon
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the requester
+    pub signing_address: Option<PostalAddress>, // address of the requester
 }
 
 impl Validate for BillRequestToAcceptBlockData {
@@ -241,13 +272,13 @@ impl Validate for BillRequestToAcceptBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillMintBlockData {
-    pub endorser: BillIdentityBlockData,
-    pub endorsee: BillIdentityBlockData,
+    pub endorser: BillParticipantBlockData, // bill can be minted by anon
+    pub endorsee: BillParticipantBlockData, // mints can be anon
     pub currency: String,
     pub sum: u64,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the endorser
+    pub signing_address: Option<PostalAddress>, // address of the endorser
 }
 
 impl Validate for BillMintBlockData {
@@ -255,7 +286,7 @@ impl Validate for BillMintBlockData {
         self.endorser.validate()?;
         self.endorsee.validate()?;
 
-        if self.endorsee.node_id == self.endorser.node_id {
+        if self.endorsee.node_id() == self.endorser.node_id() {
             return Err(ValidationError::EndorserCantBeEndorsee);
         }
 
@@ -274,14 +305,14 @@ impl Validate for BillMintBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillOfferToSellBlockData {
-    pub seller: BillIdentityBlockData,
-    pub buyer: BillIdentityBlockData,
+    pub seller: BillParticipantBlockData, // seller is holder and can be anon
+    pub buyer: BillParticipantBlockData,  // buyer can be anon
     pub currency: String,
     pub sum: u64,
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the seller
+    pub signing_address: Option<PostalAddress>, // address of the seller
 }
 
 impl Validate for BillOfferToSellBlockData {
@@ -289,7 +320,7 @@ impl Validate for BillOfferToSellBlockData {
         self.seller.validate()?;
         self.buyer.validate()?;
 
-        if self.buyer.node_id == self.seller.node_id {
+        if self.buyer.node_id() == self.seller.node_id() {
             return Err(ValidationError::BuyerCantBeSeller);
         }
 
@@ -312,14 +343,14 @@ impl Validate for BillOfferToSellBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillSellBlockData {
-    pub seller: BillIdentityBlockData,
-    pub buyer: BillIdentityBlockData,
+    pub seller: BillParticipantBlockData, // seller is holder and can be anon
+    pub buyer: BillParticipantBlockData,  // buyer can be anon
     pub currency: String,
     pub sum: u64,
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the seller
+    pub signing_address: Option<PostalAddress>, // address of the seller
 }
 
 impl Validate for BillSellBlockData {
@@ -327,7 +358,7 @@ impl Validate for BillSellBlockData {
         self.seller.validate()?;
         self.buyer.validate()?;
 
-        if self.buyer.node_id == self.seller.node_id {
+        if self.buyer.node_id() == self.seller.node_id() {
             return Err(ValidationError::BuyerCantBeSeller);
         }
 
@@ -350,11 +381,11 @@ impl Validate for BillSellBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillEndorseBlockData {
-    pub endorser: BillIdentityBlockData,
-    pub endorsee: BillIdentityBlockData,
+    pub endorser: BillParticipantBlockData, // endorser is holder and can be anon
+    pub endorsee: BillParticipantBlockData, // endorsee can be anon
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the endorser
+    pub signing_address: Option<PostalAddress>, // address of the endorser
 }
 
 impl Validate for BillEndorseBlockData {
@@ -362,7 +393,7 @@ impl Validate for BillEndorseBlockData {
         self.endorser.validate()?;
         self.endorsee.validate()?;
 
-        if self.endorsee.node_id == self.endorser.node_id {
+        if self.endorsee.node_id() == self.endorser.node_id() {
             return Err(ValidationError::EndorserCantBeEndorsee);
         }
 
@@ -378,8 +409,8 @@ impl Validate for BillEndorseBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillRequestRecourseBlockData {
-    pub recourser: BillIdentityBlockData,
-    pub recoursee: BillIdentityBlockData,
+    pub recourser: BillIdentParticipantBlockData, // anon can't do recourse
+    pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
     pub sum: u64,
     pub currency: String,
     pub recourse_reason: BillRecourseReasonBlockData,
@@ -418,8 +449,8 @@ impl Validate for BillRequestRecourseBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillRecourseBlockData {
-    pub recourser: BillIdentityBlockData,
-    pub recoursee: BillIdentityBlockData,
+    pub recourser: BillIdentParticipantBlockData, // anon can't do recourse
+    pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
     pub sum: u64,
     pub currency: String,
     pub recourse_reason: BillRecourseReasonBlockData,
@@ -450,16 +481,103 @@ impl Validate for BillRecourseBlockData {
     }
 }
 
-/// Legal data for parties within a bill transaction
+/// Participant in a bill transaction - either anonymous, or identified
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct BillIdentityBlockData {
+pub enum BillParticipantBlockData {
+    Anon(BillAnonParticipantBlockData),
+    Ident(BillIdentParticipantBlockData),
+}
+
+impl NodeId for BillParticipantBlockData {
+    fn node_id(&self) -> String {
+        match self {
+            BillParticipantBlockData::Anon(data) => data.node_id.clone(),
+            BillParticipantBlockData::Ident(data) => data.node_id.clone(),
+        }
+    }
+}
+
+impl From<BillParticipant> for BillParticipantBlockData {
+    fn from(value: BillParticipant) -> Self {
+        match value {
+            BillParticipant::Ident(data) => Self::Ident(BillIdentParticipantBlockData {
+                t: data.t,
+                node_id: data.node_id,
+                name: data.name,
+                postal_address: data.postal_address,
+            }),
+            BillParticipant::Anon(data) => Self::Anon(BillAnonParticipantBlockData {
+                node_id: data.node_id,
+            }),
+        }
+    }
+}
+
+impl From<BillParticipantBlockData> for BillParticipant {
+    fn from(value: BillParticipantBlockData) -> Self {
+        match value {
+            BillParticipantBlockData::Ident(data) => Self::Ident(BillIdentParticipant {
+                t: data.t,
+                node_id: data.node_id,
+                name: data.name,
+                postal_address: data.postal_address,
+                email: None,
+                nostr_relays: vec![],
+            }),
+            BillParticipantBlockData::Anon(data) => Self::Anon(BillAnonParticipant {
+                node_id: data.node_id,
+                email: None,
+                nostr_relays: vec![],
+            }),
+        }
+    }
+}
+
+impl Validate for BillParticipantBlockData {
+    fn validate(&self) -> std::result::Result<(), ValidationError> {
+        match self {
+            BillParticipantBlockData::Anon(data) => {
+                data.validate()?;
+            }
+            BillParticipantBlockData::Ident(data) => {
+                data.validate()?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Anon bill participany data
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct BillAnonParticipantBlockData {
+    pub node_id: String,
+}
+
+impl Validate for BillAnonParticipantBlockData {
+    fn validate(&self) -> std::result::Result<(), ValidationError> {
+        if util::crypto::validate_pub_key(&self.node_id).is_err() {
+            return Err(ValidationError::InvalidSecp256k1Key(self.node_id.clone()));
+        }
+        Ok(())
+    }
+}
+
+/// Legal data for parties of a bill within the liability chain
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct BillIdentParticipantBlockData {
     pub t: ContactType,
     pub node_id: String,
     pub name: String,
     pub postal_address: PostalAddress,
 }
 
-impl Validate for BillIdentityBlockData {
+impl NodeId for BillIdentParticipantBlockData {
+    fn node_id(&self) -> String {
+        self.node_id.clone()
+    }
+}
+
+impl Validate for BillIdentParticipantBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
         if util::crypto::validate_pub_key(&self.node_id).is_err() {
             return Err(ValidationError::InvalidSecp256k1Key(self.node_id.clone()));
@@ -474,8 +592,8 @@ impl Validate for BillIdentityBlockData {
     }
 }
 
-impl From<IdentityPublicData> for BillIdentityBlockData {
-    fn from(value: IdentityPublicData) -> Self {
+impl From<BillIdentParticipant> for BillIdentParticipantBlockData {
+    fn from(value: BillIdentParticipant) -> Self {
         Self {
             t: value.t,
             node_id: value.node_id,
@@ -485,21 +603,21 @@ impl From<IdentityPublicData> for BillIdentityBlockData {
     }
 }
 
-impl From<BillIdentityBlockData> for IdentityPublicData {
-    fn from(value: BillIdentityBlockData) -> Self {
+impl From<BillIdentParticipantBlockData> for BillIdentParticipant {
+    fn from(value: BillIdentParticipantBlockData) -> Self {
         Self {
             t: value.t,
             node_id: value.node_id,
             name: value.name,
             postal_address: value.postal_address,
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
 }
 
-impl From<BillIdentityBlockData> for LightIdentityPublicDataWithAddress {
-    fn from(value: BillIdentityBlockData) -> Self {
+impl From<BillIdentParticipantBlockData> for LightBillIdentParticipantWithAddress {
+    fn from(value: BillIdentParticipantBlockData) -> Self {
         Self {
             t: value.t,
             name: value.name,
@@ -509,8 +627,32 @@ impl From<BillIdentityBlockData> for LightIdentityPublicDataWithAddress {
     }
 }
 
-impl From<BillIdentityBlockData> for LightIdentityPublicData {
-    fn from(value: BillIdentityBlockData) -> Self {
+impl From<BillParticipantBlockData> for LightBillParticipant {
+    fn from(value: BillParticipantBlockData) -> Self {
+        match value {
+            BillParticipantBlockData::Anon(data) => LightBillParticipant::Anon(data.into()),
+            BillParticipantBlockData::Ident(data) => LightBillParticipant::Ident(data.into()),
+        }
+    }
+}
+impl From<BillAnonParticipantBlockData> for LightBillAnonParticipant {
+    fn from(value: BillAnonParticipantBlockData) -> Self {
+        Self {
+            node_id: value.node_id,
+        }
+    }
+}
+
+impl From<BillAnonParticipant> for BillAnonParticipantBlockData {
+    fn from(value: BillAnonParticipant) -> Self {
+        Self {
+            node_id: value.node_id,
+        }
+    }
+}
+
+impl From<BillIdentParticipantBlockData> for LightBillIdentParticipant {
+    fn from(value: BillIdentParticipantBlockData) -> Self {
         Self {
             t: value.t,
             name: value.name,
@@ -552,8 +694,8 @@ impl From<Identity> for BillSignatoryBlockData {
 /// The data of the new holder in a holder-changing block, with the signatory data from the block
 #[derive(Clone, Debug)]
 pub struct HolderFromBlock {
-    pub holder: BillIdentityBlockData,
-    pub signer: BillIdentityBlockData,
+    pub holder: BillParticipantBlockData, // holder can be anon
+    pub signer: BillParticipantBlockData, // signer can be anon
     pub signatory: Option<BillSignatoryBlockData>,
 }
 
@@ -763,7 +905,7 @@ impl BillBlock {
     pub fn create_block_for_reject_to_buy(
         bill_id: String,
         previous_block: &Self,
-        data: &BillRejectBlockData,
+        data: &BillRejectToBuyBlockData,
         identity_keys: &BcrKeys,
         company_keys: Option<&BcrKeys>,
         bill_keys: &BcrKeys,
@@ -937,7 +1079,7 @@ impl BillBlock {
             identity_keys,
             company_keys,
             bill_keys,
-            Some(data.endorsee.node_id.as_str()),
+            Some(data.endorsee.node_id().as_str()),
             timestamp,
             BillOpCode::Mint,
         )?;
@@ -983,7 +1125,7 @@ impl BillBlock {
             identity_keys,
             company_keys,
             bill_keys,
-            Some(data.buyer.node_id.as_str()),
+            Some(data.buyer.node_id().as_str()),
             timestamp,
             BillOpCode::Sell,
         )?;
@@ -1006,7 +1148,7 @@ impl BillBlock {
             identity_keys,
             company_keys,
             bill_keys,
-            Some(data.endorsee.node_id.as_str()),
+            Some(data.endorsee.node_id().as_str()),
             timestamp,
             BillOpCode::Endorse,
         )?;
@@ -1101,25 +1243,25 @@ impl BillBlock {
             Issue => {
                 let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(bill.drawer.node_id);
-                nodes.insert(bill.payee.node_id);
+                nodes.insert(bill.payee.node_id().to_owned());
                 nodes.insert(bill.drawee.node_id);
             }
             Endorse => {
                 let block_data_decrypted: BillEndorseBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
-                nodes.insert(block_data_decrypted.endorsee.node_id);
-                nodes.insert(block_data_decrypted.endorser.node_id);
+                nodes.insert(block_data_decrypted.endorsee.node_id());
+                nodes.insert(block_data_decrypted.endorser.node_id());
             }
             Mint => {
                 let block_data_decrypted: BillMintBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
-                nodes.insert(block_data_decrypted.endorsee.node_id);
-                nodes.insert(block_data_decrypted.endorser.node_id);
+                nodes.insert(block_data_decrypted.endorsee.node_id());
+                nodes.insert(block_data_decrypted.endorser.node_id());
             }
             RequestToAccept => {
                 let block_data_decrypted: BillRequestToAcceptBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
-                nodes.insert(block_data_decrypted.requester.node_id);
+                nodes.insert(block_data_decrypted.requester.node_id());
             }
             Accept => {
                 let block_data_decrypted: BillAcceptBlockData =
@@ -1129,24 +1271,29 @@ impl BillBlock {
             RequestToPay => {
                 let block_data_decrypted: BillRequestToPayBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
-                nodes.insert(block_data_decrypted.requester.node_id);
+                nodes.insert(block_data_decrypted.requester.node_id());
             }
             OfferToSell => {
                 let block_data_decrypted: BillOfferToSellBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
-                nodes.insert(block_data_decrypted.buyer.node_id);
-                nodes.insert(block_data_decrypted.seller.node_id);
+                nodes.insert(block_data_decrypted.buyer.node_id());
+                nodes.insert(block_data_decrypted.seller.node_id());
             }
             Sell => {
                 let block_data_decrypted: BillSellBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
-                nodes.insert(block_data_decrypted.buyer.node_id);
-                nodes.insert(block_data_decrypted.seller.node_id);
+                nodes.insert(block_data_decrypted.buyer.node_id());
+                nodes.insert(block_data_decrypted.seller.node_id());
             }
-            RejectToAccept | RejectToBuy | RejectToPay | RejectToPayRecourse => {
+            RejectToAccept | RejectToPay | RejectToPayRecourse => {
                 let block_data_decrypted: BillRejectBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.rejecter.node_id);
+            }
+            RejectToBuy => {
+                let block_data_decrypted: BillRejectToBuyBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                nodes.insert(block_data_decrypted.rejecter.node_id());
             }
             RequestRecourse => {
                 let block_data_decrypted: BillRequestRecourseBlockData =
@@ -1170,7 +1317,7 @@ impl BillBlock {
         match self.op_code {
             Sell => {
                 let block: BillSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
-                Ok(Some(block.seller.node_id))
+                Ok(Some(block.seller.node_id()))
             }
             Recourse => {
                 let block: BillRecourseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
@@ -1189,7 +1336,7 @@ impl BillBlock {
         match self.op_code {
             OfferToSell => {
                 let block: BillOfferToSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
-                Ok(Some(block.seller.node_id))
+                Ok(Some(block.seller.node_id()))
             }
             RequestRecourse => {
                 let block: BillRequestRecourseBlockData =
@@ -1198,7 +1345,7 @@ impl BillBlock {
             }
             RequestToPay => {
                 let block: BillRequestToPayBlockData = self.get_decrypted_block_bytes(bill_keys)?;
-                Ok(Some(block.requester.node_id))
+                Ok(Some(block.requester.node_id()))
             }
             _ => Ok(None),
         }
@@ -1212,7 +1359,7 @@ impl BillBlock {
                 let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: bill.payee,
-                    signer: bill.drawer,
+                    signer: BillParticipantBlockData::Ident(bill.drawer),
                     signatory: bill.signatory,
                 }))
             }
@@ -1243,8 +1390,8 @@ impl BillBlock {
             Recourse => {
                 let block: BillRecourseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 Ok(Some(HolderFromBlock {
-                    holder: block.recoursee,
-                    signer: block.recourser,
+                    holder: BillParticipantBlockData::Ident(block.recoursee),
+                    signer: BillParticipantBlockData::Ident(block.recourser),
                     signatory: block.signatory,
                 }))
             }
@@ -1268,7 +1415,7 @@ impl BillBlock {
                 let data: BillEndorseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.endorser.node_id,
+                    data.endorser.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::Endorse(data.endorsee.into())),
                 )
@@ -1277,7 +1424,7 @@ impl BillBlock {
                 let data: BillMintBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.endorser.node_id,
+                    data.endorser.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::Mint(
                         data.endorsee.into(),
@@ -1291,7 +1438,7 @@ impl BillBlock {
                     self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.requester.node_id,
+                    data.requester.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::RequestAcceptance),
                 )
@@ -1309,7 +1456,7 @@ impl BillBlock {
                 let data: BillRequestToPayBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.requester.node_id,
+                    data.requester.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::RequestToPay(data.currency)),
                 )
@@ -1318,7 +1465,7 @@ impl BillBlock {
                 let data: BillOfferToSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.seller.node_id,
+                    data.seller.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::OfferToSell(
                         data.buyer.into(),
@@ -1331,7 +1478,7 @@ impl BillBlock {
                 let data: BillSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.seller.node_id,
+                    data.seller.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::Sell(
                         data.buyer.into(),
@@ -1351,10 +1498,10 @@ impl BillBlock {
                 )
             }
             RejectToBuy => {
-                let data: BillRejectBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRejectToBuyBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 data.validate()?;
                 (
-                    data.rejecter.node_id,
+                    data.rejecter.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::RejectBuying),
                 )
@@ -1463,8 +1610,9 @@ pub mod tests {
         blockchain::bill::tests::get_baseline_identity,
         tests::tests::{
             OTHER_TEST_PUB_KEY_SECP, TEST_BILL_ID, TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP,
-            TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET, empty_bitcredit_bill,
-            empty_identity_public_data, get_bill_keys, identity_public_data_only_node_id,
+            TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET,
+            bill_identified_participant_only_node_id, bill_participant_only_node_id,
+            empty_bill_identified_participant, empty_bitcredit_bill, get_bill_keys,
             invalid_address, valid_address,
         },
     };
@@ -1473,15 +1621,15 @@ pub mod tests {
     fn get_first_block() -> BillBlock {
         let mut bill = empty_bitcredit_bill();
         bill.id = TEST_BILL_ID.to_owned();
-        let mut drawer = empty_identity_public_data();
+        let mut drawer = empty_bill_identified_participant();
         let node_id = BcrKeys::new().get_public_key();
-        let mut payer = empty_identity_public_data();
+        let mut payer = empty_bill_identified_participant();
         let payer_node_id = BcrKeys::new().get_public_key();
         payer.node_id = payer_node_id.clone();
         drawer.node_id = node_id.clone();
 
         bill.drawer = drawer.clone();
-        bill.payee = drawer.clone();
+        bill.payee = BillParticipant::Ident(drawer.clone());
         bill.drawee = payer;
 
         BillBlock::create_block_for_issue(
@@ -1516,14 +1664,14 @@ pub mod tests {
     #[test]
     fn get_nodes_from_block_issue() {
         let mut bill = empty_bitcredit_bill();
-        let mut drawer = empty_identity_public_data();
+        let mut drawer = empty_bill_identified_participant();
         let node_id = BcrKeys::new().get_public_key();
-        let mut payer = empty_identity_public_data();
+        let mut payer = empty_bill_identified_participant();
         let payer_node_id = BcrKeys::new().get_public_key();
         payer.node_id = payer_node_id.clone();
         drawer.node_id = node_id.clone();
         bill.drawer = drawer.clone();
-        bill.payee = drawer.clone();
+        bill.payee = BillParticipant::Ident(drawer.clone());
         bill.drawee = payer;
 
         let block = BillBlock::create_block_for_issue(
@@ -1545,11 +1693,10 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_endorse() {
-        let mut endorsee = empty_identity_public_data();
         let node_id = BcrKeys::new().get_public_key();
-        endorsee.node_id = node_id.clone();
+        let endorsee = bill_participant_only_node_id(node_id.clone());
         let endorser =
-            identity_public_data_only_node_id(get_baseline_identity().key_pair.get_public_key());
+            bill_participant_only_node_id(get_baseline_identity().key_pair.get_public_key());
         let block = BillBlock::create_block_for_endorse(
             TEST_BILL_ID.to_owned(),
             &get_first_block(),
@@ -1558,7 +1705,7 @@ pub mod tests {
                 endorsee: endorsee.into(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: endorser.postal_address,
+                signing_address: Some(valid_address()),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1570,17 +1717,15 @@ pub mod tests {
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 2);
         assert!(res.as_ref().unwrap().contains(&node_id));
-        assert!(res.as_ref().unwrap().contains(&endorser.node_id));
+        assert!(res.as_ref().unwrap().contains(&endorser.node_id()));
     }
 
     #[test]
     fn get_nodes_from_block_mint() {
-        let mut mint = empty_identity_public_data();
         let node_id = BcrKeys::new().get_public_key();
-        mint.node_id = node_id.clone();
-        let mut minter = empty_identity_public_data();
+        let mint = bill_participant_only_node_id(node_id.clone());
         let minter_node_id = BcrKeys::new().get_public_key();
-        minter.node_id = minter_node_id.clone();
+        let minter = bill_participant_only_node_id(minter_node_id.clone());
         let block = BillBlock::create_block_for_mint(
             TEST_BILL_ID.to_owned(),
             &get_first_block(),
@@ -1591,7 +1736,7 @@ pub mod tests {
                 currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: minter.postal_address,
+                signing_address: Some(valid_address()),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1608,9 +1753,8 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_req_to_accept() {
-        let mut requester = empty_identity_public_data();
         let node_id = BcrKeys::new().get_public_key();
-        requester.node_id = node_id.clone();
+        let requester = bill_participant_only_node_id(node_id.clone());
 
         let block = BillBlock::create_block_for_request_to_accept(
             TEST_BILL_ID.to_owned(),
@@ -1619,7 +1763,7 @@ pub mod tests {
                 requester: requester.clone().into(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: requester.postal_address,
+                signing_address: Some(valid_address()),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1635,7 +1779,7 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_accept() {
-        let mut accepter = empty_identity_public_data();
+        let mut accepter = empty_bill_identified_participant();
         let node_id = BcrKeys::new().get_public_key();
         accepter.node_id = node_id.clone();
         accepter.postal_address = PostalAddress {
@@ -1668,9 +1812,8 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_req_to_pay() {
-        let mut requester = empty_identity_public_data();
         let node_id = BcrKeys::new().get_public_key();
-        requester.node_id = node_id.clone();
+        let requester = bill_participant_only_node_id(node_id.clone());
 
         let block = BillBlock::create_block_for_request_to_pay(
             TEST_BILL_ID.to_string(),
@@ -1680,7 +1823,7 @@ pub mod tests {
                 currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: requester.postal_address,
+                signing_address: Some(valid_address()),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1696,11 +1839,10 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_offer_to_sell() {
-        let mut buyer = empty_identity_public_data();
         let node_id = BcrKeys::new().get_public_key();
-        buyer.node_id = node_id.clone();
-        let seller =
-            identity_public_data_only_node_id(get_baseline_identity().key_pair.get_public_key());
+        let buyer = bill_participant_only_node_id(node_id.clone());
+        let seller_node_id = get_baseline_identity().key_pair.get_public_key();
+        let seller = bill_participant_only_node_id(seller_node_id.clone());
         let block = BillBlock::create_block_for_offer_to_sell(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1712,7 +1854,7 @@ pub mod tests {
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: seller.postal_address,
+                signing_address: Some(valid_address()),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1724,16 +1866,15 @@ pub mod tests {
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 2);
         assert!(res.as_ref().unwrap().contains(&node_id));
-        assert!(res.as_ref().unwrap().contains(&seller.node_id));
+        assert!(res.as_ref().unwrap().contains(&seller_node_id));
     }
 
     #[test]
     fn get_nodes_from_block_sell() {
-        let mut buyer = empty_identity_public_data();
         let node_id = BcrKeys::new().get_public_key();
-        buyer.node_id = node_id.clone();
-        let seller =
-            identity_public_data_only_node_id(get_baseline_identity().key_pair.get_public_key());
+        let buyer = bill_participant_only_node_id(node_id.clone());
+        let seller_node_id = get_baseline_identity().key_pair.get_public_key();
+        let seller = bill_participant_only_node_id(seller_node_id.clone());
         let block = BillBlock::create_block_for_sell(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1744,11 +1885,11 @@ pub mod tests {
                 currency: "sat".to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
-                    node_id: buyer.node_id.clone(),
-                    name: buyer.name.clone(),
+                    node_id: buyer.node_id().clone(),
+                    name: "some name".into(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: seller.postal_address,
+                signing_address: Some(valid_address()),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1760,12 +1901,12 @@ pub mod tests {
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 2);
         assert!(res.as_ref().unwrap().contains(&node_id));
-        assert!(res.as_ref().unwrap().contains(&seller.node_id));
+        assert!(res.as_ref().unwrap().contains(&seller_node_id));
     }
 
     #[test]
     fn get_nodes_from_block_reject_to_accept() {
-        let rejecter = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let rejecter = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let block = BillBlock::create_block_for_reject_to_accept(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1789,7 +1930,7 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_reject_to_pay() {
-        let rejecter = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let rejecter = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let block = BillBlock::create_block_for_reject_to_pay(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1813,15 +1954,15 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_reject_to_buy() {
-        let rejecter = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let rejecter = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let block = BillBlock::create_block_for_reject_to_buy(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
-            &BillRejectBlockData {
-                rejecter: rejecter.clone().into(),
+            &BillRejectToBuyBlockData {
+                rejecter: BillParticipant::Ident(rejecter.clone()).into(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: rejecter.postal_address,
+                signing_address: Some(rejecter.postal_address),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1837,7 +1978,7 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_reject_to_pay_recourse() {
-        let rejecter = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let rejecter = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let block = BillBlock::create_block_for_reject_to_pay_recourse(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1861,8 +2002,8 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_request_recourse() {
-        let recoursee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let recourser = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let recoursee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let recourser = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let block = BillBlock::create_block_for_request_recourse(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1891,8 +2032,8 @@ pub mod tests {
 
     #[test]
     fn get_nodes_from_block_recourse() {
-        let recoursee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let recourser = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let recoursee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let recourser = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let block = BillBlock::create_block_for_recourse(
             TEST_BILL_ID.to_string(),
             &get_first_block(),
@@ -1929,11 +2070,11 @@ pub mod tests {
         };
 
         let mut bill = empty_bitcredit_bill();
-        let signer = identity_public_data_only_node_id(identity_keys.get_public_key());
-        let other_party = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let signer = bill_identified_participant_only_node_id(identity_keys.get_public_key());
+        let other_party = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         bill.drawer = signer.clone();
         bill.drawee = signer.clone();
-        bill.payee = other_party.clone();
+        bill.payee = BillParticipant::Ident(other_party.clone());
 
         let issue_block = BillBlock::create_block_for_issue(
             TEST_BILL_ID.to_string(),
@@ -1957,11 +2098,11 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillEndorseBlockData {
-                endorser: signer.clone().into(),
-                endorsee: other_party.clone().into(),
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -1984,13 +2125,13 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillMintBlockData {
-                endorser: signer.clone().into(),
-                endorsee: other_party.clone().into(),
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
                 currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2013,10 +2154,10 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillRequestToAcceptBlockData {
-                requester: signer.clone().into(),
+                requester: BillParticipant::Ident(signer.clone()).into(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2039,11 +2180,11 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillRequestToPayBlockData {
-                requester: signer.clone().into(),
+                requester: BillParticipant::Ident(signer.clone()).into(),
                 currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2092,14 +2233,14 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillOfferToSellBlockData {
-                seller: signer.clone().into(),
-                buyer: other_party.clone().into(),
+                seller: BillParticipant::Ident(signer.clone()).into(),
+                buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
                 currency: "sat".to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2122,14 +2263,14 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillSellBlockData {
-                seller: signer.clone().into(),
-                buyer: other_party.clone().into(),
+                seller: BillParticipant::Ident(signer.clone()).into(),
+                buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
                 currency: "sat".to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2177,11 +2318,11 @@ pub mod tests {
         let reject_to_buy_block = BillBlock::create_block_for_reject_to_buy(
             TEST_BILL_ID.to_owned(),
             &issue_block,
-            &BillRejectBlockData {
-                rejecter: signer.clone().into(),
+            &BillRejectToBuyBlockData {
+                rejecter: BillParticipant::Ident(signer.clone()).into(),
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2325,11 +2466,11 @@ pub mod tests {
         };
 
         let mut bill = empty_bitcredit_bill();
-        let signer = identity_public_data_only_node_id(company_keys.get_public_key());
-        let other_party = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let signer = bill_identified_participant_only_node_id(company_keys.get_public_key());
+        let other_party = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         bill.drawer = signer.clone();
         bill.drawee = signer.clone();
-        bill.payee = other_party.clone();
+        bill.payee = BillParticipant::Ident(other_party.clone());
 
         let issue_block = BillBlock::create_block_for_issue(
             TEST_BILL_ID.to_string(),
@@ -2361,14 +2502,14 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillEndorseBlockData {
-                endorser: signer.clone().into(),
-                endorsee: other_party.clone().into(),
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: identity_keys.get_public_key(),
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2391,8 +2532,8 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillMintBlockData {
-                endorser: signer.clone().into(),
-                endorsee: other_party.clone().into(),
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
                 currency: "sat".to_string(),
                 signatory: Some(BillSignatoryBlockData {
@@ -2400,7 +2541,7 @@ pub mod tests {
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2423,13 +2564,13 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillRequestToAcceptBlockData {
-                requester: signer.clone().into(),
+                requester: BillParticipant::Ident(signer.clone()).into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: identity_keys.get_public_key(),
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2452,14 +2593,14 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillRequestToPayBlockData {
-                requester: signer.clone().into(),
+                requester: BillParticipant::Ident(signer.clone()).into(),
                 currency: "sat".to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: identity_keys.get_public_key(),
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2511,8 +2652,8 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillOfferToSellBlockData {
-                seller: signer.clone().into(),
-                buyer: other_party.clone().into(),
+                seller: BillParticipant::Ident(signer.clone()).into(),
+                buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
                 currency: "sat".to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
@@ -2521,7 +2662,7 @@ pub mod tests {
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2544,8 +2685,8 @@ pub mod tests {
             TEST_BILL_ID.to_owned(),
             &issue_block,
             &BillSellBlockData {
-                seller: signer.clone().into(),
-                buyer: other_party.clone().into(),
+                seller: BillParticipant::Ident(signer.clone()).into(),
+                buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
                 currency: "sat".to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
@@ -2554,7 +2695,7 @@ pub mod tests {
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2605,14 +2746,14 @@ pub mod tests {
         let reject_to_buy_block = BillBlock::create_block_for_reject_to_buy(
             TEST_BILL_ID.to_owned(),
             &issue_block,
-            &BillRejectBlockData {
-                rejecter: signer.clone().into(),
+            &BillRejectToBuyBlockData {
+                rejecter: BillParticipant::Ident(signer.clone()).into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: identity_keys.get_public_key(),
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -2768,7 +2909,7 @@ pub mod tests {
         };
 
         let mut bill = empty_bitcredit_bill();
-        bill.drawer = identity_public_data_only_node_id(company_keys.get_public_key()); //company is drawer
+        bill.drawer = bill_identified_participant_only_node_id(company_keys.get_public_key()); //company is drawer
 
         let block = BillBlock::create_block_for_issue(
             TEST_BILL_ID.to_string(),
@@ -2803,7 +2944,7 @@ pub mod tests {
         };
 
         let mut bill = empty_bitcredit_bill();
-        bill.drawer = identity_public_data_only_node_id(BcrKeys::new().get_public_key()); //company is drawer
+        bill.drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()); //company is drawer
 
         let block = BillBlock::create_block_for_issue(
             TEST_BILL_ID.to_string(),
@@ -2838,7 +2979,7 @@ pub mod tests {
         };
 
         let mut bill = empty_bitcredit_bill();
-        bill.drawer = identity_public_data_only_node_id(BcrKeys::new().get_public_key()); //company is drawer
+        bill.drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()); //company is drawer
 
         let mut block = BillBlock::create_block_for_issue(
             TEST_BILL_ID.to_string(),
@@ -2865,9 +3006,35 @@ pub mod tests {
     }
 
     // Validation
+    fn valid_bill_participant_block_data() -> BillParticipantBlockData {
+        BillParticipantBlockData::Ident(BillIdentParticipantBlockData {
+            t: ContactType::Person,
+            node_id: TEST_PUB_KEY_SECP.into(),
+            name: "Johanna Smith".into(),
+            postal_address: valid_address(),
+        })
+    }
 
-    fn valid_bill_identity_block_data() -> BillIdentityBlockData {
-        BillIdentityBlockData {
+    fn other_valid_bill_participant_block_data() -> BillParticipantBlockData {
+        BillParticipantBlockData::Ident(BillIdentParticipantBlockData {
+            t: ContactType::Person,
+            node_id: TEST_NODE_ID_SECP.into(),
+            name: "John Smith".into(),
+            postal_address: valid_address(),
+        })
+    }
+
+    fn invalid_bill_participant_block_data() -> BillParticipantBlockData {
+        BillParticipantBlockData::Ident(BillIdentParticipantBlockData {
+            t: ContactType::Person,
+            node_id: OTHER_TEST_PUB_KEY_SECP.into(),
+            name: "".into(),
+            postal_address: invalid_address(),
+        })
+    }
+
+    fn valid_bill_identity_block_data() -> BillIdentParticipantBlockData {
+        BillIdentParticipantBlockData {
             t: ContactType::Person,
             node_id: TEST_PUB_KEY_SECP.into(),
             name: "Johanna Smith".into(),
@@ -2875,8 +3042,8 @@ pub mod tests {
         }
     }
 
-    fn other_valid_bill_identity_block_data() -> BillIdentityBlockData {
-        BillIdentityBlockData {
+    fn other_valid_bill_identity_block_data() -> BillIdentParticipantBlockData {
+        BillIdentParticipantBlockData {
             t: ContactType::Person,
             node_id: TEST_NODE_ID_SECP.into(),
             name: "John Smith".into(),
@@ -2884,8 +3051,8 @@ pub mod tests {
         }
     }
 
-    fn invalid_bill_identity_block_data() -> BillIdentityBlockData {
-        BillIdentityBlockData {
+    fn invalid_bill_identity_block_data() -> BillIdentParticipantBlockData {
+        BillIdentParticipantBlockData {
             t: ContactType::Person,
             node_id: OTHER_TEST_PUB_KEY_SECP.into(),
             name: "".into(),
@@ -2899,12 +3066,12 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_node_id( BillIdentityBlockData { node_id: "invalidkey".into(), ..valid_bill_identity_block_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
-    #[case::empty_name( BillIdentityBlockData { name: "".into(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::blank_name( BillIdentityBlockData { name: "   ".into(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_address( BillIdentityBlockData { postal_address: invalid_address(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_node_id( BillIdentParticipantBlockData { node_id: "invalidkey".into(), ..valid_bill_identity_block_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
+    #[case::empty_name( BillIdentParticipantBlockData { name: "".into(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::blank_name( BillIdentParticipantBlockData { name: "   ".into(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_address( BillIdentParticipantBlockData { postal_address: invalid_address(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     fn test_invalid_bill_identity_block_data(
-        #[case] identity: BillIdentityBlockData,
+        #[case] identity: BillIdentParticipantBlockData,
         #[case] expected_error: ValidationError,
     ) {
         assert_eq!(identity.validate(), Err(expected_error));
@@ -2947,7 +3114,7 @@ pub mod tests {
             city_of_issuing: "Vienna".into(),
             drawee: other_valid_bill_identity_block_data(),
             drawer: valid_bill_identity_block_data(),
-            payee: valid_bill_identity_block_data(),
+            payee: valid_bill_participant_block_data(),
             currency: "sat".into(),
             sum: 500,
             maturity_date: "2025-11-12".into(),
@@ -2987,7 +3154,7 @@ pub mod tests {
     #[case::blank_language(BillIssueBlockData { language: "   ".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Language))]
     #[case::invalid_signatory(BillIssueBlockData { drawee: invalid_bill_identity_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_drawee(BillIssueBlockData { drawer: invalid_bill_identity_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_drawer(BillIssueBlockData { payee: invalid_bill_identity_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_drawer(BillIssueBlockData { payee: invalid_bill_participant_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_payee(BillIssueBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_signing_address(BillIssueBlockData { signing_address: invalid_address(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     fn test_invalid_bill_issue_block_data(
@@ -2999,10 +3166,10 @@ pub mod tests {
 
     fn valid_req_to_accept_block_data() -> BillRequestToAcceptBlockData {
         BillRequestToAcceptBlockData {
-            requester: valid_bill_identity_block_data(),
+            requester: valid_bill_participant_block_data(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3013,8 +3180,8 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_requester(BillRequestToAcceptBlockData { requester: invalid_bill_identity_block_data(), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillRequestToAcceptBlockData { signing_address: invalid_address(), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_requester(BillRequestToAcceptBlockData { requester: invalid_bill_participant_block_data(), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_signing_address(BillRequestToAcceptBlockData { signing_address: Some(invalid_address()), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillRequestToAcceptBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_req_to_accept_block_data(
         #[case] block: BillRequestToAcceptBlockData,
@@ -3051,11 +3218,11 @@ pub mod tests {
 
     fn valid_req_to_pay_block_data() -> BillRequestToPayBlockData {
         BillRequestToPayBlockData {
-            requester: valid_bill_identity_block_data(),
+            requester: valid_bill_participant_block_data(),
             currency: "sat".into(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3066,9 +3233,9 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_requester(BillRequestToPayBlockData { requester: invalid_bill_identity_block_data(), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_requester(BillRequestToPayBlockData { requester: invalid_bill_participant_block_data(), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_currency(BillRequestToPayBlockData { currency: "invalidcurrency".into(), ..valid_req_to_pay_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_signing_address(BillRequestToPayBlockData { signing_address: invalid_address(), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRequestToPayBlockData { signing_address: Some(invalid_address()), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillRequestToPayBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_req_to_pay_block_data(
         #[case] block: BillRequestToPayBlockData,
@@ -3079,13 +3246,13 @@ pub mod tests {
 
     fn valid_mint_block_data() -> BillMintBlockData {
         BillMintBlockData {
-            endorser: valid_bill_identity_block_data(),
-            endorsee: other_valid_bill_identity_block_data(),
+            endorser: valid_bill_participant_block_data(),
+            endorsee: other_valid_bill_participant_block_data(),
             currency: "sat".into(),
             sum: 500,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3096,11 +3263,11 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_endorser(BillMintBlockData { endorser: invalid_bill_identity_block_data(), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_endorsee(BillMintBlockData { endorser: invalid_bill_identity_block_data(), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_endorser(BillMintBlockData { endorser: invalid_bill_participant_block_data(), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_endorsee(BillMintBlockData { endorser: invalid_bill_participant_block_data(), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_currency(BillMintBlockData { currency: "invalidcurrency".into(), ..valid_mint_block_data() }, ValidationError::InvalidCurrency)]
     #[case::invalid_sum(BillMintBlockData { sum: 0, ..valid_mint_block_data() }, ValidationError::InvalidSum)]
-    #[case::invalid_signing_address(BillMintBlockData { signing_address: invalid_address(), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillMintBlockData { signing_address: Some(invalid_address()), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillMintBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_mint_block_data(
         #[case] block: BillMintBlockData,
@@ -3111,14 +3278,14 @@ pub mod tests {
 
     fn valid_offer_to_sell_block_data() -> BillOfferToSellBlockData {
         BillOfferToSellBlockData {
-            seller: valid_bill_identity_block_data(),
-            buyer: other_valid_bill_identity_block_data(),
+            seller: valid_bill_participant_block_data(),
+            buyer: other_valid_bill_participant_block_data(),
             currency: "sat".into(),
             sum: 500,
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3129,12 +3296,12 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_seller(BillOfferToSellBlockData { seller: invalid_bill_identity_block_data(), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_buyer(BillOfferToSellBlockData { buyer: invalid_bill_identity_block_data(), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_seller(BillOfferToSellBlockData { seller: invalid_bill_participant_block_data(), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_buyer(BillOfferToSellBlockData { buyer: invalid_bill_participant_block_data(), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_currency(BillOfferToSellBlockData { currency: "invalidcurrency".into(), ..valid_offer_to_sell_block_data() }, ValidationError::InvalidCurrency)]
     #[case::invalid_sum(BillOfferToSellBlockData { sum: 0, ..valid_offer_to_sell_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillOfferToSellBlockData { payment_address: "invalidaddress".into(), ..valid_offer_to_sell_block_data() }, ValidationError::InvalidPaymentAddress)]
-    #[case::invalid_signing_address(BillOfferToSellBlockData { signing_address: invalid_address(), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillOfferToSellBlockData { signing_address: Some(invalid_address()), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillOfferToSellBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_offer_to_sell_block_data(
         #[case] block: BillOfferToSellBlockData,
@@ -3145,14 +3312,14 @@ pub mod tests {
 
     fn valid_sell_block_data() -> BillSellBlockData {
         BillSellBlockData {
-            seller: valid_bill_identity_block_data(),
-            buyer: other_valid_bill_identity_block_data(),
+            seller: valid_bill_participant_block_data(),
+            buyer: other_valid_bill_participant_block_data(),
             currency: "sat".into(),
             sum: 500,
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3163,12 +3330,12 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_seller(BillSellBlockData { seller: invalid_bill_identity_block_data(), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_buyer(BillSellBlockData { buyer: invalid_bill_identity_block_data(), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_seller(BillSellBlockData { seller: invalid_bill_participant_block_data(), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_buyer(BillSellBlockData { buyer: invalid_bill_participant_block_data(), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_currency(BillSellBlockData { currency: "invalidcurrency".into(), ..valid_sell_block_data() }, ValidationError::InvalidCurrency)]
     #[case::invalid_sum(BillSellBlockData { sum: 0, ..valid_sell_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillSellBlockData { payment_address: "invalidaddress".into(), ..valid_sell_block_data() }, ValidationError::InvalidPaymentAddress)]
-    #[case::invalid_signing_address(BillSellBlockData { signing_address: invalid_address(), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillSellBlockData { signing_address: Some(invalid_address()), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillSellBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_sell_block_data(
         #[case] block: BillSellBlockData,
@@ -3179,11 +3346,11 @@ pub mod tests {
 
     fn valid_endorse_block_data() -> BillEndorseBlockData {
         BillEndorseBlockData {
-            endorser: valid_bill_identity_block_data(),
-            endorsee: other_valid_bill_identity_block_data(),
+            endorser: valid_bill_participant_block_data(),
+            endorsee: other_valid_bill_participant_block_data(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3194,9 +3361,9 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_endorser(BillEndorseBlockData { endorser: invalid_bill_identity_block_data(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_endorsee(BillEndorseBlockData { endorsee: invalid_bill_identity_block_data(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillEndorseBlockData { signing_address: invalid_address(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_endorser(BillEndorseBlockData { endorser: invalid_bill_participant_block_data(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_endorsee(BillEndorseBlockData { endorsee: invalid_bill_participant_block_data(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_signing_address(BillEndorseBlockData { signing_address: Some(invalid_address()), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillEndorseBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_endorse_block_data(
         #[case] block: BillEndorseBlockData,

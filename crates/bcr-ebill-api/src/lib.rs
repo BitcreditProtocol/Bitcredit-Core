@@ -24,8 +24,8 @@ pub use persistence::notification::NotificationFilter;
 pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: String,
-    pub nostr_relay: String,
-    pub surreal_db_connection: String,
+    pub nostr_relays: Vec<String>,
+    pub db_config: SurrealDbConfig,
     pub data_dir: String,
 }
 

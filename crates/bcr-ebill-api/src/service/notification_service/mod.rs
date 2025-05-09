@@ -46,7 +46,7 @@ pub async fn create_nostr_clients(
     };
     let mut configs: Vec<NostrConfig> = vec![NostrConfig::new(
         keys,
-        vec![config.nostr_relay.clone()],
+        config.nostr_relays.clone(),
         nostr_name,
     )];
 
@@ -63,7 +63,7 @@ pub async fn create_nostr_clients(
         if let Ok(keys) = keys.clone().try_into() {
             configs.push(NostrConfig::new(
                 keys,
-                vec![config.nostr_relay.clone()],
+                config.nostr_relays.clone(),
                 company.name.clone(),
             ));
         }
@@ -88,7 +88,7 @@ pub async fn create_notification_service(
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
-    nostr_relay: &str,
+    nostr_relays: Vec<String>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
     #[allow(clippy::arc_with_non_send_sync)]
     Ok(Arc::new(DefaultNotificationService::new(
@@ -99,7 +99,7 @@ pub async fn create_notification_service(
         notification_store,
         contact_service,
         queued_message_store,
-        nostr_relay,
+        nostr_relays,
     )))
 }
 

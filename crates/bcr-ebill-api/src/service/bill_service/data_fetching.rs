@@ -2,9 +2,12 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
+use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
+use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
-use bcr_ebill_core::contact::Contact;
+use bcr_ebill_core::contact::{BillParticipant, Contact};
+use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::{
     bill::{
         BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillKeys, BillParticipants,
@@ -20,7 +23,7 @@ use bcr_ebill_core::{
         },
     },
     constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS},
-    contact::{ContactType, IdentityPublicData},
+    contact::ContactType,
     identity::{Identity, IdentityWithAll},
     util::{BcrKeys, currency},
 };
@@ -61,12 +64,12 @@ impl BillService {
             )
             .await;
         let payee_contact = self
-            .extend_bill_chain_identity_data_from_contacts_or_identity(payee, identity, contacts)
+            .extend_bill_chain_participant_data_from_contacts_or_identity(payee, identity, contacts)
             .await;
         let endorsee_contact = match bill_parties.endorsee {
             Some(endorsee) => {
                 let endorsee_contact = self
-                    .extend_bill_chain_identity_data_from_contacts_or_identity(
+                    .extend_bill_chain_participant_data_from_contacts_or_identity(
                         endorsee, identity, contacts,
                     )
                     .await;
@@ -96,22 +99,36 @@ impl BillService {
 
     pub(super) fn get_bill_signing_keys(
         &self,
-        signer_public_data: &IdentityPublicData,
+        signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         signatory_identity: &IdentityWithAll,
-    ) -> BillSigningKeys {
-        let (signatory_keys, company_keys, signatory_identity) = match signer_public_data.t {
-            ContactType::Person => (signer_keys.clone(), None, None),
-            ContactType::Company => (
-                signatory_identity.key_pair.clone(),
-                Some(signer_keys.clone()),
-                Some(signatory_identity.identity.clone().into()),
-            ),
-        };
-        BillSigningKeys {
-            signatory_keys,
-            company_keys,
-            signatory_identity,
+    ) -> Result<BillSigningKeys> {
+        match signer_public_data {
+            BillParticipant::Ident(identified) => {
+                let (signatory_keys, company_keys, signatory_identity) = match identified.t {
+                    ContactType::Person | ContactType::Anon => (signer_keys.clone(), None, None),
+                    ContactType::Company => {
+                        if signatory_identity.identity.t == IdentityType::Anon {
+                            return Err(Error::Validation(ValidationError::IdentityCantBeAnon));
+                        }
+                        (
+                            signatory_identity.key_pair.clone(),
+                            Some(signer_keys.clone()),
+                            Some(signatory_identity.identity.clone().into()),
+                        )
+                    }
+                };
+                Ok(BillSigningKeys {
+                    signatory_keys,
+                    company_keys,
+                    signatory_identity,
+                })
+            }
+            BillParticipant::Anon(_) => Ok(BillSigningKeys {
+                signatory_keys: signer_keys.clone(),
+                company_keys: None,
+                signatory_identity: None,
+            }),
         }
     }
 
@@ -133,7 +150,7 @@ impl BillService {
         let time_of_drawing = first_version_bill.signing_timestamp;
 
         let bill_participants = chain.get_all_nodes_from_bill(bill_keys)?;
-        let endorsements_count = chain.get_endorsements_count();
+        let endorsements_count = chain.get_endorsements_for_bill(bill_keys).len() as u64;
 
         let holder = match bill.endorsee {
             None => &bill.payee,
@@ -172,7 +189,7 @@ impl BillService {
         // calculate, if the caller has received funds at any point in the bill
         let mut redeemed_funds_available =
             chain.is_beneficiary_from_a_block(bill_keys, current_identity_node_id);
-        if holder.node_id == current_identity_node_id && paid {
+        if holder.node_id() == current_identity_node_id && paid {
             redeemed_funds_available = true;
         }
 
@@ -283,15 +300,15 @@ impl BillService {
                 {
                     // we're waiting, collect data
                     let buyer = self
-                        .extend_bill_chain_identity_data_from_contacts_or_identity(
-                            payment_info.buyer.clone(),
+                        .extend_bill_chain_participant_data_from_contacts_or_identity(
+                            payment_info.buyer.clone().into(),
                             local_identity,
                             &contacts,
                         )
                         .await;
                     let seller = self
-                        .extend_bill_chain_identity_data_from_contacts_or_identity(
-                            payment_info.seller.clone(),
+                        .extend_bill_chain_participant_data_from_contacts_or_identity(
+                            payment_info.seller.clone().into(),
                             local_identity,
                             &contacts,
                         )
@@ -341,7 +358,7 @@ impl BillService {
                     // we're waiting, collect data
                     let address_to_pay = self
                         .bitcoin_client
-                        .get_address_to_pay(&bill_keys.public_key, &holder.node_id)?;
+                        .get_address_to_pay(&bill_keys.public_key, &holder.node_id())?;
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
@@ -605,7 +622,7 @@ impl BillService {
         contacts: &HashMap<String, Contact>,
     ) {
         bill.participants.payee = self
-            .extend_bill_chain_identity_data_from_contacts_or_identity(
+            .extend_bill_chain_participant_data_from_contacts_or_identity(
                 bill.participants.payee.clone().into(),
                 identity,
                 contacts,
@@ -627,7 +644,7 @@ impl BillService {
             .await;
         if let Some(endorsee) = bill.participants.endorsee.as_mut() {
             *endorsee = self
-                .extend_bill_chain_identity_data_from_contacts_or_identity(
+                .extend_bill_chain_participant_data_from_contacts_or_identity(
                     endorsee.clone().into(),
                     identity,
                     contacts,
@@ -638,14 +655,14 @@ impl BillService {
             None => (),
             Some(BillCurrentWaitingState::Sell(state)) => {
                 state.buyer = self
-                    .extend_bill_chain_identity_data_from_contacts_or_identity(
+                    .extend_bill_chain_participant_data_from_contacts_or_identity(
                         state.buyer.clone().into(),
                         identity,
                         contacts,
                     )
                     .await;
                 state.seller = self
-                    .extend_bill_chain_identity_data_from_contacts_or_identity(
+                    .extend_bill_chain_participant_data_from_contacts_or_identity(
                         state.seller.clone().into(),
                         identity,
                         contacts,
@@ -661,7 +678,7 @@ impl BillService {
                     )
                     .await;
                 state.payee = self
-                    .extend_bill_chain_identity_data_from_contacts_or_identity(
+                    .extend_bill_chain_participant_data_from_contacts_or_identity(
                         state.payee.clone().into(),
                         identity,
                         contacts,

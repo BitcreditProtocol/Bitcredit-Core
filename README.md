@@ -8,14 +8,13 @@ The project consists of the following crates:
 
 * `bcr-ebill-core` - core data models and traits
 * `bcr-ebill-persistence` - persistence traits and SurrealDB implementation
-* `bcr-ebill-transport` - network transport traits and Nostr implementation
+* `bcr-ebill-transport` - network transport API traits and Nostr implementation
 * `bcr-ebill-api` - API of the E-Bills project, contains most of the business logic
-* `bcr-ebill-web` - Entrypoint for Web applications using the Rocket web server
 * `bcr-ebill-wasm` - Entrypoint for WASM version of the E-Bill API
 
-### Entrypoints
+### Entrypoint
 
-There are both `WASM` and `Web` entry points into the API. You can find the documentation to build and configure them [here](docs/index.md):
+There is a `WASM` entry point into the API. You can find the documentation to build and configure it [here](docs/index.md):
 
 ### Tests
 

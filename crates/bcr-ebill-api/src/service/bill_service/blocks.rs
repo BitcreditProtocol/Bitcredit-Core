@@ -1,5 +1,5 @@
 use bcr_ebill_core::{
-    Validate,
+    Validate, ValidationError,
     bill::{BillKeys, BitcreditBill, RecourseReason},
     blockchain::{
         self, Blockchain,
@@ -8,8 +8,8 @@ use bcr_ebill_core::{
             block::{
                 BillAcceptBlockData, BillEndorseBlockData, BillMintBlockData,
                 BillOfferToSellBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
-                BillRejectBlockData, BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
-                BillRequestToPayBlockData, BillSellBlockData,
+                BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
+                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData, NodeId,
             },
         },
         company::{CompanyBlock, CompanySignCompanyBillBlockData},
@@ -18,7 +18,7 @@ use bcr_ebill_core::{
         },
     },
     company::CompanyKeys,
-    contact::{ContactType, IdentityPublicData},
+    contact::{BillParticipant, ContactType},
     identity::IdentityWithAll,
     util::BcrKeys,
 };
@@ -32,40 +32,61 @@ impl BillService {
         blockchain: &mut BillBlockchain,
         bill_keys: &BillKeys,
         bill_action: &BillAction,
-        signer_public_data: &IdentityPublicData,
+        signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         identity: &IdentityWithAll,
         timestamp: u64,
     ) -> Result<()> {
         let bill_id = bill.id.clone();
-        let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity);
+        let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity)?;
         let previous_block = blockchain.get_latest_block();
 
+        let holder = match bill.endorsee {
+            None => bill.payee.clone(),
+            Some(ref endorsee) => endorsee.clone(),
+        };
+
+        let holder_is_anon = match holder {
+            BillParticipant::Anon(_) => true,
+            BillParticipant::Ident(_) => false,
+        };
+
         let block = match bill_action {
+            // has to be ident to accept
             BillAction::Accept => {
-                let block_data = BillAcceptBlockData {
-                    accepter: signer_public_data.clone().into(),
-                    signatory: signing_keys.signatory_identity,
-                    signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
-                };
-                block_data.validate()?;
-                BillBlock::create_block_for_accept(
-                    bill_id.to_owned(),
-                    previous_block,
-                    &block_data,
-                    &signing_keys.signatory_keys,
-                    signing_keys.company_keys.as_ref(), // company keys
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                    timestamp,
-                )?
+                if let BillParticipant::Ident(signer) = signer_public_data {
+                    let block_data = BillAcceptBlockData {
+                        accepter: signer.clone().into(),
+                        signatory: signing_keys.signatory_identity,
+                        signing_timestamp: timestamp,
+                        signing_address: signer.postal_address.clone(),
+                    };
+                    block_data.validate()?;
+                    BillBlock::create_block_for_accept(
+                        bill_id.to_owned(),
+                        previous_block,
+                        &block_data,
+                        &signing_keys.signatory_keys,
+                        signing_keys.company_keys.as_ref(), // company keys
+                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        timestamp,
+                    )?
+                } else {
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                }
             }
+            // can req to accept as anon
             BillAction::RequestAcceptance => {
                 let block_data = BillRequestToAcceptBlockData {
-                    requester: signer_public_data.clone().into(),
+                    requester: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_to_accept(
@@ -78,13 +99,19 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can req to pay as anon
             BillAction::RequestToPay(currency) => {
                 let block_data = BillRequestToPayBlockData {
-                    requester: signer_public_data.clone().into(),
+                    requester: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     currency: currency.to_owned(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_to_pay(
@@ -97,73 +124,89 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // has to be ident to req recourse
             BillAction::RequestRecourse(recoursee, recourse_reason) => {
-                let (sum, currency, reason) = match *recourse_reason {
-                    RecourseReason::Accept => (
-                        bill.sum,
-                        bill.currency.clone(),
-                        BillRecourseReasonBlockData::Accept,
-                    ),
-                    RecourseReason::Pay(sum, ref currency) => {
-                        (sum, currency.to_owned(), BillRecourseReasonBlockData::Pay)
-                    }
-                };
-                let block_data = BillRequestRecourseBlockData {
-                    recourser: signer_public_data.clone().into(),
-                    recoursee: recoursee.clone().into(),
-                    sum,
-                    currency: currency.to_owned(),
-                    recourse_reason: reason,
-                    signatory: signing_keys.signatory_identity,
-                    signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
-                };
-                block_data.validate()?;
-                BillBlock::create_block_for_request_recourse(
-                    bill_id.to_owned(),
-                    previous_block,
-                    &block_data,
-                    &signing_keys.signatory_keys,
-                    signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                    timestamp,
-                )?
+                if let BillParticipant::Ident(signer) = signer_public_data {
+                    let (sum, currency, reason) = match *recourse_reason {
+                        RecourseReason::Accept => (
+                            bill.sum,
+                            bill.currency.clone(),
+                            BillRecourseReasonBlockData::Accept,
+                        ),
+                        RecourseReason::Pay(sum, ref currency) => {
+                            (sum, currency.to_owned(), BillRecourseReasonBlockData::Pay)
+                        }
+                    };
+                    let block_data = BillRequestRecourseBlockData {
+                        recourser: signer.clone().into(),
+                        recoursee: recoursee.clone().into(),
+                        sum,
+                        currency: currency.to_owned(),
+                        recourse_reason: reason,
+                        signatory: signing_keys.signatory_identity,
+                        signing_timestamp: timestamp,
+                        signing_address: signer.postal_address.clone(),
+                    };
+                    block_data.validate()?;
+                    BillBlock::create_block_for_request_recourse(
+                        bill_id.to_owned(),
+                        previous_block,
+                        &block_data,
+                        &signing_keys.signatory_keys,
+                        signing_keys.company_keys.as_ref(),
+                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        timestamp,
+                    )?
+                } else {
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                }
             }
+            // has to be ident to recourse
             BillAction::Recourse(recoursee, sum, currency, recourse_reason) => {
-                let reason = match *recourse_reason {
-                    RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
-                    RecourseReason::Pay(_, _) => BillRecourseReasonBlockData::Pay,
-                };
-                let block_data = BillRecourseBlockData {
-                    recourser: signer_public_data.clone().into(),
-                    recoursee: recoursee.clone().into(),
-                    sum: *sum,
-                    currency: currency.to_owned(),
-                    recourse_reason: reason,
-                    signatory: signing_keys.signatory_identity,
-                    signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
-                };
-                block_data.validate()?;
-                BillBlock::create_block_for_recourse(
-                    bill_id.to_owned(),
-                    previous_block,
-                    &block_data,
-                    &signing_keys.signatory_keys,
-                    signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                    timestamp,
-                )?
+                if let BillParticipant::Ident(signer) = signer_public_data {
+                    let reason = match *recourse_reason {
+                        RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
+                        RecourseReason::Pay(_, _) => BillRecourseReasonBlockData::Pay,
+                    };
+                    let block_data = BillRecourseBlockData {
+                        recourser: signer.clone().into(),
+                        recoursee: recoursee.clone().into(),
+                        sum: *sum,
+                        currency: currency.to_owned(),
+                        recourse_reason: reason,
+                        signatory: signing_keys.signatory_identity,
+                        signing_timestamp: timestamp,
+                        signing_address: signer.postal_address.clone(),
+                    };
+                    block_data.validate()?;
+                    BillBlock::create_block_for_recourse(
+                        bill_id.to_owned(),
+                        previous_block,
+                        &block_data,
+                        &signing_keys.signatory_keys,
+                        signing_keys.company_keys.as_ref(),
+                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        timestamp,
+                    )?
+                } else {
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                }
             }
+            // can be anon to mint
             BillAction::Mint(mint, sum, currency) => {
                 let block_data = BillMintBlockData {
-                    endorser: signer_public_data.clone().into(),
+                    endorser: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     endorsee: mint.clone().into(),
                     currency: currency.to_owned(),
                     sum: *sum,
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_mint(
@@ -176,19 +219,25 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, currency) => {
                 let address_to_pay = self
                     .bitcoin_client
-                    .get_address_to_pay(&bill_keys.public_key, &signer_public_data.node_id)?;
+                    .get_address_to_pay(&bill_keys.public_key, &signer_public_data.node_id())?;
                 let block_data = BillOfferToSellBlockData {
-                    seller: signer_public_data.clone().into(),
+                    seller: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     buyer: buyer.clone().into(),
                     currency: currency.to_owned(),
                     sum: *sum,
                     payment_address: address_to_pay,
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_offer_to_sell(
@@ -201,16 +250,22 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can be anon to sell
             BillAction::Sell(buyer, sum, currency, payment_address) => {
                 let block_data = BillSellBlockData {
-                    seller: signer_public_data.clone().into(),
+                    seller: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     buyer: buyer.clone().into(),
                     currency: currency.to_owned(),
                     sum: *sum,
                     payment_address: payment_address.to_owned(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_sell(
@@ -223,13 +278,19 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // can be anon to endorse
             BillAction::Endorse(endorsee) => {
                 let block_data = BillEndorseBlockData {
-                    endorser: signer_public_data.clone().into(),
+                    endorser: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     endorsee: endorsee.clone().into(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_endorse(
@@ -242,30 +303,41 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // has to be ident to reject acceptance
             BillAction::RejectAcceptance => {
-                let block_data = BillRejectBlockData {
-                    rejecter: signer_public_data.clone().into(),
-                    signatory: signing_keys.signatory_identity,
-                    signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
-                };
-                block_data.validate()?;
-                BillBlock::create_block_for_reject_to_accept(
-                    bill_id.to_owned(),
-                    previous_block,
-                    &block_data,
-                    &signing_keys.signatory_keys,
-                    signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                    timestamp,
-                )?
+                if let BillParticipant::Ident(signer) = signer_public_data {
+                    let block_data = BillRejectBlockData {
+                        rejecter: signer.clone().into(),
+                        signatory: signing_keys.signatory_identity,
+                        signing_timestamp: timestamp,
+                        signing_address: signer.postal_address.clone(),
+                    };
+                    block_data.validate()?;
+                    BillBlock::create_block_for_reject_to_accept(
+                        bill_id.to_owned(),
+                        previous_block,
+                        &block_data,
+                        &signing_keys.signatory_keys,
+                        signing_keys.company_keys.as_ref(),
+                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        timestamp,
+                    )?
+                } else {
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                }
             }
+            // can be anon to reject buying
             BillAction::RejectBuying => {
-                let block_data = BillRejectBlockData {
-                    rejecter: signer_public_data.clone().into(),
+                let block_data = BillRejectToBuyBlockData {
+                    rejecter: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
+                    signing_address: signer_public_data.postal_address(),
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_reject_to_buy(
@@ -278,41 +350,51 @@ impl BillService {
                     timestamp,
                 )?
             }
+            // has to be ident to reject payment
             BillAction::RejectPayment => {
-                let block_data = BillRejectBlockData {
-                    rejecter: signer_public_data.clone().into(),
-                    signatory: signing_keys.signatory_identity,
-                    signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
-                };
-                block_data.validate()?;
-                BillBlock::create_block_for_reject_to_pay(
-                    bill_id.to_owned(),
-                    previous_block,
-                    &block_data,
-                    &signing_keys.signatory_keys,
-                    signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                    timestamp,
-                )?
+                if let BillParticipant::Ident(signer) = signer_public_data {
+                    let block_data = BillRejectBlockData {
+                        rejecter: signer.clone().into(),
+                        signatory: signing_keys.signatory_identity,
+                        signing_timestamp: timestamp,
+                        signing_address: signer.postal_address.clone(),
+                    };
+                    block_data.validate()?;
+                    BillBlock::create_block_for_reject_to_pay(
+                        bill_id.to_owned(),
+                        previous_block,
+                        &block_data,
+                        &signing_keys.signatory_keys,
+                        signing_keys.company_keys.as_ref(),
+                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        timestamp,
+                    )?
+                } else {
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                }
             }
+            // has to be ident to reject recourse
             BillAction::RejectPaymentForRecourse => {
-                let block_data = BillRejectBlockData {
-                    rejecter: signer_public_data.clone().into(),
-                    signatory: signing_keys.signatory_identity,
-                    signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address.clone(),
-                };
-                block_data.validate()?;
-                BillBlock::create_block_for_reject_to_pay_recourse(
-                    bill_id.to_owned(),
-                    previous_block,
-                    &block_data,
-                    &signing_keys.signatory_keys,
-                    signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                    timestamp,
-                )?
+                if let BillParticipant::Ident(signer) = signer_public_data {
+                    let block_data = BillRejectBlockData {
+                        rejecter: signer.clone().into(),
+                        signatory: signing_keys.signatory_identity,
+                        signing_timestamp: timestamp,
+                        signing_address: signer.postal_address.clone(),
+                    };
+                    block_data.validate()?;
+                    BillBlock::create_block_for_reject_to_pay_recourse(
+                        bill_id.to_owned(),
+                        previous_block,
+                        &block_data,
+                        &signing_keys.signatory_keys,
+                        signing_keys.company_keys.as_ref(),
+                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        timestamp,
+                    )?
+                } else {
+                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                }
             }
         };
 
@@ -349,15 +431,52 @@ impl BillService {
 
     pub(super) async fn add_identity_and_company_chain_blocks_for_signed_bill_action(
         &self,
-        signer_public_data: &IdentityPublicData,
+        signer_public_data: &BillParticipant,
         bill_id: &str,
         block: &BillBlock,
         identity_keys: &BcrKeys,
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<()> {
-        match signer_public_data.t {
-            ContactType::Person => {
+        match signer_public_data {
+            BillParticipant::Ident(identified) => {
+                match identified.t {
+                    ContactType::Person | ContactType::Anon => {
+                        self.add_block_to_identity_chain_for_signed_bill_action(
+                            bill_id,
+                            block,
+                            identity_keys,
+                            timestamp,
+                        )
+                        .await?;
+                    }
+                    ContactType::Company => {
+                        self.add_block_to_company_chain_for_signed_bill_action(
+                            &identified.node_id, // company id
+                            bill_id,
+                            block,
+                            identity_keys,
+                            &CompanyKeys {
+                                private_key: signer_keys.get_private_key_string(),
+                                public_key: signer_keys.get_public_key(),
+                            },
+                            timestamp,
+                        )
+                        .await?;
+
+                        self.add_block_to_identity_chain_for_signed_company_bill_action(
+                            &identified.node_id, // company id
+                            bill_id,
+                            block,
+                            identity_keys,
+                            timestamp,
+                        )
+                        .await?;
+                    }
+                };
+            }
+            // for anon, we only add to our identity chain, since we're no company
+            BillParticipant::Anon(_) => {
                 self.add_block_to_identity_chain_for_signed_bill_action(
                     bill_id,
                     block,
@@ -366,30 +485,7 @@ impl BillService {
                 )
                 .await?;
             }
-            ContactType::Company => {
-                self.add_block_to_company_chain_for_signed_bill_action(
-                    &signer_public_data.node_id, // company id
-                    bill_id,
-                    block,
-                    identity_keys,
-                    &CompanyKeys {
-                        private_key: signer_keys.get_private_key_string(),
-                        public_key: signer_keys.get_public_key(),
-                    },
-                    timestamp,
-                )
-                .await?;
-
-                self.add_block_to_identity_chain_for_signed_company_bill_action(
-                    &signer_public_data.node_id, // company id
-                    bill_id,
-                    block,
-                    identity_keys,
-                    timestamp,
-                )
-                .await?;
-            }
-        };
+        }
         Ok(())
     }
 

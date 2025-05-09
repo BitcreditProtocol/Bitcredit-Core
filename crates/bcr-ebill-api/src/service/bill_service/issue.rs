@@ -1,12 +1,16 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
 use crate::util;
 use bcr_ebill_core::{
-    File, Validate,
+    File, Validate, ValidationError,
     bill::{BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue},
     blockchain::{
         Blockchain,
-        bill::{BillBlockchain, block::BillIssueBlockData},
+        bill::{
+            BillBlockchain,
+            block::{BillIssueBlockData, NodeId},
+        },
     },
+    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     util::BcrKeys,
 };
 use bcr_ebill_transport::BillChainEvent;
@@ -14,55 +18,93 @@ use log::{debug, error};
 
 impl BillService {
     pub(super) async fn issue_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {
-        debug!("issuing bill with type {}", &data.t);
+        debug!(
+            "issuing bill with type {}, blank: {}",
+            &data.t, &data.blank_issue
+        );
         let (sum, bill_type) = validate_bill_issue(&data)?;
 
-        let (public_data_drawee, public_data_payee) = match bill_type {
-            // Drawer is payee
-            BillType::SelfDrafted => {
-                let public_data_drawee = match self.contact_store.get(&data.drawee).await {
-                    Ok(Some(drawee)) => drawee.into(),
-                    Ok(None) | Err(_) => {
-                        return Err(Error::DraweeNotInContacts);
-                    }
-                };
-
-                let public_data_payee = data.drawer_public_data.clone();
-
-                (public_data_drawee, public_data_payee)
-            }
-            // Drawer is drawee
-            BillType::PromissoryNote => {
-                let public_data_drawee = data.drawer_public_data.clone();
-
-                let public_data_payee = match self.contact_store.get(&data.payee).await {
-                    Ok(Some(drawee)) => drawee.into(),
-                    Ok(None) | Err(_) => {
-                        return Err(Error::PayeeNotInContacts);
-                    }
-                };
-
-                (public_data_drawee, public_data_payee)
-            }
-            // Drawer is neither drawee nor payee
-            BillType::ThreeParties => {
-                let public_data_drawee = match self.contact_store.get(&data.drawee).await {
-                    Ok(Some(drawee)) => drawee.into(),
-                    Ok(None) | Err(_) => {
-                        return Err(Error::DraweeNotInContacts);
-                    }
-                };
-
-                let public_data_payee = match self.contact_store.get(&data.payee).await {
-                    Ok(Some(drawee)) => drawee.into(),
-                    Ok(None) | Err(_) => {
-                        return Err(Error::PayeeNotInContacts);
-                    }
-                };
-
-                (public_data_drawee, public_data_payee)
+        let drawer = match data.drawer_public_data {
+            BillParticipant::Ident(ref drawer_data) => drawer_data,
+            BillParticipant::Anon(_) => {
+                return Err(Error::Validation(ValidationError::SignerCantBeAnon));
             }
         };
+
+        let (public_data_drawee, public_data_payee): (BillIdentParticipant, BillParticipant) =
+            match bill_type {
+                // Drawer is payee
+                BillType::SelfDrafted => {
+                    let public_data_drawee = match self.contact_store.get(&data.drawee).await {
+                        Ok(Some(drawee)) => drawee.try_into()?,
+                        Ok(None) | Err(_) => {
+                            return Err(Error::DraweeNotInContacts);
+                        }
+                    };
+
+                    if data.blank_issue {
+                        return Err(Error::Validation(
+                            ValidationError::SelfDraftedBillCantBeBlank,
+                        ));
+                    }
+
+                    let public_data_payee = BillParticipant::Ident(drawer.clone());
+
+                    (public_data_drawee, public_data_payee)
+                }
+                // Drawer is drawee
+                BillType::PromissoryNote => {
+                    let public_data_drawee = drawer.clone();
+
+                    let mut public_data_payee = match self.contact_store.get(&data.payee).await {
+                        Ok(Some(payee)) => payee.try_into()?,
+                        Ok(None) | Err(_) => {
+                            return Err(Error::PayeeNotInContacts);
+                        }
+                    };
+
+                    // if it's a blank issue, convert the payee to anon
+                    if data.blank_issue {
+                        match public_data_payee {
+                            BillParticipant::Anon(_) => (),
+                            BillParticipant::Ident(identified) => {
+                                let anon: BillAnonParticipant = identified.into();
+                                public_data_payee = BillParticipant::Anon(anon);
+                            }
+                        };
+                    }
+
+                    (public_data_drawee, public_data_payee)
+                }
+                // Drawer is neither drawee nor payee
+                BillType::ThreeParties => {
+                    let public_data_drawee = match self.contact_store.get(&data.drawee).await {
+                        Ok(Some(drawee)) => drawee.try_into()?,
+                        Ok(None) | Err(_) => {
+                            return Err(Error::DraweeNotInContacts);
+                        }
+                    };
+
+                    let mut public_data_payee = match self.contact_store.get(&data.payee).await {
+                        Ok(Some(payee)) => payee.try_into()?,
+                        Ok(None) | Err(_) => {
+                            return Err(Error::PayeeNotInContacts);
+                        }
+                    };
+
+                    // if it's a blank issue, convert the payee to anon
+                    if data.blank_issue {
+                        match public_data_payee {
+                            BillParticipant::Anon(_) => (),
+                            BillParticipant::Ident(identified) => {
+                                let anon: BillAnonParticipant = identified.into();
+                                public_data_payee = BillParticipant::Anon(anon);
+                            }
+                        };
+                    }
+                    (public_data_drawee, public_data_payee)
+                }
+            };
         debug!("issuing bill with drawee {public_data_drawee:?} and payee {public_data_payee:?}");
 
         let identity = self.identity_store.get_full().await?;
@@ -100,14 +142,17 @@ impl BillService {
             city_of_payment: data.city_of_payment,
             language: data.language,
             drawee: public_data_drawee,
-            drawer: data.drawer_public_data.clone(),
+            drawer: drawer.clone(),
             payee: public_data_payee,
             endorsee: None,
             files: bill_files,
         };
 
-        let signing_keys =
-            self.get_bill_signing_keys(&data.drawer_public_data, &data.drawer_keys, &identity);
+        let signing_keys = self.get_bill_signing_keys(
+            &data.drawer_public_data, // drawer has to be identified
+            &data.drawer_keys,
+            &identity,
+        )?;
         let block_data = BillIssueBlockData::from(
             bill.clone(),
             signing_keys.signatory_identity,
@@ -128,7 +173,7 @@ impl BillService {
         self.blockchain_store.add_block(&bill.id, block).await?;
 
         self.add_identity_and_company_chain_blocks_for_signed_bill_action(
-            &data.drawer_public_data,
+            &data.drawer_public_data.clone(), // drawer is identified
             &bill_id,
             block,
             &identity.key_pair,
@@ -143,7 +188,7 @@ impl BillService {
             &chain,
             &bill_keys,
             &identity.identity,
-            &data.drawer_public_data.node_id,
+            &data.drawer_public_data.node_id(),
             data.timestamp,
         )
         .await?;
@@ -180,7 +225,7 @@ impl BillService {
         debug!("issued bill with id {bill_id}");
 
         // If we're the drawee, we immediately accept the bill with timestamp increased by 1 sec
-        if bill.drawer == bill.drawee {
+        if bill.drawer.node_id == bill.drawee.node_id {
             debug!("we are drawer and drawee of bill: {bill_id} - immediately accepting");
             self.execute_bill_action(
                 &bill_id,

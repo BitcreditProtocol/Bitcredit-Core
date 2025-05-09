@@ -11,8 +11,8 @@ use crate::{
         MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
         MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockNotificationService,
         TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET,
-        empty_address, empty_bitcredit_bill, empty_identity, empty_identity_public_data,
-        identity_public_data_only_node_id,
+        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
+        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity,
     },
     util,
 };
@@ -27,13 +27,14 @@ use bcr_ebill_core::{
             BillBlock,
             block::{
                 BillAcceptBlockData, BillIssueBlockData, BillOfferToSellBlockData,
-                BillRecourseBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
-                BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
-                BillRequestToPayBlockData, BillSellBlockData,
+                BillParticipantBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
+                BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
+                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
             },
         },
         identity::IdentityBlockchain,
     },
+    contact::{BillIdentParticipant, BillParticipant},
 };
 use core::str;
 use external::bitcoin::MockBitcoinClientApi;
@@ -71,9 +72,11 @@ pub fn get_baseline_cached_bill(id: String) -> BitcreditBillResult {
     BitcreditBillResult {
         id,
         participants: BillParticipants {
-            drawee: identity_public_data_only_node_id("drawee".to_string()),
-            drawer: identity_public_data_only_node_id("drawer".to_string()),
-            payee: identity_public_data_only_node_id("payee".to_string()),
+            drawee: bill_identified_participant_only_node_id("drawee".to_string()),
+            drawer: bill_identified_participant_only_node_id("drawer".to_string()),
+            payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
+                "payee".to_string(),
+            )),
             endorsee: None,
             endorsements_count: 5,
             all_participant_node_ids: vec![
@@ -138,10 +141,11 @@ pub fn get_baseline_bill(bill_id: &str) -> BitcreditBill {
     let keys = BcrKeys::new();
 
     bill.maturity_date = "2099-10-15".to_string();
-    bill.payee = empty_identity_public_data();
-    bill.payee.name = "payee".to_owned();
-    bill.payee.node_id = keys.get_public_key();
-    bill.drawee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+    let mut payee = empty_bill_identified_participant();
+    payee.name = "payee".to_owned();
+    payee.node_id = keys.get_public_key();
+    bill.payee = BillParticipant::Ident(payee);
+    bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
     bill.id = bill_id.to_owned();
     bill
 }
@@ -267,7 +271,7 @@ pub fn get_ctx() -> MockBillContext {
 pub fn request_to_recourse_block(
     id: &str,
     first_block: &BillBlock,
-    recoursee: &IdentityPublicData,
+    recoursee: &BillIdentParticipant,
     ts: Option<u64>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
@@ -275,7 +279,7 @@ pub fn request_to_recourse_block(
         id.to_string(),
         first_block,
         &BillRequestRecourseBlockData {
-            recourser: identity_public_data_only_node_id(
+            recourser: bill_identified_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),
@@ -300,13 +304,13 @@ pub fn request_to_recourse_block(
 pub fn recourse_block(
     id: &str,
     first_block: &BillBlock,
-    recoursee: &IdentityPublicData,
+    recoursee: &BillIdentParticipant,
 ) -> BillBlock {
     BillBlock::create_block_for_recourse(
         id.to_string(),
         first_block,
         &BillRecourseBlockData {
-            recourser: identity_public_data_only_node_id(
+            recourser: bill_identified_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),
@@ -333,7 +337,7 @@ pub fn reject_recourse_block(id: &str, first_block: &BillBlock) -> BillBlock {
         id.to_string(),
         first_block,
         &BillRejectBlockData {
-            rejecter: identity_public_data_only_node_id(
+            rejecter: bill_identified_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),
@@ -357,15 +361,17 @@ pub fn request_to_accept_block(id: &str, first_block: &BillBlock, ts: Option<u64
         id.to_string(),
         first_block,
         &BillRequestToAcceptBlockData {
-            requester: identity_public_data_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            requester: BillParticipantBlockData::Ident(
+                bill_identified_participant_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+            ),
             signatory: None,
             signing_timestamp: timestamp,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
         None,
@@ -380,7 +386,7 @@ pub fn reject_accept_block(id: &str, first_block: &BillBlock) -> BillBlock {
         id.to_string(),
         first_block,
         &BillRejectBlockData {
-            rejecter: identity_public_data_only_node_id(
+            rejecter: bill_identified_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),
@@ -401,7 +407,7 @@ pub fn reject_accept_block(id: &str, first_block: &BillBlock) -> BillBlock {
 pub fn offer_to_sell_block(
     id: &str,
     first_block: &BillBlock,
-    buyer: &IdentityPublicData,
+    buyer: &BillIdentParticipant,
     ts: Option<u64>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
@@ -409,19 +415,21 @@ pub fn offer_to_sell_block(
         id.to_string(),
         first_block,
         &BillOfferToSellBlockData {
-            seller: identity_public_data_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
-            buyer: buyer.to_owned().into(),
+            seller: BillParticipantBlockData::Ident(
+                bill_identified_participant_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+            ),
+            buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             currency: "sat".to_string(),
             sum: 15000,
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
             signatory: None,
             signing_timestamp: timestamp,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
         None,
@@ -435,8 +443,8 @@ pub fn reject_buy_block(id: &str, first_block: &BillBlock) -> BillBlock {
     BillBlock::create_block_for_reject_to_buy(
         id.to_string(),
         first_block,
-        &BillRejectBlockData {
-            rejecter: identity_public_data_only_node_id(
+        &BillRejectToBuyBlockData {
+            rejecter: bill_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),
@@ -444,7 +452,7 @@ pub fn reject_buy_block(id: &str, first_block: &BillBlock) -> BillBlock {
             .into(),
             signatory: None,
             signing_timestamp: first_block.timestamp,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
         None,
@@ -454,24 +462,26 @@ pub fn reject_buy_block(id: &str, first_block: &BillBlock) -> BillBlock {
     .expect("block could not be created")
 }
 
-pub fn sell_block(id: &str, first_block: &BillBlock, buyer: &IdentityPublicData) -> BillBlock {
+pub fn sell_block(id: &str, first_block: &BillBlock, buyer: &BillIdentParticipant) -> BillBlock {
     BillBlock::create_block_for_sell(
         id.to_string(),
         first_block,
         &BillSellBlockData {
-            seller: identity_public_data_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
-            buyer: buyer.to_owned().into(),
+            seller: BillParticipantBlockData::Ident(
+                bill_identified_participant_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+            ),
+            buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             currency: "sat".to_string(),
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
             sum: 15000,
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
         None,
@@ -486,7 +496,7 @@ pub fn accept_block(id: &str, first_block: &BillBlock) -> BillBlock {
         id.to_string(),
         first_block,
         &BillAcceptBlockData {
-            accepter: identity_public_data_only_node_id(
+            accepter: bill_identified_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),
@@ -510,16 +520,18 @@ pub fn request_to_pay_block(id: &str, first_block: &BillBlock, ts: Option<u64>) 
         id.to_string(),
         first_block,
         &BillRequestToPayBlockData {
-            requester: identity_public_data_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            requester: BillParticipantBlockData::Ident(
+                bill_identified_participant_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+            ),
             currency: "sat".to_string(),
             signatory: None,
             signing_timestamp: timestamp,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
         None,
@@ -534,7 +546,7 @@ pub fn reject_to_pay_block(id: &str, first_block: &BillBlock) -> BillBlock {
         id.to_string(),
         first_block,
         &BillRejectBlockData {
-            rejecter: identity_public_data_only_node_id(
+            rejecter: bill_identified_participant_only_node_id(
                 BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                     .unwrap()
                     .get_public_key(),

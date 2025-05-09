@@ -13,7 +13,7 @@ use crate::ValidationError;
 
 pub fn validate_file_upload_id(file_upload_id: Option<&str>) -> Result<(), ValidationError> {
     if let Some(id) = file_upload_id {
-        if id.is_empty() {
+        if id.trim().is_empty() {
             return Err(ValidationError::InvalidFileUploadId);
         }
     }

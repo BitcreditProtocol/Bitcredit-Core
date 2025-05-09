@@ -61,6 +61,15 @@ impl Validate for PostalAddress {
     }
 }
 
+impl Validate for Option<PostalAddress> {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(data) = self {
+            data.validate()?;
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for PostalAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.zip {
@@ -108,6 +117,15 @@ impl Validate for OptionalPostalAddress {
 }
 
 impl OptionalPostalAddress {
+    pub fn empty() -> Self {
+        Self {
+            country: None,
+            city: None,
+            zip: None,
+            address: None,
+        }
+    }
+
     pub fn is_fully_set(&self) -> bool {
         self.country.is_some() && self.city.is_some() && self.address.is_some()
     }
@@ -157,6 +175,7 @@ pub enum Field {
     Zip,
     Address,
     Name,
+    Email,
     Id,
     CountryOfIssuing,
     CityOfIssuing,
@@ -179,6 +198,22 @@ pub enum ValidationError {
     /// error returned if the date was invalid
     #[error("invalid date")]
     InvalidDate,
+
+    /// error returned if the contact is invalid, e.g. a non-anon contact with no address
+    #[error("the contact {0} is invalid")]
+    InvalidContact(String),
+
+    /// error returned if the signer for a certain action is not allowed to be anonymous
+    #[error("The signer can't be anonymous")]
+    SignerCantBeAnon,
+
+    /// error returned if the identity for a certain action is not allowed to be anonymous
+    #[error("The identity can't be anonymous")]
+    IdentityCantBeAnon,
+
+    /// error returned if an anonymous contact is used in place where only an identified can't be used
+    #[error("The contact {0} is anonymous, but an identified contact is needed")]
+    ContactIsAnonymous(String),
 
     /// error returned if the maturity date is in the past
     #[error("maturity date can't be in the past")]
@@ -295,6 +330,11 @@ pub enum ValidationError {
     #[error("The bill was already paid")]
     BillAlreadyPaid,
 
+    /// error returned if the bill is self drafted and blank (anon payee) - because it doesn't make
+    /// sense as the drawer is identified already
+    #[error("A self-drafted bill can't be blank")]
+    SelfDraftedBillCantBeBlank,
+
     /// error returned if the bill was not requested to accept, e.g. when rejecting to accept
     #[error("Bill was not requested to accept")]
     BillWasNotRequestedToAccept,
@@ -364,6 +404,10 @@ pub enum ValidationError {
     #[error("Drawer is not a bill issuer - does not have a postal address set")]
     DrawerIsNotBillIssuer,
 
+    /// error returned if the identity is not a bill issuer
+    #[error("Identity is not a bill issuer - does not have a postal address set")]
+    IdentityIsNotBillIssuer,
+
     /// error returned if the signatory is not in the contacts
     #[error("Node Id {0} is not a person in the contacts.")]
     SignatoryNotInContacts(String),
@@ -399,6 +443,10 @@ pub enum ValidationError {
     /// error returned if the contact type is not valid
     #[error("Invalid contact type")]
     InvalidContactType,
+
+    /// error returned if the identity type is not valid
+    #[error("Invalid identity type")]
+    InvalidIdentityType,
 
     /// error returned if the given node is not a local one (company or identity)
     #[error("The provided node_id: {0} is not a valid company id, or personal node_id")]

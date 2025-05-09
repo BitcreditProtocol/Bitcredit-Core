@@ -43,19 +43,36 @@
         <div>Company Id: <span id="companies"></span></div>
     </div>
     <div>
+        <h2>Contact Testing</h2>
+        <div>
+            Contact Id: <input type="text" id="node_id_contact"/>
+            <button type="button" id="contact_test">Create Contact for node id</button>
+            <button type="button" id="contact_test_anon">Create Anon Contact for node id</button>
+            <button type="button" id="fetch_contacts">Fetch Contacts</button>
+        </div>
+    </div>
+    <div>
         <h2>Bill Testing</h2>
         <div>
             <button type="button" id="clear_bill_cache">Clear Bill Cache</button>
             <br />
             <br />
             Contact Id: <input type="text" id="node_id_bill"/>
-            <button type="button" id="contact_test">Create Contact for node id</button>
-            <button type="button" id="bill_test">Create bill with contact for node id</button>
+            <br />
+            <br />
+            <button type="button" id="bill_test_self_drafted">Create self-drafted bill with contact node id</button>
+            <br />
+            <br />
+            <button type="button" id="bill_test_promissory">Create promissory bill with contact node id</button>
+            <br />
+            <br />
+            <button type="button" id="bill_test_promissory_blank">Create blank promissory bill with contact node id</button>
             <br />
             <br />
             Bill Id: <input type="text" id="endorse_bill_id"/>
             Endorsee Id: <input type="text" id="endorsee_id"/>
             <button type="button" id="endorse_bill">Endorse bill to Endorsee</button>
+            <button type="button" id="blank_endorse_bill">Blank Endorse bill to Endorsee</button>
             <button type="button" id="req_to_accept_bill">Request to Accept</button>
             <button type="button" id="req_to_pay_bill">Request to Pay</button>
             <button type="button" id="offer_to_sell_bill">Offer To Sell</button>
