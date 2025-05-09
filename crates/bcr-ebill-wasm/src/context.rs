@@ -41,6 +41,7 @@ impl Context {
             db.contact_store.clone(),
             db.file_upload_store.clone(),
             db.identity_store.clone(),
+            db.nostr_contact_store.clone(),
         ));
         let bitcoin_client = Arc::new(BitcoinClient::new());
 

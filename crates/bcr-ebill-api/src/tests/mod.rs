@@ -14,6 +14,7 @@ pub mod tests {
         company::{Company, CompanyKeys},
         contact::{Contact, ContactType, IdentityPublicData},
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
+        nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
     };
@@ -24,7 +25,7 @@ pub mod tests {
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
         identity::{IdentityChainStoreApi, IdentityStoreApi},
-        nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi},
+        nostr::{NostrContactStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi},
         notification::NotificationFilter,
     };
     use bcr_ebill_transport::{BillChainEvent, NotificationServiceApi};
@@ -43,6 +44,20 @@ pub mod tests {
             async fn insert(&self, node_id: &str, data: Contact) -> Result<()>;
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn update(&self, node_id: &str, data: Contact) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub NostrContactStore {}
+
+        #[async_trait]
+        impl NostrContactStoreApi for NostrContactStore {
+            async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+            async fn by_npub(&self, npub: &nostr::key::PublicKey) -> Result<Option<NostrContact>>;
+            async fn upsert(&self, data: &NostrContact) -> Result<()>;
+            async fn delete(&self, node_id: &str) -> Result<()>;
+            async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
+            async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
         }
     }
 

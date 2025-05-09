@@ -117,10 +117,6 @@ impl NostrClient {
         Ok(client)
     }
 
-    pub fn get_node_id(&self) -> String {
-        self.keys.get_public_key()
-    }
-
     pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
         self.keys.get_nostr_keys()
     }
@@ -354,8 +350,8 @@ impl ServiceTraitBounds for NostrClient {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationJsonTransportApi for NostrClient {
-    fn get_sender_key(&self) -> String {
-        self.get_node_id()
+    fn get_sender_key(&self) -> PublicKey {
+        self.get_nostr_keys().public_key()
     }
     async fn send(
         &self,
@@ -373,7 +369,7 @@ impl NotificationJsonTransportApi for NostrClient {
 
 #[derive(Clone)]
 pub struct NostrConsumer {
-    clients: HashMap<String, Arc<NostrClient>>,
+    clients: HashMap<PublicKey, Arc<NostrClient>>,
     event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
@@ -389,8 +385,8 @@ impl NostrConsumer {
     ) -> Self {
         let clients = clients
             .into_iter()
-            .map(|c| (c.get_node_id(), c))
-            .collect::<HashMap<String, Arc<NostrClient>>>();
+            .map(|c| (c.get_nostr_keys().public_key(), c))
+            .collect::<HashMap<PublicKey, Arc<NostrClient>>>();
         Self {
             clients,
             #[allow(clippy::arc_with_non_send_sync)]
@@ -409,20 +405,20 @@ impl NostrConsumer {
         let offset_store = self.offset_store.clone();
 
         let mut tasks = Vec::new();
-        let local_node_ids = clients.keys().cloned().collect::<Vec<String>>();
+        let local_node_ids = clients.keys().cloned().collect::<Vec<PublicKey>>();
 
         for (node_id, node_client) in clients.into_iter() {
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
-            let client_id = node_id.clone();
+            let client_id = node_id.to_hex();
             let contact_service = contact_service.clone();
             let local_node_ids = local_node_ids.clone();
 
             // Spawn a task for each client
             let task = spawn(async move {
                 // continue where we left off
-                let offset_ts = get_offset(&offset_store, &node_id).await;
+                let offset_ts = get_offset(&offset_store, &client_id).await;
                 let public_key = current_client.keys.get_nostr_keys().public_key();
                 let filter = Filter::new()
                     .pubkey(public_key)
@@ -442,7 +438,6 @@ impl NostrConsumer {
                         let client = inner.clone();
                         let event_handlers = event_handlers.clone();
                         let offset_store = offset_store.clone();
-                        let node_id = node_id.clone();
                         let client_id = client_id.clone();
                         let contact_service = contact_service.clone();
                         let local_node_ids = local_node_ids.clone();
@@ -456,13 +451,13 @@ impl NostrConsumer {
                                     let sender_node_id = sender.to_hex();
                                     trace!("Received event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}");
                                     // We use hex here, so we can compare it with our node_ids
-                                    if valid_sender(&sender_node_id, &local_node_ids, &contact_service).await {
+                                    if valid_sender(&sender, &local_node_ids, &contact_service).await {
                                         trace!("Processing event: {envelope:?}");
-                                        handle_event(envelope, &node_id, &event_handlers).await?;
+                                        handle_event(envelope, &client_id, &event_handlers).await?;
                                     }
 
                                     // store the new event offset
-                                    add_offset(&offset_store, event_id, time, true, &node_id).await;
+                                    add_offset(&offset_store, event_id, time, true, &client_id).await;
                                 }
                             };
                             Ok(false)
@@ -487,11 +482,11 @@ impl NostrConsumer {
 }
 
 async fn valid_sender(
-    node_id: &str,
-    local_node_ids: &[String],
+    node_id: &PublicKey,
+    local_node_ids: &[PublicKey],
     contact_service: &Arc<dyn ContactServiceApi>,
 ) -> bool {
-    if local_node_ids.contains(&node_id.to_string()) {
+    if local_node_ids.contains(node_id) {
         return true;
     }
     if let Ok(res) = contact_service.is_known_npub(node_id).await {
@@ -669,7 +664,7 @@ mod tests {
         let mut contact_service = MockContactServiceApi::new();
         contact_service
             .expect_is_known_npub()
-            .with(predicate::eq(keys1.get_nostr_npub_as_hex()))
+            .with(predicate::eq(keys1.get_nostr_keys().public_key()))
             .returning(|_| Ok(true));
 
         // expect a handler that is subscribed to the event type w sent

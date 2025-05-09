@@ -1,4 +1,8 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
+
+use crate::contact::Contact;
 
 /// Data we need to communicate with a Nostr contact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,6 +18,34 @@ pub struct NostrContact {
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
     pub handshake_status: HandshakeStatus,
+}
+
+impl NostrContact {
+    /// Creates a new Nostr contact from a contact. This is used when we have a contact and want to
+    /// create the Nostr contact from it. Handshake is set to complete and we trust the contact.
+    pub fn from_contact(contact: &Contact) -> Self {
+        Self {
+            node_id: contact.node_id.clone(),
+            name: Some(contact.name.clone()),
+            relays: contact.nostr_relays.clone(),
+            trust_level: TrustLevel::Trusted,
+            handshake_status: HandshakeStatus::Added,
+        }
+    }
+
+    /// Merges contact data into a nostr contact. This assumes at that point the handskake is
+    /// complete and we trust the contact.
+    pub fn merge_contact(&self, contact: &Contact) -> Self {
+        let mut relays: BTreeSet<String> = BTreeSet::from_iter(self.relays.clone());
+        relays.extend(contact.nostr_relays.clone());
+        Self {
+            node_id: self.node_id.clone(),
+            name: Some(contact.name.clone()),
+            relays: relays.into_iter().collect(),
+            trust_level: TrustLevel::Trusted,
+            handshake_status: HandshakeStatus::Added,
+        }
+    }
 }
 
 /// Trust levele we assign for a Nostr contact.

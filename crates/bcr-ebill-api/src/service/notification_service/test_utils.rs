@@ -5,7 +5,7 @@ use crate::{
         MockBackupStoreApiMock, MockBillChainStoreApiMock, MockBillStoreApiMock,
         MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
         MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockNostrContactStore, MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
         MockNotificationStoreApiMock, empty_bitcredit_bill, identity_public_data_only_node_id,
     },
     util::BcrKeys,
@@ -152,5 +152,6 @@ pub fn get_mock_db_context() -> DbContext {
         notification_store: Arc::new(MockNotificationStoreApiMock::new()),
         backup_store: Arc::new(MockBackupStoreApiMock::new()),
         queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
+        nostr_contact_store: Arc::new(MockNostrContactStore::new()),
     }
 }

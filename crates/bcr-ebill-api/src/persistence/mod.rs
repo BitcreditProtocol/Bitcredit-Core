@@ -6,11 +6,14 @@ use bcr_ebill_persistence::{
     SurrealIdentityStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
-    db::nostr_send_queue::SurrealNostrEventQueueStore,
+    db::{
+        nostr_contact_store::SurrealNostrContactStore,
+        nostr_send_queue::SurrealNostrEventQueueStore,
+    },
     file_upload::FileUploadStoreApi,
     get_surreal_db,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
-    nostr::NostrQueuedMessageStoreApi,
+    nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
 };
 use log::error;
 use std::sync::Arc;
@@ -42,6 +45,7 @@ pub struct DbContext {
     pub notification_store: Arc<dyn NotificationStoreApi>,
     pub backup_store: Arc<dyn BackupStoreApi>,
     pub queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+    pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -81,6 +85,7 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     let notification_store = Arc::new(SurrealNotificationStore::new(db.clone()));
     let backup_store = Arc::new(SurrealBackupStore::new(db.clone()));
     let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(db.clone()));
+    let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(db.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -95,5 +100,6 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         notification_store,
         backup_store,
         queued_message_store,
+        nostr_contact_store,
     })
 }

@@ -20,6 +20,7 @@ thiserror.workspace = true
 uuid.workspace = true
 bitcoin.workspace = true
 nostr-sdk.workspace = true
+nostr.workspace = true
 futures.workspace = true
 reqwest.workspace = true
 infer = { version = "0.19.0", default-features = false }
@@ -31,7 +32,7 @@ tokio_with_wasm.workspace = true
 
 [dev-dependencies]
 mockall = "0.13.1"
-nostr-relay-builder = "0.40"
+nostr-relay-builder = "0.41"
 tokio.workspace = true
 async-broadcast.workspace = true
 

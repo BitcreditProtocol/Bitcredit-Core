@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::{
+    ValidationError,
+    nostr_contact::{NostrContact, TrustLevel},
+};
+use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 #[cfg(test)]
 use mockall::automock;
+use nostr::key::PublicKey;
 
 use crate::{
     data::{
@@ -70,7 +75,7 @@ pub trait ContactServiceApi: Send + Sync {
 
     /// Returns whether a given npub (as hex) is in our contact list.
     #[allow(dead_code)]
-    async fn is_known_npub(&self, npub: &str) -> Result<bool>;
+    async fn is_known_npub(&self, npub: &PublicKey) -> Result<bool>;
 
     /// opens and decrypts the attached file from the given contact
     async fn open_and_decrypt_file(
@@ -87,6 +92,7 @@ pub struct ContactService {
     store: Arc<dyn ContactStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
+    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
 }
 
 impl ContactService {
@@ -94,11 +100,13 @@ impl ContactService {
         store: Arc<dyn ContactStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
+        nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     ) -> Self {
         Self {
             store,
             file_upload_store,
             identity_store,
+            nostr_contact_store,
         }
     }
 
@@ -141,6 +149,19 @@ impl ContactService {
             hash: file_hash,
         })
     }
+
+    async fn cascade_nostr_contact(&self, contact: &Contact) -> Result<()> {
+        let nostr_contact = match self
+            .nostr_contact_store
+            .by_node_id(contact.node_id.as_str())
+            .await?
+        {
+            Some(nostr_contact) => nostr_contact.merge_contact(contact),
+            None => NostrContact::from_contact(contact),
+        };
+        self.nostr_contact_store.upsert(&nostr_contact).await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -172,6 +193,7 @@ impl ContactServiceApi for ContactService {
 
     async fn delete(&self, node_id: &str) -> Result<()> {
         self.store.delete(node_id).await?;
+        self.nostr_contact_store.delete(node_id).await?;
         Ok(())
     }
 
@@ -277,7 +299,9 @@ impl ContactServiceApi for ContactService {
             contact.proof_document_file = proof_document_file;
         }
 
-        self.store.update(node_id, contact).await?;
+        self.store.update(node_id, contact.clone()).await?;
+        self.cascade_nostr_contact(&contact).await?;
+
         debug!("updated contact with node_id: {node_id}");
 
         Ok(())
@@ -333,15 +357,18 @@ impl ContactServiceApi for ContactService {
         };
 
         self.store.insert(node_id, contact.clone()).await?;
+        self.cascade_nostr_contact(&contact).await?;
         debug!("contact {:?} with node_id {node_id} created", &t);
         Ok(contact)
     }
 
-    async fn is_known_npub(&self, npub: &str) -> Result<bool> {
-        let node_id_list: Vec<String> = self.store.get_map().await?.into_keys().collect();
-        Ok(node_id_list
-            .iter()
-            .any(|node_id| util::crypto::is_node_id_nostr_hex_npub(node_id, npub)))
+    async fn is_known_npub(&self, npub: &PublicKey) -> Result<bool> {
+        Ok(self
+            .nostr_contact_store
+            .by_npub(npub)
+            .await?
+            .map(|c| c.trust_level != TrustLevel::None)
+            .unwrap_or(false))
     }
 
     async fn open_and_decrypt_file(
@@ -365,9 +392,10 @@ pub mod tests {
     use super::*;
     use crate::tests::tests::{
         MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-        TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address, empty_optional_address,
-        init_test_cfg,
+        MockNostrContactStore, TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
+        empty_optional_address, init_test_cfg,
     };
+    use bcr_ebill_core::nostr_contact::HandshakeStatus;
     use std::collections::HashMap;
     use util::BcrKeys;
 
@@ -392,11 +420,13 @@ pub mod tests {
         mock_storage: MockContactStoreApiMock,
         mock_file_upload_storage: MockFileUploadStoreApiMock,
         mock_identity_storage: MockIdentityStoreApiMock,
+        mock_nostr_contact_store: MockNostrContactStore,
     ) -> ContactService {
         ContactService::new(
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),
             Arc::new(mock_identity_storage),
+            Arc::new(mock_nostr_contact_store),
         )
     }
 
@@ -404,17 +434,19 @@ pub mod tests {
         MockContactStoreApiMock,
         MockFileUploadStoreApiMock,
         MockIdentityStoreApiMock,
+        MockNostrContactStore,
     ) {
         (
             MockContactStoreApiMock::new(),
             MockFileUploadStoreApiMock::new(),
             MockIdentityStoreApiMock::new(),
+            MockNostrContactStore::new(),
         )
     }
 
     #[tokio::test]
     async fn get_contacts_baseline() {
-        let (mut store, file_upload_store, identity_store) = get_storages();
+        let (mut store, file_upload_store, identity_store, nostr_contact) = get_storages();
         store.expect_get_map().returning(|| {
             let mut contact = get_baseline_contact();
             contact.name = "Minka".to_string();
@@ -422,7 +454,7 @@ pub mod tests {
             map.insert(TEST_NODE_ID_SECP.to_string(), contact);
             Ok(map)
         });
-        let result = get_service(store, file_upload_store, identity_store)
+        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
             .get_contacts()
             .await;
         assert!(result.is_ok());
@@ -435,13 +467,13 @@ pub mod tests {
 
     #[tokio::test]
     async fn get_identity_by_node_id_baseline() {
-        let (mut store, file_upload_store, identity_store) = get_storages();
+        let (mut store, file_upload_store, identity_store, nostr_contact) = get_storages();
         store.expect_get().returning(|_| {
             let mut contact = get_baseline_contact();
             contact.name = "Minka".to_string();
             Ok(Some(contact))
         });
-        let result = get_service(store, file_upload_store, identity_store)
+        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
             .get_identity_by_node_id(TEST_NODE_ID_SECP)
             .await;
         assert!(result.is_ok());
@@ -450,9 +482,10 @@ pub mod tests {
 
     #[tokio::test]
     async fn delete_contact() {
-        let (mut store, file_upload_store, identity_store) = get_storages();
+        let (mut store, file_upload_store, identity_store, mut nostr_contact) = get_storages();
         store.expect_delete().returning(|_| Ok(()));
-        let result = get_service(store, file_upload_store, identity_store)
+        nostr_contact.expect_delete().returning(|_| Ok(()));
+        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
             .delete("some_name")
             .await;
         assert!(result.is_ok());
@@ -460,7 +493,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn update_contact_calls_store() {
-        let (mut store, file_upload_store, mut identity_store) = get_storages();
+        let (mut store, file_upload_store, mut identity_store, mut nostr_contact) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -469,7 +502,9 @@ pub mod tests {
             Ok(Some(contact))
         });
         store.expect_update().returning(|_, _| Ok(()));
-        let result = get_service(store, file_upload_store, identity_store)
+        nostr_contact.expect_by_node_id().returning(|_| Ok(None));
+        nostr_contact.expect_upsert().returning(|_| Ok(()));
+        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
             .update_contact(
                 TEST_NODE_ID_SECP,
                 Some("new_name".to_string()),
@@ -489,12 +524,14 @@ pub mod tests {
     #[tokio::test]
     async fn add_contact_calls_store() {
         init_test_cfg();
-        let (mut store, file_upload_store, mut identity_store) = get_storages();
+        let (mut store, file_upload_store, mut identity_store, mut nostr_contact) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
+        nostr_contact.expect_by_node_id().returning(|_| Ok(None));
         store.expect_insert().returning(|_, _| Ok(()));
-        let result = get_service(store, file_upload_store, identity_store)
+        nostr_contact.expect_upsert().returning(|_| Ok(()));
+        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
             .add_contact(
                 TEST_NODE_ID_SECP,
                 ContactType::Person,
@@ -514,15 +551,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn is_known_npub_calls_store() {
-        let (mut store, file_upload_store, identity_store) = get_storages();
-        store.expect_get_map().returning(|| {
-            let contact = get_baseline_contact();
-            let mut map = HashMap::new();
-            map.insert(TEST_NODE_ID_SECP.to_string(), contact);
-            Ok(map)
+        let (store, file_upload_store, identity_store, mut nostr_contact) = get_storages();
+        let pub_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
+        nostr_contact.expect_by_npub().returning(|_| {
+            Ok(Some(NostrContact {
+                node_id: TEST_NODE_ID_SECP.to_string(),
+                name: None,
+                relays: vec![],
+                trust_level: TrustLevel::Participant,
+                handshake_status: HandshakeStatus::None,
+            }))
         });
-        let result = get_service(store, file_upload_store, identity_store)
-            .is_known_npub(TEST_NODE_ID_SECP_AS_NPUB_HEX)
+        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
+            .is_known_npub(&pub_key)
             .await;
         assert!(result.is_ok());
         assert!(result.as_ref().unwrap());
