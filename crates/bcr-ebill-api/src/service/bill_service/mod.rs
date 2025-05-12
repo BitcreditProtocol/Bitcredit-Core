@@ -6,7 +6,7 @@ use crate::data::{
         BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastEndorsee,
     },
     contact::BillParticipant,
-    identity::Identity,
+    identity::{Identity, IdentityWithAll},
 };
 use crate::util::BcrKeys;
 use async_trait::async_trait;
@@ -113,13 +113,33 @@ pub trait BillServiceApi: ServiceTraitBounds {
     /// paid status if they were paid
     async fn check_bills_payment(&self) -> Result<()>;
 
+    /// Check payment status of the bill with the given id that is requested to pay and not expired
+    /// and not paid yet updating their paid status if they were paid
+    async fn check_payment_for_bill(&self, bill_id: &str, identity: &Identity) -> Result<()>;
+
     /// Check payment status of bills that are waiting for a payment on an OfferToSell block, which
     /// haven't been expired, adding a Sell block if they were paid
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()>;
 
+    /// Check payment status of the bill with the given id that is waiting for a payment on an OfferToSell block, which
+    /// haven't been expired, adding a Sell block if they were paid
+    async fn check_offer_to_sell_payment_for_bill(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+    ) -> Result<()>;
+
     /// Check payment status of bills that are waiting for a payment on an RequestRecourse block, which
     /// haven't been expired, adding a Recourse block if they were paid
     async fn check_bills_in_recourse_payment(&self) -> Result<()>;
+
+    /// Check payment status of the bill with the given id that is waiting for a payment on an
+    /// RequestRecourse block, which haven't been expired, adding a Recourse block if they were paid
+    async fn check_recourse_payment_for_bill(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+    ) -> Result<()>;
 
     /// Check if actions expected on bills in certain states have expired and execute the necessary
     /// steps after timeout.
@@ -3332,7 +3352,26 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn check_bills_offer_to_sell_payment_baseline() {
+    async fn check_payment_for_bill_baseline() {
+        let mut ctx = get_ctx();
+        let bill = get_baseline_bill(TEST_BILL_ID);
+        ctx.bill_store
+            .expect_get_bill_ids_waiting_for_payment()
+            .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
+        ctx.bill_store.expect_set_to_paid().returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        let service = get_service(ctx);
+
+        let res = service
+            .check_payment_for_bill(TEST_BILL_ID, &get_baseline_identity().identity)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_bill_offer_to_sell_payment_baseline() {
         let mut ctx = get_ctx();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.payee = BillParticipant::Ident(
@@ -3361,7 +3400,9 @@ pub mod tests {
 
         let service = get_service(ctx);
 
-        let res = service.check_bills_offer_to_sell_payment().await;
+        let res = service
+            .check_offer_to_sell_payment_for_bill(TEST_BILL_ID, &get_baseline_identity())
+            .await;
         assert!(res.is_ok());
     }
 

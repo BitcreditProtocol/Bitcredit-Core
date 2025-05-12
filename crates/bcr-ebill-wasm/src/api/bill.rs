@@ -246,6 +246,35 @@ impl Bill {
     }
 
     #[wasm_bindgen]
+    pub async fn check_payment_for_bill(&self, id: &str) -> Result<()> {
+        let identity = get_ctx().identity_service.get_full_identity().await?;
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_payment_for_bill(id, &identity.identity)
+            .await
+        {
+            error!("Error while checking bill payment for {id}: {e}");
+        }
+
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_offer_to_sell_payment_for_bill(id, &identity)
+            .await
+        {
+            error!("Error while checking bill offer to sell payment for {id}: {e}");
+        }
+
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_recourse_payment_for_bill(id, &identity)
+            .await
+        {
+            error!("Error while checking bill recourse payment for {id}: {e}");
+        }
+        Ok(())
+    }
+
+    #[wasm_bindgen]
     pub async fn check_payment(&self) -> Result<()> {
         if let Err(e) = get_ctx().bill_service.check_bills_payment().await {
             error!("Error while checking bills payment: {e}");

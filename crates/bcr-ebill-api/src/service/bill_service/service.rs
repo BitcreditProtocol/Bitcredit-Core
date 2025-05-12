@@ -34,7 +34,7 @@ use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
-use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{ServiceTraitBounds, Validate};
@@ -640,6 +640,19 @@ impl BillServiceApi for BillService {
         Ok(())
     }
 
+    async fn check_payment_for_bill(&self, bill_id: &str, identity: &Identity) -> Result<()> {
+        let bill_ids_waiting_for_payment = self.store.get_bill_ids_waiting_for_payment().await?;
+
+        if bill_ids_waiting_for_payment.iter().any(|id| id == bill_id) {
+            if let Err(e) = self.check_bill_payment(bill_id, identity).await {
+                error!("Checking bill payment for {bill_id} failed: {e}");
+            }
+        } else {
+            info!("Bill with id {bill_id} is not waiting for payment - not checking payment");
+        }
+        Ok(())
+    }
+
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()> {
         let identity = self.identity_store.get_full().await?;
         let bill_ids_waiting_for_offer_to_sell_payment =
@@ -653,6 +666,33 @@ impl BillServiceApi for BillService {
             {
                 error!("Checking offer to sell payment for {bill_id} failed: {e}");
             }
+        }
+        Ok(())
+    }
+
+    async fn check_offer_to_sell_payment_for_bill(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+    ) -> Result<()> {
+        let bill_ids_waiting_for_offer_to_sell_payment =
+            self.store.get_bill_ids_waiting_for_sell_payment().await?;
+        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+
+        if bill_ids_waiting_for_offer_to_sell_payment
+            .iter()
+            .any(|id| id == bill_id)
+        {
+            if let Err(e) = self
+                .check_bill_offer_to_sell_payment(bill_id, identity, now)
+                .await
+            {
+                error!("Checking offer to sell payment for {bill_id} failed: {e}");
+            }
+        } else {
+            info!(
+                "Bill with id {bill_id} is not waiting for offer to sell payment - not checking payment"
+            );
         }
         Ok(())
     }
@@ -673,6 +713,36 @@ impl BillServiceApi for BillService {
                 error!("Checking recourse payment for {bill_id} failed: {e}");
             }
         }
+        Ok(())
+    }
+
+    async fn check_recourse_payment_for_bill(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+    ) -> Result<()> {
+        let bill_ids_waiting_for_recourse_payment = self
+            .store
+            .get_bill_ids_waiting_for_recourse_payment()
+            .await?;
+        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+
+        if bill_ids_waiting_for_recourse_payment
+            .iter()
+            .any(|id| id == bill_id)
+        {
+            if let Err(e) = self
+                .check_bill_in_recourse_payment(bill_id, identity, now)
+                .await
+            {
+                error!("Checking recourse payment for {bill_id} failed: {e}");
+            }
+        } else {
+            info!(
+                "Bill with id {bill_id} is not waiting for recourse payment - not checking payment"
+            );
+        }
+
         Ok(())
     }
 
