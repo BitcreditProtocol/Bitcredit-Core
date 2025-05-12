@@ -46,7 +46,7 @@ pub async fn create_nostr_clients(
     };
     let mut configs: Vec<NostrConfig> = vec![NostrConfig::new(
         keys,
-        vec![config.nostr_relay.clone()],
+        config.nostr_config.relays.clone(),
         nostr_name,
     )];
 
@@ -63,7 +63,7 @@ pub async fn create_nostr_clients(
         if let Ok(keys) = keys.clone().try_into() {
             configs.push(NostrConfig::new(
                 keys,
-                vec![config.nostr_relay.clone()],
+                config.nostr_config.relays.clone(),
                 company.name.clone(),
             ));
         }

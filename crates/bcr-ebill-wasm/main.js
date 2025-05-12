@@ -35,6 +35,8 @@ async function start() {
     bitcoin_network: "testnet",
     esplora_base_url: "https://esplora.minibill.tech",
     nostr_relay: "ws://localhost:8080",
+    // if set to true we will drop DMs from nostr that we don't have in contacts
+    nostr_only_known_contacts: false,
     job_runner_initial_delay_seconds: 1,
     job_runner_check_interval_seconds: 600,
   };

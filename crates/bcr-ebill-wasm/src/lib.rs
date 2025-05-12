@@ -1,6 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
-use bcr_ebill_api::{Config as ApiConfig, get_db_context, init};
+use bcr_ebill_api::{Config as ApiConfig, NostrConfig, get_db_context, init};
 use constants::SURREAL_DB_CON_INDXDB_DATA;
 use context::{Context, get_ctx};
 use futures::{StreamExt, future::ready};
@@ -29,6 +29,7 @@ pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: String,
     pub nostr_relay: String,
+    pub nostr_only_known_contacts: Option<bool>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
 }
@@ -62,9 +63,12 @@ pub async fn initialize_api(
     let api_config = ApiConfig {
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
-        nostr_relay: config.nostr_relay,
         surreal_db_connection: SURREAL_DB_CON_INDXDB_DATA.to_owned(),
         data_dir: "./".to_owned(), // unused in wasm
+        nostr_config: NostrConfig {
+            relays: vec![config.nostr_relay],
+            only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
+        },
     };
     init(api_config.clone())?;
 

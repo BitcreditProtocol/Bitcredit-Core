@@ -42,6 +42,7 @@ impl Context {
             db.file_upload_store.clone(),
             db.identity_store.clone(),
             db.nostr_contact_store.clone(),
+            &cfg,
         ));
         let bitcoin_client = Arc::new(BitcoinClient::new());
 
@@ -52,7 +53,7 @@ impl Context {
             db.notification_store.clone(),
             contact_service.clone(),
             db.queued_message_store.clone(),
-            &cfg.nostr_relay,
+            &cfg.nostr_config.relays[0].clone(),
         )
         .await?;
 

@@ -11,6 +11,7 @@ use mockall::automock;
 use nostr::key::PublicKey;
 
 use crate::{
+    Config,
     data::{
         File, OptionalPostalAddress, PostalAddress,
         contact::{Contact, ContactType, IdentityPublicData},
@@ -93,6 +94,7 @@ pub struct ContactService {
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    config: Config,
 }
 
 impl ContactService {
@@ -101,12 +103,14 @@ impl ContactService {
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+        config: &Config,
     ) -> Self {
         Self {
             store,
             file_upload_store,
             identity_store,
             nostr_contact_store,
+            config: config.clone(),
         }
     }
 
@@ -353,7 +357,7 @@ impl ContactServiceApi for ContactService {
             identification_number,
             avatar_file,
             proof_document_file,
-            nostr_relays: vec![get_config().nostr_relay.clone()], // Use the configured relay for now
+            nostr_relays: vec![get_config().nostr_config.relays[0].clone()], // Use the configured relay for now
         };
 
         self.store.insert(node_id, contact.clone()).await?;
@@ -363,12 +367,13 @@ impl ContactServiceApi for ContactService {
     }
 
     async fn is_known_npub(&self, npub: &PublicKey) -> Result<bool> {
-        Ok(self
-            .nostr_contact_store
-            .by_npub(npub)
-            .await?
-            .map(|c| c.trust_level != TrustLevel::None)
-            .unwrap_or(false))
+        Ok(!self.config.nostr_config.only_known_contacts
+            || self
+                .nostr_contact_store
+                .by_npub(npub)
+                .await?
+                .map(|c| c.trust_level != TrustLevel::None)
+                .unwrap_or(false))
     }
 
     async fn open_and_decrypt_file(
@@ -427,6 +432,7 @@ pub mod tests {
             Arc::new(mock_file_upload_storage),
             Arc::new(mock_identity_storage),
             Arc::new(mock_nostr_contact_store),
+            get_config(),
         )
     }
 

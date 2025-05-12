@@ -58,6 +58,8 @@ pub enum TrustLevel {
     /// We have done a successful contact handshake with this contact and created a real contact
     /// from it.
     Trusted,
+    /// A contact we actively banned from communicating with us.
+    Banned,
 }
 
 /// Handshake is optional but requires some status tracking.

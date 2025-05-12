@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
-    use crate::{CONFIG, data::bill::BillKeys};
+    use crate::{CONFIG, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
@@ -331,9 +331,12 @@ pub mod tests {
                 crate::init(crate::Config {
                     bitcoin_network: "mainnet".to_string(),
                     esplora_base_url: "https://esplora.minibill.tech".to_string(),
-                    nostr_relay: "ws://localhost:8080".to_string(),
                     surreal_db_connection: "ws://localhost:8800".to_string(),
                     data_dir: ".".to_string(),
+                    nostr_config: NostrConfig {
+                        only_known_contacts: false,
+                        relays: vec!["ws://localhost:8080".to_string()],
+                    },
                 })
                 .unwrap();
             }

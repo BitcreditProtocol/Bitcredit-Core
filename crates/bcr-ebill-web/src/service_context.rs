@@ -89,6 +89,7 @@ pub async fn create_service_context(
         db.file_upload_store.clone(),
         db.identity_store.clone(),
         db.nostr_contact_store.clone(),
+        &config,
     ));
     let bitcoin_client = Arc::new(BitcoinClient::new());
 
@@ -99,7 +100,7 @@ pub async fn create_service_context(
         db.notification_store.clone(),
         contact_service.clone(),
         db.queued_message_store.clone(),
-        &config.nostr_relay,
+        &config.nostr_config.relays[0].clone(),
     )
     .await?;
 

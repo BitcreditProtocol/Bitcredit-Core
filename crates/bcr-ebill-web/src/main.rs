@@ -1,6 +1,6 @@
 use crate::service_context::create_service_context;
 use anyhow::Result;
-use bcr_ebill_api::get_db_context;
+use bcr_ebill_api::{NostrConfig, get_db_context};
 use clap::Parser;
 use config::Config;
 use constants::SHUTDOWN_GRACE_PERIOD_MS;
@@ -32,9 +32,12 @@ async fn main() -> Result<()> {
     let api_config = bcr_ebill_api::Config {
         bitcoin_network: conf.bitcoin_network.clone(),
         esplora_base_url: conf.esplora_base_url.clone(),
-        nostr_relay: conf.nostr_relay.clone(),
         surreal_db_connection: conf.surreal_db_connection.clone(),
         data_dir: conf.data_dir.clone(),
+        nostr_config: NostrConfig {
+            relays: vec![conf.nostr_relay.clone()],
+            ..Default::default()
+        },
     };
     info!("Chosen Network: {:?}", api_config.bitcoin_network());
     bcr_ebill_api::init(api_config.clone())?;
