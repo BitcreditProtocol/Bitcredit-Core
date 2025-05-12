@@ -14,10 +14,7 @@ use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
 use nostr_relay_builder::prelude::*;
 
 use super::{NostrConfig, nostr::NostrClient};
-use bcr_ebill_transport::{
-    event::{Event, EventEnvelope, EventType},
-    handler::NotificationHandlerApi,
-};
+use bcr_ebill_transport::{Event, EventEnvelope, EventType, handler::NotificationHandlerApi};
 use serde::{Serialize, de::DeserializeOwned};
 use std::sync::Arc;
 

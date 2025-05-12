@@ -46,7 +46,7 @@ impl DefaultNotificationService {
         Self {
             notification_transport: notification_transport
                 .into_iter()
-                .map(|t| (t.get_sender_key().to_hex(), t))
+                .map(|t| (t.get_sender_key(), t))
                 .collect(),
             notification_store,
             contact_service,
@@ -517,7 +517,6 @@ mod tests {
     use bcr_ebill_core::util::date::now;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
-    use nostr::key::PublicKey;
     use std::sync::Arc;
 
     use crate::service::bill_service::test_utils::{get_baseline_identity, get_genesis_chain};
@@ -531,7 +530,7 @@ mod tests {
         pub NotificationJsonTransport {}
         #[async_trait]
         impl NotificationJsonTransportApi for NotificationJsonTransport {
-            fn get_sender_key(&self) -> PublicKey;
+            fn get_sender_key(&self) -> String;
             async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
         }
 
@@ -553,7 +552,7 @@ mod tests {
     use crate::tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrEventOffsetStoreApiMock,
         MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_BILL_ID,
-        TEST_NODE_ID_SECP_AS_NPUB_HEX, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
+        TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -564,7 +563,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let payer = get_identity_public_data("drawee", "drawee@example.com", None);
         let payee = get_identity_public_data("payee", "payee@example.com", None);
         let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
@@ -602,7 +600,7 @@ mod tests {
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             },
             true,
-            sender_key.to_hex().as_str(),
+            "node_id",
         )
         .unwrap();
 
@@ -625,7 +623,8 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
 
         // get node_id
-        mock.expect_get_sender_key().returning(move || sender_key);
+        mock.expect_get_sender_key()
+            .returning(|| "node_id".to_string());
 
         // expect to send payment rejected event to all recipients
         mock.expect_send()
@@ -732,7 +731,7 @@ mod tests {
 
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
-            .returning(|| PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key"));
+            .returning(|| "node_id".to_string());
 
         // expect to not send rejected event for non rejectable actions
         mock.expect_send().never();
@@ -753,7 +752,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_event() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let recipients = vec![
             get_identity_public_data("part1", "part1@example.com", None),
             get_identity_public_data("part2", "part2@example.com", None),
@@ -763,7 +761,8 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
 
         // resolves node_id
-        mock.expect_get_sender_key().returning(move || sender_key);
+        mock.expect_get_sender_key()
+            .returning(move || "node_id".to_string());
 
         // expect to send payment timeout event to all recipients
         mock.expect_send()
@@ -787,7 +786,7 @@ mod tests {
 
         service
             .send_request_to_action_timed_out_event(
-                sender_key.to_hex().as_str(),
+                "node_id",
                 "bill_id",
                 Some(100),
                 ActionType::PayBill,
@@ -798,7 +797,7 @@ mod tests {
 
         service
             .send_request_to_action_timed_out_event(
-                sender_key.to_hex().as_str(),
+                "node_id",
                 "bill_id",
                 Some(100),
                 ActionType::AcceptBill,
@@ -818,7 +817,7 @@ mod tests {
 
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
-            .returning(|| PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key"));
+            .returning(|| "node_id".to_string());
 
         // expect to never send timeout event on non expiring events
         mock.expect_send().never();
@@ -845,7 +844,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let payer = get_identity_public_data("drawee", "drawee@example.com", None);
         let payee = get_identity_public_data("payee", "payee@example.com", None);
         let buyer = get_identity_public_data("buyer", "buyer@example.com", None);
@@ -883,7 +881,7 @@ mod tests {
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             },
             true,
-            sender_key.to_hex().as_str(),
+            "node_id",
         )
         .unwrap();
 
@@ -904,7 +902,8 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
 
         // resolve node_id
-        mock.expect_get_sender_key().returning(move || sender_key);
+        mock.expect_get_sender_key()
+            .returning(|| "node_id".to_string());
 
         // expect to send payment recourse event to all recipients
         mock.expect_send()
@@ -997,7 +996,7 @@ mod tests {
 
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
-            .returning(|| PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key"));
+            .returning(|| "node_id".to_string());
 
         // expect not to send non recourse event
         mock.expect_send().never();
@@ -1018,8 +1017,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_to_send_is_added_to_retry_queue() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
-
         // given a payer and payee with a new bill
         let payer = get_identity_public_data("drawee", "drawee@example.com", None);
         let payee = get_identity_public_data("payee", "payee@example.com", None);
@@ -1038,7 +1035,8 @@ mod tests {
             .returning(move |_| Ok(Some(payee.clone())));
 
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key().returning(move || sender_key);
+        mock.expect_get_sender_key()
+            .returning(|| "node_id".to_string());
 
         mock.expect_send().returning(|_, _| Ok(())).once();
         mock.expect_send()
@@ -1066,7 +1064,7 @@ mod tests {
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             },
             true,
-            sender_key.to_hex().as_str(),
+            "node_id",
         )
         .unwrap();
 
@@ -1091,9 +1089,8 @@ mod tests {
                 .with(eq(p.0.node_id.clone()))
                 .returning(move |_| Ok(Some(clone1.0.clone())));
 
-            mock.expect_get_sender_key().returning(|| {
-                PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key")
-            });
+            mock.expect_get_sender_key()
+                .returning(|| "node_id".to_string());
 
             let clone2 = p.clone();
             mock.expect_send()
@@ -1541,7 +1538,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key"));
+            .returning(|| "node_id".to_string());
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -1570,7 +1567,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key"));
+            .returning(|| "node_id".to_string());
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -1593,9 +1590,8 @@ mod tests {
     ) -> DefaultNotificationService {
         let node_id = node_id.to_owned();
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key().returning(move || {
-            PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key")
-        });
+        mock.expect_get_sender_key()
+            .returning(move || "node_id".to_string());
         mock.expect_send()
             .withf(move |r, e| {
                 let valid_node_id = r.node_id == node_id && e.node_id == node_id;
@@ -1655,10 +1651,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_success() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender_id = sender_key.to_hex();
+        let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
             node_id: node_id.to_string(),
             version: "1.0".to_string(),
@@ -1685,7 +1680,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(move || sender_key);
+            .returning(|| "node_id".to_string());
         mock_transport.expect_send().returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -1717,10 +1712,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_send_failure() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender_id = sender_key.to_hex();
+        let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
             node_id: node_id.to_string(),
             version: "1.0".to_string(),
@@ -1748,7 +1742,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(move || sender_key);
+            .returning(|| "node_id".to_string());
 
         mock_transport
             .expect_send()
@@ -1783,9 +1777,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_multiple_messages() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let node_id1 = "test_node_id_1";
-        let sender_id = sender_key.to_hex();
+        let sender_id = "node_id";
         let node_id2 = "test_node_id_2";
         let message_id1 = "test_message_id_1";
         let message_id2 = "test_message_id_2";
@@ -1838,7 +1831,7 @@ mod tests {
 
         mock_transport
             .expect_get_sender_key()
-            .returning(move || sender_key);
+            .returning(|| "node_id".to_string());
 
         // First message succeeds, second fails
         mock_transport
@@ -1891,10 +1884,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_invalid_payload() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender = sender_key.to_hex();
+        let sender = "node_id";
         // Invalid payload that can't be deserialized to EventEnvelope
         let invalid_payload = serde_json::json!({ "invalid": "data" });
 
@@ -1920,7 +1912,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(move || sender_key);
+            .returning(|| "node_id".to_string());
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -1936,10 +1928,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_fail_retry_error() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender = sender_key.to_hex();
+        let sender = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
             node_id: node_id.to_string(),
             version: "1.0".to_string(),
@@ -1967,7 +1958,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(move || sender_key);
+            .returning(|| "node_id".to_string());
         mock_transport
             .expect_send()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
@@ -2007,10 +1998,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_succeed_retry_error() {
-        let sender_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key");
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender = sender_key.to_hex();
+        let sender = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
             node_id: node_id.to_string(),
             version: "1.0".to_string(),
@@ -2038,7 +2028,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(move || sender_key);
+            .returning(|| "node_id".to_string());
         mock_transport.expect_send().returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -2085,7 +2075,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).expect("invalid key"));
+            .returning(|| "node_id".to_string());
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],

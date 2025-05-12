@@ -7,7 +7,6 @@ use mockall::automock;
 
 use crate::{Result, event::EventEnvelope};
 use bcr_ebill_core::contact::IdentityPublicData;
-use nostr::key::{Keys, PublicKey};
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
@@ -16,7 +15,7 @@ impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationJsonTransportApi: ServiceTraitBounds {
-    fn get_sender_key(&self) -> PublicKey;
+    fn get_sender_key(&self) -> String;
     async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()>;
 }
 
@@ -28,8 +27,8 @@ impl ServiceTraitBounds for LoggingNotificationJsonTransport {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationJsonTransportApi for LoggingNotificationJsonTransport {
-    fn get_sender_key(&self) -> PublicKey {
-        Keys::generate().public_key()
+    fn get_sender_key(&self) -> String {
+        "logging_key".to_string()
     }
     async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()> {
         info!(

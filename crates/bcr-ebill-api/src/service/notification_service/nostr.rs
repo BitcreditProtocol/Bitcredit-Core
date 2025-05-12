@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{contact::IdentityPublicData, util::crypto};
-use bcr_ebill_transport::event::EventEnvelope;
-use bcr_ebill_transport::handler::NotificationHandlerApi;
+use bcr_ebill_transport::{event::EventEnvelope, handler::NotificationHandlerApi};
 use log::{error, info, trace, warn};
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
@@ -115,6 +114,10 @@ impl NostrClient {
             })?;
 
         Ok(client)
+    }
+
+    pub fn get_node_id(&self) -> String {
+        self.keys.get_public_key()
     }
 
     pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
@@ -350,8 +353,8 @@ impl ServiceTraitBounds for NostrClient {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationJsonTransportApi for NostrClient {
-    fn get_sender_key(&self) -> PublicKey {
-        self.get_nostr_keys().public_key()
+    fn get_sender_key(&self) -> String {
+        self.get_node_id()
     }
     async fn send(
         &self,
@@ -598,8 +601,8 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
-    use bcr_ebill_transport::event::{Event, EventType};
     use bcr_ebill_transport::handler::NotificationHandlerApi;
+    use bcr_ebill_transport::{Event, EventEnvelope, EventType};
     use mockall::predicate;
     use tokio::time;
 
@@ -619,7 +622,7 @@ mod tests {
         pub NotificationHandler {}
         #[async_trait::async_trait]
         impl NotificationHandlerApi for NotificationHandler {
-            async fn handle_event(&self, event: bcr_ebill_transport::EventEnvelope, identity: &str) -> bcr_ebill_transport::Result<()>;
+            async fn handle_event(&self, event: EventEnvelope, identity: &str) -> bcr_ebill_transport::Result<()>;
             fn handles_event(&self, event_type: &EventType) -> bool;
         }
     }

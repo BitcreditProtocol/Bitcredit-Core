@@ -70,8 +70,7 @@ pub struct NostrQueuedMessage {
 pub trait NostrContactStoreApi: Send + Sync {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
-    /// Find a Nostr contact by the npub. This is the public Nostr key of the contact in bech32
-    /// encoding.
+    /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &PublicKey) -> Result<Option<NostrContact>>;
     /// Creates a new or updates an existing Nostr contact.
     async fn upsert(&self, data: &NostrContact) -> Result<()>;
