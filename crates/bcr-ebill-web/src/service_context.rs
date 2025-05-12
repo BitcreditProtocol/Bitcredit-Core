@@ -141,6 +141,7 @@ pub async fn create_service_context(
         push_service.clone(),
         db.bill_blockchain_store.clone(),
         db.bill_store.clone(),
+        db.nostr_contact_store.clone(),
     )
     .await?;
 

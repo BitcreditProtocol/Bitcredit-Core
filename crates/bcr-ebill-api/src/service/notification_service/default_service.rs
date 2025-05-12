@@ -532,8 +532,8 @@ mod tests {
         impl NotificationJsonTransportApi for NotificationJsonTransport {
             fn get_sender_key(&self) -> String;
             async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
         }
-
     }
 
     mock! {
@@ -550,9 +550,9 @@ mod tests {
     };
     use super::*;
     use crate::tests::tests::{
-        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrEventOffsetStoreApiMock,
-        MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_BILL_ID,
-        TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
+        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrContactStore,
+        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockNotificationStoreApiMock, TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -1637,6 +1637,7 @@ mod tests {
         let push_service = Arc::new(MockPushService::new());
         let bill_store = Arc::new(MockBillStoreApiMock::new());
         let bill_blockchain_store = Arc::new(MockBillChainStoreApiMock::new());
+        let nostr_contact_store = Arc::new(MockNostrContactStore::new());
         let _ = create_nostr_consumer(
             clients,
             contact_service,
@@ -1645,6 +1646,7 @@ mod tests {
             push_service,
             bill_blockchain_store,
             bill_store,
+            nostr_contact_store,
         )
         .await;
     }

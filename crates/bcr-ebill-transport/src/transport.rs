@@ -4,6 +4,7 @@ use log::info;
 
 #[cfg(test)]
 use mockall::automock;
+use nostr::{nips::nip01::Metadata, types::RelayUrl};
 
 use crate::{Result, event::EventEnvelope};
 use bcr_ebill_core::contact::IdentityPublicData;
@@ -15,8 +16,12 @@ impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationJsonTransportApi: ServiceTraitBounds {
+    /// Returns the senders public key for this instance.
     fn get_sender_key(&self) -> String;
+    /// Sends a json event to the given recipient.
     async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()>;
+    /// Resolves a nostr contact by node id.
+    async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>>;
 }
 
 /// A dummy transport that logs all events that are sent as json.
@@ -37,4 +42,14 @@ impl NotificationJsonTransportApi for LoggingNotificationJsonTransport {
         );
         Ok(())
     }
+
+    async fn resolve_contact(&self, _node_id: &str) -> Result<Option<NostrContactData>> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NostrContactData {
+    pub metadata: Metadata,
+    pub relays: Vec<RelayUrl>,
 }

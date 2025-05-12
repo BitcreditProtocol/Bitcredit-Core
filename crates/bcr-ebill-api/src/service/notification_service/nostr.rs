@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{contact::IdentityPublicData, util::crypto};
-use bcr_ebill_transport::{event::EventEnvelope, handler::NotificationHandlerApi};
+use bcr_ebill_transport::{
+    event::EventEnvelope, handler::NotificationHandlerApi, transport::NostrContactData,
+};
 use log::{error, info, trace, warn};
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
@@ -356,6 +358,7 @@ impl NotificationJsonTransportApi for NostrClient {
     fn get_sender_key(&self) -> String {
         self.get_node_id()
     }
+
     async fn send(
         &self,
         recipient: &IdentityPublicData,
@@ -367,6 +370,36 @@ impl NotificationJsonTransportApi for NostrClient {
             self.send_nip17_message(recipient, event).await?;
         }
         Ok(())
+    }
+
+    async fn resolve_contact(
+        &self,
+        node_id: &str,
+    ) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>> {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(node_id) {
+            let public_key = PublicKey::from_str(&npub).map_err(|e| {
+                error!("Failed to parse Nostr npub when sending a notification: {e}");
+                Error::Crypto("Failed to parse Nostr npub".to_string())
+            })?;
+            match self.fetch_metadata(public_key).await? {
+                Some(meta) => {
+                    let relays = self
+                        .fetch_relay_list(public_key, self.config.relays.clone())
+                        .await?;
+                    Ok(Some(NostrContactData {
+                        metadata: meta,
+                        relays,
+                    }))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            error!(
+                "Try to resolve Nostr contact but node_id {} was invalid",
+                node_id
+            );
+            Ok(None)
+        }
     }
 }
 

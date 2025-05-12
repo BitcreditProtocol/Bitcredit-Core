@@ -94,6 +94,7 @@ impl Context {
             push_service.clone(),
             db.bill_blockchain_store.clone(),
             db.bill_store.clone(),
+            db.nostr_contact_store.clone(),
         )
         .await?;
 
