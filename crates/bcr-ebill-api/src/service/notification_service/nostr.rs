@@ -394,10 +394,7 @@ impl NotificationJsonTransportApi for NostrClient {
                 _ => Ok(None),
             }
         } else {
-            error!(
-                "Try to resolve Nostr contact but node_id {} was invalid",
-                node_id
-            );
+            error!("Try to resolve Nostr contact but node_id {node_id} was invalid");
             Ok(None)
         }
     }

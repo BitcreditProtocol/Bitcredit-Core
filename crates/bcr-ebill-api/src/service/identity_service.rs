@@ -321,7 +321,7 @@ impl IdentityServiceApi for IdentityService {
             identification_number,
             profile_picture_file,
             identity_document_file,
-            nostr_relay: Some(get_config().nostr_config.relays[0].clone()),
+            nostr_relay: get_config().nostr_config.relays.first().cloned(),
         };
 
         // create new identity chain and persist it

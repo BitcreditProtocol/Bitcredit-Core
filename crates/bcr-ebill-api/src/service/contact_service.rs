@@ -16,7 +16,6 @@ use crate::{
         File, OptionalPostalAddress, PostalAddress,
         contact::{Contact, ContactType, IdentityPublicData},
     },
-    get_config,
     persistence::{
         contact::ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
     },
@@ -357,7 +356,7 @@ impl ContactServiceApi for ContactService {
             identification_number,
             avatar_file,
             proof_document_file,
-            nostr_relays: vec![get_config().nostr_config.relays[0].clone()], // Use the configured relay for now
+            nostr_relays: self.config.nostr_config.relays.clone(), // Use the configured relays for now
         };
 
         self.store.insert(node_id, contact.clone()).await?;
@@ -395,10 +394,13 @@ impl ContactServiceApi for ContactService {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::tests::tests::{
-        MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-        MockNostrContactStore, TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
-        empty_optional_address, init_test_cfg,
+    use crate::{
+        get_config,
+        tests::tests::{
+            MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
+            MockNostrContactStore, TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
+            empty_optional_address, init_test_cfg,
+        },
     };
     use bcr_ebill_core::nostr_contact::HandshakeStatus;
     use std::collections::HashMap;
