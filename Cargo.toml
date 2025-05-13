@@ -1,11 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-  "crates/bcr-ebill-web",
   "crates/bcr-ebill-core",
-  "crates/bcr-ebill-api",
   "crates/bcr-ebill-persistence",
   "crates/bcr-ebill-transport",
+  "crates/bcr-ebill-api",
   "crates/bcr-ebill-wasm",
 ]
 
@@ -33,7 +32,6 @@ serde_repr = "0.1"
 futures = { version = "0.3", default-features = false }
 anyhow = { version = "1", default-features = false }
 thiserror = { version = "2", default-features = false }
-lazy_static = "1.5"
 uuid = { version = "1", default-features = false, features = ["v4", "js"] }
 bitcoin = { version = "0.32", default-features = false }
 bip39 = { version = "2.1", features = ["rand"] }
@@ -41,7 +39,7 @@ ecies = { version = "0.2", default-features = false, features = ["pure"] }
 nostr = { version = "0.40"}
 nostr-sdk = { version = "0.40", features = ["nip04", "nip59"] }
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
 async-broadcast = "0.7.2"
 rstest = "0.25.0"
 secp256k1 = { version = "0.29" }
+reqwest = { version = "0.12", default-features = false }

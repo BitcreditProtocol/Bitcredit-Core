@@ -14,10 +14,10 @@ use wasm_bindgen::prelude::*;
 use crate::{
     context::get_ctx,
     data::{
-        BinaryFileResponse, FromWeb, IntoWeb, UploadFile,
+        BinaryFileResponse, UploadFile, UploadFileResponse,
         company::{
-            AddSignatoryPayload, CompaniesResponse, CreateCompanyPayload, EditCompanyPayload,
-            ListSignatoriesResponse, RemoveSignatoryPayload,
+            AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload,
+            EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
         },
     },
 };
@@ -76,7 +76,7 @@ impl Company {
             .upload_file(upload_file_handler)
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&file_upload_response.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<UploadFileResponse>(&file_upload_response.into())?;
         Ok(res)
     }
 
@@ -87,7 +87,7 @@ impl Company {
             .get_list_of_companies()
             .await?
             .into_iter()
-            .map(|c| c.into_web())
+            .map(|c| c.into())
             .collect();
         let res = serde_wasm_bindgen::to_value(&CompaniesResponse { companies })?;
         Ok(res)
@@ -96,16 +96,18 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "ListSignatoriesResponse")]
     pub async fn list_signatories(&self, id: &str) -> Result<JsValue> {
         let signatories = get_ctx().company_service.list_signatories(id).await?;
-        let res = serde_wasm_bindgen::to_value(&ListSignatoriesResponse {
-            signatories: signatories.into_iter().map(|c| c.into()).collect(),
-        })?;
+        let signatories: Vec<SignatoryResponse> = signatories
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect::<std::result::Result<_, _>>()?;
+        let res = serde_wasm_bindgen::to_value(&ListSignatoriesResponse { signatories })?;
         Ok(res)
     }
 
     #[wasm_bindgen(unchecked_return_type = "CompanyWeb")]
     pub async fn detail(&self, id: &str) -> Result<JsValue> {
         let company = get_ctx().company_service.get_company_by_id(id).await?;
-        let res = serde_wasm_bindgen::to_value(&company.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<CompanyWeb>(&company.into())?;
         Ok(res)
     }
 
@@ -130,7 +132,7 @@ impl Company {
                 company_payload.name,
                 company_payload.country_of_registration,
                 company_payload.city_of_registration,
-                PostalAddress::from_web(company_payload.postal_address),
+                PostalAddress::from(company_payload.postal_address),
                 company_payload.email,
                 company_payload.registration_number,
                 company_payload.registration_date,
@@ -140,7 +142,7 @@ impl Company {
             )
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&created_company.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<CompanyWeb>(&created_company.into())?;
         Ok(res)
     }
 
@@ -171,7 +173,7 @@ impl Company {
                 &company_payload.id,
                 company_payload.name,
                 company_payload.email,
-                OptionalPostalAddress::from_web(company_payload.postal_address),
+                OptionalPostalAddress::from(company_payload.postal_address),
                 company_payload.country_of_registration,
                 company_payload.city_of_registration,
                 company_payload.registration_number,

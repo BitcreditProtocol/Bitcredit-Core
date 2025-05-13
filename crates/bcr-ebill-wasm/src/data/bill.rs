@@ -7,16 +7,16 @@ use bcr_ebill_api::data::{
         PastEndorsee, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
         PastPaymentResult, PastPaymentStatus,
     },
-    contact::{IdentityPublicData, LightIdentityPublicData, LightIdentityPublicDataWithAddress},
+    contact::{
+        BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
+        LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::{
-    FileWeb, FromWeb, IntoWeb, PostalAddressWeb, contact::ContactTypeWeb,
-    notification::NotificationWeb,
-};
+use super::{FileWeb, PostalAddressWeb, contact::ContactTypeWeb, notification::NotificationWeb};
 
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -128,10 +128,10 @@ pub struct BillCombinedBitcoinKeyWeb {
     pub private_key: String,
 }
 
-impl IntoWeb<BillCombinedBitcoinKeyWeb> for BillCombinedBitcoinKey {
-    fn into_web(self) -> BillCombinedBitcoinKeyWeb {
+impl From<BillCombinedBitcoinKey> for BillCombinedBitcoinKeyWeb {
+    fn from(val: BillCombinedBitcoinKey) -> Self {
         BillCombinedBitcoinKeyWeb {
-            private_key: self.private_key,
+            private_key: val.private_key,
         }
     }
 }
@@ -145,8 +145,8 @@ pub enum BillsFilterRoleWeb {
     Contingent,
 }
 
-impl FromWeb<BillsFilterRoleWeb> for BillsFilterRole {
-    fn from_web(value: BillsFilterRoleWeb) -> Self {
+impl From<BillsFilterRoleWeb> for BillsFilterRole {
+    fn from(value: BillsFilterRoleWeb) -> Self {
         match value {
             BillsFilterRoleWeb::All => BillsFilterRole::All,
             BillsFilterRoleWeb::Payer => BillsFilterRole::Payer,
@@ -159,19 +159,19 @@ impl FromWeb<BillsFilterRoleWeb> for BillsFilterRole {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct PastEndorseeWeb {
-    pub pay_to_the_order_of: LightIdentityPublicDataWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddressWeb,
+    pub signing_address: Option<PostalAddressWeb>,
 }
 
-impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
-    fn into_web(self) -> PastEndorseeWeb {
+impl From<PastEndorsee> for PastEndorseeWeb {
+    fn from(val: PastEndorsee) -> Self {
         PastEndorseeWeb {
-            pay_to_the_order_of: self.pay_to_the_order_of.into_web(),
-            signed: self.signed.into_web(),
-            signing_timestamp: self.signing_timestamp,
-            signing_address: self.signing_address.into_web(),
+            pay_to_the_order_of: val.pay_to_the_order_of.into(),
+            signed: val.signed.into(),
+            signing_timestamp: val.signing_timestamp,
+            signing_address: val.signing_address.map(|s| s.into()),
         }
     }
 }
@@ -179,15 +179,15 @@ impl IntoWeb<PastEndorseeWeb> for PastEndorsee {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct LightSignedByWeb {
-    pub data: LightIdentityPublicDataWeb,
-    pub signatory: Option<LightIdentityPublicDataWeb>,
+    pub data: LightBillParticipantWeb,
+    pub signatory: Option<LightBillIdentParticipantWeb>,
 }
 
-impl IntoWeb<LightSignedByWeb> for LightSignedBy {
-    fn into_web(self) -> LightSignedByWeb {
+impl From<LightSignedBy> for LightSignedByWeb {
+    fn from(val: LightSignedBy) -> Self {
         LightSignedByWeb {
-            data: self.data.into_web(),
-            signatory: self.signatory.map(|s| s.into_web()),
+            data: val.data.into(),
+            signatory: val.signatory.map(|s| s.into()),
         }
     }
 }
@@ -195,19 +195,19 @@ impl IntoWeb<LightSignedByWeb> for LightSignedBy {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct EndorsementWeb {
-    pub pay_to_the_order_of: LightIdentityPublicDataWithAddressWeb,
+    pub pay_to_the_order_of: LightBillIdentParticipantWithAddressWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddressWeb,
+    pub signing_address: Option<PostalAddressWeb>,
 }
 
-impl IntoWeb<EndorsementWeb> for Endorsement {
-    fn into_web(self) -> EndorsementWeb {
+impl From<Endorsement> for EndorsementWeb {
+    fn from(val: Endorsement) -> Self {
         EndorsementWeb {
-            pay_to_the_order_of: self.pay_to_the_order_of.into_web(),
-            signed: self.signed.into_web(),
-            signing_timestamp: self.signing_timestamp,
-            signing_address: self.signing_address.into_web(),
+            pay_to_the_order_of: val.pay_to_the_order_of.into(),
+            signed: val.signed.into(),
+            signing_timestamp: val.signing_timestamp,
+            signing_address: val.signing_address.map(|s| s.into()),
         }
     }
 }
@@ -272,12 +272,12 @@ pub enum PastPaymentResultWeb {
     Recourse(PastPaymentDataRecourseWeb),
 }
 
-impl IntoWeb<PastPaymentResultWeb> for PastPaymentResult {
-    fn into_web(self) -> PastPaymentResultWeb {
-        match self {
-            PastPaymentResult::Sell(state) => PastPaymentResultWeb::Sell(state.into_web()),
-            PastPaymentResult::Payment(state) => PastPaymentResultWeb::Payment(state.into_web()),
-            PastPaymentResult::Recourse(state) => PastPaymentResultWeb::Recourse(state.into_web()),
+impl From<PastPaymentResult> for PastPaymentResultWeb {
+    fn from(val: PastPaymentResult) -> Self {
+        match val {
+            PastPaymentResult::Sell(state) => PastPaymentResultWeb::Sell(state.into()),
+            PastPaymentResult::Payment(state) => PastPaymentResultWeb::Payment(state.into()),
+            PastPaymentResult::Recourse(state) => PastPaymentResultWeb::Recourse(state.into()),
         }
     }
 }
@@ -290,9 +290,9 @@ pub enum PastPaymentStatusWeb {
     Expired(u64),
 }
 
-impl IntoWeb<PastPaymentStatusWeb> for PastPaymentStatus {
-    fn into_web(self) -> PastPaymentStatusWeb {
-        match self {
+impl From<PastPaymentStatus> for PastPaymentStatusWeb {
+    fn from(val: PastPaymentStatus) -> Self {
+        match val {
             PastPaymentStatus::Paid(ts) => PastPaymentStatusWeb::Paid(ts),
             PastPaymentStatus::Rejected(ts) => PastPaymentStatusWeb::Rejected(ts),
             PastPaymentStatus::Expired(ts) => PastPaymentStatusWeb::Expired(ts),
@@ -304,8 +304,8 @@ impl IntoWeb<PastPaymentStatusWeb> for PastPaymentStatus {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataSellWeb {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicDataWeb,
-    pub seller: IdentityPublicDataWeb,
+    pub buyer: BillParticipantWeb,
+    pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -315,19 +315,19 @@ pub struct PastPaymentDataSellWeb {
     pub status: PastPaymentStatusWeb,
 }
 
-impl IntoWeb<PastPaymentDataSellWeb> for PastPaymentDataSell {
-    fn into_web(self) -> PastPaymentDataSellWeb {
+impl From<PastPaymentDataSell> for PastPaymentDataSellWeb {
+    fn from(val: PastPaymentDataSell) -> Self {
         PastPaymentDataSellWeb {
-            time_of_request: self.time_of_request,
-            buyer: self.buyer.into_web(),
-            seller: self.seller.into_web(),
-            currency: self.currency,
-            sum: self.sum,
-            link_to_pay: self.link_to_pay,
-            address_to_pay: self.address_to_pay,
-            private_key_to_spend: self.private_key_to_spend,
-            mempool_link_for_address_to_pay: self.mempool_link_for_address_to_pay,
-            status: self.status.into_web(),
+            time_of_request: val.time_of_request,
+            buyer: val.buyer.into(),
+            seller: val.seller.into(),
+            currency: val.currency,
+            sum: val.sum,
+            link_to_pay: val.link_to_pay,
+            address_to_pay: val.address_to_pay,
+            private_key_to_spend: val.private_key_to_spend,
+            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
+            status: val.status.into(),
         }
     }
 }
@@ -336,8 +336,8 @@ impl IntoWeb<PastPaymentDataSellWeb> for PastPaymentDataSell {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataPaymentWeb {
     pub time_of_request: u64,
-    pub payer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
+    pub payer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -346,19 +346,19 @@ pub struct PastPaymentDataPaymentWeb {
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
 }
-impl IntoWeb<PastPaymentDataPaymentWeb> for PastPaymentDataPayment {
-    fn into_web(self) -> PastPaymentDataPaymentWeb {
+impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
+    fn from(val: PastPaymentDataPayment) -> Self {
         PastPaymentDataPaymentWeb {
-            time_of_request: self.time_of_request,
-            payer: self.payer.into_web(),
-            payee: self.payee.into_web(),
-            currency: self.currency,
-            sum: self.sum,
-            link_to_pay: self.link_to_pay,
-            address_to_pay: self.address_to_pay,
-            private_key_to_spend: self.private_key_to_spend,
-            mempool_link_for_address_to_pay: self.mempool_link_for_address_to_pay,
-            status: self.status.into_web(),
+            time_of_request: val.time_of_request,
+            payer: val.payer.into(),
+            payee: val.payee.into(),
+            currency: val.currency,
+            sum: val.sum,
+            link_to_pay: val.link_to_pay,
+            address_to_pay: val.address_to_pay,
+            private_key_to_spend: val.private_key_to_spend,
+            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
+            status: val.status.into(),
         }
     }
 }
@@ -367,8 +367,8 @@ impl IntoWeb<PastPaymentDataPaymentWeb> for PastPaymentDataPayment {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataRecourseWeb {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicDataWeb,
-    pub recoursee: IdentityPublicDataWeb,
+    pub recourser: BillIdentParticipantWeb,
+    pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -378,19 +378,19 @@ pub struct PastPaymentDataRecourseWeb {
     pub status: PastPaymentStatusWeb,
 }
 
-impl IntoWeb<PastPaymentDataRecourseWeb> for PastPaymentDataRecourse {
-    fn into_web(self) -> PastPaymentDataRecourseWeb {
+impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
+    fn from(val: PastPaymentDataRecourse) -> Self {
         PastPaymentDataRecourseWeb {
-            time_of_request: self.time_of_request,
-            recourser: self.recourser.into_web(),
-            recoursee: self.recoursee.into_web(),
-            currency: self.currency,
-            sum: self.sum,
-            link_to_pay: self.link_to_pay,
-            address_to_pay: self.address_to_pay,
-            private_key_to_spend: self.private_key_to_spend,
-            mempool_link_for_address_to_pay: self.mempool_link_for_address_to_pay,
-            status: self.status.into_web(),
+            time_of_request: val.time_of_request,
+            recourser: val.recourser.into(),
+            recoursee: val.recoursee.into(),
+            currency: val.currency,
+            sum: val.sum,
+            link_to_pay: val.link_to_pay,
+            address_to_pay: val.address_to_pay,
+            private_key_to_spend: val.private_key_to_spend,
+            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
+            status: val.status.into(),
         }
     }
 }
@@ -417,14 +417,14 @@ pub struct BitcreditBillWeb {
     pub current_waiting_state: Option<BillCurrentWaitingStateWeb>,
 }
 
-impl IntoWeb<BitcreditBillWeb> for BitcreditBillResult {
-    fn into_web(self) -> BitcreditBillWeb {
+impl From<BitcreditBillResult> for BitcreditBillWeb {
+    fn from(val: BitcreditBillResult) -> Self {
         BitcreditBillWeb {
-            id: self.id,
-            participants: self.participants.into_web(),
-            data: self.data.into_web(),
-            status: self.status.into_web(),
-            current_waiting_state: self.current_waiting_state.map(|cws| cws.into_web()),
+            id: val.id,
+            participants: val.participants.into(),
+            data: val.data.into(),
+            status: val.status.into(),
+            current_waiting_state: val.current_waiting_state.map(|cws| cws.into()),
         }
     }
 }
@@ -437,17 +437,15 @@ pub enum BillCurrentWaitingStateWeb {
     Recourse(BillWaitingForRecourseStateWeb),
 }
 
-impl IntoWeb<BillCurrentWaitingStateWeb> for BillCurrentWaitingState {
-    fn into_web(self) -> BillCurrentWaitingStateWeb {
-        match self {
-            BillCurrentWaitingState::Sell(state) => {
-                BillCurrentWaitingStateWeb::Sell(state.into_web())
-            }
+impl From<BillCurrentWaitingState> for BillCurrentWaitingStateWeb {
+    fn from(val: BillCurrentWaitingState) -> Self {
+        match val {
+            BillCurrentWaitingState::Sell(state) => BillCurrentWaitingStateWeb::Sell(state.into()),
             BillCurrentWaitingState::Payment(state) => {
-                BillCurrentWaitingStateWeb::Payment(state.into_web())
+                BillCurrentWaitingStateWeb::Payment(state.into())
             }
             BillCurrentWaitingState::Recourse(state) => {
-                BillCurrentWaitingStateWeb::Recourse(state.into_web())
+                BillCurrentWaitingStateWeb::Recourse(state.into())
             }
         }
     }
@@ -457,8 +455,8 @@ impl IntoWeb<BillCurrentWaitingStateWeb> for BillCurrentWaitingState {
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForSellStateWeb {
     pub time_of_request: u64,
-    pub buyer: IdentityPublicDataWeb,
-    pub seller: IdentityPublicDataWeb,
+    pub buyer: BillParticipantWeb,
+    pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -466,17 +464,17 @@ pub struct BillWaitingForSellStateWeb {
     pub mempool_link_for_address_to_pay: String,
 }
 
-impl IntoWeb<BillWaitingForSellStateWeb> for BillWaitingForSellState {
-    fn into_web(self) -> BillWaitingForSellStateWeb {
+impl From<BillWaitingForSellState> for BillWaitingForSellStateWeb {
+    fn from(val: BillWaitingForSellState) -> Self {
         BillWaitingForSellStateWeb {
-            time_of_request: self.time_of_request,
-            buyer: self.buyer.into_web(),
-            seller: self.seller.into_web(),
-            currency: self.currency,
-            sum: self.sum,
-            link_to_pay: self.link_to_pay,
-            address_to_pay: self.address_to_pay,
-            mempool_link_for_address_to_pay: self.mempool_link_for_address_to_pay,
+            time_of_request: val.time_of_request,
+            buyer: val.buyer.into(),
+            seller: val.seller.into(),
+            currency: val.currency,
+            sum: val.sum,
+            link_to_pay: val.link_to_pay,
+            address_to_pay: val.address_to_pay,
+            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
         }
     }
 }
@@ -485,8 +483,8 @@ impl IntoWeb<BillWaitingForSellStateWeb> for BillWaitingForSellState {
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForPaymentStateWeb {
     pub time_of_request: u64,
-    pub payer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
+    pub payer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
@@ -494,17 +492,17 @@ pub struct BillWaitingForPaymentStateWeb {
     pub mempool_link_for_address_to_pay: String,
 }
 
-impl IntoWeb<BillWaitingForPaymentStateWeb> for BillWaitingForPaymentState {
-    fn into_web(self) -> BillWaitingForPaymentStateWeb {
+impl From<BillWaitingForPaymentState> for BillWaitingForPaymentStateWeb {
+    fn from(val: BillWaitingForPaymentState) -> Self {
         BillWaitingForPaymentStateWeb {
-            time_of_request: self.time_of_request,
-            payer: self.payer.into_web(),
-            payee: self.payee.into_web(),
-            currency: self.currency,
-            sum: self.sum,
-            link_to_pay: self.link_to_pay,
-            address_to_pay: self.address_to_pay,
-            mempool_link_for_address_to_pay: self.mempool_link_for_address_to_pay,
+            time_of_request: val.time_of_request,
+            payer: val.payer.into(),
+            payee: val.payee.into(),
+            currency: val.currency,
+            sum: val.sum,
+            link_to_pay: val.link_to_pay,
+            address_to_pay: val.address_to_pay,
+            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
         }
     }
 }
@@ -513,25 +511,25 @@ impl IntoWeb<BillWaitingForPaymentStateWeb> for BillWaitingForPaymentState {
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForRecourseStateWeb {
     pub time_of_request: u64,
-    pub recourser: IdentityPublicDataWeb,
-    pub recoursee: IdentityPublicDataWeb,
+    pub recourser: BillIdentParticipantWeb,
+    pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub mempool_link_for_address_to_pay: String,
 }
-impl IntoWeb<BillWaitingForRecourseStateWeb> for BillWaitingForRecourseState {
-    fn into_web(self) -> BillWaitingForRecourseStateWeb {
+impl From<BillWaitingForRecourseState> for BillWaitingForRecourseStateWeb {
+    fn from(val: BillWaitingForRecourseState) -> Self {
         BillWaitingForRecourseStateWeb {
-            time_of_request: self.time_of_request,
-            recourser: self.recourser.into_web(),
-            recoursee: self.recoursee.into_web(),
-            currency: self.currency,
-            sum: self.sum,
-            link_to_pay: self.link_to_pay,
-            address_to_pay: self.address_to_pay,
-            mempool_link_for_address_to_pay: self.mempool_link_for_address_to_pay,
+            time_of_request: val.time_of_request,
+            recourser: val.recourser.into(),
+            recoursee: val.recoursee.into(),
+            currency: val.currency,
+            sum: val.sum,
+            link_to_pay: val.link_to_pay,
+            address_to_pay: val.address_to_pay,
+            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
         }
     }
 }
@@ -547,15 +545,15 @@ pub struct BillStatusWeb {
     pub has_requested_funds: bool,
 }
 
-impl IntoWeb<BillStatusWeb> for BillStatus {
-    fn into_web(self) -> BillStatusWeb {
+impl From<BillStatus> for BillStatusWeb {
+    fn from(val: BillStatus) -> Self {
         BillStatusWeb {
-            acceptance: self.acceptance.into_web(),
-            payment: self.payment.into_web(),
-            sell: self.sell.into_web(),
-            recourse: self.recourse.into_web(),
-            redeemed_funds_available: self.redeemed_funds_available,
-            has_requested_funds: self.has_requested_funds,
+            acceptance: val.acceptance.into(),
+            payment: val.payment.into(),
+            sell: val.sell.into(),
+            recourse: val.recourse.into(),
+            redeemed_funds_available: val.redeemed_funds_available,
+            has_requested_funds: val.has_requested_funds,
         }
     }
 }
@@ -570,14 +568,14 @@ pub struct BillAcceptanceStatusWeb {
     pub rejected_to_accept: bool,
 }
 
-impl IntoWeb<BillAcceptanceStatusWeb> for BillAcceptanceStatus {
-    fn into_web(self) -> BillAcceptanceStatusWeb {
+impl From<BillAcceptanceStatus> for BillAcceptanceStatusWeb {
+    fn from(val: BillAcceptanceStatus) -> Self {
         BillAcceptanceStatusWeb {
-            time_of_request_to_accept: self.time_of_request_to_accept,
-            requested_to_accept: self.requested_to_accept,
-            accepted: self.accepted,
-            request_to_accept_timed_out: self.request_to_accept_timed_out,
-            rejected_to_accept: self.rejected_to_accept,
+            time_of_request_to_accept: val.time_of_request_to_accept,
+            requested_to_accept: val.requested_to_accept,
+            accepted: val.accepted,
+            request_to_accept_timed_out: val.request_to_accept_timed_out,
+            rejected_to_accept: val.rejected_to_accept,
         }
     }
 }
@@ -591,14 +589,14 @@ pub struct BillPaymentStatusWeb {
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
 }
-impl IntoWeb<BillPaymentStatusWeb> for BillPaymentStatus {
-    fn into_web(self) -> BillPaymentStatusWeb {
+impl From<BillPaymentStatus> for BillPaymentStatusWeb {
+    fn from(val: BillPaymentStatus) -> Self {
         BillPaymentStatusWeb {
-            time_of_request_to_pay: self.time_of_request_to_pay,
-            requested_to_pay: self.requested_to_pay,
-            paid: self.paid,
-            request_to_pay_timed_out: self.request_to_pay_timed_out,
-            rejected_to_pay: self.rejected_to_pay,
+            time_of_request_to_pay: val.time_of_request_to_pay,
+            requested_to_pay: val.requested_to_pay,
+            paid: val.paid,
+            request_to_pay_timed_out: val.request_to_pay_timed_out,
+            rejected_to_pay: val.rejected_to_pay,
         }
     }
 }
@@ -612,14 +610,14 @@ pub struct BillSellStatusWeb {
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
 }
-impl IntoWeb<BillSellStatusWeb> for BillSellStatus {
-    fn into_web(self) -> BillSellStatusWeb {
+impl From<BillSellStatus> for BillSellStatusWeb {
+    fn from(val: BillSellStatus) -> Self {
         BillSellStatusWeb {
-            time_of_last_offer_to_sell: self.time_of_last_offer_to_sell,
-            sold: self.sold,
-            offered_to_sell: self.offered_to_sell,
-            offer_to_sell_timed_out: self.offer_to_sell_timed_out,
-            rejected_offer_to_sell: self.rejected_offer_to_sell,
+            time_of_last_offer_to_sell: val.time_of_last_offer_to_sell,
+            sold: val.sold,
+            offered_to_sell: val.offered_to_sell,
+            offer_to_sell_timed_out: val.offer_to_sell_timed_out,
+            rejected_offer_to_sell: val.rejected_offer_to_sell,
         }
     }
 }
@@ -634,14 +632,14 @@ pub struct BillRecourseStatusWeb {
     pub rejected_request_to_recourse: bool,
 }
 
-impl IntoWeb<BillRecourseStatusWeb> for BillRecourseStatus {
-    fn into_web(self) -> BillRecourseStatusWeb {
+impl From<BillRecourseStatus> for BillRecourseStatusWeb {
+    fn from(val: BillRecourseStatus) -> Self {
         BillRecourseStatusWeb {
-            time_of_last_request_to_recourse: self.time_of_last_request_to_recourse,
-            recoursed: self.recoursed,
-            requested_to_recourse: self.requested_to_recourse,
-            request_to_recourse_timed_out: self.request_to_recourse_timed_out,
-            rejected_request_to_recourse: self.rejected_request_to_recourse,
+            time_of_last_request_to_recourse: val.time_of_last_request_to_recourse,
+            recoursed: val.recoursed,
+            requested_to_recourse: val.requested_to_recourse,
+            request_to_recourse_timed_out: val.request_to_recourse_timed_out,
+            rejected_request_to_recourse: val.rejected_request_to_recourse,
         }
     }
 }
@@ -664,22 +662,22 @@ pub struct BillDataWeb {
     pub active_notification: Option<NotificationWeb>,
 }
 
-impl IntoWeb<BillDataWeb> for BillData {
-    fn into_web(self) -> BillDataWeb {
+impl From<BillData> for BillDataWeb {
+    fn from(val: BillData) -> Self {
         BillDataWeb {
-            language: self.language,
-            time_of_drawing: self.time_of_drawing,
-            issue_date: self.issue_date,
-            time_of_maturity: self.time_of_maturity,
-            maturity_date: self.maturity_date,
-            country_of_issuing: self.country_of_issuing,
-            city_of_issuing: self.city_of_issuing,
-            country_of_payment: self.country_of_payment,
-            city_of_payment: self.city_of_payment,
-            currency: self.currency,
-            sum: self.sum,
-            files: self.files.into_iter().map(|f| f.into_web()).collect(),
-            active_notification: self.active_notification.map(|an| an.into_web()),
+            language: val.language,
+            time_of_drawing: val.time_of_drawing,
+            issue_date: val.issue_date,
+            time_of_maturity: val.time_of_maturity,
+            maturity_date: val.maturity_date,
+            country_of_issuing: val.country_of_issuing,
+            city_of_issuing: val.city_of_issuing,
+            country_of_payment: val.country_of_payment,
+            city_of_payment: val.city_of_payment,
+            currency: val.currency,
+            sum: val.sum,
+            files: val.files.into_iter().map(|f| f.into()).collect(),
+            active_notification: val.active_notification.map(|an| an.into()),
         }
     }
 }
@@ -687,23 +685,23 @@ impl IntoWeb<BillDataWeb> for BillData {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillParticipantsWeb {
-    pub drawee: IdentityPublicDataWeb,
-    pub drawer: IdentityPublicDataWeb,
-    pub payee: IdentityPublicDataWeb,
-    pub endorsee: Option<IdentityPublicDataWeb>,
+    pub drawee: BillIdentParticipantWeb,
+    pub drawer: BillIdentParticipantWeb,
+    pub payee: BillParticipantWeb,
+    pub endorsee: Option<BillParticipantWeb>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<String>,
 }
 
-impl IntoWeb<BillParticipantsWeb> for BillParticipants {
-    fn into_web(self) -> BillParticipantsWeb {
+impl From<BillParticipants> for BillParticipantsWeb {
+    fn from(val: BillParticipants) -> Self {
         BillParticipantsWeb {
-            drawee: self.drawee.into_web(),
-            drawer: self.drawer.into_web(),
-            payee: self.payee.into_web(),
-            endorsee: self.endorsee.map(|e| e.into_web()),
-            endorsements_count: self.endorsements_count,
-            all_participant_node_ids: self.all_participant_node_ids,
+            drawee: val.drawee.into(),
+            drawer: val.drawer.into(),
+            payee: val.payee.into(),
+            endorsee: val.endorsee.map(|e| e.into()),
+            endorsements_count: val.endorsements_count,
+            all_participant_node_ids: val.all_participant_node_ids,
         }
     }
 }
@@ -712,10 +710,10 @@ impl IntoWeb<BillParticipantsWeb> for BillParticipants {
 #[tsify(into_wasm_abi)]
 pub struct LightBitcreditBillWeb {
     pub id: String,
-    pub drawee: LightIdentityPublicDataWeb,
-    pub drawer: LightIdentityPublicDataWeb,
-    pub payee: LightIdentityPublicDataWeb,
-    pub endorsee: Option<LightIdentityPublicDataWeb>,
+    pub drawee: LightBillIdentParticipantWeb,
+    pub drawer: LightBillIdentParticipantWeb,
+    pub payee: LightBillParticipantWeb,
+    pub endorsee: Option<LightBillParticipantWeb>,
     pub active_notification: Option<NotificationWeb>,
     pub sum: String,
     pub currency: String,
@@ -724,82 +722,146 @@ pub struct LightBitcreditBillWeb {
     pub time_of_maturity: u64,
 }
 
-impl IntoWeb<LightBitcreditBillWeb> for LightBitcreditBillResult {
-    fn into_web(self) -> LightBitcreditBillWeb {
+impl From<LightBitcreditBillResult> for LightBitcreditBillWeb {
+    fn from(val: LightBitcreditBillResult) -> Self {
         LightBitcreditBillWeb {
-            id: self.id,
-            drawee: self.drawee.into_web(),
-            drawer: self.drawer.into_web(),
-            payee: self.payee.into_web(),
-            endorsee: self.endorsee.map(|e| e.into_web()),
-            active_notification: self.active_notification.map(|n| n.into_web()),
-            sum: self.sum,
-            currency: self.currency,
-            issue_date: self.issue_date,
-            time_of_drawing: self.time_of_drawing,
-            time_of_maturity: self.time_of_maturity,
+            id: val.id,
+            drawee: val.drawee.into(),
+            drawer: val.drawer.into(),
+            payee: val.payee.into(),
+            endorsee: val.endorsee.map(|e| e.into()),
+            active_notification: val.active_notification.map(|n| n.into()),
+            sum: val.sum,
+            currency: val.currency,
+            issue_date: val.issue_date,
+            time_of_drawing: val.time_of_drawing,
+            time_of_maturity: val.time_of_maturity,
         }
     }
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct IdentityPublicDataWeb {
+pub enum BillParticipantWeb {
+    Anon(BillAnonParticipantWeb),
+    Ident(BillIdentParticipantWeb),
+}
+
+impl From<BillParticipant> for BillParticipantWeb {
+    fn from(val: BillParticipant) -> Self {
+        match val {
+            BillParticipant::Ident(data) => BillParticipantWeb::Ident(data.into()),
+            BillParticipant::Anon(data) => BillParticipantWeb::Anon(data.into()),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillAnonParticipantWeb {
+    pub node_id: String,
+    pub email: Option<String>,
+    pub nostr_relays: Vec<String>,
+}
+
+impl From<BillAnonParticipant> for BillAnonParticipantWeb {
+    fn from(val: BillAnonParticipant) -> Self {
+        BillAnonParticipantWeb {
+            node_id: val.node_id,
+            email: val.email,
+            nostr_relays: val.nostr_relays,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillIdentParticipantWeb {
     pub t: ContactTypeWeb,
     pub node_id: String,
     pub name: String,
     pub postal_address: PostalAddressWeb,
     pub email: Option<String>,
-    pub nostr_relay: Option<String>,
+    pub nostr_relays: Vec<String>,
 }
 
-impl IntoWeb<IdentityPublicDataWeb> for IdentityPublicData {
-    fn into_web(self) -> IdentityPublicDataWeb {
-        IdentityPublicDataWeb {
-            t: self.t.into_web(),
-            name: self.name,
-            node_id: self.node_id,
-            postal_address: self.postal_address.into_web(),
-            email: self.email,
-            nostr_relay: self.nostr_relay,
+impl From<BillIdentParticipant> for BillIdentParticipantWeb {
+    fn from(val: BillIdentParticipant) -> Self {
+        BillIdentParticipantWeb {
+            t: val.t.into(),
+            name: val.name,
+            node_id: val.node_id,
+            postal_address: val.postal_address.into(),
+            email: val.email,
+            nostr_relays: val.nostr_relays,
         }
     }
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct LightIdentityPublicDataWithAddressWeb {
+pub struct LightBillIdentParticipantWithAddressWeb {
     pub t: ContactTypeWeb,
     pub name: String,
     pub node_id: String,
     pub postal_address: PostalAddressWeb,
 }
 
-impl IntoWeb<LightIdentityPublicDataWithAddressWeb> for LightIdentityPublicDataWithAddress {
-    fn into_web(self) -> LightIdentityPublicDataWithAddressWeb {
-        LightIdentityPublicDataWithAddressWeb {
-            t: self.t.into_web(),
-            name: self.name,
-            node_id: self.node_id,
-            postal_address: self.postal_address.into_web(),
+impl From<LightBillIdentParticipantWithAddress> for LightBillIdentParticipantWithAddressWeb {
+    fn from(val: LightBillIdentParticipantWithAddress) -> Self {
+        LightBillIdentParticipantWithAddressWeb {
+            t: val.t.into(),
+            name: val.name,
+            node_id: val.node_id,
+            postal_address: val.postal_address.into(),
         }
     }
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct LightIdentityPublicDataWeb {
+pub enum LightBillParticipantWeb {
+    Anon(LightBillAnonParticipantWeb),
+    Ident(LightBillIdentParticipantWeb),
+}
+
+impl From<LightBillParticipant> for LightBillParticipantWeb {
+    fn from(val: LightBillParticipant) -> Self {
+        match val {
+            LightBillParticipant::Ident(data) => LightBillParticipantWeb::Ident(data.into()),
+            LightBillParticipant::Anon(data) => LightBillParticipantWeb::Anon(data.into()),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct LightBillAnonParticipantWeb {
+    pub node_id: String,
+}
+
+impl From<LightBillAnonParticipant> for LightBillAnonParticipantWeb {
+    fn from(val: LightBillAnonParticipant) -> Self {
+        LightBillAnonParticipantWeb {
+            node_id: val.node_id,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct LightBillIdentParticipantWeb {
     pub t: ContactTypeWeb,
     pub name: String,
     pub node_id: String,
 }
 
-impl IntoWeb<LightIdentityPublicDataWeb> for LightIdentityPublicData {
-    fn into_web(self) -> LightIdentityPublicDataWeb {
-        LightIdentityPublicDataWeb {
-            t: self.t.into_web(),
-            name: self.name,
-            node_id: self.node_id,
+impl From<LightBillIdentParticipant> for LightBillIdentParticipantWeb {
+    fn from(val: LightBillIdentParticipant) -> Self {
+        LightBillIdentParticipantWeb {
+            t: val.t.into(),
+            name: val.name,
+            node_id: val.node_id,
         }
     }
 }

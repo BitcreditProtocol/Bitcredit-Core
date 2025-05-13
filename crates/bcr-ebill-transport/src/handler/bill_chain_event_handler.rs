@@ -10,6 +10,7 @@ use bcr_ebill_core::bill::BillValidateActionData;
 use bcr_ebill_core::blockchain::Blockchain;
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::notification::BillEventType;
 use bcr_ebill_core::notification::{Notification, NotificationType};
@@ -222,8 +223,8 @@ impl BillChainEventHandler {
         if let Err(e) = (BillValidateActionData {
             blockchain: chain_clone_for_validation,
             drawee_node_id: bill_parties.drawee.node_id,
-            payee_node_id: bill_parties.payee.node_id,
-            endorsee_node_id: bill_parties.endorsee.map(|e| e.node_id),
+            payee_node_id: bill_parties.payee.node_id(),
+            endorsee_node_id: bill_parties.endorsee.map(|e| e.node_id()),
             maturity_date: bill_first_version.maturity_date.clone(),
             bill_keys: bill_keys.clone(),
             timestamp: block.timestamp,
@@ -439,9 +440,11 @@ mod tests {
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress,
         bill::BitcreditBill,
-        blockchain::bill::block::{BillEndorseBlockData, BillIssueBlockData, BillRejectBlockData},
-        contact::{ContactType, IdentityPublicData},
-        identity::{Identity, IdentityWithAll},
+        blockchain::bill::block::{
+            BillEndorseBlockData, BillIssueBlockData, BillParticipantBlockData, BillRejectBlockData,
+        },
+        contact::{BillIdentParticipant, BillParticipant, ContactType},
+        identity::{Identity, IdentityType, IdentityWithAll},
         notification::ActionType,
         util::BcrKeys,
     };
@@ -466,10 +469,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_creates_new_chain_for_new_chain_event() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let mut payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         payee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
-        let drawer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
@@ -521,10 +524,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_validation_fails() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let mut payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         payee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
-        let drawer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
@@ -594,10 +597,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_signing_check_fails() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         // drawer has a different key than signer, signing check will fail
-        let mut drawer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let mut drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         drawer.node_id = BcrKeys::new().get_public_key();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
         let chain = get_genesis_chain(Some(bill.clone()));
@@ -648,9 +651,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_adds_block_for_existing_chain_event() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let mut endorsee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         endorsee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
@@ -658,14 +661,16 @@ mod tests {
             TEST_BILL_ID.to_string(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
-                endorsee: endorsee.clone().into(),
+                endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
                 // endorsed by payee
-                endorser: IdentityPublicData::new(get_baseline_identity().identity)
-                    .unwrap()
-                    .into(),
+                endorser: BillParticipantBlockData::Ident(
+                    BillIdentParticipant::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                ),
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -727,8 +732,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_block_for_invalid_bill_action() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
@@ -797,11 +802,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_block_for_invalidly_signed_blocks() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let endorsee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         // endorser is different than block signer - signature won't be able to be validated
-        let mut endorser = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let mut endorser = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         endorser.node_id = BcrKeys::new().get_public_key();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
@@ -810,12 +815,12 @@ mod tests {
             TEST_BILL_ID.to_string(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
-                endorsee: endorsee.clone().into(),
+                endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
                 // endorsed by payee
-                endorser: endorser.clone().into(),
+                endorser: BillParticipantBlockData::Ident(endorser.clone().into()),
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -872,9 +877,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_block_for_unknown_chain() {
-        let payer = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
-        let endorsee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
@@ -882,14 +887,16 @@ mod tests {
             TEST_BILL_ID.to_string(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
-                endorsee: endorsee.clone().into(),
+                endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
                 // endorsed by payee
-                endorser: IdentityPublicData::new(get_baseline_identity().identity)
-                    .unwrap()
-                    .into(),
+                endorser: BillParticipantBlockData::Ident(
+                    BillIdentParticipant::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                ),
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -1023,19 +1030,19 @@ mod tests {
     }
     pub fn get_test_bitcredit_bill(
         id: &str,
-        payer: &IdentityPublicData,
-        payee: &IdentityPublicData,
-        drawer: Option<&IdentityPublicData>,
-        endorsee: Option<&IdentityPublicData>,
+        payer: &BillIdentParticipant,
+        payee: &BillIdentParticipant,
+        drawer: Option<&BillIdentParticipant>,
+        endorsee: Option<&BillIdentParticipant>,
     ) -> BitcreditBill {
         let mut bill = empty_bitcredit_bill();
         bill.id = id.to_owned();
-        bill.payee = payee.clone();
+        bill.payee = BillParticipant::Ident(payee.clone());
         bill.drawee = payer.clone();
         if let Some(drawer) = drawer {
             bill.drawer = drawer.clone();
         }
-        bill.endorsee = endorsee.cloned();
+        bill.endorsee = endorsee.map(|e| BillParticipant::Ident(e.to_owned()));
         bill
     }
     fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
@@ -1054,10 +1061,11 @@ mod tests {
         let keys = BcrKeys::new();
 
         bill.maturity_date = "2099-10-15".to_string();
-        bill.payee = empty_identity_public_data();
-        bill.payee.name = "payee".to_owned();
-        bill.payee.node_id = keys.get_public_key();
-        bill.drawee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let mut payee = empty_bill_identified_participant();
+        payee.name = "payee".to_owned();
+        payee.node_id = keys.get_public_key();
+        bill.payee = BillParticipant::Ident(payee);
+        bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         bill.id = bill_id.to_owned();
         bill
     }
@@ -1066,9 +1074,9 @@ mod tests {
             id: "".to_string(),
             country_of_issuing: "AT".to_string(),
             city_of_issuing: "Vienna".to_string(),
-            drawee: empty_identity_public_data(),
-            drawer: empty_identity_public_data(),
-            payee: empty_identity_public_data(),
+            drawee: empty_bill_identified_participant(),
+            drawer: empty_bill_identified_participant(),
+            payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
             currency: "sat".to_string(),
             sum: 500,
@@ -1101,14 +1109,14 @@ mod tests {
             key_pair: keys,
         }
     }
-    fn empty_identity_public_data() -> IdentityPublicData {
-        IdentityPublicData {
+    fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
             t: ContactType::Person,
             node_id: "".to_string(),
             name: "some name".to_string(),
             postal_address: empty_address(),
             email: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
         }
     }
     fn empty_address() -> PostalAddress {
@@ -1121,15 +1129,16 @@ mod tests {
     }
     fn empty_identity() -> Identity {
         Identity {
+            t: IdentityType::Ident,
             node_id: "".to_string(),
             name: "some name".to_string(),
-            email: "some@example.com".to_string(),
+            email: Some("some@example.com".to_string()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,
             city_of_birth: None,
             identification_number: None,
-            nostr_relay: None,
+            nostr_relays: vec![],
             profile_picture_file: None,
             identity_document_file: None,
         }

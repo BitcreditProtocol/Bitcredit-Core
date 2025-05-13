@@ -10,9 +10,9 @@ use crate::{
     api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
-        BalanceResponse, BinaryFileResponse, CurrenciesResponse, CurrencyResponse, FromWeb,
-        GeneralSearchFilterPayload, IntoWeb, OverviewBalanceResponse, OverviewResponse,
-        StatusResponse,
+        BalanceResponse, BinaryFileResponse, CurrenciesResponse, CurrencyResponse,
+        GeneralSearchFilterPayload, GeneralSearchResponse, OverviewBalanceResponse,
+        OverviewResponse, StatusResponse,
     },
 };
 
@@ -114,7 +114,7 @@ impl General {
             .clone()
             .item_types
             .into_iter()
-            .map(GeneralSearchFilterItemType::from_web)
+            .map(GeneralSearchFilterItemType::from)
             .collect();
         let result = get_ctx()
             .search_service
@@ -126,7 +126,7 @@ impl General {
             )
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&result.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<GeneralSearchResponse>(&result.into())?;
         Ok(res)
     }
 }

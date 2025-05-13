@@ -35,21 +35,21 @@ pub struct SurrealDbConfig {
     pub database: String,
 }
 
-impl SurrealDbConfig {
-    pub fn new(connection_string: &str) -> Self {
-        Self {
-            connection_string: connection_string.to_owned(),
-            ..Default::default()
-        }
-    }
-}
-
 impl Default for SurrealDbConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     fn default() -> Self {
         Self {
             connection_string: "rocksdb://data/surrealdb".to_owned(),
             namespace: "default".to_owned(),
             database: "ebills".to_owned(),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        Self {
+            connection_string: SURREAL_DB_CON_INDXDB_DATA.to_string(),
+            namespace: SURREAL_DB_INDXDB_NS_DATA.to_string(),
+            database: SURREAL_DB_INDXDB_DB_DATA.to_string(),
         }
     }
 }
@@ -221,7 +221,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_surreal_db() {
-        let config = SurrealDbConfig::new("mem://");
+        let config = SurrealDbConfig {
+            connection_string: "mem://".into(),
+            ..SurrealDbConfig::default()
+        };
         let _ = get_surreal_db(&config).await.expect("could not create db");
     }
 

@@ -4,7 +4,8 @@ use bcr_ebill_api::{
         bill::{
             BillAction, BillIssueData, BillsFilterRole, LightBitcreditBillResult, RecourseReason,
         },
-        contact::IdentityPublicData,
+        contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+        identity::IdentityType,
     },
     external,
     service::{Error, bill_service::error::Error as BillServiceError},
@@ -20,10 +21,11 @@ use crate::{
     api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
-        BinaryFileResponse, FromWeb, IntoWeb, UploadFile,
+        BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
-            AcceptBitcreditBillPayload, BillId, BillNumbersToWordsForSum, BillsResponse,
-            BillsSearchFilterPayload, BitcreditBillPayload, EndorseBitcreditBillPayload,
+            AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillId,
+            BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
+            BitcreditBillPayload, BitcreditBillWeb, EndorseBitcreditBillPayload,
             EndorsementsResponse, LightBillsResponse, MintBitcreditBillPayload,
             OfferToSellBitcreditBillPayload, PastEndorseesResponse, PastPaymentsResponse,
             RejectActionBillPayload, RequestRecourseForAcceptancePayload,
@@ -52,7 +54,7 @@ impl Bill {
             .get_endorsements(id, &get_current_identity_node_id().await?)
             .await?;
         let res = serde_wasm_bindgen::to_value(&EndorsementsResponse {
-            endorsements: result.into_iter().map(|e| e.into_web()).collect(),
+            endorsements: result.into_iter().map(|e| e.into()).collect(),
         })?;
         Ok(res)
     }
@@ -70,7 +72,7 @@ impl Bill {
             )
             .await?;
         let res = serde_wasm_bindgen::to_value(&PastPaymentsResponse {
-            past_payments: result.into_iter().map(|e| e.into_web()).collect(),
+            past_payments: result.into_iter().map(|e| e.into()).collect(),
         })?;
         Ok(res)
     }
@@ -82,7 +84,7 @@ impl Bill {
             .get_past_endorsees(id, &get_current_identity_node_id().await?)
             .await?;
         let res = serde_wasm_bindgen::to_value(&PastEndorseesResponse {
-            past_endorsees: result.into_iter().map(|e| e.into_web()).collect(),
+            past_endorsees: result.into_iter().map(|e| e.into()).collect(),
         })?;
         Ok(res)
     }
@@ -94,7 +96,7 @@ impl Bill {
             .bill_service
             .get_combined_bitcoin_key_for_bill(id, &caller_public_data, &caller_keys)
             .await?;
-        let res = serde_wasm_bindgen::to_value(&combined_key.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<BillCombinedBitcoinKeyWeb>(&combined_key.into())?;
         Ok(res)
     }
 
@@ -135,7 +137,7 @@ impl Bill {
             .upload_file(upload_file_handler)
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&file_upload_response.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<UploadFileResponse>(&file_upload_response.into())?;
         Ok(res)
     }
 
@@ -164,13 +166,13 @@ impl Bill {
                 &filter.search_term,
                 from,
                 to,
-                &BillsFilterRole::from_web(filter.role),
+                &BillsFilterRole::from(filter.role),
                 &get_current_identity_node_id().await?,
             )
             .await?;
 
         let res = serde_wasm_bindgen::to_value(&LightBillsResponse {
-            bills: bills.into_iter().map(|b| b.into_web()).collect(),
+            bills: bills.into_iter().map(|b| b.into()).collect(),
         })?;
         Ok(res)
     }
@@ -185,7 +187,7 @@ impl Bill {
             .map(|b| b.into())
             .collect();
         let res = serde_wasm_bindgen::to_value(&LightBillsResponse {
-            bills: bills.into_iter().map(|b| b.into_web()).collect(),
+            bills: bills.into_iter().map(|b| b.into()).collect(),
         })?;
         Ok(res)
     }
@@ -197,7 +199,7 @@ impl Bill {
             .get_bills(&get_current_identity_node_id().await?)
             .await?;
         let res = serde_wasm_bindgen::to_value(&BillsResponse {
-            bills: bills.into_iter().map(|b| b.into_web()).collect(),
+            bills: bills.into_iter().map(|b| b.into()).collect(),
         })?;
         Ok(res)
     }
@@ -239,8 +241,37 @@ impl Bill {
             )
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&bill_detail.into_web())?;
+        let res = serde_wasm_bindgen::to_value::<BitcreditBillWeb>(&bill_detail.into())?;
         Ok(res)
+    }
+
+    #[wasm_bindgen]
+    pub async fn check_payment_for_bill(&self, id: &str) -> Result<()> {
+        let identity = get_ctx().identity_service.get_full_identity().await?;
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_payment_for_bill(id, &identity.identity)
+            .await
+        {
+            error!("Error while checking bill payment for {id}: {e}");
+        }
+
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_offer_to_sell_payment_for_bill(id, &identity)
+            .await
+        {
+            error!("Error while checking bill offer to sell payment for {id}: {e}");
+        }
+
+        if let Err(e) = get_ctx()
+            .bill_service
+            .check_recourse_payment_for_bill(id, &identity)
+            .await
+        {
+            error!("Error while checking bill recourse payment for {id}: {e}");
+        }
+        Ok(())
     }
 
     #[wasm_bindgen]
@@ -267,14 +298,13 @@ impl Bill {
         Ok(())
     }
 
-    #[wasm_bindgen(unchecked_return_type = "BillId")]
-    pub async fn issue(
+    async fn issue_bill(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "BitcreditBillPayload")] payload: JsValue,
-    ) -> Result<JsValue> {
-        let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
+        bill_payload: BitcreditBillPayload,
+        timestamp: u64,
+        blank_issue: bool,
+    ) -> Result<String> {
         let (drawer_public_data, drawer_keys) = get_signer_public_data_and_keys().await?;
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
         let bill = get_ctx()
             .bill_service
@@ -295,13 +325,58 @@ impl Bill {
                 drawer_public_data: drawer_public_data.clone(),
                 drawer_keys: drawer_keys.clone(),
                 timestamp,
+                blank_issue,
             })
             .await?;
 
-        let res = serde_wasm_bindgen::to_value(&BillId {
-            id: bill.id.clone(),
-        })?;
+        Ok(bill.id)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "BillId")]
+    pub async fn issue(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "BitcreditBillPayload")] payload: JsValue,
+    ) -> Result<JsValue> {
+        let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let bill_id = self.issue_bill(bill_payload, timestamp, false).await?;
+        let res = serde_wasm_bindgen::to_value(&BillId { id: bill_id })?;
         Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "BillId")]
+    pub async fn issue_blank(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "BitcreditBillPayload")] payload: JsValue,
+    ) -> Result<JsValue> {
+        let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let bill_id = self.issue_bill(bill_payload, timestamp, true).await?;
+        let res = serde_wasm_bindgen::to_value(&BillId { id: bill_id })?;
+        Ok(res)
+    }
+
+    async fn offer_to_sell_bill(
+        &self,
+        payload: OfferToSellBitcreditBillPayload,
+        buyer: BillParticipant,
+        timestamp: u64,
+        sum: u64,
+    ) -> Result<()> {
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+
+        get_ctx()
+            .bill_service
+            .execute_bill_action(
+                &payload.bill_id,
+                BillAction::OfferToSell(buyer.clone(), sum, payload.currency.clone()),
+                &signer_public_data,
+                &signer_keys,
+                timestamp,
+            )
+            .await?;
+
+        Ok(())
     }
 
     #[wasm_bindgen]
@@ -324,23 +399,57 @@ impl Bill {
 
         let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+        self.offer_to_sell_bill(offer_to_sell_payload, public_data_buyer, timestamp, sum)
+            .await
+    }
 
+    /// Blank offer to sell - the contact doesn't have to be an anonymous contact
+    #[wasm_bindgen]
+    pub async fn offer_to_sell_blank(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "OfferToSellBitcreditBillPayload")] payload: JsValue,
+    ) -> Result<()> {
+        let offer_to_sell_payload: OfferToSellBitcreditBillPayload =
+            serde_wasm_bindgen::from_value(payload)?;
+        let public_data_buyer: BillAnonParticipant = match get_ctx()
+            .contact_service
+            .get_identity_by_node_id(&offer_to_sell_payload.buyer)
+            .await
+        {
+            Ok(Some(buyer)) => buyer.into(), // turn contact into anonymous participant
+            Ok(None) | Err(_) => {
+                return Err(BillServiceError::BuyerNotInContacts.into());
+            }
+        };
+
+        let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        self.offer_to_sell_bill(
+            offer_to_sell_payload,
+            BillParticipant::Anon(public_data_buyer),
+            timestamp,
+            sum,
+        )
+        .await
+    }
+
+    async fn endorse(
+        &self,
+        payload: EndorseBitcreditBillPayload,
+        endorsee: BillParticipant,
+        timestamp: u64,
+    ) -> Result<()> {
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
         get_ctx()
             .bill_service
             .execute_bill_action(
-                &offer_to_sell_payload.bill_id,
-                BillAction::OfferToSell(
-                    public_data_buyer.clone(),
-                    sum,
-                    offer_to_sell_payload.currency.clone(),
-                ),
+                &payload.bill_id,
+                BillAction::Endorse(endorsee),
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
             )
             .await?;
-
         Ok(())
     }
 
@@ -361,20 +470,36 @@ impl Bill {
                 return Err(BillServiceError::EndorseeNotInContacts.into());
             }
         };
-
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &endorse_bill_payload.bill_id,
-                BillAction::Endorse(public_data_endorsee.clone()),
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
-        Ok(())
+        self.endorse(endorse_bill_payload, public_data_endorsee, timestamp)
+            .await
+    }
+
+    /// Blank endorsement - the contact doesn't have to be an anonymous contact
+    #[wasm_bindgen]
+    pub async fn endorse_bill_blank(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "EndorseBitcreditBillPayload")] payload: JsValue,
+    ) -> Result<()> {
+        let endorse_bill_payload: EndorseBitcreditBillPayload =
+            serde_wasm_bindgen::from_value(payload)?;
+        let public_data_endorsee_blank: BillAnonParticipant = match get_ctx()
+            .contact_service
+            .get_identity_by_node_id(&endorse_bill_payload.endorsee)
+            .await
+        {
+            Ok(Some(endorsee)) => endorsee.into(), // turn contact into anonymous participant
+            Ok(None) | Err(_) => {
+                return Err(BillServiceError::EndorseeNotInContacts.into());
+            }
+        };
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        self.endorse(
+            endorse_bill_payload,
+            BillParticipant::Anon(public_data_endorsee_blank),
+            timestamp,
+        )
+        .await
     }
 
     #[wasm_bindgen]
@@ -469,6 +594,28 @@ impl Bill {
         Ok(())
     }
 
+    async fn mint(
+        &self,
+        payload: MintBitcreditBillPayload,
+        mint: BillParticipant,
+        timestamp: u64,
+        sum: u64,
+    ) -> Result<()> {
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+        get_ctx()
+            .bill_service
+            .execute_bill_action(
+                &payload.bill_id,
+                BillAction::Mint(mint, sum, payload.currency.clone()),
+                &signer_public_data,
+                &signer_keys,
+                timestamp,
+            )
+            .await?;
+
+        Ok(())
+    }
+
     #[wasm_bindgen]
     pub async fn mint_bill(
         &self,
@@ -490,20 +637,39 @@ impl Bill {
                 return Err(BillServiceError::MintNotInContacts.into());
             }
         };
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+        self.mint(mint_bill_payload, public_mint_node, timestamp, sum)
+            .await
+    }
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &mint_bill_payload.bill_id,
-                BillAction::Mint(public_mint_node, sum, mint_bill_payload.currency.clone()),
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+    /// Blank mint - the contact doesn't have to be an anonymous contact
+    #[wasm_bindgen]
+    pub async fn mint_bill_blank(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "MintBitcreditBillPayload")] payload: JsValue,
+    ) -> Result<()> {
+        let mint_bill_payload: MintBitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
+        info!("mint bill blank called with payload {mint_bill_payload:?} - not implemented");
 
-        Ok(())
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let sum = currency::parse_sum(&mint_bill_payload.sum)?;
+
+        let public_mint_node: BillAnonParticipant = match get_ctx()
+            .contact_service
+            .get_identity_by_node_id(&mint_bill_payload.mint_node)
+            .await
+        {
+            Ok(Some(drawee)) => drawee.into(), // turn contact into anonymous participant
+            Ok(None) | Err(_) => {
+                return Err(BillServiceError::MintNotInContacts.into());
+            }
+        };
+        self.mint(
+            mint_bill_payload,
+            BillParticipant::Anon(public_mint_node),
+            timestamp,
+            sum,
+        )
+        .await
     }
 
     #[wasm_bindgen]
@@ -654,7 +820,16 @@ async fn request_recourse(
         .get_identity_by_node_id(recoursee_node_id)
         .await
     {
-        Ok(Some(buyer)) => buyer,
+        Ok(Some(BillParticipant::Ident(recoursee))) => recoursee,
+        Ok(Some(BillParticipant::Anon(_))) => {
+            // recoursee has to be identified
+            return Err(
+                BillServiceError::Validation(ValidationError::ContactIsAnonymous(
+                    recoursee_node_id.to_owned(),
+                ))
+                .into(),
+            );
+        }
         Ok(None) | Err(_) => {
             return Err(BillServiceError::RecourseeNotInContacts.into());
         }
@@ -680,17 +855,31 @@ impl Default for Bill {
     }
 }
 
-async fn get_signer_public_data_and_keys() -> Result<(IdentityPublicData, BcrKeys)> {
+async fn get_signer_public_data_and_keys() -> Result<(BillParticipant, BcrKeys)> {
     let current_identity = get_current_identity().await?;
     let local_node_id = current_identity.personal;
     let (signer_public_data, signer_keys) = match current_identity.company {
         None => {
             let identity = get_ctx().identity_service.get_full_identity().await?;
-            match IdentityPublicData::new(identity.identity) {
-                Some(identity_public_data) => (identity_public_data, identity.key_pair),
-                None => {
-                    return Err(Error::Validation(ValidationError::DrawerIsNotBillIssuer).into());
+            match identity.identity.t {
+                IdentityType::Ident => {
+                    match BillIdentParticipant::new(identity.identity) {
+                        Ok(identity_public_data) => (
+                            BillParticipant::Ident(identity_public_data),
+                            identity.key_pair,
+                        ),
+                        Err(_) => {
+                            // only non-anon bill issuers with a postal address can sign a bill
+                            return Err(
+                                Error::Validation(ValidationError::DrawerIsNotBillIssuer).into()
+                            );
+                        }
+                    }
                 }
+                IdentityType::Anon => (
+                    BillParticipant::Anon(BillAnonParticipant::new(identity.identity)),
+                    identity.key_pair,
+                ),
             }
         }
         Some(company_node_id) => {
@@ -705,7 +894,7 @@ async fn get_signer_public_data_and_keys() -> Result<(IdentityPublicData, BcrKey
                 .into());
             }
             (
-                IdentityPublicData::from(company),
+                BillParticipant::Ident(BillIdentParticipant::from(company)),
                 BcrKeys::from_private_key(&keys.private_key).map_err(Error::CryptoUtil)?,
             )
         }

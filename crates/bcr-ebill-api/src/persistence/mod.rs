@@ -2,8 +2,8 @@ use crate::Config;
 use bcr_ebill_persistence::{
     BackupStoreApi, ContactStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
     SurrealBackupStore, SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore,
-    SurrealCompanyStore, SurrealContactStore, SurrealDbConfig, SurrealIdentityChainStore,
-    SurrealIdentityStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    SurrealCompanyStore, SurrealContactStore, SurrealIdentityChainStore, SurrealIdentityStore,
+    SurrealNostrEventOffsetStore, SurrealNotificationStore,
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::nostr_send_queue::SurrealNostrEventQueueStore,
@@ -46,8 +46,7 @@ pub struct DbContext {
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
 pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbContext> {
-    let surreal_db_config = SurrealDbConfig::new(&conf.surreal_db_connection);
-    let db = get_surreal_db(&surreal_db_config).await?;
+    let db = get_surreal_db(&conf.db_config).await?;
 
     let company_store = Arc::new(SurrealCompanyStore::new(db.clone()));
     #[cfg(target_arch = "wasm32")]

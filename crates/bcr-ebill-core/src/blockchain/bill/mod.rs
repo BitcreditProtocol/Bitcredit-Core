@@ -5,8 +5,10 @@ pub mod block;
 pub mod chain;
 
 pub use block::BillBlock;
-use block::{BillIdentityBlockData, BillRecourseReasonBlockData};
+use block::{BillIdentParticipantBlockData, BillRecourseReasonBlockData};
 pub use chain::BillBlockchain;
+
+use crate::contact::BillParticipant;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash,
@@ -42,8 +44,8 @@ pub enum RecourseWaitingForPayment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentInfo {
-    pub buyer: BillIdentityBlockData,
-    pub seller: BillIdentityBlockData,
+    pub buyer: BillParticipant,  // buyer can be anone
+    pub seller: BillParticipant, // seller can be anone
     pub sum: u64,
     pub currency: String,
     pub payment_address: String,
@@ -51,8 +53,8 @@ pub struct PaymentInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoursePaymentInfo {
-    pub recourser: BillIdentityBlockData,
-    pub recoursee: BillIdentityBlockData,
+    pub recourser: BillIdentParticipantBlockData, // recourser has to be identified
+    pub recoursee: BillIdentParticipantBlockData, // recoursee has to be identified
     pub sum: u64,
     pub currency: String,
     pub reason: BillRecourseReasonBlockData,
