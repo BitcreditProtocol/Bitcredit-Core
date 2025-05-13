@@ -86,7 +86,7 @@ impl Identity {
         Ok(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "IdentityWeb")]
     pub async fn detail(&self) -> Result<JsValue> {
         let my_identity = if !get_ctx().identity_service.identity_exists().await {
             return Err(Error::NotFound.into());
@@ -98,11 +98,11 @@ impl Identity {
         Ok(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "IdentityWeb")]
     pub async fn deanonymize(
         &self,
         #[wasm_bindgen(unchecked_param_type = "NewIdentityPayload")] payload: JsValue,
-    ) -> Result<()> {
+    ) -> Result<JsValue> {
         let identity: NewIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
 
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
@@ -127,14 +127,18 @@ impl Identity {
             )
             .await?;
 
-        Ok(())
+        let full_identity = get_ctx().identity_service.get_full_identity().await?;
+        let identity = IdentityWeb::from(full_identity.identity, full_identity.key_pair)?;
+
+        let res = serde_wasm_bindgen::to_value(&identity)?;
+        Ok(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "IdentityWeb")]
     pub async fn create(
         &self,
         #[wasm_bindgen(unchecked_param_type = "NewIdentityPayload")] payload: JsValue,
-    ) -> Result<()> {
+    ) -> Result<JsValue> {
         let identity: NewIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
 
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
@@ -159,7 +163,11 @@ impl Identity {
             )
             .await?;
 
-        Ok(())
+        let full_identity = get_ctx().identity_service.get_full_identity().await?;
+        let identity = IdentityWeb::from(full_identity.identity, full_identity.key_pair)?;
+
+        let res = serde_wasm_bindgen::to_value(&identity)?;
+        Ok(res)
     }
 
     #[wasm_bindgen]

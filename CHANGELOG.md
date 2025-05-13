@@ -32,6 +32,10 @@
     * Can issue (non-self-drafted) blank bills (payee is anon)
     * Can endorse/mint/offer to sell to anon endorsee/mint/buyer
     * If caller of a bill action is anonymous in the bill, any action they take stay anonymous (e.g. endorse)
+* Add endpoint to check payment for singular bill
+    * `Api.bill().check_payment_for_bill(id)`
+* Fix TS type for identity detail
+* Return identity on `create` and `deanonymize` identity for consistency
 
 # 0.3.10
 
