@@ -1,6 +1,7 @@
-use super::super::{Error, Result};
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::{
+    super::{Error, Result},
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::{
     company::CompanyChainStoreApi,
     constants::{
@@ -9,12 +10,14 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use bcr_ebill_core::blockchain::{
-    Block,
-    company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    blockchain::{
+        Block,
+        company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
+    },
 };
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
                                     company_id: $company_id,
@@ -31,63 +34,51 @@ const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
 
 #[derive(Clone)]
 pub struct SurrealCompanyChainStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealCompanyChainStore {
     const TABLE: &'static str = "company_chain";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
-    }
-
     async fn create_block(&self, query: &str, entity: CompanyBlockDb) -> Result<()> {
-        let _ = self
-            .db()
-            .await?
-            .query(query)
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_COMPANY_ID, entity.company_id))
-            .bind((DB_BLOCK_ID, entity.block_id))
-            .bind((DB_HASH, entity.hash))
-            .bind((DB_PREVIOUS_HASH, entity.previous_hash))
-            .bind((DB_SIGNATURE, entity.signature))
-            .bind((DB_TIMESTAMP, entity.timestamp))
-            .bind((DB_PUBLIC_KEY, entity.public_key))
-            .bind((DB_SIGNATORY_NODE_ID, entity.signatory_node_id))
-            .bind((DB_DATA, entity.data))
-            .bind((DB_OP_CODE, entity.op_code))
-            .await?
-            .check()?;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_COMPANY_ID, entity.company_id)?;
+        bindings.add(DB_BLOCK_ID, entity.block_id)?;
+        bindings.add(DB_HASH, entity.hash)?;
+        bindings.add(DB_PREVIOUS_HASH, entity.previous_hash)?;
+        bindings.add(DB_SIGNATURE, entity.signature)?;
+        bindings.add(DB_TIMESTAMP, entity.timestamp)?;
+        bindings.add(DB_PUBLIC_KEY, entity.public_key)?;
+        bindings.add(DB_SIGNATORY_NODE_ID, entity.signatory_node_id)?;
+        bindings.add(DB_DATA, entity.data)?;
+        bindings.add(DB_OP_CODE, entity.op_code)?;
+        self.db.query_check(query, bindings).await?;
         Ok(())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealCompanyChainStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompanyChainStoreApi for SurrealCompanyChainStore {
     async fn get_latest_block(&self, id: &str) -> Result<CompanyBlock> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_COMPANY_ID, id.to_owned())?;
         let result: Vec<CompanyBlockDb> = self
-            .db().await?
-            .query("SELECT * FROM type::table($table) WHERE company_id = $company_id ORDER BY block_id DESC LIMIT 1")
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_COMPANY_ID, id.to_owned()))
+            .db
+            .query("SELECT * FROM type::table($table) WHERE company_id = $company_id ORDER BY block_id DESC LIMIT 1", bindings)
             .await
             .map_err(|e| {
                 log::error!("Get Latest Company Block: {e}");
                 e
-            })?
-            .take(0)?;
+            })?;
 
         match result.first() {
             None => Err(Error::NoCompanyBlock),
@@ -160,27 +151,30 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        self.db()
-            .await?
-            .query("DELETE FROM type::table($table) WHERE company_id = $company_id")
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_COMPANY_ID, id.to_owned()))
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_COMPANY_ID, id.to_owned())?;
+        self.db
+            .query_check(
+                "DELETE FROM type::table($table) WHERE company_id = $company_id",
+                bindings,
+            )
             .await?;
         Ok(())
     }
 
     async fn get_chain(&self, id: &str) -> Result<CompanyBlockchain> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_COMPANY_ID, id.to_owned())?;
         let result: Vec<CompanyBlockDb> = self
-            .db().await?
-            .query("SELECT * FROM type::table($table) WHERE company_id = $company_id ORDER BY block_id ASC")
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_COMPANY_ID, id.to_owned()))
+            .db
+            .query("SELECT * FROM type::table($table) WHERE company_id = $company_id ORDER BY block_id ASC", bindings)
             .await
             .map_err(|e| {
                 log::error!("Get Company Chain: {e}");
                 e
-            })?
-            .take(0)?;
+            })?;
 
         let blocks: Vec<CompanyBlock> = result.into_iter().map(|b| b.into()).collect();
         let chain = CompanyBlockchain::new_from_blocks(blocks)?;
@@ -256,7 +250,10 @@ mod tests {
         let mem_db = get_memory_db("test", "company_chain")
             .await
             .expect("could not create get_memory_db");
-        SurrealCompanyChainStore::new(mem_db)
+        SurrealCompanyChainStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     fn get_company_keys() -> CompanyKeys {

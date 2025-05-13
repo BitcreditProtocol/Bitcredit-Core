@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ValidationError,
+    ServiceTraitBounds, ValidationError,
     contact::{
         BillParticipant,
         validation::{validate_create_contact, validate_update_contact},
@@ -12,7 +12,7 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 #[cfg(test)]
 use mockall::automock;
-use nostr::key::PublicKey;
+pub use nostr::key::PublicKey;
 
 use crate::{
     Config,
@@ -30,9 +30,13 @@ use crate::{
 use super::Result;
 use log::{debug, info};
 
+#[cfg(test)]
+impl ServiceTraitBounds for MockContactServiceApi {}
+
 #[cfg_attr(test, automock)]
-#[async_trait]
-pub trait ContactServiceApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait ContactServiceApi: ServiceTraitBounds {
     /// Searches contacts for the search term
     async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
     /// Returns all contacts in short form
@@ -188,7 +192,10 @@ impl ContactService {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for ContactService {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl ContactServiceApi for ContactService {
     async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
         let contacts = self.store.search(search_term).await?;

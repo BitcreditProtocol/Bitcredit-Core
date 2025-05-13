@@ -541,6 +541,9 @@ mod tests {
 
     mock! {
         pub PushService {}
+
+        impl ServiceTraitBounds for PushService {}
+
         #[async_trait]
         impl PushApi for PushService {
             async fn send(&self, value: Value);

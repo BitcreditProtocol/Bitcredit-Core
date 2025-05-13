@@ -1,3 +1,9 @@
+# 0.3.12
+
+* impl Default for BillParticipant and BillAnonParticipant
+* Expose Receiver type for the PushApi trait
+* Fix SurrealDB Memory leak for WASM
+
 # 0.3.11
 
 * Add LICENSE to crates

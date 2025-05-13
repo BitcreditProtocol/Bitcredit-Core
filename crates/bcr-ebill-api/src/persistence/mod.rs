@@ -1,4 +1,6 @@
 use crate::Config;
+#[cfg(not(target_arch = "wasm32"))]
+use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
     BackupStoreApi, ContactStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
     SurrealBackupStore, SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore,
@@ -8,10 +10,9 @@ use bcr_ebill_persistence::{
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
         nostr_contact_store::SurrealNostrContactStore,
-        nostr_send_queue::SurrealNostrEventQueueStore,
+        nostr_send_queue::SurrealNostrEventQueueStore, surreal::SurrealWrapper,
     },
     file_upload::FileUploadStoreApi,
-    get_surreal_db,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
     nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
 };
@@ -49,13 +50,27 @@ pub struct DbContext {
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
-pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbContext> {
+pub async fn get_db_context(
+    #[allow(unused)] conf: &Config,
+) -> bcr_ebill_persistence::Result<DbContext> {
+    #[cfg(not(target_arch = "wasm32"))]
     let db = get_surreal_db(&conf.db_config).await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let surreal_wrapper = SurrealWrapper {
+        db: db.clone(),
+        files: false,
+    };
 
-    let company_store = Arc::new(SurrealCompanyStore::new(db.clone()));
     #[cfg(target_arch = "wasm32")]
-    let file_upload_store =
-        Arc::new(bcr_ebill_persistence::db::file_upload::FileUploadStore::new(db.clone()));
+    let surreal_wrapper = SurrealWrapper { files: false };
+
+    let company_store = Arc::new(SurrealCompanyStore::new(surreal_wrapper.clone()));
+    #[cfg(target_arch = "wasm32")]
+    let file_upload_store = Arc::new(
+        bcr_ebill_persistence::db::file_upload::FileUploadStore::new(SurrealWrapper {
+            files: true,
+        }),
+    );
 
     #[cfg(not(target_arch = "wasm32"))]
     let file_upload_store = Arc::new(
@@ -71,20 +86,26 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         error!("Error cleaning up temp uploads: {e}");
     }
 
-    let contact_store = Arc::new(SurrealContactStore::new(db.clone()));
+    let contact_store = Arc::new(SurrealContactStore::new(surreal_wrapper.clone()));
 
-    let bill_store = Arc::new(SurrealBillStore::new(db.clone()));
-    let bill_blockchain_store = Arc::new(SurrealBillChainStore::new(db.clone()));
+    let bill_store = Arc::new(SurrealBillStore::new(surreal_wrapper.clone()));
+    let bill_blockchain_store = Arc::new(SurrealBillChainStore::new(surreal_wrapper.clone()));
 
-    let identity_store = Arc::new(SurrealIdentityStore::new(db.clone()));
-    let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(db.clone()));
-    let company_chain_store = Arc::new(SurrealCompanyChainStore::new(db.clone()));
+    let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
+    let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(surreal_wrapper.clone()));
+    let company_chain_store = Arc::new(SurrealCompanyChainStore::new(surreal_wrapper.clone()));
 
-    let nostr_event_offset_store = Arc::new(SurrealNostrEventOffsetStore::new(db.clone()));
-    let notification_store = Arc::new(SurrealNotificationStore::new(db.clone()));
+    let nostr_event_offset_store =
+        Arc::new(SurrealNostrEventOffsetStore::new(surreal_wrapper.clone()));
+    let notification_store = Arc::new(SurrealNotificationStore::new(surreal_wrapper.clone()));
+
+    #[cfg(target_arch = "wasm32")]
+    let backup_store = Arc::new(SurrealBackupStore {});
+
+    #[cfg(not(target_arch = "wasm32"))]
     let backup_store = Arc::new(SurrealBackupStore::new(db.clone()));
-    let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(db.clone()));
-    let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(db.clone()));
+    let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
+    let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
 
     Ok(DbContext {
         contact_store,

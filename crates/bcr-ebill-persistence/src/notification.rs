@@ -3,10 +3,14 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::Result;
-use bcr_ebill_core::notification::{ActionType, Notification, NotificationType};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    notification::{ActionType, Notification, NotificationType},
+};
 
-#[async_trait]
-pub trait NotificationStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NotificationStoreApi: ServiceTraitBounds {
     /// Stores a new notification into the database
     async fn add(&self, notification: Notification) -> Result<Notification>;
     /// Returns all currently active notifications from the database

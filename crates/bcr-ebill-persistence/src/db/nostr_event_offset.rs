@@ -1,52 +1,43 @@
-use super::Result;
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::{
+    Result,
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::{
     constants::{DB_NODE_ID, DB_TABLE},
     util::date::{self, DateTimeUtc},
 };
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 use crate::{NostrEventOffset, NostrEventOffsetStoreApi};
 
 #[derive(Clone)]
 pub struct SurrealNostrEventOffsetStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealNostrEventOffsetStore {
     const TABLE: &'static str = "nostr_event_offset";
 
-    #[allow(dead_code)]
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealNostrEventOffsetStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
     async fn current_offset(&self, node_id: &str) -> Result<u64> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_NODE_ID, node_id.to_owned())?;
         let result: Vec<NostrEventOffsetDb> = self
-            .db()
-            .await?
-            .query(format!("SELECT * FROM type::table($table) where {DB_NODE_ID} = $node_id ORDER BY time DESC LIMIT 1"))
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_NODE_ID, node_id.to_owned()))
-            .await?
-            .take(0)?;
+            .db
+            .query(&format!("SELECT * FROM type::table($table) where {DB_NODE_ID} = $node_id ORDER BY time DESC LIMIT 1"), bindings)
+            .await?;
         let value = result
             .first()
             .map(|c| c.time.timestamp())
@@ -57,17 +48,15 @@ impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
 
     async fn is_processed(&self, event_id: &str) -> Result<bool> {
         let result: Option<NostrEventOffsetDb> =
-            self.db().await?.select((Self::TABLE, event_id)).await?;
+            self.db.select_one(Self::TABLE, event_id.to_owned()).await?;
         Ok(result.is_some())
     }
 
     async fn add_event(&self, data: NostrEventOffset) -> Result<()> {
         let db: NostrEventOffsetDb = data.into();
         let _: Option<NostrEventOffsetDb> = self
-            .db()
-            .await?
-            .create((Self::TABLE, db.event_id.to_owned()))
-            .content(db)
+            .db
+            .create(Self::TABLE, Some(db.event_id.to_owned()), db)
             .await?;
         Ok(())
     }
@@ -170,6 +159,9 @@ mod tests {
         let mem_db = get_memory_db("test", "nostr_event_offset")
             .await
             .expect("could not create memory db");
-        SurrealNostrEventOffsetStore::new(mem_db)
+        SurrealNostrEventOffsetStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 }
