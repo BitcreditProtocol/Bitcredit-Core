@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{
+    ServiceTraitBounds, blockchain::bill::block::NodeId, contact::BillParticipant,
+};
 use log::info;
 
 #[cfg(test)]
@@ -7,7 +9,6 @@ use mockall::automock;
 use nostr::{nips::nip01::Metadata, types::RelayUrl};
 
 use crate::{Result, event::EventEnvelope};
-use bcr_ebill_core::contact::IdentityPublicData;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
@@ -19,7 +20,7 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
     /// Returns the senders public key for this instance.
     fn get_sender_key(&self) -> String;
     /// Sends a json event to the given recipient.
-    async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()>;
+    async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
     /// Resolves a nostr contact by node id.
     async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>>;
 }
@@ -35,10 +36,13 @@ impl NotificationJsonTransportApi for LoggingNotificationJsonTransport {
     fn get_sender_key(&self) -> String {
         "logging_key".to_string()
     }
-    async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()> {
+    async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()> {
         info!(
             "Sending json event: {:?}({}) with payload: {:?} to peer: {}",
-            event.event_type, event.version, event.data, recipient.node_id
+            event.event_type,
+            event.version,
+            event.data,
+            recipient.node_id()
         );
         Ok(())
     }

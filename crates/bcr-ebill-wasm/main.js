@@ -3,6 +3,8 @@ import * as wasm from '../pkg/index.js';
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("notif").addEventListener("click", triggerNotif);
 document.getElementById("contact_test").addEventListener("click", triggerContact);
+document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
+document.getElementById("fetch_contacts").addEventListener("click", fetchContacts);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
@@ -16,6 +18,7 @@ document.getElementById("bill_fetch_bills").addEventListener("click", fetchBillB
 document.getElementById("bill_balances").addEventListener("click", fetchBillBalances);
 document.getElementById("bill_search").addEventListener("click", fetchBillSearch);
 document.getElementById("endorse_bill").addEventListener("click", endorseBill);
+document.getElementById("blank_endorse_bill").addEventListener("click", endorseBillBlank);
 document.getElementById("req_to_accept_bill").addEventListener("click", requestToAcceptBill);
 document.getElementById("req_to_pay_bill").addEventListener("click", requestToPayBill);
 document.getElementById("offer_to_sell_bill").addEventListener("click", offerToSellBill);
@@ -24,7 +27,9 @@ document.getElementById("reject_accept").addEventListener("click", rejectAcceptB
 document.getElementById("reject_pay").addEventListener("click", rejectPayBill);
 document.getElementById("reject_buying").addEventListener("click", rejectBuyingBill);
 document.getElementById("reject_recourse").addEventListener("click", rejectRecourseBill);
-document.getElementById("bill_test").addEventListener("click", triggerBill);
+document.getElementById("bill_test_self_drafted").addEventListener("click", triggerBill.bind(null, 1, false));
+document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
+document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 
 async function start() {
@@ -34,7 +39,7 @@ async function start() {
     // esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
     bitcoin_network: "testnet",
     esplora_base_url: "https://esplora.minibill.tech",
-    nostr_relay: "ws://localhost:8080",
+    nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
     // if set to true we will drop DMs from nostr that we don't have in contacts
     nostr_only_known_contacts: false,
     job_runner_initial_delay_seconds: 1,
@@ -56,8 +61,19 @@ async function start() {
     identity = await identityApi.detail();
     console.log("local identity:", identity);
   } catch (err) {
-    console.log("No local identity found - creating..");
+    console.log("No local identity found - creating anon identity..");
     await identityApi.create({
+      t: 1,
+      name: "Cypherpunk",
+      email: "cypher@example.com",
+      postal_address: {},
+    });
+
+    identity = await identityApi.detail();
+
+    console.log("Deanonymizing identity..");
+    await identityApi.deanonymize({
+      t: 0,
       name: "Johanna Smith",
       email: "jsmith@example.com",
       postal_address: {
@@ -67,8 +83,6 @@ async function start() {
         address: "street 1",
       }
     });
-
-    identity = await identityApi.detail();
 
     // add self to contacts
     await contactApi.create({
@@ -178,22 +192,9 @@ async function uploadFile(event) {
 }
 
 async function triggerContact() {
-  let node_id = document.getElementById("node_id_bill").value;
+  let node_id = document.getElementById("node_id_contact").value;
   try {
     let contact = await contactApi.detail(node_id);
-    console.log("contact:", contact);
-    console.log("changing contact");
-    await contactApi.edit({
-      node_id: node_id,
-      name: "Weird Contact",
-      postal_address: {
-        country: "DE",
-        city: "Berlin",
-        zip: "10200",
-        address: "street 2",
-      }
-    });
-    contact = await contactApi.detail(node_id);
     console.log("contact:", contact);
   } catch (err) {
     console.log("No contact found - creating..");
@@ -212,17 +213,34 @@ async function triggerContact() {
       avatar_file_upload_id: file_upload_id,
     });
   }
-  let contacts = await contactApi.list();
-  console.log("contacts: ", contacts);
   let contact = await contactApi.detail(node_id);
-  console.log("contact: ", contact);
+  console.log("contact:", contact);
   document.getElementById("contact_id").value = node_id;
+  document.getElementById("node_id_bill").value = node_id;
   if (contact.avatar_file) {
     document.getElementById("contact_file_name").value = contact.avatar_file.name;
   }
 }
 
-async function triggerBill() {
+async function triggerAnonContact() {
+  let node_id = document.getElementById("node_id_contact").value;
+  try {
+    let contact = await contactApi.detail(node_id);
+    console.log("anon contact:", contact);
+  } catch (err) {
+    console.log("No contact found - creating..");
+    await contactApi.create({
+      t: 2,
+      node_id: node_id,
+      name: "some anon dude",
+      email: "text@example.com",
+    });
+  }
+  document.getElementById("contact_id").value = node_id;
+  document.getElementById("node_id_bill").value = node_id;
+}
+
+async function triggerBill(t, blank) {
   let measured = measure(async () => {
     console.log("creating bill");
 
@@ -235,23 +253,27 @@ async function triggerBill() {
     let file_upload_id = document.getElementById("file_upload_id").value || undefined;
     let node_id = document.getElementById("node_id_bill").value;
     let identity = await identityApi.detail();
-    let bill = await billApi.issue(
-      {
-        t: 1,
-        country_of_issuing: "AT",
-        city_of_issuing: "Vienna",
-        issue_date,
-        maturity_date,
-        payee: identity.node_id,
-        drawee: node_id,
-        sum: "1500",
-        currency: "sat",
-        country_of_payment: "UK",
-        city_of_payment: "London",
-        language: "en-UK",
-        file_upload_ids: file_upload_id ? [file_upload_id] : []
-      }
-    );
+    let bill_issue_data = {
+      t,
+      country_of_issuing: "AT",
+      city_of_issuing: "Vienna",
+      issue_date,
+      maturity_date,
+      payee: t == 0 ? node_id : identity.node_id,
+      drawee: t == 0 ? identity.node_id : node_id,
+      sum: "1500",
+      currency: "sat",
+      country_of_payment: "UK",
+      city_of_payment: "London",
+      language: "en-UK",
+      file_upload_ids: file_upload_id ? [file_upload_id] : []
+    };
+    let bill;
+    if (blank) {
+      bill = await billApi.issue_blank(bill_issue_data);
+    } else {
+      bill = await billApi.issue(bill_issue_data);
+    }
     let bill_id = bill.id;
     console.log("created bill with id: ", bill_id);
   });
@@ -298,6 +320,15 @@ async function endorseBill() {
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
     return await billApi.endorse_bill({ bill_id, endorsee });
+  });
+  await measured();
+}
+
+async function endorseBillBlank() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let endorsee = document.getElementById("endorsee_id").value;
+  let measured = measure(async () => {
+    return await billApi.endorse_bill_blank({ bill_id, endorsee });
   });
   await measured();
 }
@@ -438,3 +469,11 @@ function measure(promiseFunction) {
     return result;
   };
 }
+
+async function fetchContacts() {
+  let measured = measure(async () => {
+    return await contactApi.list();
+  });
+  await measured();
+}
+

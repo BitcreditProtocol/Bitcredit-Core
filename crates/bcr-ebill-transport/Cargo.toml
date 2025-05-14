@@ -1,6 +1,6 @@
 [package]
 name = "bcr-ebill-transport"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2024"
 license = "MIT"
 
@@ -23,3 +23,9 @@ async-broadcast.workspace = true
 
 [dev-dependencies]
 mockall = "0.13.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+reqwest = { workspace = true, features = ["json"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { workspace = true, features = ["default", "json"] }

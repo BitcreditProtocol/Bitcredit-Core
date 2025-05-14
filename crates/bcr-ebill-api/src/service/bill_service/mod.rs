@@ -5,8 +5,8 @@ use crate::data::{
         BillCombinedBitcoinKey, BillKeys, BillsBalanceOverview, BillsFilterRole, BitcreditBill,
         BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastEndorsee,
     },
-    contact::IdentityPublicData,
-    identity::Identity,
+    contact::BillParticipant,
+    identity::{Identity, IdentityWithAll},
 };
 use crate::util::BcrKeys;
 use async_trait::async_trait;
@@ -62,7 +62,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn get_combined_bitcoin_key_for_bill(
         &self,
         bill_id: &str,
-        caller_public_data: &IdentityPublicData,
+        caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey>;
 
@@ -104,7 +104,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         bill_id: &str,
         bill_action: BillAction,
-        signer_public_data: &IdentityPublicData,
+        signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<BillBlockchain>;
@@ -113,13 +113,33 @@ pub trait BillServiceApi: ServiceTraitBounds {
     /// paid status if they were paid
     async fn check_bills_payment(&self) -> Result<()>;
 
+    /// Check payment status of the bill with the given id that is requested to pay and not expired
+    /// and not paid yet updating their paid status if they were paid
+    async fn check_payment_for_bill(&self, bill_id: &str, identity: &Identity) -> Result<()>;
+
     /// Check payment status of bills that are waiting for a payment on an OfferToSell block, which
     /// haven't been expired, adding a Sell block if they were paid
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()>;
 
+    /// Check payment status of the bill with the given id that is waiting for a payment on an OfferToSell block, which
+    /// haven't been expired, adding a Sell block if they were paid
+    async fn check_offer_to_sell_payment_for_bill(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+    ) -> Result<()>;
+
     /// Check payment status of bills that are waiting for a payment on an RequestRecourse block, which
     /// haven't been expired, adding a Recourse block if they were paid
     async fn check_bills_in_recourse_payment(&self) -> Result<()>;
+
+    /// Check payment status of the bill with the given id that is waiting for a payment on an
+    /// RequestRecourse block, which haven't been expired, adding a Recourse block if they were paid
+    async fn check_recourse_payment_for_bill(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+    ) -> Result<()>;
 
     /// Check if actions expected on bills in certain states have expired and execute the necessary
     /// steps after timeout.
@@ -137,7 +157,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn get_past_payments(
         &self,
         bill_id: &str,
-        caller_public_data: &IdentityPublicData,
+        caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Vec<PastPaymentResult>>;
@@ -160,8 +180,8 @@ pub mod tests {
         service::company_service::tests::get_baseline_company_data,
         tests::tests::{
             TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET,
-            empty_address, empty_identity_public_data, identity_public_data_only_node_id,
-            init_test_cfg,
+            bill_identified_participant_only_node_id, empty_address,
+            empty_bill_identified_participant, init_test_cfg,
         },
         util,
     };
@@ -177,13 +197,14 @@ pub mod tests {
                 BillBlock, BillOpCode,
                 block::{
                     BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
-                    BillRecourseReasonBlockData, BillRejectBlockData, BillRequestRecourseBlockData,
-                    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
-                    BillSignatoryBlockData,
+                    BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
+                    BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
+                    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData, NodeId,
                 },
             },
         },
         constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
+        contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
         notification::ActionType,
     };
     use core::str;
@@ -205,16 +226,20 @@ pub mod tests {
 
         let mut bill1 = get_baseline_bill(TEST_BILL_ID);
         bill1.sum = 1000;
-        bill1.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill1.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut bill2 = get_baseline_bill("4321");
         bill2.sum = 2000;
-        bill2.drawee = identity_public_data_only_node_id(company_node_id.clone());
-        bill2.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill2.drawee = bill_identified_participant_only_node_id(company_node_id.clone());
+        bill2.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         let mut bill3 = get_baseline_bill("9999");
         bill3.sum = 20000;
-        bill3.drawer = identity_public_data_only_node_id(identity.identity.node_id.clone());
-        bill3.payee = identity_public_data_only_node_id(company_node_id.clone());
-        bill3.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill3.drawer = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+        bill3.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            company_node_id.clone(),
+        ));
+        bill3.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
 
         ctx.bill_store.expect_get_ids().returning(|| {
             Ok(vec![
@@ -269,19 +294,22 @@ pub mod tests {
         let mut bill1 = get_baseline_bill(TEST_BILL_ID);
         bill1.issue_date = "2020-05-01".to_string();
         bill1.sum = 1000;
-        bill1.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill1.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut bill2 = get_baseline_bill("4321");
         bill2.issue_date = "2030-05-01".to_string();
         bill2.sum = 2000;
-        bill2.drawee = identity_public_data_only_node_id(company_node_id.clone());
-        bill2.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
-        bill2.payee.name = "hayek".to_string();
+        bill2.drawee = bill_identified_participant_only_node_id(company_node_id.clone());
+        let mut payee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+        payee.name = "hayek".to_string();
+        bill2.payee = BillParticipant::Ident(payee);
         let mut bill3 = get_baseline_bill("9999");
         bill3.issue_date = "2030-05-01".to_string();
         bill3.sum = 20000;
-        bill3.drawer = identity_public_data_only_node_id(identity.identity.node_id.clone());
-        bill3.payee = identity_public_data_only_node_id(company_node_id.clone());
-        bill3.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill3.drawer = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+        bill3.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            company_node_id.clone(),
+        ));
+        bill3.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
 
         ctx.bill_store.expect_get_ids().returning(|| {
             Ok(vec![
@@ -415,9 +443,9 @@ pub mod tests {
         let service = get_service(ctx);
 
         let drawer = get_baseline_identity();
-        let mut drawee = empty_identity_public_data();
+        let mut drawee = empty_bill_identified_participant();
         drawee.node_id = BcrKeys::new().get_public_key();
-        let mut payee = empty_identity_public_data();
+        let mut payee = empty_bill_identified_participant();
         payee.node_id = BcrKeys::new().get_public_key();
 
         let bill = service
@@ -435,14 +463,163 @@ pub mod tests {
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
                 file_upload_ids: vec![TEST_BILL_ID.to_string()],
-                drawer_public_data: IdentityPublicData::new(drawer.identity).unwrap(),
+                drawer_public_data: BillParticipant::Ident(
+                    BillIdentParticipant::new(drawer.identity).unwrap(),
+                ),
                 drawer_keys: drawer.key_pair,
                 timestamp: 1731593928,
+                blank_issue: false,
             })
             .await
             .unwrap();
 
         assert_eq!(bill.files.first().unwrap().name, expected_file_name);
+        assert!(matches!(bill.payee, BillParticipant::Ident(_))); // payee is ident
+    }
+
+    #[tokio::test]
+    async fn issue_bill_baseline_anon() {
+        let mut ctx = get_ctx();
+        let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
+        let file_bytes = String::from("hello world").as_bytes().to_vec();
+        let mut payee = BillAnonParticipant::from(empty_bill_identified_participant());
+        payee.node_id = BcrKeys::new().get_public_key();
+
+        ctx.file_upload_store
+            .expect_read_temp_upload_file()
+            .returning(move |_| Ok((expected_file_name.to_string(), file_bytes.clone())));
+        ctx.file_upload_store
+            .expect_remove_temp_upload_folder()
+            .returning(|_| Ok(()));
+        ctx.file_upload_store
+            .expect_save_attached_file()
+            .returning(move |_, _, _| Ok(()));
+        ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        // should send a bill is signed event
+        ctx.notification_service
+            .expect_send_bill_is_signed_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service(ctx);
+
+        let drawer = get_baseline_identity();
+        let mut drawee = empty_bill_identified_participant();
+        drawee.node_id = BcrKeys::new().get_public_key();
+
+        let bill = service
+            .issue_new_bill(BillIssueData {
+                t: 2,
+                country_of_issuing: String::from("UK"),
+                city_of_issuing: String::from("London"),
+                issue_date: String::from("2030-01-01"),
+                maturity_date: String::from("2030-04-01"),
+                drawee: drawee.node_id,
+                payee: payee.node_id,
+                sum: String::from("100"),
+                currency: String::from("sat"),
+                country_of_payment: String::from("AT"),
+                city_of_payment: String::from("Vienna"),
+                language: String::from("en-UK"),
+                file_upload_ids: vec![TEST_BILL_ID.to_string()],
+                drawer_public_data: BillParticipant::Ident(
+                    BillIdentParticipant::new(drawer.identity).unwrap(),
+                ),
+                drawer_keys: drawer.key_pair,
+                timestamp: 1731593928,
+                blank_issue: true,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(bill.files.first().unwrap().name, expected_file_name);
+        assert!(matches!(bill.payee, BillParticipant::Anon(_))); // payee is anon
+    }
+
+    #[tokio::test]
+    async fn issue_bill_fails_for_anon_drawer() {
+        let ctx = get_ctx();
+        let service = get_service(ctx);
+
+        let drawer = get_baseline_identity();
+        let mut drawee = empty_bill_identified_participant();
+        drawee.node_id = BcrKeys::new().get_public_key();
+        let mut payee = empty_bill_identified_participant();
+        payee.node_id = BcrKeys::new().get_public_key();
+
+        let result = service
+            .issue_new_bill(BillIssueData {
+                t: 2,
+                country_of_issuing: String::from("UK"),
+                city_of_issuing: String::from("London"),
+                issue_date: String::from("2030-01-01"),
+                maturity_date: String::from("2030-04-01"),
+                drawee: drawee.node_id,
+                payee: payee.node_id,
+                sum: String::from("100"),
+                currency: String::from("sat"),
+                country_of_payment: String::from("AT"),
+                city_of_payment: String::from("Vienna"),
+                language: String::from("en-UK"),
+                file_upload_ids: vec![TEST_BILL_ID.to_string()],
+                drawer_public_data: BillParticipant::Anon(BillAnonParticipant::new(
+                    drawer.identity,
+                )),
+                drawer_keys: drawer.key_pair,
+                timestamp: 1731593928,
+                blank_issue: false,
+            })
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::DrawerIsNotBillIssuer)
+        ));
+    }
+
+    #[tokio::test]
+    async fn issue_bill_fails_for_self_drafted_blank() {
+        let ctx = get_ctx();
+        let service = get_service(ctx);
+
+        let drawer = get_baseline_identity();
+        let mut drawee = empty_bill_identified_participant();
+        drawee.node_id = BcrKeys::new().get_public_key();
+        let mut payee = empty_bill_identified_participant();
+        payee.node_id = BcrKeys::new().get_public_key();
+
+        let result = service
+            .issue_new_bill(BillIssueData {
+                t: 1,
+                country_of_issuing: String::from("UK"),
+                city_of_issuing: String::from("London"),
+                issue_date: String::from("2030-01-01"),
+                maturity_date: String::from("2030-04-01"),
+                drawee: drawee.node_id,
+                payee: payee.node_id,
+                sum: String::from("100"),
+                currency: String::from("sat"),
+                country_of_payment: String::from("AT"),
+                city_of_payment: String::from("Vienna"),
+                language: String::from("en-UK"),
+                file_upload_ids: vec![TEST_BILL_ID.to_string()],
+                drawer_public_data: BillParticipant::Ident(
+                    BillIdentParticipant::new(drawer.identity).unwrap(),
+                ),
+                drawer_keys: drawer.key_pair,
+                timestamp: 1731593928,
+                blank_issue: true,
+            })
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SelfDraftedBillCantBeBlank)
+        ));
     }
 
     #[tokio::test]
@@ -472,9 +649,9 @@ pub mod tests {
         let service = get_service(ctx);
 
         let drawer = get_baseline_company_data();
-        let mut drawee = empty_identity_public_data();
+        let mut drawee = empty_bill_identified_participant();
         drawee.node_id = BcrKeys::new().get_public_key();
-        let mut payee = empty_identity_public_data();
+        let mut payee = empty_bill_identified_participant();
         payee.node_id = BcrKeys::new().get_public_key();
 
         let bill = service
@@ -492,9 +669,10 @@ pub mod tests {
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
                 file_upload_ids: vec![TEST_BILL_ID.to_string()],
-                drawer_public_data: IdentityPublicData::from(drawer.1.0),
+                drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
                 drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
                 timestamp: 1731593928,
+                blank_issue: false,
             })
             .await
             .unwrap();
@@ -606,7 +784,9 @@ pub mod tests {
     async fn get_bills_baseline() {
         let mut ctx = get_ctx();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
 
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -641,10 +821,12 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut chain_bill = get_baseline_bill("4321");
-        chain_bill.payee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        chain_bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.payee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.participants.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         bill.participants
             .all_participant_node_ids
             .push(identity.identity.node_id.clone());
@@ -684,10 +866,12 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut chain_bill = get_baseline_bill("4321");
-        chain_bill.payee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        chain_bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.payee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.participants.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
         bill.participants
             .all_participant_node_ids
             .push(identity.identity.node_id.clone());
@@ -734,7 +918,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let company_node_id = BcrKeys::new().get_public_key();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(|_| Ok(get_genesis_chain(None)));
@@ -767,7 +953,9 @@ pub mod tests {
     async fn get_bills_req_to_pay() {
         let mut ctx = get_ctx();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -777,13 +965,15 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillRequestToPayBlockData {
-                        requester: IdentityPublicData::new(get_baseline_identity().identity)
-                            .unwrap()
-                            .into(),
+                        requester: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
                         currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     None,
@@ -831,7 +1021,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -867,7 +1057,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.drawee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.participants.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         let drawee_node_id = bill.participants.drawee.node_id.clone();
         bill.participants
             .all_participant_node_ids
@@ -906,10 +1096,11 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut chain_bill = get_baseline_bill(TEST_BILL_ID);
-        chain_bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        chain_bill.drawee =
+            bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut bill = get_baseline_cached_bill(TEST_BILL_ID.to_string());
         // make sure the local identity is part of the bill
-        bill.participants.drawee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.participants.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         let drawee_node_id = bill.participants.drawee.node_id.clone();
         bill.participants
             .all_participant_node_ids
@@ -957,7 +1148,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store
@@ -995,7 +1186,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1021,7 +1212,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -1031,7 +1222,7 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(bill.drawee.node_id.clone()),
+                    &bill_identified_participant_only_node_id(bill.drawee.node_id.clone()),
                     None,
                 )));
                 Ok(chain)
@@ -1068,7 +1259,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -1118,7 +1309,7 @@ pub mod tests {
                 .endorsee
                 .as_ref()
                 .unwrap()
-                .node_id,
+                .node_id(),
             identity.identity.node_id
         );
         assert!(res.as_ref().unwrap().status.redeemed_funds_available); // caller is endorsee
@@ -1131,7 +1322,7 @@ pub mod tests {
         let now = util::date::now().timestamp() as u64;
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -1179,7 +1370,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         let now = util::date::now().timestamp() as u64;
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -1229,7 +1420,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1240,7 +1431,7 @@ pub mod tests {
                 let req_to_pay_block = request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(bill.drawee.node_id.clone()),
+                    &bill_identified_participant_only_node_id(bill.drawee.node_id.clone()),
                     None,
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
@@ -1290,7 +1481,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1301,14 +1492,14 @@ pub mod tests {
                 let req_to_pay_block = request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(bill.drawee.node_id.clone()),
+                    &bill_identified_participant_only_node_id(bill.drawee.node_id.clone()),
                     None,
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
                 assert!(chain.try_add_block(recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(bill.drawee.node_id.clone())
+                    &bill_identified_participant_only_node_id(bill.drawee.node_id.clone())
                 )));
                 Ok(chain)
             });
@@ -1329,7 +1520,7 @@ pub mod tests {
         assert_eq!(res.as_ref().unwrap().id, TEST_BILL_ID.to_string());
         assert_eq!(
             res.as_ref().unwrap().participants.drawee.node_id,
-            drawee_node_id
+            drawee_node_id.clone()
         );
         assert!(res.as_ref().unwrap().status.recourse.requested_to_recourse);
         assert!(
@@ -1356,7 +1547,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1367,7 +1558,7 @@ pub mod tests {
                 let req_to_pay_block = request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(bill.drawee.node_id.clone()),
+                    &bill_identified_participant_only_node_id(bill.drawee.node_id.clone()),
                     None,
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
@@ -1421,7 +1612,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         let now = util::date::now().timestamp() as u64;
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1432,7 +1623,7 @@ pub mod tests {
                 let req_to_pay_block = request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(bill.drawee.node_id.clone()),
+                    &bill_identified_participant_only_node_id(bill.drawee.node_id.clone()),
                     Some(now - RECOURSE_DEADLINE_SECONDS * 2),
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
@@ -1481,7 +1672,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1533,7 +1724,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
@@ -1585,7 +1776,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1640,7 +1831,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
@@ -1695,7 +1886,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let now = util::date::now().timestamp() as u64;
         bill.maturity_date =
             util::date::format_date_string(util::date::seconds(now - PAYMENT_DEADLINE_SECONDS * 2));
@@ -1752,7 +1943,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         let now = util::date::now().timestamp() as u64;
         ctx.bill_store.expect_exists().returning(|_| true);
@@ -1807,7 +1998,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1857,7 +2048,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -1908,7 +2099,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         let now = util::date::now().timestamp() as u64;
         ctx.bill_store.expect_exists().returning(|_| true);
@@ -1964,7 +2155,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         let now = util::date::now().timestamp() as u64;
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -2017,7 +2208,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
@@ -2036,7 +2227,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2047,11 +2240,42 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn accept_bill_fails_for_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::Accept,
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(matches!(
+            res.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SignerCantBeAnon)
+        ));
+    }
+
+    #[tokio::test]
     async fn accept_bill_as_company() {
         let mut ctx = get_ctx();
         let company = get_baseline_company_data();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(company.0.clone());
+        bill.drawee = bill_identified_participant_only_node_id(company.0.clone());
 
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2071,7 +2295,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &IdentityPublicData::from(company.1.0),
+                &BillParticipant::Ident(BillIdentParticipant::from(company.1.0)),
                 &BcrKeys::from_private_key(&company.1.1.private_key).unwrap(),
                 1731593928,
             )
@@ -2096,7 +2320,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2106,7 +2330,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2120,7 +2346,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let keys = identity.key_pair.clone();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut chain = get_genesis_chain(Some(bill.clone()));
         chain.blocks_mut().push(
             BillBlock::new(
@@ -2145,7 +2371,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Accept,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2159,7 +2387,9 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.maturity_date = "2022-11-12".to_string(); // maturity date has to be in the past
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
@@ -2178,7 +2408,46 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestToPay("sat".to_string()),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::RequestToPay);
+    }
+
+    #[tokio::test]
+    async fn request_pay_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.maturity_date = "2022-11-12".to_string(); // maturity date has to be in the past
+        bill.payee = BillParticipant::Anon(BillAnonParticipant::from(
+            bill_identified_participant_only_node_id(identity.identity.node_id.clone()),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        // Request to pay event should be sent
+        ctx.notification_service
+            .expect_send_request_to_pay_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RequestToPay("sat".to_string()),
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2193,7 +2462,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2203,7 +2474,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestToPay("sat".to_string()),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2216,7 +2489,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
@@ -2234,7 +2509,44 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestAcceptance,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::RequestToAccept);
+    }
+
+    #[tokio::test]
+    async fn request_acceptance_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Anon(BillAnonParticipant::from(
+            bill_identified_participant_only_node_id(identity.identity.node_id.clone()),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        // Request to accept event should be sent
+        ctx.notification_service
+            .expect_send_request_to_accept_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RequestAcceptance,
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2249,7 +2561,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2259,7 +2573,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestAcceptance,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2272,7 +2588,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
@@ -2294,11 +2612,62 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Mint(
-                    identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    BillParticipant::Ident(bill_identified_participant_only_node_id(
+                        BcrKeys::new().get_public_key(),
+                    )),
                     5000,
                     "sat".to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 3);
+        assert!(res.unwrap().blocks()[2].op_code == BillOpCode::Mint);
+    }
+
+    #[tokio::test]
+    async fn mint_bitcredit_bill_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+                chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
+                Ok(chain)
+            });
+        // Asset request to mint event is sent
+        ctx.notification_service
+            .expect_send_request_to_mint_event()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::Mint(
+                    BillParticipant::Anon(BillAnonParticipant::from(
+                        bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
+                    )),
+                    5000,
+                    "sat".to_string(),
+                ),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2313,7 +2682,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2328,11 +2699,15 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Mint(
-                    identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    BillParticipant::Ident(bill_identified_participant_only_node_id(
+                        BcrKeys::new().get_public_key(),
+                    )),
                     5000,
                     "sat".to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2345,7 +2720,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2354,8 +2731,14 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 TEST_BILL_ID,
-                BillAction::Mint(empty_identity_public_data(), 5000, "sat".to_string()),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                BillAction::Mint(
+                    BillParticipant::Ident(empty_bill_identified_participant()),
+                    5000,
+                    "sat".to_string(),
+                ),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2368,7 +2751,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
@@ -2385,11 +2770,57 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::OfferToSell(
-                    identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    BillParticipant::Ident(bill_identified_participant_only_node_id(
+                        BcrKeys::new().get_public_key(),
+                    )),
                     15000,
                     "sat".to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::OfferToSell);
+    }
+
+    #[tokio::test]
+    async fn offer_to_sell_bitcredit_bill_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        // Request to sell event should be sent
+        ctx.notification_service
+            .expect_send_offer_to_sell_event()
+            .returning(|_, _| Ok(()));
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::OfferToSell(
+                    BillParticipant::Anon(BillAnonParticipant::from(
+                        bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
+                    )),
+                    15000,
+                    "sat".to_string(),
+                ),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2404,7 +2835,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2414,11 +2847,15 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::OfferToSell(
-                    identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    BillParticipant::Ident(bill_identified_participant_only_node_id(
+                        BcrKeys::new().get_public_key(),
+                    )),
                     15000,
                     "sat".to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2431,8 +2868,10 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
-        let buyer = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        let buyer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let buyer_clone = buyer.clone();
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -2446,13 +2885,13 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillOfferToSellBlockData {
                         seller: bill.payee.clone().into(),
-                        buyer: buyer_clone.clone().into(),
+                        buyer: BillParticipantBlockData::Ident(buyer_clone.clone().into()),
                         currency: "sat".to_owned(),
                         sum: 15000,
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -2474,12 +2913,84 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Sell(
-                    buyer,
+                    BillParticipant::Ident(buyer),
                     15000,
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 3);
+        assert!(res.as_ref().unwrap().blocks()[1].op_code == BillOpCode::OfferToSell);
+        assert!(res.as_ref().unwrap().blocks()[2].op_code == BillOpCode::Sell);
+    }
+
+    #[tokio::test]
+    async fn sell_bitcredit_bill_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        let buyer = BillAnonParticipant::from(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
+        let buyer_clone = buyer.clone();
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+                let offer_to_sell = BillBlock::create_block_for_offer_to_sell(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillOfferToSellBlockData {
+                        seller: bill.payee.clone().into(),
+                        buyer: BillParticipantBlockData::Anon(buyer_clone.clone().into()),
+                        currency: "sat".to_owned(),
+                        sum: 15000,
+                        payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
+                        signatory: None,
+                        signing_timestamp: 1731593927,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::new(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    1731593927,
+                )
+                .unwrap();
+                chain.try_add_block(offer_to_sell);
+                Ok(chain)
+            });
+        // Request to sell event should be sent
+        ctx.notification_service
+            .expect_send_bill_is_sold_event()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::Sell(
+                    BillParticipant::Anon(buyer),
+                    15000,
+                    "sat".to_string(),
+                    VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                ),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2495,8 +3006,10 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
-        let buyer = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        let buyer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -2512,7 +3025,7 @@ pub mod tests {
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -2534,12 +3047,14 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Sell(
-                    buyer,
+                    BillParticipant::Ident(buyer),
                     15000,
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2552,7 +3067,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2566,12 +3083,16 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Sell(
-                    identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    BillParticipant::Ident(bill_identified_participant_only_node_id(
+                        BcrKeys::new().get_public_key(),
+                    )),
                     15000,
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2584,7 +3105,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2594,12 +3117,16 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::Sell(
-                    identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    BillParticipant::Ident(bill_identified_participant_only_node_id(
+                        BcrKeys::new().get_public_key(),
+                    )),
                     15000,
                     "sat".to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2612,7 +3139,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
@@ -2628,10 +3157,50 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 TEST_BILL_ID,
-                BillAction::Endorse(identity_public_data_only_node_id(
-                    BcrKeys::new().get_public_key(),
+                BillAction::Endorse(BillParticipant::Ident(
+                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
                 )),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::Endorse);
+    }
+
+    #[tokio::test]
+    async fn endorse_bitcredit_bill_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        // Bill is endorsed event should be sent
+        ctx.notification_service
+            .expect_send_bill_is_endorsed_event()
+            .returning(|_| Ok(()));
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::Endorse(BillParticipant::Anon(BillAnonParticipant::from(
+                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
+                ))),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2646,7 +3215,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.identity.node_id.clone());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -2654,7 +3225,7 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(BcrKeys::new().get_public_key()),
+                    &bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
                     None,
                 )));
                 Ok(chain)
@@ -2665,10 +3236,12 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 TEST_BILL_ID,
-                BillAction::Endorse(identity_public_data_only_node_id(
-                    BcrKeys::new().get_public_key(),
+                BillAction::Endorse(BillParticipant::Ident(
+                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key()),
                 )),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2688,7 +3261,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2697,8 +3272,10 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 TEST_BILL_ID,
-                BillAction::Endorse(empty_identity_public_data()),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                BillAction::Endorse(BillParticipant::Ident(empty_bill_identified_participant())),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -2712,7 +3289,9 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(identity.key_pair.get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.key_pair.get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2721,7 +3300,9 @@ pub mod tests {
         let res = service
             .get_combined_bitcoin_key_for_bill(
                 TEST_BILL_ID,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
             )
             .await;
@@ -2732,7 +3313,9 @@ pub mod tests {
     async fn get_combined_bitcoin_key_for_bill_err() {
         let mut ctx = get_ctx();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2742,7 +3325,9 @@ pub mod tests {
         let res = service
             .get_combined_bitcoin_key_for_bill(
                 TEST_BILL_ID,
-                &identity_public_data_only_node_id(non_participant_keys.get_public_key()),
+                &BillParticipant::Ident(bill_identified_participant_only_node_id(
+                    non_participant_keys.get_public_key(),
+                )),
                 &non_participant_keys,
             )
             .await;
@@ -2767,10 +3352,31 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn check_bills_offer_to_sell_payment_baseline() {
+    async fn check_payment_for_bill_baseline() {
+        let mut ctx = get_ctx();
+        let bill = get_baseline_bill(TEST_BILL_ID);
+        ctx.bill_store
+            .expect_get_bill_ids_waiting_for_payment()
+            .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
+        ctx.bill_store.expect_set_to_paid().returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        let service = get_service(ctx);
+
+        let res = service
+            .check_payment_for_bill(TEST_BILL_ID, &get_baseline_identity().identity)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_bill_offer_to_sell_payment_baseline() {
         let mut ctx = get_ctx();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
 
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_sell_payment()
@@ -2783,7 +3389,7 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(buyer_node_id.clone()),
+                    &bill_identified_participant_only_node_id(buyer_node_id.clone()),
                     None,
                 )));
                 Ok(chain)
@@ -2794,7 +3400,9 @@ pub mod tests {
 
         let service = get_service(ctx);
 
-        let res = service.check_bills_offer_to_sell_payment().await;
+        let res = service
+            .check_offer_to_sell_payment_for_bill(TEST_BILL_ID, &get_baseline_identity())
+            .await;
         assert!(res.is_ok());
     }
 
@@ -2807,7 +3415,7 @@ pub mod tests {
 
         let company = get_baseline_company_data();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::from(company.1.0.clone());
+        bill.payee = BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
 
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_sell_payment()
@@ -2829,7 +3437,7 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &identity_public_data_only_node_id(buyer_node_id.clone()),
+                    &bill_identified_participant_only_node_id(buyer_node_id.clone()),
                     None,
                 )));
                 Ok(chain)
@@ -2987,7 +3595,7 @@ pub mod tests {
             .returning(|_, _, _| Ok(false));
 
         // we should have at least two participants
-        let recipient_check = function(|r: &Vec<IdentityPublicData>| r.len() >= 2);
+        let recipient_check = function(|r: &Vec<BillParticipant>| r.len() >= 2);
 
         // send accept timeout notification
         ctx.notification_service
@@ -3038,7 +3646,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawer = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -3054,17 +3662,143 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn get_endorsements_multi_with_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        let drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let mint_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        // endorsee is anon
+        let endorse_endorsee = BillAnonParticipant::from(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
+        let sell_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawer = drawer.clone();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
+        ctx.bill_store.expect_exists().returning(|_| true);
+        let mint_endorsee_clone = mint_endorsee.clone();
+        let sell_endorsee_clone = sell_endorsee.clone();
+
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let now = util::date::now().timestamp() as u64;
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+
+                // add endorse block from payee to endorsee
+                let endorse_block = BillBlock::create_block_for_endorse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillEndorseBlockData {
+                        endorsee: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                        // endorsed by payee
+                        endorser: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
+                        signatory: None,
+                        signing_timestamp: now + 1,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 1,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(endorse_block));
+
+                // add sell block from endorsee to sell endorsee
+                let sell_block = BillBlock::create_block_for_sell(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillSellBlockData {
+                        buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
+                        // endorsed by endorsee
+                        seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                        currency: "sat".to_string(),
+                        sum: 15000,
+                        payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                        signatory: None,
+                        signing_timestamp: now + 2,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 2,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(sell_block));
+
+                // add mint block from sell endorsee to mint endorsee
+                let mint_block = BillBlock::create_block_for_mint(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillMintBlockData {
+                        endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
+                        // endorsed by sell endorsee
+                        endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
+                        currency: "sat".to_string(),
+                        sum: 15000,
+                        signatory: None,
+                        signing_timestamp: now + 3,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 3,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(mint_block));
+
+                Ok(chain)
+            });
+
+        let service = get_service(ctx);
+
+        let res = service
+            .get_endorsements(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        // with duplicates
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+        // mint was last, so it's first
+        assert_eq!(
+            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            mint_endorsee_clone.node_id
+        );
+        assert_eq!(
+            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
+            sell_endorsee_clone.node_id
+        );
+        // endorsee is not in the list, since they're anon
+    }
+
+    #[tokio::test]
     async fn get_endorsements_multi() {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        let drawer = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let mint_endorsee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let endorse_endorsee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let sell_endorsee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let mint_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let endorse_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let sell_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         bill.drawer = drawer.clone();
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
         ctx.bill_store.expect_exists().returning(|_| true);
         let endorse_endorsee_clone = endorse_endorsee.clone();
         let mint_endorsee_clone = mint_endorsee.clone();
@@ -3081,14 +3815,16 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: endorse_endorsee.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         // endorsed by payee
-                        endorser: IdentityPublicData::new(get_baseline_identity().identity)
-                            .unwrap()
-                            .into(),
+                        endorser: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
                         signatory: None,
                         signing_timestamp: now + 1,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3103,15 +3839,15 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillSellBlockData {
-                        buyer: sell_endorsee.clone().into(),
+                        buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
-                        seller: endorse_endorsee.clone().into(),
+                        seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                         signatory: None,
                         signing_timestamp: now + 2,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3126,14 +3862,14 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillMintBlockData {
-                        endorsee: mint_endorsee.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
-                        endorser: sell_endorsee.clone().into(),
+                        endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now + 3,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3174,7 +3910,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawer = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -3195,7 +3931,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawer = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -3214,10 +3950,12 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        let drawer = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         bill.drawer = drawer.clone();
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
 
         ctx.bill_store.expect_exists().returning(|_| true);
         ctx.bill_blockchain_store
@@ -3238,18 +3976,198 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn get_past_endorsees_multi_with_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        let drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let mint_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        // endorsee is anon
+        let endorse_endorsee = BillAnonParticipant::from(bill_identified_participant_only_node_id(
+            BcrKeys::new().get_public_key(),
+        ));
+        let sell_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+
+        bill.drawer = drawer.clone();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
+
+        ctx.bill_store.expect_exists().returning(|_| true);
+        let mint_endorsee_clone = mint_endorsee.clone();
+        let sell_endorsee_clone = sell_endorsee.clone();
+
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let now = util::date::now().timestamp() as u64;
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+
+                // add endorse block from payee to endorsee
+                let endorse_block = BillBlock::create_block_for_endorse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillEndorseBlockData {
+                        endorsee: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                        // endorsed by payee
+                        endorser: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
+                        signatory: None,
+                        signing_timestamp: now + 1,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 1,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(endorse_block));
+
+                // add sell block from endorsee to sell endorsee
+                let sell_block = BillBlock::create_block_for_sell(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillSellBlockData {
+                        buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
+                        // endorsed by endorsee
+                        seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                        currency: "sat".to_string(),
+                        sum: 15000,
+                        payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                        signatory: None,
+                        signing_timestamp: now + 2,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 2,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(sell_block));
+
+                // add mint block from sell endorsee to mint endorsee
+                let mint_block = BillBlock::create_block_for_mint(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillMintBlockData {
+                        endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
+                        // endorsed by sell endorsee
+                        endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
+                        currency: "sat".to_string(),
+                        sum: 15000,
+                        signatory: None,
+                        signing_timestamp: now + 3,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 3,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(mint_block));
+
+                // add endorse block back to endorsee
+                let endorse_block_back = BillBlock::create_block_for_endorse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillEndorseBlockData {
+                        endorsee: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                        // endorsed by payee
+                        endorser: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
+                        signatory: None,
+                        signing_timestamp: now + 4,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 4,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(endorse_block_back));
+
+                // add endorse block back to payee (caller)
+                let endorse_block_last = BillBlock::create_block_for_endorse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillEndorseBlockData {
+                        endorsee: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
+                        // endorsed by payee
+                        endorser: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                        signatory: None,
+                        signing_timestamp: now + 5,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 5,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(endorse_block_last));
+
+                Ok(chain)
+            });
+        let service = get_service(ctx);
+
+        let res = service
+            .get_past_endorsees(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        // if there are mint, sell and endorse blocks, they are considered
+        // but without duplicates
+        // anon endorsements are not added
+        assert_eq!(res.as_ref().unwrap().len(), 3);
+        // endorse endorsee is anon, so is not there
+        // mint endorsee is the one after that
+        assert_eq!(
+            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            mint_endorsee_clone.node_id
+        );
+        // sell endorsee is the next one
+        assert_eq!(
+            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
+            sell_endorsee_clone.node_id
+        );
+        // drawer is the last one, because endorse endorsee is already there
+        // and drawer != drawee
+        assert_eq!(
+            res.as_ref().unwrap()[2].pay_to_the_order_of.node_id,
+            drawer.node_id
+        );
+    }
+
+    #[tokio::test]
     async fn get_past_endorsees_multi() {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        let drawer = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let mint_endorsee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let endorse_endorsee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let sell_endorsee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        let drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let mint_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let endorse_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let sell_endorsee =
+            bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
 
         bill.drawer = drawer.clone();
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
 
         ctx.bill_store.expect_exists().returning(|_| true);
         let endorse_endorsee_clone = endorse_endorsee.clone();
@@ -3267,14 +4185,16 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: endorse_endorsee.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         // endorsed by payee
-                        endorser: IdentityPublicData::new(get_baseline_identity().identity)
-                            .unwrap()
-                            .into(),
+                        endorser: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
                         signatory: None,
                         signing_timestamp: now + 1,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3289,15 +4209,15 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillSellBlockData {
-                        buyer: sell_endorsee.clone().into(),
+                        buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
-                        seller: endorse_endorsee.clone().into(),
+                        seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                         signatory: None,
                         signing_timestamp: now + 2,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3312,14 +4232,14 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillMintBlockData {
-                        endorsee: mint_endorsee.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
-                        endorser: sell_endorsee.clone().into(),
+                        endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         currency: "sat".to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now + 3,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3334,12 +4254,12 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: endorse_endorsee.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         // endorsed by payee
-                        endorser: mint_endorsee.clone().into(),
+                        endorser: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         signatory: None,
                         signing_timestamp: now + 4,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3354,14 +4274,16 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
-                        endorsee: IdentityPublicData::new(get_baseline_identity().identity)
-                            .unwrap()
-                            .into(),
+                        endorsee: BillParticipantBlockData::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity)
+                                .unwrap()
+                                .into(),
+                        ),
                         // endorsed by payee
-                        endorser: endorse_endorsee.clone().into(),
+                        endorser: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         signatory: None,
                         signing_timestamp: now + 5,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3430,19 +4352,19 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
                 assert!(chain.try_add_block(sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                 )));
                 // rejected
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
                 assert!(
@@ -3452,14 +4374,14 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
                 // active
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     Some(1931593928),
                 )));
 
@@ -3471,7 +4393,9 @@ pub mod tests {
         let res_past_payments = service
             .get_past_payments(
                 TEST_BILL_ID,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1931593928,
             )
@@ -3537,20 +4461,20 @@ pub mod tests {
                 assert!(chain.try_add_block(request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
                 // recourse - paid
                 assert!(chain.try_add_block(recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                 )));
                 // req to recourse
                 assert!(chain.try_add_block(request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
                 // reject
@@ -3562,14 +4486,14 @@ pub mod tests {
                 assert!(chain.try_add_block(request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
                 // active
                 assert!(chain.try_add_block(request_to_recourse_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     Some(1931593928),
                 )));
 
@@ -3581,7 +4505,9 @@ pub mod tests {
         let res_past_payments = service
             .get_past_payments(
                 TEST_BILL_ID,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1931593928,
             )
@@ -3639,7 +4565,7 @@ pub mod tests {
                         requester: payee.clone().into(),
                         signatory: None,
                         signing_timestamp: now + 1,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
@@ -3661,7 +4587,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectAcceptance,
-                &IdentityPublicData::new(identity.identity).unwrap(),
+                &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
                 &identity.key_pair,
                 now + 2,
             )
@@ -3671,6 +4597,64 @@ pub mod tests {
             res.as_ref().unwrap().blocks()[2].op_code,
             BillOpCode::RejectToAccept
         );
+    }
+
+    #[tokio::test]
+    async fn reject_acceptance_fails_for_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill(TEST_BILL_ID);
+        let payee = bill.payee.clone();
+        let now = util::date::now().timestamp() as u64;
+
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+
+                // add req to accept block
+                let req_to_accept = BillBlock::create_block_for_request_to_accept(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillRequestToAcceptBlockData {
+                        requester: payee.clone().into(),
+                        signatory: None,
+                        signing_timestamp: now + 1,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now + 1,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(req_to_accept));
+
+                Ok(chain)
+            });
+        ctx.notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(always(), eq(ActionType::AcceptBill))
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RejectAcceptance,
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity)),
+                &identity.key_pair,
+                now + 2,
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(matches!(
+            res.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SignerCantBeAnon)
+        ));
     }
 
     #[tokio::test]
@@ -3692,7 +4676,7 @@ pub mod tests {
                 assert!(chain.try_add_block(offer_to_sell_block(
                     TEST_BILL_ID,
                     chain.get_latest_block(),
-                    &IdentityPublicData::new(identity_clone.clone()).unwrap(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
                     None,
                 )));
 
@@ -3709,7 +4693,57 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectBuying,
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap().blocks()[2].op_code,
+            BillOpCode::RejectToBuy
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_buying_anon_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill(TEST_BILL_ID);
+
+        let identity_clone = identity.identity.clone();
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+
+                assert!(chain.try_add_block(offer_to_sell_block(
+                    TEST_BILL_ID,
+                    chain.get_latest_block(),
+                    &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
+                    None,
+                )));
+
+                Ok(chain)
+            });
+
+        ctx.notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(always(), eq(ActionType::BuyBill))
+            .returning(|_, _| Ok(()));
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RejectBuying,
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
                 1731593928,
             )
@@ -3747,7 +4781,7 @@ pub mod tests {
                         currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     None,
@@ -3769,7 +4803,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectPayment,
-                &IdentityPublicData::new(identity.identity).unwrap(),
+                &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
                 &identity.key_pair,
                 now + 1,
             )
@@ -3779,6 +4813,66 @@ pub mod tests {
             res.as_ref().unwrap().blocks()[2].op_code,
             BillOpCode::RejectToPay
         );
+    }
+
+    #[tokio::test]
+    async fn reject_payment_fails_for_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill(TEST_BILL_ID);
+        ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
+        let payee = bill.payee.clone();
+        let now = util::date::now().timestamp() as u64;
+
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+
+                // add req to pay
+                let req_to_pay = BillBlock::create_block_for_request_to_pay(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillRequestToPayBlockData {
+                        requester: payee.clone().into(),
+                        currency: "sat".to_string(),
+                        signatory: None,
+                        signing_timestamp: now,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(req_to_pay));
+
+                Ok(chain)
+            });
+        ctx.notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(always(), eq(ActionType::PayBill))
+            .returning(|_, _| Ok(()));
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RejectPayment,
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity)),
+                &identity.key_pair,
+                now + 1,
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(matches!(
+            res.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SignerCantBeAnon)
+        ));
     }
 
     #[tokio::test]
@@ -3802,8 +4896,8 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: payee.clone().into(),
-                        recoursee: IdentityPublicData::new(get_baseline_identity().identity)
+                        recourser: bill_identified_participant_only_node_id(payee.node_id()).into(),
+                        recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                             .unwrap()
                             .into(),
                         currency: "sat".to_string(),
@@ -3834,7 +4928,7 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RejectPaymentForRecourse,
-                &IdentityPublicData::new(identity.identity).unwrap(),
+                &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
                 &identity.key_pair,
                 now + 1,
             )
@@ -3847,10 +4941,77 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn reject_recourse_fails_for_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill(TEST_BILL_ID);
+        let payee = bill.payee.clone();
+        let now = util::date::now().timestamp() as u64;
+
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+
+                // add req to pay
+                let req_to_pay = BillBlock::create_block_for_request_recourse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillRequestRecourseBlockData {
+                        recourser: bill_identified_participant_only_node_id(payee.node_id()).into(),
+                        recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
+                            .unwrap()
+                            .into(),
+                        currency: "sat".to_string(),
+                        sum: 15000,
+                        recourse_reason: BillRecourseReasonBlockData::Pay,
+                        signatory: None,
+                        signing_timestamp: now,
+                        signing_address: empty_address(),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    now,
+                )
+                .unwrap();
+                assert!(chain.try_add_block(req_to_pay));
+
+                Ok(chain)
+            });
+        ctx.notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(always(), eq(ActionType::RecourseBill))
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RejectPaymentForRecourse,
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity)),
+                &identity.key_pair,
+                now + 1,
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(matches!(
+            res.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SignerCantBeAnon)
+        ));
+    }
+
+    #[tokio::test]
     async fn check_bills_in_recourse_payment_baseline() {
         let mut ctx = get_ctx();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        bill.payee = BillParticipant::Ident(
+            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+        );
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -3868,10 +5029,11 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: IdentityPublicData::new(get_baseline_identity().identity)
+                        recourser: BillIdentParticipant::new(get_baseline_identity().identity)
                             .unwrap()
                             .into(),
-                        recoursee: identity_public_data_only_node_id(recoursee.clone()).into(),
+                        recoursee: bill_identified_participant_only_node_id(recoursee.clone())
+                            .into(),
                         currency: "sat".to_string(),
                         sum: 15000,
                         recourse_reason: BillRecourseReasonBlockData::Pay,
@@ -3907,7 +5069,7 @@ pub mod tests {
 
         let company = get_baseline_company_data();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.payee = IdentityPublicData::from(company.1.0.clone());
+        bill.payee = BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -3935,8 +5097,9 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: IdentityPublicData::from(company_clone.clone()).into(),
-                        recoursee: identity_public_data_only_node_id(recoursee.clone()).into(),
+                        recourser: BillIdentParticipant::from(company_clone.clone()).into(),
+                        recoursee: bill_identified_participant_only_node_id(recoursee.clone())
+                            .into(),
                         currency: "sat".to_string(),
                         sum: 15000,
                         recourse_reason: BillRecourseReasonBlockData::Pay,
@@ -3970,10 +5133,11 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let recoursee = bill.payee.clone();
-        let endorsee_caller = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let payee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(payee.clone());
+        let recoursee = payee.clone();
+        let endorsee_caller = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -3987,10 +5151,10 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
                         endorser: bill.payee.clone().into(),
-                        endorsee: endorsee_caller.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -4006,7 +5170,7 @@ pub mod tests {
                         requester: bill.payee.clone().into(),
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -4043,7 +5207,9 @@ pub mod tests {
             .execute_bill_action(
                 TEST_BILL_ID,
                 BillAction::RequestRecourse(recoursee, RecourseReason::Accept),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -4054,14 +5220,15 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn request_recourse_payment_baseline() {
+    async fn request_recourse_fails_for_anon() {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        let recoursee = bill.payee.clone();
-        let endorsee_caller = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let payee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(payee.clone());
+        let recoursee = payee.clone();
+        let endorsee_caller = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -4076,10 +5243,10 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillEndorseBlockData {
                         endorser: bill.payee.clone().into(),
-                        endorsee: endorsee_caller.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -4096,7 +5263,7 @@ pub mod tests {
                         currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -4136,7 +5303,105 @@ pub mod tests {
                     recoursee,
                     RecourseReason::Pay(15000, "sat".to_string()),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(matches!(
+            res.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SignerCantBeAnon)
+        ));
+    }
+
+    #[tokio::test]
+    async fn request_recourse_payment_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let payee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = BillParticipant::Ident(payee.clone());
+        let recoursee = payee.clone();
+        let endorsee_caller = BillIdentParticipant::new(identity.identity.clone()).unwrap();
+
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+                let endorse_block = BillBlock::create_block_for_endorse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillEndorseBlockData {
+                        endorser: bill.payee.clone().into(),
+                        endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
+                        signatory: None,
+                        signing_timestamp: 1731593927,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::new(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    1731593927,
+                )
+                .unwrap();
+                chain.try_add_block(endorse_block);
+                let req_to_pay = BillBlock::create_block_for_request_to_pay(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillRequestToPayBlockData {
+                        requester: bill.payee.clone().into(),
+                        currency: "sat".to_string(),
+                        signatory: None,
+                        signing_timestamp: 1731593927,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::new(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    1731593927,
+                )
+                .unwrap();
+                chain.try_add_block(req_to_pay);
+                let reject_pay = BillBlock::create_block_for_reject_to_pay(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillRejectBlockData {
+                        rejecter: bill.drawee.clone().into(),
+                        signatory: None,
+                        signing_timestamp: 1731593927,
+                        signing_address: empty_address(),
+                    },
+                    &BcrKeys::new(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    1731593927,
+                )
+                .unwrap();
+                chain.try_add_block(reject_pay);
+                Ok(chain)
+            });
+        // Request to recourse event should be sent
+        ctx.notification_service
+            .expect_send_recourse_action_event()
+            .returning(|_, _, _| Ok(()));
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::RequestRecourse(
+                    recoursee,
+                    RecourseReason::Pay(15000, "sat".to_string()),
+                ),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -4151,9 +5416,10 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
-        bill.drawee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
-        bill.payee = IdentityPublicData::new(identity.identity.clone()).unwrap();
-        let recoursee = identity_public_data_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
+        let recoursee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
         let recoursee_clone = recoursee.clone();
         let identity_clone = identity.identity.clone();
 
@@ -4169,7 +5435,7 @@ pub mod tests {
                     TEST_BILL_ID.to_string(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: IdentityPublicData::new(identity_clone.clone())
+                        recourser: BillIdentParticipant::new(identity_clone.clone())
                             .unwrap()
                             .into(),
                         recoursee: recoursee_clone.clone().into(),
@@ -4205,7 +5471,9 @@ pub mod tests {
                     "sat".to_string(),
                     RecourseReason::Pay(15000, "sat".into()),
                 ),
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
                 &identity.key_pair,
                 1731593928,
             )
@@ -4213,6 +5481,78 @@ pub mod tests {
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().blocks().len(), 3);
         assert_eq!(res.unwrap().blocks()[2].op_code, BillOpCode::Recourse);
+    }
+
+    #[tokio::test]
+    async fn recourse_bitcredit_bill_fails_for_anon() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
+        let recoursee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        let recoursee_clone = recoursee.clone();
+        let identity_clone = identity.identity.clone();
+
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+                let req_to_recourse = BillBlock::create_block_for_request_recourse(
+                    TEST_BILL_ID.to_string(),
+                    chain.get_latest_block(),
+                    &BillRequestRecourseBlockData {
+                        recourser: BillIdentParticipant::new(identity_clone.clone())
+                            .unwrap()
+                            .into(),
+                        recoursee: recoursee_clone.clone().into(),
+                        sum: 15000,
+                        currency: "sat".to_string(),
+                        recourse_reason: BillRecourseReasonBlockData::Pay,
+                        signatory: None,
+                        signing_timestamp: 1731593927,
+                        signing_address: empty_address(),
+                    },
+                    &BcrKeys::new(),
+                    None,
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    1731593927,
+                )
+                .unwrap();
+                chain.try_add_block(req_to_recourse);
+                Ok(chain)
+            });
+        // Recourse paid event should be sent
+        ctx.notification_service
+            .expect_send_bill_recourse_paid_event()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .execute_bill_action(
+                TEST_BILL_ID,
+                BillAction::Recourse(
+                    recoursee,
+                    15000,
+                    "sat".to_string(),
+                    RecourseReason::Pay(15000, "sat".into()),
+                ),
+                &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(matches!(
+            res.as_ref().unwrap_err(),
+            Error::Validation(ValidationError::SignerCantBeAnon)
+        ));
     }
 
     #[test]
@@ -4255,8 +5595,8 @@ pub mod tests {
         bill_payment.current_waiting_state = Some(BillCurrentWaitingState::Payment(
             BillWaitingForPaymentState {
                 time_of_request: 1531593928,
-                payer: empty_identity_public_data(),
-                payee: empty_identity_public_data(),
+                payer: empty_bill_identified_participant(),
+                payee: BillParticipant::Ident(empty_bill_identified_participant()),
                 currency: "sat".into(),
                 sum: "10".into(),
                 link_to_pay: String::default(),

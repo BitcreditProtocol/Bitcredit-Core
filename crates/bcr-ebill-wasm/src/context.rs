@@ -53,7 +53,7 @@ impl Context {
             db.notification_store.clone(),
             contact_service.clone(),
             db.queued_message_store.clone(),
-            &cfg.nostr_config.relays[0].clone(),
+            cfg.nostr_config.relays.to_owned(),
         )
         .await?;
 

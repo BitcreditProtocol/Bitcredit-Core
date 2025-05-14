@@ -88,7 +88,7 @@ pub async fn create_notification_service(
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
-    nostr_relay: &str,
+    nostr_relays: Vec<String>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
     #[allow(clippy::arc_with_non_send_sync)]
     Ok(Arc::new(DefaultNotificationService::new(
@@ -99,7 +99,7 @@ pub async fn create_notification_service(
         notification_store,
         contact_service,
         queued_message_store,
-        nostr_relay,
+        nostr_relays,
     )))
 }
 

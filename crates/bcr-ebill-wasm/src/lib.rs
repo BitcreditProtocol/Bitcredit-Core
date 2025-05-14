@@ -1,7 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
-use bcr_ebill_api::{Config as ApiConfig, NostrConfig, get_db_context, init};
-use constants::SURREAL_DB_CON_INDXDB_DATA;
+use bcr_ebill_api::{Config as ApiConfig, NostrConfig, SurrealDbConfig, get_db_context, init};
 use context::{Context, get_ctx};
 use futures::{StreamExt, future::ready};
 use gloo_timers::future::{IntervalStream, TimeoutFuture};
@@ -16,7 +15,6 @@ use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
 pub mod api;
-mod constants;
 mod context;
 mod data;
 mod error;
@@ -28,7 +26,7 @@ pub struct Config {
     pub log_level: Option<String>,
     pub bitcoin_network: String,
     pub esplora_base_url: String,
-    pub nostr_relay: String,
+    pub nostr_relays: Vec<String>,
     pub nostr_only_known_contacts: Option<bool>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
@@ -63,10 +61,10 @@ pub async fn initialize_api(
     let api_config = ApiConfig {
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
-        surreal_db_connection: SURREAL_DB_CON_INDXDB_DATA.to_owned(),
+        db_config: SurrealDbConfig::default(),
         data_dir: "./".to_owned(), // unused in wasm
         nostr_config: NostrConfig {
-            relays: vec![config.nostr_relay],
+            relays: config.nostr_relays.to_owned(),
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
         },
     };

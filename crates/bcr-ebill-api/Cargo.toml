@@ -1,6 +1,6 @@
 [package]
 name = "bcr-ebill-api"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2024"
 license = "MIT"
 
@@ -23,13 +23,18 @@ bitcoin.workspace = true
 nostr-sdk.workspace = true
 nostr.workspace = true
 futures.workspace = true
-reqwest.workspace = true
 infer = { version = "0.19.0", default-features = false }
 bcr-ebill-core = { path = "../bcr-ebill-core" }
 bcr-ebill-persistence = { path = "../bcr-ebill-persistence" }
 bcr-ebill-transport = { path = "../bcr-ebill-transport" }
 tokio.workspace = true
 tokio_with_wasm.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+reqwest = { workspace = true, features = ["json"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { workspace = true, features = ["default", "json"] }
 
 [dev-dependencies]
 mockall = "0.13.1"

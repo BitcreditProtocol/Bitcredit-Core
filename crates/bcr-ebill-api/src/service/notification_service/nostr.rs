@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{contact::IdentityPublicData, util::crypto};
+use bcr_ebill_core::{blockchain::bill::block::NodeId, contact::BillParticipant, util::crypto};
 use bcr_ebill_transport::{
     event::EventEnvelope, handler::NotificationHandlerApi, transport::NostrContactData,
 };
@@ -295,10 +295,10 @@ impl NostrClient {
 
     pub async fn send_nip04_message(
         &self,
-        recipient: &IdentityPublicData,
+        recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id) {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id()) {
             let public_key = PublicKey::from_str(&npub).map_err(|e| {
                 error!("Failed to parse Nostr npub when sending a notification: {e}");
                 Error::Crypto("Failed to parse Nostr npub".to_string())
@@ -306,8 +306,9 @@ impl NostrClient {
             let message = serde_json::to_string(&event)?;
             let event =
                 create_nip04_event(self.get_nostr_keys().secret_key(), &public_key, &message)?;
-            if let Some(relay) = &recipient.nostr_relay {
-                if let Err(e) = self.client.send_event_builder_to(vec![relay], event).await {
+            let relays = recipient.nostr_relays();
+            if !relays.is_empty() {
+                if let Err(e) = self.client.send_event_builder_to(&relays, event).await {
                     error!("Error sending Nostr message: {e}")
                 };
             } else if let Err(e) = self.client.send_event_builder(event).await {
@@ -316,7 +317,7 @@ impl NostrClient {
         } else {
             error!(
                 "Try to send Nostr message but Nostr npub not found in contact {}",
-                recipient.name
+                recipient.node_id()
             );
         }
         Ok(())
@@ -324,19 +325,20 @@ impl NostrClient {
 
     async fn send_nip17_message(
         &self,
-        recipient: &IdentityPublicData,
+        recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id) {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id()) {
             let public_key = PublicKey::from_str(&npub).map_err(|e| {
                 error!("Failed to parse Nostr npub when sending a notification: {e}");
                 Error::Crypto("Failed to parse Nostr npub".to_string())
             })?;
             let message = serde_json::to_string(&event)?;
-            if let Some(relay) = &recipient.nostr_relay {
+            let relays = recipient.nostr_relays();
+            if !relays.is_empty() {
                 if let Err(e) = self
                     .client
-                    .send_private_msg_to(vec![relay], public_key, message, None)
+                    .send_private_msg_to(&relays, public_key, message, None)
                     .await
                 {
                     error!("Error sending Nostr message: {e}")
@@ -351,7 +353,7 @@ impl NostrClient {
         } else {
             error!(
                 "Try to send Nostr message but Nostr npub not found in contact {}",
-                recipient.name
+                recipient.node_id()
             );
         }
         Ok(())
@@ -369,7 +371,7 @@ impl NotificationJsonTransportApi for NostrClient {
 
     async fn send(
         &self,
-        recipient: &IdentityPublicData,
+        recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
         if self.use_nip04() {
@@ -638,6 +640,7 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
     use bcr_ebill_transport::handler::NotificationHandlerApi;
     use bcr_ebill_transport::{Event, EventEnvelope, EventType};
@@ -697,7 +700,7 @@ mod tests {
 
         // and a contact we want to send an event to
         let contact =
-            get_identity_public_data(&keys2.get_public_key(), "payee@example.com", Some(&url));
+            get_identity_public_data(&keys2.get_public_key(), "payee@example.com", vec![&url]);
         let mut event = create_test_event(&BillEventType::BillSigned);
         event.node_id = contact.node_id.to_owned();
 
@@ -773,7 +776,10 @@ mod tests {
                 });
                 // and send an event
                 client1
-                    .send(&contact, event.try_into().expect("could not convert event"))
+                    .send(
+                        &BillParticipant::Ident(contact),
+                        event.try_into().expect("could not convert event"),
+                    )
                     .await
                     .expect("failed to send event");
 
