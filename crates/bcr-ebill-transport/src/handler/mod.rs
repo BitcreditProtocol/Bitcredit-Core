@@ -163,6 +163,7 @@ mod test_utils {
     use bcr_ebill_persistence::{
         NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
+        nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
     use mockall::mock;
@@ -251,6 +252,20 @@ mod test_utils {
                 op_code: std::collections::HashSet<BillOpCode> ,
                 since: u64,
             ) -> Result<Vec<String>>;
+        }
+    }
+
+    mock! {
+        pub NostrContactStore {}
+
+        #[async_trait]
+        impl NostrContactStoreApi for NostrContactStore {
+            async fn by_node_id(&self, node_id: &str) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
+            async fn by_npub(&self, npub: &nostr::key::PublicKey) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
+            async fn upsert(&self, data: &bcr_ebill_core::nostr_contact::NostrContact) -> Result<()>;
+            async fn delete(&self, node_id: &str) -> Result<()>;
+            async fn set_handshake_status(&self, node_id: &str, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
+            async fn set_trust_level(&self, node_id: &str, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
         }
     }
 }

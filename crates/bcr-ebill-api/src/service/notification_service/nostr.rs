@@ -1,16 +1,19 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{blockchain::bill::block::NodeId, contact::BillParticipant, util::crypto};
-use bcr_ebill_transport::event::EventEnvelope;
-use bcr_ebill_transport::handler::NotificationHandlerApi;
+use bcr_ebill_transport::{
+    event::EventEnvelope, handler::NotificationHandlerApi, transport::NostrContactData,
+};
 use log::{error, info, trace, warn};
 use nostr_sdk::{
-    Client, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
-    RelayPoolNotification, SecretKey, Tag, Timestamp, ToBech32, UnsignedEvent,
+    Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
+    RelayPoolNotification, RelayUrl, SecretKey, SingleLetterTag, Tag, TagKind, TagStandard,
+    Timestamp, ToBech32, UnsignedEvent,
     nips::{nip04, nip59::UnwrappedGift},
 };
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::util::BcrKeys;
 use crate::{constants::NOSTR_EVENT_TIME_SLACK, service::contact_service::ContactServiceApi};
@@ -23,15 +26,21 @@ use tokio_with_wasm::alias as tokio;
 
 #[derive(Clone, Debug)]
 pub struct NostrConfig {
-    keys: BcrKeys,
-    relays: Vec<String>,
-    name: String,
+    pub keys: BcrKeys,
+    pub relays: Vec<String>,
+    pub name: String,
+    pub default_timeout: Duration,
 }
 
 impl NostrConfig {
     pub fn new(keys: BcrKeys, relays: Vec<String>, name: String) -> Self {
         assert!(!relays.is_empty());
-        Self { keys, relays, name }
+        Self {
+            keys,
+            relays,
+            name,
+            default_timeout: Duration::from_secs(20),
+        }
     }
 
     #[allow(dead_code)]
@@ -44,15 +53,21 @@ impl NostrConfig {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
 /// A wrapper around nostr_sdk that implements the NotificationJsonTransportApi.
 ///
 /// # Example:
 /// ```no_run
-/// let config = NostrConfig {
-///     keys: BcrKeys::new(),
-///     relays: vec!["wss://relay.example.com".to_string()],
-///     name: "My Company".to_string(),
-/// };
+/// let config = NostrConfig::new(
+///     BcrKeys::new(),
+///     vec!["wss://relay.example.com".to_string()],
+///     "My Company".to_string(),
+/// );
 /// let transport = NostrClient::new(&config).await.unwrap();
 /// transport.send(&recipient, event).await.unwrap();
 /// ```
@@ -63,6 +78,7 @@ impl NostrConfig {
 pub struct NostrClient {
     pub keys: BcrKeys,
     pub client: Client,
+    config: NostrConfig,
 }
 
 impl NostrClient {
@@ -88,7 +104,22 @@ impl NostrClient {
             error!("Failed to set and send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
-        Ok(Self { keys, client })
+
+        let client = Self {
+            keys,
+            client,
+            config: config.clone(),
+        };
+
+        client
+            .update_relay_list(config.relays.clone())
+            .await
+            .map_err(|e| {
+                error!("Failed to update relay list: {e}");
+                Error::Network("Failed to update relay list".to_string())
+            })?;
+
+        Ok(client)
     }
 
     pub fn get_node_id(&self) -> String {
@@ -113,6 +144,90 @@ impl NostrClient {
                 Error::Network("Failed to subscribe to Nostr events".to_string())
             })?;
         Ok(())
+    }
+
+    /// Returns the latest metadata event for the given npub either from the provided relays or
+    /// from this clients relays.
+    pub async fn fetch_metadata(&self, npub: PublicKey) -> Result<Option<Metadata>> {
+        let result = self
+            .client
+            .fetch_metadata(npub, self.config.default_timeout.to_owned())
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch Nostr metadata: {e}");
+                Error::Network("Failed to fetch Nostr metadata".to_string())
+            })?;
+        Ok(result)
+    }
+
+    /// Returns the relays a given npub is reading from or writing to.
+    // Relay list content (the actual relay urls) are stored as tags on the event. The event
+    // content itself is actually empty. Here we look for tags with a lowercase 'r' (specified
+    // as RelayMetadata) and filter for valid ones. Filter standardized filters and parses the
+    // matching tags into enum values.
+    pub async fn fetch_relay_list(
+        &self,
+        npub: PublicKey,
+        relays: Vec<String>,
+    ) -> Result<Vec<RelayUrl>> {
+        let filter = Filter::new().author(npub).kind(Kind::RelayList).limit(1);
+        let events = self.fetch_events(filter, None, Some(relays)).await?;
+        Ok(events
+            .first()
+            .map(|e| {
+                e.tags
+                    .filter_standardized(TagKind::SingleLetter(SingleLetterTag::lowercase(
+                        Alphabet::R,
+                    )))
+                    .filter_map(|f| match f {
+                        TagStandard::RelayMetadata { relay_url, .. } => Some(relay_url.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// Updates our relay list on all our configured write relays.
+    async fn update_relay_list(&self, relays: Vec<String>) -> Result<()> {
+        let event = EventBuilder::relay_list(
+            relays
+                .iter()
+                .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None))),
+        );
+        self.client.send_event_builder(event).await.map_err(|e| {
+            error!("Failed to send Nostr relay list: {e}");
+            Error::Network("Failed to send Nostr relay list".to_string())
+        })?;
+        Ok(())
+    }
+
+    /// Returns events that match filter from either the provided relays or from this clients
+    /// relays. If a order is provided, the events are sorted accordingly otherwise the default
+    /// descending order is used.
+    pub async fn fetch_events(
+        &self,
+        filter: Filter,
+        order: Option<SortOrder>,
+        relays: Option<Vec<String>>,
+    ) -> Result<Vec<Event>> {
+        let events = self
+            .client
+            .fetch_events_from(
+                relays.unwrap_or(self.config.relays.clone()),
+                filter,
+                self.config.default_timeout.to_owned(),
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch Nostr events: {e}");
+                Error::Network("Failed to fetch Nostr events".to_string())
+            })?;
+        let mut events = events.into_iter().collect::<Vec<Event>>();
+        if Some(SortOrder::Asc) == order {
+            events.reverse();
+        }
+        Ok(events)
     }
 
     pub async fn unwrap_envelope(
@@ -170,7 +285,7 @@ impl NostrClient {
                 }
             } else {
                 info!(
-                    "Received event with kind {} but expected GiftWrap",
+                    "Received event with kind {} but expected EncryptedDirectMessage",
                     event.kind
                 );
             }
@@ -253,6 +368,7 @@ impl NotificationJsonTransportApi for NostrClient {
     fn get_sender_key(&self) -> String {
         self.get_node_id()
     }
+
     async fn send(
         &self,
         recipient: &BillParticipant,
@@ -265,11 +381,38 @@ impl NotificationJsonTransportApi for NostrClient {
         }
         Ok(())
     }
+
+    async fn resolve_contact(
+        &self,
+        node_id: &str,
+    ) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>> {
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(node_id) {
+            let public_key = PublicKey::from_str(&npub).map_err(|e| {
+                error!("Failed to parse Nostr npub when sending a notification: {e}");
+                Error::Crypto("Failed to parse Nostr npub".to_string())
+            })?;
+            match self.fetch_metadata(public_key).await? {
+                Some(meta) => {
+                    let relays = self
+                        .fetch_relay_list(public_key, self.config.relays.clone())
+                        .await?;
+                    Ok(Some(NostrContactData {
+                        metadata: meta,
+                        relays,
+                    }))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            error!("Try to resolve Nostr contact but node_id {node_id} was invalid");
+            Ok(None)
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct NostrConsumer {
-    clients: HashMap<String, Arc<NostrClient>>,
+    clients: HashMap<PublicKey, Arc<NostrClient>>,
     event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
@@ -285,8 +428,8 @@ impl NostrConsumer {
     ) -> Self {
         let clients = clients
             .into_iter()
-            .map(|c| (c.get_node_id(), c))
-            .collect::<HashMap<String, Arc<NostrClient>>>();
+            .map(|c| (c.get_nostr_keys().public_key(), c))
+            .collect::<HashMap<PublicKey, Arc<NostrClient>>>();
         Self {
             clients,
             #[allow(clippy::arc_with_non_send_sync)]
@@ -305,20 +448,20 @@ impl NostrConsumer {
         let offset_store = self.offset_store.clone();
 
         let mut tasks = Vec::new();
-        let local_node_ids = clients.keys().cloned().collect::<Vec<String>>();
+        let local_node_ids = clients.keys().cloned().collect::<Vec<PublicKey>>();
 
         for (node_id, node_client) in clients.into_iter() {
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
-            let client_id = node_id.clone();
+            let client_id = node_id.to_hex();
             let contact_service = contact_service.clone();
             let local_node_ids = local_node_ids.clone();
 
             // Spawn a task for each client
             let task = spawn(async move {
                 // continue where we left off
-                let offset_ts = get_offset(&offset_store, &node_id).await;
+                let offset_ts = get_offset(&offset_store, &client_id).await;
                 let public_key = current_client.keys.get_nostr_keys().public_key();
                 let filter = Filter::new()
                     .pubkey(public_key)
@@ -338,7 +481,6 @@ impl NostrConsumer {
                         let client = inner.clone();
                         let event_handlers = event_handlers.clone();
                         let offset_store = offset_store.clone();
-                        let node_id = node_id.clone();
                         let client_id = client_id.clone();
                         let contact_service = contact_service.clone();
                         let local_node_ids = local_node_ids.clone();
@@ -352,13 +494,13 @@ impl NostrConsumer {
                                     let sender_node_id = sender.to_hex();
                                     trace!("Received event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}");
                                     // We use hex here, so we can compare it with our node_ids
-                                    if valid_sender(&sender_node_id, &local_node_ids, &contact_service).await {
+                                    if valid_sender(&sender, &local_node_ids, &contact_service).await {
                                         trace!("Processing event: {envelope:?}");
-                                        handle_event(envelope, &node_id, &event_handlers).await?;
+                                        handle_event(envelope, &client_id, &event_handlers).await?;
                                     }
 
                                     // store the new event offset
-                                    add_offset(&offset_store, event_id, time, true, &node_id).await;
+                                    add_offset(&offset_store, event_id, time, true, &client_id).await;
                                 }
                             };
                             Ok(false)
@@ -383,11 +525,11 @@ impl NostrConsumer {
 }
 
 async fn valid_sender(
-    node_id: &str,
-    local_node_ids: &[String],
+    node_id: &PublicKey,
+    local_node_ids: &[PublicKey],
     contact_service: &Arc<dyn ContactServiceApi>,
 ) -> bool {
-    if local_node_ids.contains(&node_id.to_string()) {
+    if local_node_ids.contains(node_id) {
         return true;
     }
     if let Ok(res) = contact_service.is_known_npub(node_id).await {
@@ -500,8 +642,8 @@ mod tests {
 
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
-    use bcr_ebill_transport::event::{Event, EventType};
     use bcr_ebill_transport::handler::NotificationHandlerApi;
+    use bcr_ebill_transport::{Event, EventEnvelope, EventType};
     use mockall::predicate;
     use tokio::time;
 
@@ -521,7 +663,7 @@ mod tests {
         pub NotificationHandler {}
         #[async_trait::async_trait]
         impl NotificationHandlerApi for NotificationHandler {
-            async fn handle_event(&self, event: bcr_ebill_transport::EventEnvelope, identity: &str) -> bcr_ebill_transport::Result<()>;
+            async fn handle_event(&self, event: EventEnvelope, identity: &str) -> bcr_ebill_transport::Result<()>;
             fn handles_event(&self, event_type: &EventType) -> bool;
         }
     }
@@ -538,20 +680,20 @@ mod tests {
         let keys2 = BcrKeys::new();
 
         // given two clients
-        let config1 = NostrConfig {
-            keys: keys1.clone(),
-            relays: vec![url.to_string()],
-            name: "BcrDamus1".to_string(),
-        };
+        let config1 = NostrConfig::new(
+            keys1.clone(),
+            vec![url.to_string()],
+            "BcrDamus1".to_string(),
+        );
         let client1 = NostrClient::new(&config1)
             .await
             .expect("failed to create nostr client 1");
 
-        let config2 = NostrConfig {
-            keys: keys2.clone(),
-            relays: vec![url.to_string()],
-            name: "BcrDamus2".to_string(),
-        };
+        let config2 = NostrConfig::new(
+            keys2.clone(),
+            vec![url.to_string()],
+            "BcrDamus2".to_string(),
+        );
         let client2 = NostrClient::new(&config2)
             .await
             .expect("failed to create nostr client 2");
@@ -566,7 +708,7 @@ mod tests {
         let mut contact_service = MockContactServiceApi::new();
         contact_service
             .expect_is_known_npub()
-            .with(predicate::eq(keys1.get_nostr_npub_as_hex()))
+            .with(predicate::eq(keys1.get_nostr_keys().public_key()))
             .returning(|_| Ok(true));
 
         // expect a handler that is subscribed to the event type w sent

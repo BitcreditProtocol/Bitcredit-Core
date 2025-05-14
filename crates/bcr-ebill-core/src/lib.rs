@@ -13,6 +13,7 @@ pub mod company;
 pub mod constants;
 pub mod contact;
 pub mod identity;
+pub mod nostr_contact;
 pub mod notification;
 #[cfg(test)]
 mod tests;

@@ -9,9 +9,9 @@ members = [
 ]
 
 [profile.release]
-opt-level = "s"      # Optimize for size ("z" can be used for even more aggressive size reduction)
-lto = true           # Enable Link-Time Optimization
-codegen-units = 1    # Reduces binary size at the cost of compile time
+opt-level = "s"   # Optimize for size ("z" can be used for even more aggressive size reduction)
+lto = true        # Enable Link-Time Optimization
+codegen-units = 1 # Reduces binary size at the cost of compile time
 
 [workspace.dependencies]
 sha2 = { version = "0.10", default-features = false }
@@ -36,8 +36,8 @@ uuid = { version = "1", default-features = false, features = ["v4", "js"] }
 bitcoin = { version = "0.32", default-features = false }
 bip39 = { version = "2.1", features = ["rand"] }
 ecies = { version = "0.2", default-features = false, features = ["pure"] }
-nostr = { version = "0.40"}
-nostr-sdk = { version = "0.40", features = ["nip04", "nip59"] }
+nostr = { version = "0.41" }
+nostr-sdk = { version = "0.41", features = ["nip04", "nip59"] }
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
 async-broadcast = "0.7.2"
 rstest = "0.25.0"

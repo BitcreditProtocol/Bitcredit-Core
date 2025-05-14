@@ -5,7 +5,7 @@ use crate::{
         MockBackupStoreApiMock, MockBillChainStoreApiMock, MockBillStoreApiMock,
         MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
         MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockNostrContactStore, MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
         MockNotificationStoreApiMock, bill_identified_participant_only_node_id,
         empty_bitcredit_bill,
     },
@@ -15,10 +15,7 @@ use bcr_ebill_core::{ServiceTraitBounds, contact::BillParticipant, notification:
 use nostr_relay_builder::prelude::*;
 
 use super::{NostrConfig, nostr::NostrClient};
-use bcr_ebill_transport::{
-    event::{Event, EventEnvelope, EventType},
-    handler::NotificationHandlerApi,
-};
+use bcr_ebill_transport::{Event, EventEnvelope, EventType, handler::NotificationHandlerApi};
 use serde::{Serialize, de::DeserializeOwned};
 use std::sync::Arc;
 
@@ -156,5 +153,6 @@ pub fn get_mock_db_context() -> DbContext {
         notification_store: Arc::new(MockNotificationStoreApiMock::new()),
         backup_store: Arc::new(MockBackupStoreApiMock::new()),
         queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
+        nostr_contact_store: Arc::new(MockNostrContactStore::new()),
     }
 }

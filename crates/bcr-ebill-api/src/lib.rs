@@ -24,9 +24,9 @@ pub use persistence::notification::NotificationFilter;
 pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: String,
-    pub nostr_relays: Vec<String>,
     pub db_config: SurrealDbConfig,
     pub data_dir: String,
+    pub nostr_config: NostrConfig,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -41,6 +41,15 @@ impl Config {
             _ => Network::Testnet,
         }
     }
+}
+
+/// Nostr specific configuration
+#[derive(Debug, Clone, Default)]
+pub struct NostrConfig {
+    /// Only known contacts can message us via DM.
+    pub only_known_contacts: bool,
+    /// All relays we want to publish our messages to and receive messages from.
+    pub relays: Vec<String>,
 }
 
 pub fn init(conf: Config) -> Result<()> {

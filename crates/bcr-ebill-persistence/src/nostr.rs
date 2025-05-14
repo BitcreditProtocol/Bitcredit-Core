@@ -1,5 +1,7 @@
 use super::Result;
 use async_trait::async_trait;
+use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel};
+use nostr::key::PublicKey;
 use serde_json::Value;
 
 /// Allows storing and retrieving time based offsets for subscriptions
@@ -59,4 +61,24 @@ pub struct NostrQueuedMessage {
     pub sender_id: String,
     pub node_id: String,
     pub payload: Value,
+}
+
+/// Keeps track of our Nostr contacts. We need to communicate with some network participants before
+/// we actually can add them as real contacts. This is also used to track the contact handshake
+/// process.
+#[async_trait]
+pub trait NostrContactStoreApi: Send + Sync {
+    /// Find a Nostr contact by the node id. This is the primary key for the contact.
+    async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+    /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
+    async fn by_npub(&self, npub: &PublicKey) -> Result<Option<NostrContact>>;
+    /// Creates a new or updates an existing Nostr contact.
+    async fn upsert(&self, data: &NostrContact) -> Result<()>;
+    /// Delete an Nostr contact. This will remove the contact from the store.
+    async fn delete(&self, node_id: &str) -> Result<()>;
+    /// Sets a new handshake status for the contact. This is used to track the handshake process.
+    async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
+    /// Sets a new trust level for the contact. This is used to track the trust level of the
+    /// contact.
+    async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
 }

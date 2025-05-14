@@ -535,8 +535,8 @@ mod tests {
         impl NotificationJsonTransportApi for NotificationJsonTransport {
             fn get_sender_key(&self) -> String;
             async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
         }
-
     }
 
     mock! {
@@ -553,9 +553,9 @@ mod tests {
     };
     use super::*;
     use crate::tests::tests::{
-        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrEventOffsetStoreApiMock,
-        MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_BILL_ID,
-        TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
+        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrContactStore,
+        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockNotificationStoreApiMock, TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -777,7 +777,7 @@ mod tests {
 
         // resolves node_id
         mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .returning(move || "node_id".to_string());
 
         // expect to send payment timeout event to all recipients
         mock.expect_send()
@@ -1619,7 +1619,7 @@ mod tests {
         let node_id = node_id.to_owned();
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
-            .returning(move || "node_id".to_owned());
+            .returning(move || "node_id".to_string());
         mock.expect_send()
             .withf(move |r, e| {
                 let valid_node_id = r.node_id() == node_id && e.node_id == node_id;
@@ -1665,6 +1665,7 @@ mod tests {
         let push_service = Arc::new(MockPushService::new());
         let bill_store = Arc::new(MockBillStoreApiMock::new());
         let bill_blockchain_store = Arc::new(MockBillChainStoreApiMock::new());
+        let nostr_contact_store = Arc::new(MockNostrContactStore::new());
         let _ = create_nostr_consumer(
             clients,
             contact_service,
@@ -1673,6 +1674,7 @@ mod tests {
             push_service,
             bill_blockchain_store,
             bill_store,
+            nostr_contact_store,
         )
         .await;
     }
@@ -1681,7 +1683,7 @@ mod tests {
     async fn test_send_retry_messages_success() {
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender_id = "test_sender";
+        let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
             node_id: node_id.to_string(),
             version: "1.0".to_string(),
@@ -1689,7 +1691,6 @@ mod tests {
             data: serde_json::Value::Null,
         })
         .unwrap();
-
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
             sender_id: sender_id.to_string(),
@@ -1709,7 +1710,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| sender_id.to_string());
+            .returning(|| "node_id".to_string());
         mock_transport.expect_send().returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -1743,7 +1744,7 @@ mod tests {
     async fn test_send_retry_messages_with_send_failure() {
         let node_id = "test_node_id";
         let message_id = "test_message_id";
-        let sender_id = "test_sender";
+        let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
             node_id: node_id.to_string(),
             version: "1.0".to_string(),
@@ -1771,7 +1772,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| sender_id.to_string());
+            .returning(|| "node_id".to_string());
 
         mock_transport
             .expect_send()
@@ -1941,7 +1942,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| sender.to_string());
+            .returning(|| "node_id".to_string());
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -1987,7 +1988,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| sender.to_string());
+            .returning(|| "node_id".to_string());
         mock_transport
             .expect_send()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
@@ -2057,7 +2058,7 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
             .expect_get_sender_key()
-            .returning(|| sender.to_string());
+            .returning(|| "node_id".to_string());
         mock_transport.expect_send().returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();

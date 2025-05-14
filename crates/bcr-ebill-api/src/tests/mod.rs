@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
-    use crate::{CONFIG, data::bill::BillKeys};
+    use crate::{CONFIG, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
@@ -14,6 +14,7 @@ pub mod tests {
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
+        nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
     };
@@ -24,7 +25,7 @@ pub mod tests {
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
         identity::{IdentityChainStoreApi, IdentityStoreApi},
-        nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi},
+        nostr::{NostrContactStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi},
         notification::NotificationFilter,
     };
     use bcr_ebill_transport::{BillChainEvent, NotificationServiceApi};
@@ -43,6 +44,20 @@ pub mod tests {
             async fn insert(&self, node_id: &str, data: Contact) -> Result<()>;
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn update(&self, node_id: &str, data: Contact) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub NostrContactStore {}
+
+        #[async_trait]
+        impl NostrContactStoreApi for NostrContactStore {
+            async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+            async fn by_npub(&self, npub: &nostr::key::PublicKey) -> Result<Option<NostrContact>>;
+            async fn upsert(&self, data: &NostrContact) -> Result<()>;
+            async fn delete(&self, node_id: &str) -> Result<()>;
+            async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
+            async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
         }
     }
 
@@ -316,12 +331,15 @@ pub mod tests {
                 crate::init(crate::Config {
                     bitcoin_network: "mainnet".to_string(),
                     esplora_base_url: "https://esplora.minibill.tech".to_string(),
-                    nostr_relays: vec!["ws://localhost:8080".to_string()],
                     db_config: SurrealDbConfig {
                         connection_string: "ws://localhost:8800".to_string(),
                         ..SurrealDbConfig::default()
                     },
                     data_dir: ".".to_string(),
+                    nostr_config: NostrConfig {
+                        only_known_contacts: false,
+                        relays: vec!["ws://localhost:8080".to_string()],
+                    },
                 })
                 .unwrap();
             }

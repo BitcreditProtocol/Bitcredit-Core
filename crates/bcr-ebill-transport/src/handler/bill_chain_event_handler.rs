@@ -1,6 +1,7 @@
 use super::NotificationHandlerApi;
 use crate::BillChainEventPayload;
 use crate::EventType;
+use crate::NotificationJsonTransportApi;
 use crate::{Error, Event, EventEnvelope, PushApi, Result};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
@@ -12,11 +13,15 @@ use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
+use bcr_ebill_core::nostr_contact::HandshakeStatus;
+use bcr_ebill_core::nostr_contact::NostrContact;
+use bcr_ebill_core::nostr_contact::TrustLevel;
 use bcr_ebill_core::notification::BillEventType;
 use bcr_ebill_core::notification::{Notification, NotificationType};
 use bcr_ebill_persistence::NotificationStoreApi;
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
+use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info, trace, warn};
 use std::sync::Arc;
 
@@ -26,6 +31,8 @@ pub struct BillChainEventHandler {
     push_service: Arc<dyn PushApi>,
     bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     bill_store: Arc<dyn BillStoreApi>,
+    transport: Arc<dyn NotificationJsonTransportApi>,
+    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
 }
 
 impl BillChainEventHandler {
@@ -34,12 +41,46 @@ impl BillChainEventHandler {
         push_service: Arc<dyn PushApi>,
         bill_blockchain_store: Arc<dyn BillChainStoreApi>,
         bill_store: Arc<dyn BillStoreApi>,
+        transport: Arc<dyn NotificationJsonTransportApi>,
+        nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     ) -> Self {
         Self {
             notification_store,
             push_service,
             bill_blockchain_store,
             bill_store,
+            transport,
+            nostr_contact_store,
+        }
+    }
+
+    async fn ensure_nostr_contact(&self, node_id: &str) {
+        // we already have the contact in the store, no need to resolve it
+        if let Ok(Some(_)) = self.nostr_contact_store.by_node_id(node_id).await {
+            return;
+        }
+        // Let's try to get some details and add the contact
+        if let Ok(Some(contact)) = self.transport.resolve_contact(node_id).await {
+            let relays = contact
+                .relays
+                .iter()
+                .map(|r| r.as_str().to_owned())
+                .collect();
+            if let Err(e) = self
+                .nostr_contact_store
+                .upsert(&NostrContact {
+                    node_id: node_id.to_string(),
+                    name: contact.metadata.name,
+                    relays,
+                    trust_level: TrustLevel::Participant,
+                    handshake_status: HandshakeStatus::None,
+                })
+                .await
+            {
+                error!("Failed to save nostr contact information for node_id {node_id}: {e}");
+            }
+        } else {
+            info!("Could not resolve nostr contact information for node_id {node_id}");
         }
     }
 
@@ -144,6 +185,7 @@ impl BillChainEventHandler {
             error!("Could not process received blocks for bill {bill_id} because getting first version bill data failed");
             Error::Blockchain(e.to_string())
         })?;
+
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
         for block in blocks {
             block_added = self
@@ -162,6 +204,14 @@ impl BillChainEventHandler {
             debug!("block was added for bill {bill_id} - invalidating cache");
             if let Err(e) = self.invalidate_cache_for_bill(bill_id).await {
                 error!("Error invalidating cache for bill {bill_id}: {e}");
+            }
+
+            // ensure that we have all nostr contacts for the bill participants
+            let node_ids = chain
+                .get_all_nodes_from_bill(&bill_keys)
+                .unwrap_or_default();
+            for node_id in node_ids {
+                self.ensure_nostr_contact(&node_id).await
             }
         }
         Ok(())
@@ -285,6 +335,13 @@ impl BillChainEventHandler {
             }
         }
         self.save_keys(&bill_id, keys).await?;
+
+        // ensure that we have all nostr contacts for the bill participants
+        let node_ids = chain.get_all_nodes_from_bill(keys).unwrap_or_default();
+        for node_id in node_ids {
+            self.ensure_nostr_contact(&node_id).await
+        }
+
         Ok(())
     }
 
@@ -449,21 +506,37 @@ mod tests {
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
+    use nostr::nips::nip01::Metadata;
 
-    use crate::handler::test_utils::{
-        MockBillChainStore, MockBillStore, MockNotificationStore, MockPushService,
+    use crate::{
+        handler::test_utils::{
+            MockBillChainStore, MockBillStore, MockNostrContactStore, MockNotificationStore,
+            MockPushService,
+        },
+        transport::NostrContactData,
     };
+
+    use crate::transport::MockNotificationJsonTransportApi;
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (notification_store, push_service, bill_chain_store, bill_store) = create_mocks();
+        let (
+            notification_store,
+            push_service,
+            bill_chain_store,
+            bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
         BillChainEventHandler::new(
             Arc::new(notification_store),
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
     }
 
@@ -477,8 +550,14 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (notification_store, push_service, mut bill_chain_store, mut bill_store) =
-            create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            mut bill_store,
+            mut transport,
+            mut contact_store,
+        ) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -497,11 +576,29 @@ mod tests {
             .times(1)
             .returning(move |_, _| Ok(()));
 
+        // If we don't have the contact in the store, we will try to resolve it via Nostr
+        contact_store.expect_by_node_id().returning(|_| Ok(None));
+
+        // If we get data it should be store to the store
+        transport.expect_resolve_contact().returning(|_| {
+            Ok(Some(NostrContactData {
+                metadata: Metadata {
+                    name: Some("name".to_string()),
+                    ..Default::default()
+                },
+                relays: vec![],
+            }))
+        });
+
+        contact_store.expect_upsert().returning(|_| Ok(()));
+
         let handler = BillChainEventHandler::new(
             Arc::new(notification_store),
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -550,8 +647,14 @@ mod tests {
         .unwrap();
         assert!(chain.try_add_block(block));
 
-        let (notification_store, push_service, mut bill_chain_store, mut bill_store) =
-            create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            mut bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -575,6 +678,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -606,8 +711,14 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (notification_store, push_service, mut bill_chain_store, mut bill_store) =
-            create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            mut bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -629,6 +740,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -679,8 +792,14 @@ mod tests {
         )
         .unwrap();
 
-        let (notification_store, push_service, mut bill_chain_store, mut bill_store) =
-            create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            mut bill_store,
+            transport,
+            mut contact_store,
+        ) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -705,11 +824,23 @@ mod tests {
             .times(1)
             .returning(move |_, _| Ok(()));
 
+        contact_store.expect_by_node_id().returning(move |_| {
+            Ok(Some(NostrContact {
+                node_id: "node_id".to_string(),
+                name: Some("name".to_string()),
+                relays: vec!["wws://some.example.com".to_string()],
+                trust_level: TrustLevel::Participant,
+                handshake_status: HandshakeStatus::None,
+            }))
+        });
+
         let handler = BillChainEventHandler::new(
             Arc::new(notification_store),
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -754,8 +885,14 @@ mod tests {
         )
         .unwrap();
 
-        let (notification_store, push_service, mut bill_chain_store, mut bill_store) =
-            create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            mut bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store.expect_get_keys().returning(|_| {
@@ -780,6 +917,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -829,8 +968,14 @@ mod tests {
         )
         .unwrap();
 
-        let (notification_store, push_service, mut bill_chain_store, mut bill_store) =
-            create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            mut bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store.expect_get_keys().returning(|_| {
@@ -855,6 +1000,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -905,7 +1052,14 @@ mod tests {
         )
         .unwrap();
 
-        let (notification_store, push_service, mut bill_chain_store, bill_store) = create_mocks();
+        let (
+            notification_store,
+            push_service,
+            mut bill_chain_store,
+            bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -920,6 +1074,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -942,8 +1098,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_creates_no_notification_for_non_action_event() {
-        let (mut notification_store, mut push_service, bill_chain_store, bill_store) =
-            create_mocks();
+        let (
+            mut notification_store,
+            mut push_service,
+            bill_chain_store,
+            bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         // look for currently active notification
         notification_store.expect_get_latest_by_reference().never();
@@ -959,6 +1121,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -981,8 +1145,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_creates_notification_for_simple_action_event() {
-        let (mut notification_store, mut push_service, bill_chain_store, bill_store) =
-            create_mocks();
+        let (
+            mut notification_store,
+            mut push_service,
+            bill_chain_store,
+            bill_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
 
         // look for currently active notification
         notification_store
@@ -1009,6 +1179,8 @@ mod tests {
             Arc::new(push_service),
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
         );
         let event = Event::new(
             EventType::Bill,
@@ -1169,12 +1341,16 @@ mod tests {
         MockPushService,
         MockBillChainStore,
         MockBillStore,
+        MockNotificationJsonTransportApi,
+        MockNostrContactStore,
     ) {
         (
             MockNotificationStore::new(),
             MockPushService::new(),
             MockBillChainStore::new(),
             MockBillStore::new(),
+            MockNotificationJsonTransportApi::new(),
+            MockNostrContactStore::new(),
         )
     }
 }

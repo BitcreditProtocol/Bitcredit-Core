@@ -7,7 +7,7 @@ use crate::persistence::nostr::NostrEventOffsetStoreApi;
 use crate::persistence::notification::NotificationStoreApi;
 use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::CompanyStoreApi;
-use bcr_ebill_persistence::nostr::NostrQueuedMessageStoreApi;
+use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi};
 use bcr_ebill_transport::handler::{
     BillChainEventHandler, LoggingEventHandler, NotificationHandlerApi,
 };
@@ -46,7 +46,7 @@ pub async fn create_nostr_clients(
     };
     let mut configs: Vec<NostrConfig> = vec![NostrConfig::new(
         keys,
-        config.nostr_relays.clone(),
+        config.nostr_config.relays.clone(),
         nostr_name,
     )];
 
@@ -63,7 +63,7 @@ pub async fn create_nostr_clients(
         if let Ok(keys) = keys.clone().try_into() {
             configs.push(NostrConfig::new(
                 keys,
-                config.nostr_relays.clone(),
+                config.nostr_config.relays.clone(),
                 company.name.clone(),
             ));
         }
@@ -114,7 +114,13 @@ pub async fn create_nostr_consumer(
     push_service: Arc<dyn PushApi>,
     bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     bill_store: Arc<dyn BillStoreApi>,
+    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
 ) -> Result<NostrConsumer> {
+    // we need one nostr client for nostr interactions
+    let transport = match clients.first() {
+        Some(client) => client.clone(),
+        None => panic!("Cant create Nostr consumer as there is no nostr client available"),
+    };
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
     let handlers: Vec<Box<dyn NotificationHandlerApi>> = vec![
@@ -126,6 +132,8 @@ pub async fn create_nostr_consumer(
             push_service,
             bill_blockchain_store,
             bill_store,
+            transport,
+            nostr_contact_store,
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());

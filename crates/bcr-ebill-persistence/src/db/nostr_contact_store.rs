@@ -1,0 +1,298 @@
+use super::Result;
+#[cfg(target_arch = "wasm32")]
+use super::get_new_surreal_db;
+use crate::{
+    constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_TABLE, DB_TRUST_LEVEL},
+    nostr::NostrContactStoreApi,
+};
+use async_trait::async_trait;
+use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel};
+use nostr::key::PublicKey;
+use serde::{Deserialize, Serialize};
+use surrealdb::{Surreal, engine::any::Any, sql::Thing};
+
+#[derive(Clone)]
+pub struct SurrealNostrContactStore {
+    #[allow(dead_code)]
+    db: Surreal<Any>,
+}
+
+impl SurrealNostrContactStore {
+    const TABLE: &'static str = "nostr_contact";
+
+    #[allow(dead_code)]
+    pub fn new(db: Surreal<Any>) -> Self {
+        Self { db }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn db(&self) -> Result<Surreal<Any>> {
+        get_new_surreal_db().await
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn db(&self) -> Result<Surreal<Any>> {
+        Ok(self.db.clone())
+    }
+
+    fn thing_id(id: &str) -> Thing {
+        Thing::from((Self::TABLE.to_owned(), id.to_owned()))
+    }
+}
+
+#[async_trait]
+impl NostrContactStoreApi for SurrealNostrContactStore {
+    /// Find a Nostr contact by the node id. This is the primary key for the contact.
+    async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>> {
+        let result: Option<NostrContactDb> = self
+            .db()
+            .await?
+            .select((Self::TABLE, node_id.to_owned()))
+            .await?;
+        let value = result.map(|v| v.to_owned().into());
+        Ok(value)
+    }
+    /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
+    async fn by_npub(&self, npub: &PublicKey) -> Result<Option<NostrContact>> {
+        self.by_node_id(npub.to_hex().as_str()).await
+    }
+    /// Creates a new or updates an existing Nostr contact.
+    async fn upsert(&self, data: &NostrContact) -> Result<()> {
+        let db_data: NostrContactDb = data.clone().into();
+        let _: Option<NostrContactDb> = self
+            .db()
+            .await?
+            .upsert((Self::TABLE, data.node_id.to_owned()))
+            .content(db_data)
+            .await?;
+        Ok(())
+    }
+    /// Delete an Nostr contact. This will remove the contact from the store.
+    async fn delete(&self, node_id: &str) -> Result<()> {
+        let _: Option<NostrContactDb> = self.db().await?.delete((Self::TABLE, node_id)).await?;
+        Ok(())
+    }
+    /// Sets a new handshake status for the contact. This is used to track the handshake process.
+    async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()> {
+        self.db()
+            .await?
+            .query(update_field_query(DB_HANDSHAKE_STATUS))
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_HANDSHAKE_STATUS, status))
+            .bind((DB_ID, Self::thing_id(node_id)))
+            .await?;
+        Ok(())
+    }
+    /// Sets a new trust level for the contact. This is used to track the trust level of the
+    /// contact.
+    async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()> {
+        self.db()
+            .await?
+            .query(update_field_query(DB_TRUST_LEVEL))
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_TRUST_LEVEL, trust_level))
+            .bind((DB_ID, Self::thing_id(node_id)))
+            .await?;
+        Ok(())
+    }
+}
+
+fn update_field_query(field_name: &str) -> String {
+    format!(
+        "UPDATE type::table(${DB_TABLE}) SET {field_name} = ${field_name} WHERE {DB_ID} = ${DB_ID}"
+    )
+}
+
+/// Data we need to communicate with a Nostr contact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NostrContactDb {
+    /// Our node id. This is the node id and acts as the primary key.
+    pub id: Thing,
+    /// The Nostr name of the contact as retreived via Nostr metadata.
+    pub name: Option<String>,
+    /// The relays we found for this contact either from a message or the result of a relay list
+    /// query.
+    pub relays: Vec<String>,
+    /// The trust level we assign to this contact.
+    pub trust_level: TrustLevel,
+    /// The handshake status with this contact.
+    pub handshake_status: HandshakeStatus,
+}
+
+impl From<NostrContact> for NostrContactDb {
+    fn from(contact: NostrContact) -> Self {
+        Self {
+            id: Thing::from((
+                SurrealNostrContactStore::TABLE.to_owned(),
+                contact.node_id.to_owned(),
+            )),
+            name: contact.name,
+            relays: contact.relays,
+            trust_level: contact.trust_level,
+            handshake_status: contact.handshake_status,
+        }
+    }
+}
+
+impl From<NostrContactDb> for NostrContact {
+    fn from(db: NostrContactDb) -> Self {
+        Self {
+            node_id: db.id.id.to_raw(),
+            name: db.name,
+            relays: db.relays,
+            trust_level: db.trust_level,
+            handshake_status: db.handshake_status,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bcr_ebill_core::util::BcrKeys;
+
+    use super::*;
+    use crate::db::get_memory_db;
+
+    #[tokio::test]
+    async fn test_upsert_and_retrieve_by_node_id() {
+        let store = get_store().await;
+        let contact = get_test_message("test_node_id");
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Retrieve the contact by node_id
+        let retrieved = store
+            .by_node_id("test_node_id")
+            .await
+            .expect("Failed to retrieve contact")
+            .expect("Contact not found");
+
+        assert_eq!(retrieved.node_id, contact.node_id);
+        assert_eq!(retrieved.name, contact.name);
+        assert_eq!(retrieved.relays, contact.relays);
+        assert_eq!(retrieved.trust_level, contact.trust_level);
+        assert_eq!(retrieved.handshake_status, contact.handshake_status);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_retrieve_by_npub() {
+        let npub = BcrKeys::new().get_nostr_keys().public_key();
+        let store = get_store().await;
+        let contact = get_test_message(npub.to_hex().as_str());
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Retrieve the contact by node_id
+        let retrieved = store
+            .by_npub(&npub)
+            .await
+            .expect("Failed to retrieve contact by npub")
+            .expect("Contact by npub not found");
+
+        assert_eq!(retrieved.node_id, contact.node_id);
+    }
+
+    #[tokio::test]
+    async fn test_delete_contact() {
+        let store = get_store().await;
+        let contact = get_test_message("test_node_id");
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Delete the contact
+        store
+            .delete("test_node_id")
+            .await
+            .expect("Failed to delete contact");
+
+        // Try to retrieve the contact
+        let retrieved = store
+            .by_node_id("test_node_id")
+            .await
+            .expect("Failed to retrieve contact");
+        assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_set_handshake_status() {
+        let store = get_store().await;
+        let contact = get_test_message("test_node_id");
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Update handshake status
+        store
+            .set_handshake_status("test_node_id", HandshakeStatus::InProgress)
+            .await
+            .expect("Failed to set handshake status");
+
+        // Retrieve the contact and verify the handshake status
+        let retrieved = store
+            .by_node_id("test_node_id")
+            .await
+            .expect("Failed to retrieve contact")
+            .expect("Contact not found");
+
+        assert_eq!(retrieved.handshake_status, HandshakeStatus::InProgress);
+    }
+
+    #[tokio::test]
+    async fn test_set_trust_level() {
+        let store = get_store().await;
+        let contact = get_test_message("test_node_id");
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Update trust level
+        store
+            .set_trust_level("test_node_id", TrustLevel::Participant)
+            .await
+            .expect("Failed to set trust level");
+
+        // Retrieve the contact and verify the trust level
+        let retrieved = store
+            .by_node_id("test_node_id")
+            .await
+            .expect("Failed to retrieve contact")
+            .expect("Contact not found");
+
+        assert_eq!(retrieved.trust_level, TrustLevel::Participant);
+    }
+
+    async fn get_store() -> SurrealNostrContactStore {
+        let mem_db = get_memory_db("test", "nostr_event_queue")
+            .await
+            .expect("could not create memory db");
+        SurrealNostrContactStore::new(mem_db)
+    }
+
+    fn get_test_message(node_id: &str) -> NostrContact {
+        NostrContact {
+            node_id: node_id.to_string(),
+            name: Some("contact_name".to_string()),
+            relays: vec!["test_relay".to_string()],
+            trust_level: TrustLevel::None,
+            handshake_status: HandshakeStatus::None,
+        }
+    }
+}
