@@ -26,15 +26,21 @@ use tokio_with_wasm::alias as tokio;
 
 #[derive(Clone, Debug)]
 pub struct NostrConfig {
-    keys: BcrKeys,
-    relays: Vec<String>,
-    name: String,
+    pub keys: BcrKeys,
+    pub relays: Vec<String>,
+    pub name: String,
+    pub default_timeout: Duration,
 }
 
 impl NostrConfig {
     pub fn new(keys: BcrKeys, relays: Vec<String>, name: String) -> Self {
         assert!(!relays.is_empty());
-        Self { keys, relays, name }
+        Self {
+            keys,
+            relays,
+            name,
+            default_timeout: Duration::from_secs(20),
+        }
     }
 
     #[allow(dead_code)]
@@ -53,17 +59,15 @@ pub enum SortOrder {
     Desc,
 }
 
-const DEFAULT_TIMEOUT: &Duration = &Duration::from_secs(20);
-
 /// A wrapper around nostr_sdk that implements the NotificationJsonTransportApi.
 ///
 /// # Example:
 /// ```no_run
-/// let config = NostrConfig {
-///     keys: BcrKeys::new(),
-///     relays: vec!["wss://relay.example.com".to_string()],
-///     name: "My Company".to_string(),
-/// };
+/// let config = NostrConfig::new(
+///     BcrKeys::new(),
+///     vec!["wss://relay.example.com".to_string()],
+///     "My Company".to_string(),
+/// );
 /// let transport = NostrClient::new(&config).await.unwrap();
 /// transport.send(&recipient, event).await.unwrap();
 /// ```
@@ -147,7 +151,7 @@ impl NostrClient {
     pub async fn fetch_metadata(&self, npub: PublicKey) -> Result<Option<Metadata>> {
         let result = self
             .client
-            .fetch_metadata(npub, *DEFAULT_TIMEOUT)
+            .fetch_metadata(npub, self.config.default_timeout.to_owned())
             .await
             .map_err(|e| {
                 error!("Failed to fetch Nostr metadata: {e}");
@@ -156,7 +160,11 @@ impl NostrClient {
         Ok(result)
     }
 
-    /// Returns the realays a given npub is reading from or writing to.
+    /// Returns the relays a given npub is reading from or writing to.
+    // Relay list content (the actual relay urls) are stored as tags on the event. The event
+    // content itself is actually empty. Here we look for tags with a lowercase 'r' (specified
+    // as RelayMetadata) and filter for valid ones. Filter standardized filters and parses the
+    // matching tags into enum values.
     pub async fn fetch_relay_list(
         &self,
         npub: PublicKey,
@@ -208,7 +216,7 @@ impl NostrClient {
             .fetch_events_from(
                 relays.unwrap_or(self.config.relays.clone()),
                 filter,
-                *DEFAULT_TIMEOUT,
+                self.config.default_timeout.to_owned(),
             )
             .await
             .map_err(|e| {
@@ -669,20 +677,20 @@ mod tests {
         let keys2 = BcrKeys::new();
 
         // given two clients
-        let config1 = NostrConfig {
-            keys: keys1.clone(),
-            relays: vec![url.to_string()],
-            name: "BcrDamus1".to_string(),
-        };
+        let config1 = NostrConfig::new(
+            keys1.clone(),
+            vec![url.to_string()],
+            "BcrDamus1".to_string(),
+        );
         let client1 = NostrClient::new(&config1)
             .await
             .expect("failed to create nostr client 1");
 
-        let config2 = NostrConfig {
-            keys: keys2.clone(),
-            relays: vec![url.to_string()],
-            name: "BcrDamus2".to_string(),
-        };
+        let config2 = NostrConfig::new(
+            keys2.clone(),
+            vec![url.to_string()],
+            "BcrDamus2".to_string(),
+        );
         let client2 = NostrClient::new(&config2)
             .await
             .expect("failed to create nostr client 2");

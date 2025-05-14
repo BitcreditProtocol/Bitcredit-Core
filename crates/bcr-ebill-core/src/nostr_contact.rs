@@ -48,7 +48,7 @@ impl NostrContact {
     }
 }
 
-/// Trust levele we assign for a Nostr contact.
+/// Trust level we assign for a Nostr contact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrustLevel {
     /// No trust at all. We don't know this contact and we don't trust them.
