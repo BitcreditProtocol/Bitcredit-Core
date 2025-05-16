@@ -36,6 +36,8 @@ pub mod tests {
     mockall::mock! {
         pub ContactStoreApiMock {}
 
+        impl ServiceTraitBounds for ContactStoreApiMock {}
+
         #[async_trait]
         impl ContactStoreApi for ContactStoreApiMock {
             async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
@@ -49,6 +51,8 @@ pub mod tests {
 
     mockall::mock! {
         pub NostrContactStore {}
+
+        impl ServiceTraitBounds for NostrContactStore {}
 
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
@@ -64,6 +68,8 @@ pub mod tests {
     mockall::mock! {
         pub BackupStoreApiMock {}
 
+        impl ServiceTraitBounds for BackupStoreApiMock {}
+
         #[async_trait]
         impl BackupStoreApi for BackupStoreApiMock {
             async fn backup(&self) -> Result<Vec<u8>>;
@@ -75,6 +81,8 @@ pub mod tests {
     mockall::mock! {
         pub BillStoreApiMock {}
 
+        impl ServiceTraitBounds for BillStoreApiMock {}
+
         #[async_trait]
         impl BillStoreApi for BillStoreApiMock {
             async fn get_bills_from_cache(&self, ids: &[String]) -> Result<Vec<BitcreditBillResult>>;
@@ -82,7 +90,7 @@ pub mod tests {
             async fn save_bill_to_cache(&self, id: &str, bill: &BitcreditBillResult) -> Result<()>;
             async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()>;
             async fn clear_bill_cache(&self) -> Result<()>;
-            async fn exists(&self, id: &str) -> bool;
+            async fn exists(&self, id: &str) -> Result<bool>;
             async fn get_ids(&self) -> Result<Vec<String>>;
             async fn save_keys(&self, id: &str, keys: &BillKeys) -> Result<()>;
             async fn get_keys(&self, id: &str) -> Result<BillKeys>;
@@ -102,6 +110,8 @@ pub mod tests {
     mockall::mock! {
         pub BillChainStoreApiMock {}
 
+        impl ServiceTraitBounds for BillChainStoreApiMock {}
+
         #[async_trait]
         impl BillChainStoreApi for BillChainStoreApiMock {
             async fn get_latest_block(&self, id: &str) -> Result<BillBlock>;
@@ -112,6 +122,8 @@ pub mod tests {
 
     mockall::mock! {
         pub CompanyStoreApiMock {}
+
+        impl ServiceTraitBounds for CompanyStoreApiMock {}
 
         #[async_trait]
         impl CompanyStoreApi for CompanyStoreApiMock {
@@ -130,6 +142,8 @@ pub mod tests {
     mockall::mock! {
         pub CompanyChainStoreApiMock {}
 
+        impl ServiceTraitBounds for CompanyChainStoreApiMock {}
+
         #[async_trait]
         impl CompanyChainStoreApi for CompanyChainStoreApiMock {
             async fn get_latest_block(&self, id: &str) -> Result<CompanyBlock>;
@@ -141,6 +155,8 @@ pub mod tests {
 
     mockall::mock! {
         pub IdentityStoreApiMock {}
+
+        impl ServiceTraitBounds for IdentityStoreApiMock {}
 
         #[async_trait]
         impl IdentityStoreApi for IdentityStoreApiMock {
@@ -160,6 +176,8 @@ pub mod tests {
     mockall::mock! {
         pub IdentityChainStoreApiMock {}
 
+        impl ServiceTraitBounds for IdentityChainStoreApiMock {}
+
         #[async_trait]
         impl IdentityChainStoreApi for IdentityChainStoreApiMock {
             async fn get_latest_block(&self) -> Result<IdentityBlock>;
@@ -169,6 +187,8 @@ pub mod tests {
 
     mockall::mock! {
         pub NostrEventOffsetStoreApiMock {}
+
+        impl ServiceTraitBounds for NostrEventOffsetStoreApiMock {}
 
         #[async_trait]
         impl NostrEventOffsetStoreApi for NostrEventOffsetStoreApiMock {
@@ -181,6 +201,8 @@ pub mod tests {
     mockall::mock! {
         pub NostrQueuedMessageStore {}
 
+        impl ServiceTraitBounds for NostrQueuedMessageStore {}
+
         #[async_trait]
         impl NostrQueuedMessageStoreApi for NostrQueuedMessageStore {
             async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()>;
@@ -192,6 +214,8 @@ pub mod tests {
 
     mockall::mock! {
         pub NotificationStoreApiMock {}
+
+        impl ServiceTraitBounds for NotificationStoreApiMock {}
 
         #[async_trait]
         impl NotificationStoreApi for NotificationStoreApiMock {
@@ -230,6 +254,8 @@ pub mod tests {
     mockall::mock! {
         pub FileUploadStoreApiMock {}
 
+        impl ServiceTraitBounds for FileUploadStoreApiMock {}
+
         #[async_trait]
         impl FileUploadStoreApi for FileUploadStoreApiMock {
             async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()>;
@@ -252,9 +278,10 @@ pub mod tests {
         }
     }
 
-    impl ServiceTraitBounds for MockNotificationService {}
     mockall::mock! {
         pub NotificationService {}
+
+        impl ServiceTraitBounds for NotificationService {}
 
         #[async_trait]
         impl NotificationServiceApi for NotificationService {

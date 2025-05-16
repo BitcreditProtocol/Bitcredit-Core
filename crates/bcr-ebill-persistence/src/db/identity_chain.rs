@@ -1,6 +1,7 @@
-use super::super::{Error, Result};
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::{
+    super::{Error, Result},
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::{
     constants::{
         DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PREVIOUS_HASH, DB_PUBLIC_KEY, DB_SIGNATURE,
@@ -9,12 +10,14 @@ use crate::{
     identity::IdentityChainStoreApi,
 };
 use async_trait::async_trait;
-use bcr_ebill_core::blockchain::{
-    Block,
-    identity::{IdentityBlock, IdentityOpCode},
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    blockchain::{
+        Block,
+        identity::{IdentityBlock, IdentityOpCode},
+    },
 };
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
                                     block_id: $block_id,
@@ -29,61 +32,52 @@ const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
 
 #[derive(Clone)]
 pub struct SurrealIdentityChainStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealIdentityChainStore {
     const TABLE: &'static str = "identity_chain";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
-    }
-
     async fn create_block(&self, query: &str, entity: IdentityBlockDb) -> Result<()> {
-        let _ = self
-            .db()
-            .await?
-            .query(query)
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_BLOCK_ID, entity.block_id))
-            .bind((DB_HASH, entity.hash))
-            .bind((DB_PREVIOUS_HASH, entity.previous_hash))
-            .bind((DB_SIGNATURE, entity.signature))
-            .bind((DB_TIMESTAMP, entity.timestamp))
-            .bind((DB_PUBLIC_KEY, entity.public_key))
-            .bind((DB_DATA, entity.data))
-            .bind((DB_OP_CODE, entity.op_code))
-            .await?
-            .check()?;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_BLOCK_ID, entity.block_id)?;
+        bindings.add(DB_HASH, entity.hash)?;
+        bindings.add(DB_PREVIOUS_HASH, entity.previous_hash)?;
+        bindings.add(DB_SIGNATURE, entity.signature)?;
+        bindings.add(DB_TIMESTAMP, entity.timestamp)?;
+        bindings.add(DB_PUBLIC_KEY, entity.public_key)?;
+        bindings.add(DB_DATA, entity.data)?;
+        bindings.add(DB_OP_CODE, entity.op_code)?;
+        self.db.query_check(query, bindings).await?;
         Ok(())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealIdentityChainStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityChainStoreApi for SurrealIdentityChainStore {
     async fn get_latest_block(&self) -> Result<IdentityBlock> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+
         let result: Vec<IdentityBlockDb> = self
-            .db()
-            .await?
-            .query("SELECT * FROM type::table($table) ORDER BY block_id DESC LIMIT 1")
-            .bind((DB_TABLE, Self::TABLE))
+            .db
+            .query(
+                "SELECT * FROM type::table($table) ORDER BY block_id DESC LIMIT 1",
+                bindings,
+            )
             .await
             .map_err(|e| {
                 log::error!("Get Identity Block: {e}");
                 e
-            })?
-            .take(0)?;
+            })?;
 
         match result.first() {
             None => Err(Error::NoIdentityBlock),
@@ -212,7 +206,10 @@ mod tests {
         let mem_db = get_memory_db("test", "identity_chain")
             .await
             .expect("could not create get_memory_db");
-        SurrealIdentityChainStore::new(mem_db)
+        SurrealIdentityChainStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     #[tokio::test]

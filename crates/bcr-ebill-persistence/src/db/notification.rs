@@ -1,57 +1,48 @@
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
 use std::collections::{HashMap, hash_map::Entry};
 
-use super::super::{Error, Result};
+use super::{
+    super::{Error, Result},
+    surreal::{Bindings, SurrealWrapper},
+};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use surrealdb::{Surreal, engine::any::Any, sql::Thing};
+use surrealdb::sql::Thing;
 
 use crate::{
     constants::{DB_ACTIVE, DB_IDS, DB_NOTIFICATION_TYPE, DB_TABLE},
     notification::{NotificationFilter, NotificationStoreApi},
     util::date::{DateTimeUtc, now},
 };
-use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::notification::{Notification, NotificationType};
+use bcr_ebill_core::{ServiceTraitBounds, notification::ActionType};
 
 #[derive(Clone)]
 pub struct SurrealNotificationStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealNotificationStore {
     const TABLE: &'static str = "notifications";
     const SENT_TABLE: &'static str = "sent_notifications";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealNotificationStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationStoreApi for SurrealNotificationStore {
     /// Stores a new notification into the database
     async fn add(&self, notification: Notification) -> Result<Notification> {
         let id = notification.id.to_owned();
         let entity: NotificationDb = notification.into();
         let result: Option<NotificationDb> = self
-            .db()
-            .await?
-            .insert((Self::TABLE, id.to_string()))
-            .content(entity)
+            .db
+            .create(Self::TABLE, Some(id.to_string()), entity)
             .await?;
 
         match result {
@@ -65,29 +56,28 @@ impl NotificationStoreApi for SurrealNotificationStore {
     }
     /// Returns all currently active notifications from the database
     async fn list(&self, filter: NotificationFilter) -> Result<Vec<Notification>> {
+        let mut bindings = Bindings::default();
+        bindings.add("table", Self::TABLE)?;
+        bindings.add("limit", filter.get_limit())?;
+        bindings.add("offset", filter.get_offset())?;
         let filters = filter.filters();
-        let db = self.db().await?;
-        let mut query = db.query(format!(
-                "SELECT * FROM type::table($table) {} ORDER BY datetime DESC LIMIT $limit START $offset",
-                filters
-            ))
-            .bind(("table", Self::TABLE))
-            .bind(("limit", filter.get_limit()))
-            .bind(("offset", filter.get_offset()));
 
         if let Some(active) = filter.get_active() {
-            query = query.bind(active.to_owned());
+            bindings.add(&active.0, active.1.to_owned())?;
         }
         if let Some(reference_id) = filter.get_reference_id() {
-            query = query.bind(reference_id.to_owned());
+            bindings.add(&reference_id.0, reference_id.1.to_owned())?;
         }
         if let Some(notification_type) = filter.get_notification_type() {
-            query = query.bind(notification_type.to_owned());
+            bindings.add(&notification_type.0, notification_type.1.to_owned())?;
         }
         if let Some(node_ids) = filter.get_node_ids() {
-            query = query.bind(node_ids.to_owned());
+            bindings.add(&node_ids.0, node_ids.1.to_owned())?;
         }
-        let result: Vec<NotificationDb> = query.await?.take(0)?;
+        let result: Vec<NotificationDb> = self.db.query(&format!(
+                "SELECT * FROM type::table($table) {} ORDER BY datetime DESC LIMIT $limit START $offset",
+                filters
+            ), bindings).await?;
         Ok(result.into_iter().map(|n| n.into()).collect())
     }
     /// Returns the latest active notifications for the given reference and notification type
@@ -96,17 +86,17 @@ impl NotificationStoreApi for SurrealNotificationStore {
         references: &[String],
         notification_type: NotificationType,
     ) -> Result<HashMap<String, Notification>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_ACTIVE, true)?;
+        bindings.add(DB_NOTIFICATION_TYPE, notification_type.to_owned())?;
+        bindings.add(DB_IDS, references.to_owned())?;
         let result: Vec<NotificationDb> = self
-            .db().await?
+            .db
             .query(
-                "SELECT * FROM type::table($table) WHERE active = $active AND notification_type = $notification_type AND reference_id IN $ids",
+                "SELECT * FROM type::table($table) WHERE active = $active AND notification_type = $notification_type AND reference_id IN $ids",bindings
             )
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_ACTIVE, true))
-            .bind((DB_NOTIFICATION_TYPE, notification_type.to_owned()))
-            .bind((DB_IDS, references.to_owned()))
-            .await?
-            .take(0)?;
+            .await?;
         let mut latest_map: HashMap<String, Notification> = HashMap::new();
 
         for notification in result {
@@ -160,19 +150,18 @@ impl NotificationStoreApi for SurrealNotificationStore {
     /// Marks an active notification as done
     async fn mark_as_done(&self, notification_id: &str) -> Result<()> {
         let thing: Thing = (Self::TABLE, notification_id).into();
-        self.db()
-            .await?
-            .query("UPDATE $id SET active = false")
-            .bind(("id", thing))
+        let mut bindings = Bindings::default();
+        bindings.add("id", thing)?;
+        self.db
+            .query_check("UPDATE $id SET active = false", bindings)
             .await?;
         Ok(())
     }
     /// deletes a notification from the database
     async fn delete(&self, notification_id: &str) -> Result<()> {
         let _: Option<NotificationDb> = self
-            .db()
-            .await?
-            .delete((Self::TABLE, notification_id))
+            .db
+            .delete(Self::TABLE, notification_id.to_owned())
             .await?;
         Ok(())
     }
@@ -190,12 +179,7 @@ impl NotificationStoreApi for SurrealNotificationStore {
             action_type,
             datetime: now(),
         };
-        let _: Vec<SentBlockNotificationDb> = self
-            .db()
-            .await?
-            .insert(Self::SENT_TABLE)
-            .content(db)
-            .await?;
+        let _: Option<SentBlockNotificationDb> = self.db.create(Self::SENT_TABLE, None, db).await?;
         Ok(())
     }
 
@@ -205,16 +189,16 @@ impl NotificationStoreApi for SurrealNotificationStore {
         block_height: i32,
         action_type: ActionType,
     ) -> Result<bool> {
-        let res: Option<SentBlockNotificationDb> = self.db().await?
-            .query("SELECT * FROM type::table($table) WHERE notification_type = $notification_type AND reference_id = $reference_id AND block_height = $block_height AND action_type = $action_type limit 1")
-            .bind(("table", Self::SENT_TABLE))
-            .bind(("notification_type", NotificationType::Bill))
-            .bind(("reference_id", bill_id.to_owned()))
-            .bind(("block_height", block_height))
-            .bind(("action_type", action_type))
-            .await?
-            .take(0)?;
-        Ok(res.is_some())
+        let mut bindings = Bindings::default();
+        bindings.add("table", Self::SENT_TABLE)?;
+        bindings.add("notification_type", NotificationType::Bill)?;
+        bindings.add("reference_id", bill_id.to_owned())?;
+        bindings.add("block_height", block_height)?;
+        bindings.add("action_type", action_type)?;
+        let res: Vec<SentBlockNotificationDb> = self.db
+            .query("SELECT * FROM type::table($table) WHERE notification_type = $notification_type AND reference_id = $reference_id AND block_height = $block_height AND action_type = $action_type limit 1", bindings)
+            .await?;
+        Ok(!res.is_empty())
     }
 }
 
@@ -290,7 +274,7 @@ mod tests {
         let db = get_memory_db("test", "notification")
             .await
             .expect("could not create memory db");
-        SurrealNotificationStore::new(db)
+        SurrealNotificationStore::new(SurrealWrapper { db, files: false })
     }
 
     #[tokio::test]

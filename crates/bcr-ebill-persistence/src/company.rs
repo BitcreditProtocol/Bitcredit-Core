@@ -1,3 +1,4 @@
+use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::blockchain::company::{CompanyBlock, CompanyBlockchain};
 use bcr_ebill_core::company::{Company, CompanyKeys};
 use std::collections::HashMap;
@@ -7,8 +8,9 @@ use async_trait::async_trait;
 
 use borsh::{from_slice, to_vec};
 
-#[async_trait]
-pub trait CompanyStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait CompanyStoreApi: ServiceTraitBounds {
     /// Searches the company for the search term
     async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
 
@@ -37,8 +39,9 @@ pub trait CompanyStoreApi: Send + Sync {
     async fn get_key_pair(&self, id: &str) -> Result<CompanyKeys>;
 }
 
-#[async_trait]
-pub trait CompanyChainStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait CompanyChainStoreApi: ServiceTraitBounds {
     /// Gets the latest block of the chain
     async fn get_latest_block(&self, id: &str) -> Result<CompanyBlock>;
     /// Adds the block to the chain

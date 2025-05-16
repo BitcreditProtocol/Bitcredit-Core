@@ -1,39 +1,29 @@
 #![cfg(any(target_arch = "wasm32", test))]
-use super::super::{Error, Result, file_upload::FileUploadStoreApi};
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_files_db;
+use super::{
+    super::{Error, Result, file_upload::FileUploadStoreApi},
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::constants::{DB_ENTITY_ID, DB_FILE_NAME, DB_FILE_UPLOAD_ID, DB_TABLE};
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bcr_ebill_core::ServiceTraitBounds;
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 pub struct FileUploadStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl FileUploadStore {
     const TEMP_FILES_TABLE: &'static str = "temp_files";
     const ATTACHED_FILES_TABLE: &'static str = "attached_files";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_files_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 
     pub async fn cleanup_temp_uploads(&self) -> Result<()> {
         log::info!("cleaning up temp uploads");
-        let _: Vec<FileDb> = self.db().await?.delete(Self::TEMP_FILES_TABLE).await?;
+        let _: Vec<FileDb> = self.db.delete_all(Self::TEMP_FILES_TABLE).await?;
         Ok(())
     }
 }
@@ -52,7 +42,10 @@ pub struct AttachedFileDb {
     pub encrypted_bytes: String,
 }
 
-#[async_trait]
+impl ServiceTraitBounds for FileUploadStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileUploadStoreApi for FileUploadStore {
     async fn create_temp_upload_folder(&self, _file_upload_id: &str) -> Result<()> {
         // NOOP for wasm32
@@ -60,14 +53,16 @@ impl FileUploadStoreApi for FileUploadStore {
     }
 
     async fn remove_temp_upload_folder(&self, file_upload_id: &str) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TEMP_FILES_TABLE)?;
+        bindings.add(DB_FILE_UPLOAD_ID, file_upload_id.to_owned())?;
         let _: Vec<FileDb> = self
-            .db()
-            .await?
-            .query("DELETE from type::table($table) WHERE file_upload_id = $file_upload_id")
-            .bind((DB_TABLE, Self::TEMP_FILES_TABLE))
-            .bind((DB_FILE_UPLOAD_ID, file_upload_id.to_owned()))
-            .await?
-            .take(0)?;
+            .db
+            .query(
+                "DELETE from type::table($table) WHERE file_upload_id = $file_upload_id",
+                bindings,
+            )
+            .await?;
         Ok(())
     }
 
@@ -83,19 +78,20 @@ impl FileUploadStoreApi for FileUploadStore {
             file_bytes: STANDARD.encode(file_bytes),
         };
         let _: Option<FileDb> = self
-            .db()
-            .await?
-            .create((Self::TEMP_FILES_TABLE, file_upload_id.to_owned()))
-            .content(entity)
+            .db
+            .create(
+                Self::TEMP_FILES_TABLE,
+                Some(file_upload_id.to_owned()),
+                entity,
+            )
             .await?;
         Ok(())
     }
 
     async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)> {
         let result: Option<FileDb> = self
-            .db()
-            .await?
-            .select((Self::TEMP_FILES_TABLE, file_upload_id))
+            .db
+            .select_one(Self::TEMP_FILES_TABLE, file_upload_id.to_owned())
             .await?;
         match result {
             None => Err(Error::NoSuchEntity(
@@ -123,23 +119,21 @@ impl FileUploadStoreApi for FileUploadStore {
             encrypted_bytes: STANDARD.encode(encrypted_bytes),
         };
         let _: Option<AttachedFileDb> = self
-            .db()
-            .await?
-            .create(Self::ATTACHED_FILES_TABLE)
-            .content(entity)
+            .db
+            .create(Self::ATTACHED_FILES_TABLE, None, entity)
             .await?;
         Ok(())
     }
 
     async fn open_attached_file(&self, id: &str, file_name: &str) -> Result<Vec<u8>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::ATTACHED_FILES_TABLE)?;
+        bindings.add(DB_ENTITY_ID, id.to_owned())?;
+        bindings.add(DB_FILE_NAME, file_name.to_owned())?;
         let result: Vec<AttachedFileDb> = self
-            .db().await?
-            .query("SELECT * from type::table($table) WHERE entity_id = $entity_id AND file_name = $file_name")
-            .bind((DB_TABLE, Self::ATTACHED_FILES_TABLE))
-            .bind((DB_ENTITY_ID, id.to_owned()))
-            .bind((DB_FILE_NAME, file_name.to_owned()))
-            .await?
-            .take(0)?;
+            .db
+            .query("SELECT * from type::table($table) WHERE entity_id = $entity_id AND file_name = $file_name", bindings)
+            .await?;
         if let Some(attached_file) = result.into_iter().next() {
             Ok(STANDARD
                 .decode(attached_file.encrypted_bytes)
@@ -153,14 +147,16 @@ impl FileUploadStoreApi for FileUploadStore {
     }
 
     async fn delete_attached_files(&self, id: &str) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::ATTACHED_FILES_TABLE)?;
+        bindings.add(DB_ENTITY_ID, id.to_owned())?;
         let _: Vec<AttachedFileDb> = self
-            .db()
-            .await?
-            .query("DELETE from type::table($table) WHERE entity_id = $entity_id")
-            .bind((DB_TABLE, Self::ATTACHED_FILES_TABLE))
-            .bind((DB_ENTITY_ID, id.to_owned()))
-            .await?
-            .take(0)?;
+            .db
+            .query(
+                "DELETE from type::table($table) WHERE entity_id = $entity_id",
+                bindings,
+            )
+            .await?;
         Ok(())
     }
 }
@@ -222,13 +218,19 @@ pub mod tests {
         let mem_db = get_memory_db("test", "temp_files")
             .await
             .expect("could not create get_memory_db");
-        FileUploadStore::new(mem_db)
+        FileUploadStore::new(SurrealWrapper {
+            db: mem_db,
+            files: true,
+        })
     }
 
     async fn get_attached_store() -> FileUploadStore {
         let mem_db = get_memory_db("test", "attached_files")
             .await
             .expect("could not create get_memory_db");
-        FileUploadStore::new(mem_db)
+        FileUploadStore::new(SurrealWrapper {
+            db: mem_db,
+            files: true,
+        })
     }
 }

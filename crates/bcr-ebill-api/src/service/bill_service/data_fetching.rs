@@ -740,9 +740,12 @@ impl BillService {
         current_timestamp: u64,
     ) -> Result<BitcreditBillResult> {
         // if there is no such bill, we return an error
-        if !self.store.exists(bill_id).await {
-            return Err(Error::NotFound);
-        }
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
 
         // fetch contacts to get current contact data for participants
         let contacts = self.contact_store.get_map().await?;

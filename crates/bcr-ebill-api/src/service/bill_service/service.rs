@@ -507,9 +507,12 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_bill_keys(&self, bill_id: &str) -> Result<BillKeys> {
-        if !self.store.exists(bill_id).await {
-            return Err(Error::NotFound);
-        }
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
         let keys = self.store.get_keys(bill_id).await?;
         Ok(keys)
     }
@@ -773,9 +776,12 @@ impl BillServiceApi for BillService {
         bill_id: &str,
         current_identity_node_id: &str,
     ) -> Result<Vec<PastEndorsee>> {
-        if !self.store.exists(bill_id).await {
-            return Err(Error::NotFound);
-        }
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
 
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
@@ -801,9 +807,12 @@ impl BillServiceApi for BillService {
         caller_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Vec<PastPaymentResult>> {
-        if !self.store.exists(bill_id).await {
-            return Err(Error::NotFound);
-        }
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
 
         let mut result = vec![];
 
@@ -957,9 +966,12 @@ impl BillServiceApi for BillService {
         bill_id: &str,
         current_identity_node_id: &str,
     ) -> Result<Vec<Endorsement>> {
-        if !self.store.exists(bill_id).await {
-            return Err(Error::NotFound);
-        }
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
 
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;

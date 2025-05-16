@@ -96,10 +96,12 @@ pub use backup::BackupStoreApi;
 pub use contact::ContactStoreApi;
 #[cfg(target_arch = "wasm32")]
 pub use db::file_upload::FileUploadStore;
+#[cfg(not(target_arch = "wasm32"))]
+pub use db::get_surreal_db;
 pub use db::{
     SurrealDbConfig, backup::SurrealBackupStore, bill::SurrealBillStore,
     bill_chain::SurrealBillChainStore, company::SurrealCompanyStore,
-    company_chain::SurrealCompanyChainStore, contact::SurrealContactStore, get_surreal_db,
+    company_chain::SurrealCompanyChainStore, contact::SurrealContactStore,
     identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
     nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
 };

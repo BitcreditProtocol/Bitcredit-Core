@@ -1,48 +1,44 @@
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
-use super::{FileDb, PostalAddressDb, Result};
+use super::{
+    FileDb, PostalAddressDb, Result,
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::constants::{DB_SEARCH_TERM, DB_TABLE};
 use async_trait::async_trait;
-use bcr_ebill_core::company::{Company, CompanyKeys};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    company::{Company, CompanyKeys},
+};
 
 use crate::{Error, company::CompanyStoreApi};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use surrealdb::{Surreal, engine::any::Any, sql::Thing};
+use surrealdb::sql::Thing;
 
 #[derive(Clone)]
 pub struct SurrealCompanyStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealCompanyStore {
     const DATA_TABLE: &'static str = "company";
     const KEYS_TABLE: &'static str = "company_keys";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealCompanyStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompanyStoreApi for SurrealCompanyStore {
     async fn search(&self, search_term: &str) -> Result<Vec<Company>> {
-        let results: Vec<CompanyDb> = self.db().await?
-            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term")
-            .bind((DB_TABLE, Self::DATA_TABLE))
-            .bind((DB_SEARCH_TERM, search_term.to_owned())).await?
-            .take(0)?;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::DATA_TABLE)?;
+        bindings.add(DB_SEARCH_TERM, search_term.to_owned())?;
+        let results: Vec<CompanyDb> = self.db
+            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term", bindings).await?;
         Ok(results.into_iter().map(|c| c.into()).collect())
     }
 
@@ -52,7 +48,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
     }
 
     async fn get(&self, id: &str) -> Result<Company> {
-        let result: Option<CompanyDb> = self.db().await?.select((Self::DATA_TABLE, id)).await?;
+        let result: Option<CompanyDb> = self.db.select_one(Self::DATA_TABLE, id.to_owned()).await?;
         match result {
             None => Err(Error::NoSuchEntity("company".to_string(), id.to_owned())),
             Some(c) => Ok(c.into()),
@@ -60,8 +56,8 @@ impl CompanyStoreApi for SurrealCompanyStore {
     }
 
     async fn get_all(&self) -> Result<HashMap<String, (Company, CompanyKeys)>> {
-        let companies: Vec<CompanyDb> = self.db().await?.select(Self::DATA_TABLE).await?;
-        let company_keys: Vec<CompanyKeysDb> = self.db().await?.select(Self::KEYS_TABLE).await?;
+        let companies: Vec<CompanyDb> = self.db.select_all(Self::DATA_TABLE).await?;
+        let company_keys: Vec<CompanyKeysDb> = self.db.select_all(Self::KEYS_TABLE).await?;
         let companies_map: HashMap<String, CompanyDb> = companies
             .into_iter()
             .map(|company| (company.id.id.to_raw(), company))
@@ -85,10 +81,8 @@ impl CompanyStoreApi for SurrealCompanyStore {
         let id = data.id.to_owned();
         let entity: CompanyDb = data.into();
         let _: Option<CompanyDb> = self
-            .db()
-            .await?
-            .create((Self::DATA_TABLE, id))
-            .content(entity)
+            .db
+            .create(Self::DATA_TABLE, Some(id.to_owned()), entity)
             .await?;
         Ok(())
     }
@@ -96,33 +90,30 @@ impl CompanyStoreApi for SurrealCompanyStore {
     async fn update(&self, id: &str, data: &Company) -> Result<()> {
         let entity: CompanyDb = data.into();
         let _: Option<CompanyDb> = self
-            .db()
-            .await?
-            .update((Self::DATA_TABLE, id))
-            .content(entity)
+            .db
+            .update(Self::DATA_TABLE, id.to_owned(), entity)
             .await?;
         Ok(())
     }
 
     async fn remove(&self, id: &str) -> Result<()> {
-        let _: Option<CompanyDb> = self.db().await?.delete((Self::DATA_TABLE, id)).await?;
-        let _: Option<CompanyKeysDb> = self.db().await?.delete((Self::KEYS_TABLE, id)).await?;
+        let _: Option<CompanyDb> = self.db.delete(Self::DATA_TABLE, id.to_owned()).await?;
+        let _: Option<CompanyKeysDb> = self.db.delete(Self::KEYS_TABLE, id.to_owned()).await?;
         Ok(())
     }
 
     async fn save_key_pair(&self, id: &str, key_pair: &CompanyKeys) -> Result<()> {
         let entity: CompanyKeysDb = key_pair.into();
         let _: Option<CompanyKeysDb> = self
-            .db()
-            .await?
-            .create((Self::KEYS_TABLE, id))
-            .content(entity)
+            .db
+            .create(Self::KEYS_TABLE, Some(id.to_owned()), entity)
             .await?;
         Ok(())
     }
 
     async fn get_key_pair(&self, id: &str) -> Result<CompanyKeys> {
-        let result: Option<CompanyKeysDb> = self.db().await?.select((Self::KEYS_TABLE, id)).await?;
+        let result: Option<CompanyKeysDb> =
+            self.db.select_one(Self::KEYS_TABLE, id.to_owned()).await?;
         match result {
             None => Err(Error::NoSuchEntity("company".to_string(), id.to_owned())),
             Some(c) => Ok(c.into()),
@@ -224,7 +215,10 @@ mod tests {
         let mem_db = get_memory_db("test", "company")
             .await
             .expect("could not create memory db");
-        SurrealCompanyStore::new(mem_db)
+        SurrealCompanyStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     fn get_baseline_company() -> Company {

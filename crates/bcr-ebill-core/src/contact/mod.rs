@@ -63,6 +63,12 @@ pub enum BillParticipant {
     Ident(BillIdentParticipant),
 }
 
+impl Default for BillParticipant {
+    fn default() -> Self {
+        Self::Ident(BillIdentParticipant::default())
+    }
+}
+
 impl BillParticipant {
     pub fn postal_address(&self) -> Option<PostalAddress> {
         match self {
@@ -113,7 +119,9 @@ impl NodeId for BillParticipant {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default,
+)]
 pub struct BillAnonParticipant {
     /// The node id of the participant
     pub node_id: String,

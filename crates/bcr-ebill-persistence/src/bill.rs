@@ -3,14 +3,16 @@ use std::collections::HashSet;
 use super::Result;
 use async_trait::async_trait;
 use bcr_ebill_core::{
+    ServiceTraitBounds,
     bill::{BillKeys, BitcreditBillResult},
     blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
 };
 
 use borsh::{from_slice, to_vec};
 
-#[async_trait]
-pub trait BillStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait BillStoreApi: ServiceTraitBounds {
     /// Gets the bills from cache
     async fn get_bills_from_cache(&self, ids: &[String]) -> Result<Vec<BitcreditBillResult>>;
     /// Gets the bill from cache
@@ -22,7 +24,7 @@ pub trait BillStoreApi: Send + Sync {
     /// clear the bill cache
     async fn clear_bill_cache(&self) -> Result<()>;
     /// Checks if the given bill exists
-    async fn exists(&self, id: &str) -> bool;
+    async fn exists(&self, id: &str) -> Result<bool>;
     /// Gets all bill ids
     async fn get_ids(&self) -> Result<Vec<String>>;
     /// Saves the keys
@@ -48,8 +50,9 @@ pub trait BillStoreApi: Send + Sync {
     ) -> Result<Vec<String>>;
 }
 
-#[async_trait]
-pub trait BillChainStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait BillChainStoreApi: ServiceTraitBounds {
     /// Gets the latest block of the chain
     async fn get_latest_block(&self, id: &str) -> Result<BillBlock>;
     /// Adds the block to the chain

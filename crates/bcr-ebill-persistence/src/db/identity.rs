@@ -1,16 +1,15 @@
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
-use super::{FileDb, OptionalPostalAddressDb, Result};
+use super::{FileDb, OptionalPostalAddressDb, Result, surreal::SurrealWrapper};
 use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
 use async_trait::async_trait;
-use bcr_ebill_core::identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
+};
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 #[derive(Clone)]
 pub struct SurrealIdentityStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealIdentityStore {
@@ -19,32 +18,23 @@ impl SurrealIdentityStore {
     const KEY_TABLE: &'static str = "identity_key";
     const UNIQUE_ID: &'static str = "unique_record";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 }
 
 impl SurrealIdentityStore {
     async fn get_db_keys(&self) -> Result<Option<KeyDb>> {
-        Ok(self
-            .db()
-            .await?
-            .select((Self::KEY_TABLE, Self::UNIQUE_ID))
-            .await?)
+        self.db
+            .select_one(Self::KEY_TABLE, Self::UNIQUE_ID.to_owned())
+            .await
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealIdentityStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityStoreApi for SurrealIdentityStore {
     async fn exists(&self) -> bool {
         self.get().await.map(|_| true).unwrap_or(false)
@@ -53,19 +43,16 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn save(&self, identity: &Identity) -> Result<()> {
         let entity: IdentityDb = identity.into();
         let _: Option<IdentityDb> = self
-            .db()
-            .await?
-            .upsert((Self::IDENTITY_TABLE, Self::UNIQUE_ID))
-            .content(entity)
+            .db
+            .upsert(Self::IDENTITY_TABLE, Self::UNIQUE_ID.to_owned(), entity)
             .await?;
         Ok(())
     }
 
     async fn get(&self) -> Result<Identity> {
         let result: Option<IdentityDb> = self
-            .db()
-            .await?
-            .select((Self::IDENTITY_TABLE, Self::UNIQUE_ID))
+            .db
+            .select_one(Self::IDENTITY_TABLE, Self::UNIQUE_ID.to_owned())
             .await?;
         match result {
             None => Err(Error::NoIdentity),
@@ -83,10 +70,8 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()> {
         let entity: KeyDb = KeyDb::from_generated_keys(key_pair, seed);
         let _: Option<KeyDb> = self
-            .db()
-            .await?
-            .upsert((Self::KEY_TABLE, Self::UNIQUE_ID))
-            .content(entity)
+            .db
+            .upsert(Self::KEY_TABLE, Self::UNIQUE_ID.to_owned(), entity)
             .await?;
         Ok(())
     }
@@ -121,9 +106,8 @@ impl IdentityStoreApi for SurrealIdentityStore {
 
     async fn get_current_identity(&self) -> Result<ActiveIdentityState> {
         let result: Option<ActiveIdentityDb> = self
-            .db()
-            .await?
-            .select((Self::ACTIVE_IDENTITY_TABLE, Self::UNIQUE_ID))
+            .db
+            .select_one(Self::ACTIVE_IDENTITY_TABLE, Self::UNIQUE_ID.to_owned())
             .await?;
         match result {
             None => {
@@ -140,10 +124,12 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn set_current_identity(&self, identity_state: &ActiveIdentityState) -> Result<()> {
         let entity: ActiveIdentityDb = identity_state.into();
         let _: Option<ActiveIdentityDb> = self
-            .db()
-            .await?
-            .upsert((Self::ACTIVE_IDENTITY_TABLE, Self::UNIQUE_ID))
-            .content(entity)
+            .db
+            .upsert(
+                Self::ACTIVE_IDENTITY_TABLE,
+                Self::UNIQUE_ID.to_owned(),
+                entity,
+            )
             .await?;
         Ok(())
     }
@@ -259,7 +245,10 @@ mod tests {
         let mem_db = get_memory_db("test", "identity")
             .await
             .expect("could not create memory db");
-        SurrealIdentityStore::new(mem_db)
+        SurrealIdentityStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     #[tokio::test]

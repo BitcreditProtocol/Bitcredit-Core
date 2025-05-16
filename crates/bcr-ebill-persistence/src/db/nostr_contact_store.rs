@@ -1,38 +1,30 @@
-use super::Result;
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::{
+    Result,
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::{
     constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_TABLE, DB_TRUST_LEVEL},
     nostr::NostrContactStoreApi,
 };
 use async_trait::async_trait;
-use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+};
 use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any, sql::Thing};
+use surrealdb::sql::Thing;
 
 #[derive(Clone)]
 pub struct SurrealNostrContactStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealNostrContactStore {
     const TABLE: &'static str = "nostr_contact";
 
-    #[allow(dead_code)]
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 
     fn thing_id(id: &str) -> Thing {
@@ -40,15 +32,15 @@ impl SurrealNostrContactStore {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealNostrContactStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrContactStoreApi for SurrealNostrContactStore {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>> {
-        let result: Option<NostrContactDb> = self
-            .db()
-            .await?
-            .select((Self::TABLE, node_id.to_owned()))
-            .await?;
+        let result: Option<NostrContactDb> =
+            self.db.select_one(Self::TABLE, node_id.to_owned()).await?;
         let value = result.map(|v| v.to_owned().into());
         Ok(value)
     }
@@ -60,38 +52,36 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
     async fn upsert(&self, data: &NostrContact) -> Result<()> {
         let db_data: NostrContactDb = data.clone().into();
         let _: Option<NostrContactDb> = self
-            .db()
-            .await?
-            .upsert((Self::TABLE, data.node_id.to_owned()))
-            .content(db_data)
+            .db
+            .upsert(Self::TABLE, data.node_id.to_owned(), db_data)
             .await?;
         Ok(())
     }
     /// Delete an Nostr contact. This will remove the contact from the store.
     async fn delete(&self, node_id: &str) -> Result<()> {
-        let _: Option<NostrContactDb> = self.db().await?.delete((Self::TABLE, node_id)).await?;
+        let _: Option<NostrContactDb> = self.db.delete(Self::TABLE, node_id.to_owned()).await?;
         Ok(())
     }
     /// Sets a new handshake status for the contact. This is used to track the handshake process.
     async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()> {
-        self.db()
-            .await?
-            .query(update_field_query(DB_HANDSHAKE_STATUS))
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_HANDSHAKE_STATUS, status))
-            .bind((DB_ID, Self::thing_id(node_id)))
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_HANDSHAKE_STATUS, status)?;
+        bindings.add(DB_ID, Self::thing_id(node_id))?;
+        self.db
+            .query_check(&update_field_query(DB_HANDSHAKE_STATUS), bindings)
             .await?;
         Ok(())
     }
     /// Sets a new trust level for the contact. This is used to track the trust level of the
     /// contact.
     async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()> {
-        self.db()
-            .await?
-            .query(update_field_query(DB_TRUST_LEVEL))
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_TRUST_LEVEL, trust_level))
-            .bind((DB_ID, Self::thing_id(node_id)))
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_TRUST_LEVEL, trust_level)?;
+        bindings.add(DB_ID, Self::thing_id(node_id))?;
+        self.db
+            .query_check(&update_field_query(DB_TRUST_LEVEL), bindings)
             .await?;
         Ok(())
     }
@@ -283,7 +273,10 @@ mod tests {
         let mem_db = get_memory_db("test", "nostr_event_queue")
             .await
             .expect("could not create memory db");
-        SurrealNostrContactStore::new(mem_db)
+        SurrealNostrContactStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     fn get_test_message(node_id: &str) -> NostrContact {

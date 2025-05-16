@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::surreal::{Bindings, SurrealWrapper};
 use super::{FileDb, PostalAddressDb, Result};
 use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::bill::{
     BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillParticipants, BillPaymentStatus,
     BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
@@ -17,12 +17,11 @@ use bcr_ebill_core::contact::{
 };
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode, util};
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any, sql::Thing};
+use surrealdb::sql::Thing;
 
 #[derive(Clone)]
 pub struct SurrealBillStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealBillStore {
@@ -31,43 +30,37 @@ impl SurrealBillStore {
     const PAID_TABLE: &'static str = "bill_paid";
     const CACHE_TABLE: &'static str = "bill_cache";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealBillStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl BillStoreApi for SurrealBillStore {
     async fn get_bills_from_cache(&self, ids: &[String]) -> Result<Vec<BitcreditBillResult>> {
         let db_ids: Vec<Thing> = ids
             .iter()
             .map(|id| (SurrealBillStore::CACHE_TABLE.to_owned(), id.to_string()).into())
             .collect();
-
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CACHE_TABLE)?;
+        bindings.add(DB_IDS, db_ids)?;
         let results: Vec<BitcreditBillResultDb> = self
-            .db()
-            .await?
-            .query("SELECT * FROM type::table($table) WHERE id IN $ids")
-            .bind((DB_TABLE, Self::CACHE_TABLE))
-            .bind((DB_IDS, db_ids))
-            .await?
-            .take(0)?;
+            .db
+            .query(
+                "SELECT * FROM type::table($table) WHERE id IN $ids",
+                bindings,
+            )
+            .await?;
         Ok(results.into_iter().map(|bill| bill.into()).collect())
     }
 
     async fn get_bill_from_cache(&self, id: &str) -> Result<Option<BitcreditBillResult>> {
         let result: Option<BitcreditBillResultDb> =
-            self.db().await?.select((Self::CACHE_TABLE, id)).await?;
+            self.db.select_one(Self::CACHE_TABLE, id.to_owned()).await?;
         match result {
             None => Ok(None),
             Some(c) => Ok(Some(c.into())),
@@ -78,72 +71,76 @@ impl BillStoreApi for SurrealBillStore {
         let id = id.to_owned();
         let entity: BitcreditBillResultDb = bill.into();
         let _: Option<BitcreditBillResultDb> = self
-            .db()
-            .await?
-            .upsert((Self::CACHE_TABLE, id))
-            .content(entity)
+            .db
+            .upsert(Self::CACHE_TABLE, id.to_owned(), entity)
             .await?;
         Ok(())
     }
 
     async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()> {
         let _: Option<BitcreditBillResultDb> =
-            self.db().await?.delete((Self::CACHE_TABLE, id)).await?;
+            self.db.delete(Self::CACHE_TABLE, id.to_owned()).await?;
         Ok(())
     }
 
     async fn clear_bill_cache(&self) -> Result<()> {
-        let _: Vec<BitcreditBillResultDb> = self.db().await?.delete(Self::CACHE_TABLE).await?;
+        let _: Vec<BitcreditBillResultDb> = self.db.delete_all(Self::CACHE_TABLE).await?;
         Ok(())
     }
 
-    async fn exists(&self, id: &str) -> bool {
-        let db_con = match self.db().await {
-            Ok(con) => con,
-            Err(_) => return false,
-        };
-        match db_con
-            .query(
+    async fn exists(&self, id: &str) -> Result<bool> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
+        bindings.add(DB_BILL_ID, id.to_owned())?;
+        match self
+            .db
+            .query::<Option<BillIdDb>>(
                 "SELECT bill_id FROM type::table($table) WHERE bill_id = $bill_id GROUP BY bill_id",
+                bindings,
             )
-            .bind((DB_TABLE, Self::CHAIN_TABLE))
-            .bind((DB_BILL_ID, id.to_owned()))
             .await
         {
-            Ok(mut res) => {
-                res.take::<Option<BillIdDb>>(0)
-                    .map(|results| results.map(|_| true).unwrap_or(false))
-                    .unwrap_or(false)
-                    && self.get_keys(id).await.map(|_| true).unwrap_or(false)
+            Ok(res) => {
+                if res.is_empty() {
+                    // not found
+                    Ok(false)
+                } else {
+                    // found - check keys
+                    Ok(self.get_keys(id).await.map(|_| true).unwrap_or(false))
+                }
             }
-            Err(_) => false,
+            Err(e) => {
+                log::error!("Error checking bill exists: {e}");
+                Ok(false)
+            }
         }
     }
 
     async fn get_ids(&self) -> Result<Vec<String>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
         let ids: Vec<BillIdDb> = self
-            .db()
-            .await?
-            .query("SELECT bill_id FROM type::table($table) GROUP BY bill_id")
-            .bind((DB_TABLE, Self::CHAIN_TABLE))
-            .await?
-            .take(0)?;
+            .db
+            .query(
+                "SELECT bill_id FROM type::table($table) GROUP BY bill_id",
+                bindings,
+            )
+            .await?;
         Ok(ids.into_iter().map(|b| b.bill_id).collect())
     }
 
     async fn save_keys(&self, id: &str, key_pair: &BillKeys) -> Result<()> {
         let entity: BillKeysDb = key_pair.into();
         let _: Option<BillKeysDb> = self
-            .db()
-            .await?
-            .create((Self::KEYS_TABLE, id))
-            .content(entity)
+            .db
+            .create(Self::KEYS_TABLE, Some(id.to_owned()), entity)
             .await?;
         Ok(())
     }
 
     async fn get_keys(&self, id: &str) -> Result<BillKeys> {
-        let result: Option<BillKeysDb> = self.db().await?.select((Self::KEYS_TABLE, id)).await?;
+        let result: Option<BillKeysDb> =
+            self.db.select_one(Self::KEYS_TABLE, id.to_owned()).await?;
         match result {
             None => Err(Error::NoSuchEntity("bill".to_string(), id.to_owned())),
             Some(c) => Ok(c.into()),
@@ -151,7 +148,8 @@ impl BillStoreApi for SurrealBillStore {
     }
 
     async fn is_paid(&self, id: &str) -> Result<bool> {
-        let result: Option<BillPaidDb> = self.db().await?.select((Self::PAID_TABLE, id)).await?;
+        let result: Option<BillPaidDb> =
+            self.db.select_one(Self::PAID_TABLE, id.to_owned()).await?;
         Ok(result.is_some())
     }
 
@@ -161,26 +159,24 @@ impl BillStoreApi for SurrealBillStore {
             payment_address: payment_address.to_string(),
         };
         let _: Option<BillPaidDb> = self
-            .db()
-            .await?
-            .upsert((Self::PAID_TABLE, id))
-            .content(entity)
+            .db
+            .upsert(Self::PAID_TABLE, id.to_owned(), entity)
             .await?;
         Ok(())
     }
 
     async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<String>> {
-        let bill_ids_paid: Vec<BillPaidDb> = self.db().await?.select(Self::PAID_TABLE).await?;
+        let bill_ids_paid: Vec<BillPaidDb> = self.db.select_all(Self::PAID_TABLE).await?;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
+        bindings.add(DB_OP_CODE, BillOpCode::RequestToPay)?;
         let with_req_to_pay_bill_ids: Vec<BillIdDb> = self
-            .db()
-            .await?
+            .db
             .query(
                 "SELECT bill_id FROM type::table($table) WHERE op_code = $op_code GROUP BY bill_id",
+                bindings,
             )
-            .bind((DB_TABLE, Self::CHAIN_TABLE))
-            .bind((DB_OP_CODE, BillOpCode::RequestToPay))
-            .await?
-            .take(0)?;
+            .await?;
         let result: Vec<String> = with_req_to_pay_bill_ids
             .into_iter()
             .filter_map(|bid| {
@@ -200,42 +196,34 @@ impl BillStoreApi for SurrealBillStore {
     async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<String>> {
         let timestamp_now_minus_payment_deadline =
             util::date::now().timestamp() - PAYMENT_DEADLINE_SECONDS as i64;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
+        bindings.add(DB_TIMESTAMP, timestamp_now_minus_payment_deadline)?;
+        bindings.add(DB_OP_CODE, BillOpCode::OfferToSell)?;
         let query = r#"SELECT bill_id FROM 
             (SELECT bill_id, math::max(block_id) as block_id, op_code, timestamp FROM type::table($table) GROUP BY bill_id)
             .map(|$v| {
                 (SELECT bill_id, block_id, op_code, timestamp FROM bill_chain WHERE bill_id = $v.bill_id AND block_id = $v.block_id)[0]
             })
             .flatten() WHERE timestamp > $timestamp AND op_code = $op_code"#;
-        let result: Vec<BillIdDb> = self
-            .db()
-            .await?
-            .query(query)
-            .bind((DB_TABLE, Self::CHAIN_TABLE))
-            .bind((DB_TIMESTAMP, timestamp_now_minus_payment_deadline))
-            .bind((DB_OP_CODE, BillOpCode::OfferToSell))
-            .await?
-            .take(0)?;
+        let result: Vec<BillIdDb> = self.db.query(query, bindings).await?;
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
 
     async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<String>> {
         let timestamp_now_minus_payment_deadline =
             util::date::now().timestamp() - RECOURSE_DEADLINE_SECONDS as i64;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
+        bindings.add(DB_TIMESTAMP, timestamp_now_minus_payment_deadline)?;
+        bindings.add(DB_OP_CODE, BillOpCode::RequestRecourse)?;
         let query = r#"SELECT bill_id FROM 
             (SELECT bill_id, math::max(block_id) as block_id, op_code, timestamp FROM type::table($table) GROUP BY bill_id)
             .map(|$v| {
                 (SELECT bill_id, block_id, op_code, timestamp FROM bill_chain WHERE bill_id = $v.bill_id AND block_id = $v.block_id)[0]
             })
             .flatten() WHERE timestamp > $timestamp AND op_code = $op_code"#;
-        let result: Vec<BillIdDb> = self
-            .db()
-            .await?
-            .query(query)
-            .bind((DB_TABLE, Self::CHAIN_TABLE))
-            .bind((DB_TIMESTAMP, timestamp_now_minus_payment_deadline))
-            .bind((DB_OP_CODE, BillOpCode::RequestRecourse))
-            .await?
-            .take(0)?;
+        let result: Vec<BillIdDb> = self.db.query(query, bindings).await?;
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
 
@@ -245,13 +233,14 @@ impl BillStoreApi for SurrealBillStore {
         since: u64,
     ) -> Result<Vec<String>> {
         let codes = op_codes.into_iter().collect::<Vec<BillOpCode>>();
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
+        bindings.add(DB_OP_CODE, codes)?;
+        bindings.add(DB_TIMESTAMP, since as i64)?;
         let result: Vec<BillIdDb> = self
-            .db().await?
-            .query("SELECT bill_id FROM type::table($table) WHERE op_code IN $op_code AND timestamp >= $timestamp GROUP BY bill_id")
-            .bind((DB_TABLE, Self::CHAIN_TABLE))
-            .bind((DB_OP_CODE, codes))
-            .bind((DB_TIMESTAMP, since as i64))
-            .await?.take(0)?;
+            .db
+            .query("SELECT bill_id FROM type::table($table) WHERE op_code IN $op_code AND timestamp >= $timestamp GROUP BY bill_id", bindings)
+            .await?;
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
 }
@@ -833,7 +822,7 @@ pub mod tests {
     use super::SurrealBillStore;
     use crate::{
         bill::{BillChainStoreApi, BillStoreApi},
-        db::{bill_chain::SurrealBillChainStore, get_memory_db},
+        db::{bill_chain::SurrealBillChainStore, get_memory_db, surreal::SurrealWrapper},
         tests::tests::{
             TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, bill_identified_participant_only_node_id,
             cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys,
@@ -862,11 +851,17 @@ pub mod tests {
     }
 
     async fn get_store(mem_db: Surreal<Any>) -> SurrealBillStore {
-        SurrealBillStore::new(mem_db)
+        SurrealBillStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     async fn get_chain_store(mem_db: Surreal<Any>) -> SurrealBillChainStore {
-        SurrealBillChainStore::new(mem_db)
+        SurrealBillChainStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     pub fn get_first_block(id: &str) -> BillBlock {
@@ -894,12 +889,40 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        assert!(!store.exists("1234").await);
+        assert!(!store.exists("1234").await.as_ref().unwrap());
+        let first_block = get_first_block("1234");
+        chain_store.add_block("1234", &first_block).await.unwrap();
+        assert!(!store.exists("1234").await.as_ref().unwrap());
         chain_store
-            .add_block("1234", &get_first_block("1234"))
+            .add_block(
+                "1234",
+                &BillBlock::create_block_for_request_to_pay(
+                    "1234".to_string(),
+                    &first_block,
+                    &BillRequestToPayBlockData {
+                        requester: BillParticipantBlockData::Ident(
+                            bill_identified_participant_only_node_id(
+                                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                                    .unwrap()
+                                    .get_public_key(),
+                            )
+                            .into(),
+                        ),
+                        currency: "sat".to_string(),
+                        signatory: None,
+                        signing_timestamp: 1731593928,
+                        signing_address: Some(empty_address()),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    None,
+                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    1731593928,
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
-        assert!(!store.exists("1234").await);
+        assert!(!store.exists("1234").await.as_ref().unwrap());
         store
             .save_keys(
                 "1234",
@@ -910,7 +933,7 @@ pub mod tests {
             )
             .await
             .unwrap();
-        assert!(store.exists("1234").await)
+        assert!(store.exists("1234").await.as_ref().unwrap())
     }
 
     #[tokio::test]

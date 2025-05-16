@@ -2,13 +2,15 @@ use super::Result;
 use async_trait::async_trait;
 
 use bcr_ebill_core::{
+    ServiceTraitBounds,
     blockchain::identity::IdentityBlock,
     identity::{ActiveIdentityState, Identity, IdentityWithAll},
     util::crypto::BcrKeys,
 };
 
-#[async_trait]
-pub trait IdentityStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait IdentityStoreApi: ServiceTraitBounds {
     /// Checks if the identity has been created
     async fn exists(&self) -> bool;
     /// Saves the given identity
@@ -32,8 +34,9 @@ pub trait IdentityStoreApi: Send + Sync {
     async fn set_current_identity(&self, identity_state: &ActiveIdentityState) -> Result<()>;
 }
 
-#[async_trait]
-pub trait IdentityChainStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait IdentityChainStoreApi: ServiceTraitBounds {
     /// Gets the latest block of the chain
     async fn get_latest_block(&self) -> Result<IdentityBlock>;
     /// Adds the block to the chain

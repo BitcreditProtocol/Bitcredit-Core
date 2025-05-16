@@ -1,11 +1,12 @@
-use bcr_ebill_core::contact::Contact;
+use bcr_ebill_core::{ServiceTraitBounds, contact::Contact};
 use std::collections::HashMap;
 
 use super::Result;
 use async_trait::async_trait;
 
-#[async_trait]
-pub trait ContactStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait ContactStoreApi: ServiceTraitBounds {
     async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
     async fn get_map(&self) -> Result<HashMap<String, Contact>>;
     async fn get(&self, node_id: &str) -> Result<Option<Contact>>;

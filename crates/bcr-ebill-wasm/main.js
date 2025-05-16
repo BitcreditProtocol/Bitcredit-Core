@@ -2,9 +2,11 @@ import * as wasm from '../pkg/index.js';
 
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("notif").addEventListener("click", triggerNotif);
+document.getElementById("company_create").addEventListener("click", createCompany);
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
 document.getElementById("fetch_contacts").addEventListener("click", fetchContacts);
+document.getElementById("delete_contact").addEventListener("click", deleteContact);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
@@ -151,6 +153,9 @@ async function start() {
   let status = await generalApi.status();
   console.log("status: ", status);
 
+  let search = await generalApi.search({ filter: { search_term: "Test", currency: "sat", item_types: ["Contact"]}});
+  console.log("search: ", search);
+
   // Notifications
   let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
   let notifications = await notificationApi.list(filter);
@@ -160,6 +165,7 @@ async function start() {
 
 let apis = await start();
 let contactApi = apis.contactApi;
+let companyApi = apis.companyApi;
 let generalApi = apis.generalApi;
 let identityApi = apis.identityApi;
 let billApi = apis.billApi;
@@ -189,6 +195,20 @@ async function uploadFile(event) {
   } catch (err) {
     console.log("upload error: ", err);
   }
+}
+
+async function createCompany() {
+    let company = await companyApi.create({
+      name: "hayek Ltd",
+      email: "test@example.com",
+      postal_address: {
+        country: "AT",
+        city: "Vienna",
+        zip: "1020",
+        address: "street 1",
+      }
+    });
+    console.log("company: ", company);
 }
 
 async function triggerContact() {
@@ -473,6 +493,14 @@ function measure(promiseFunction) {
 async function fetchContacts() {
   let measured = measure(async () => {
     return await contactApi.list();
+  });
+  await measured();
+}
+
+async function deleteContact() {
+  let node_id = document.getElementById("node_id_contact").value;
+  let measured = measure(async () => {
+    return await contactApi.remove(node_id);
   });
   await measured();
 }

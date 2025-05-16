@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
 use log::trace;
 use std::sync::Arc;
 
@@ -7,9 +8,13 @@ use async_broadcast::{InactiveReceiver, Receiver, Sender};
 use mockall::automock;
 use serde_json::Value;
 
+#[cfg(test)]
+impl ServiceTraitBounds for MockPushApi {}
+
 #[cfg_attr(test, automock)]
-#[async_trait]
-pub trait PushApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait PushApi: ServiceTraitBounds {
     /// Push a json message to the client
     async fn send(&self, value: Value);
     /// Subscribe to the message stream.
@@ -40,7 +45,10 @@ impl Default for PushService {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for PushService {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl PushApi for PushService {
     async fn send(&self, value: Value) {
         match self.sender.broadcast(value).await {

@@ -260,7 +260,7 @@ pub mod tests {
             .expect_get_chain()
             .withf(|id| id == "9999")
             .returning(move |_| Ok(get_genesis_chain(Some(bill3.clone()))));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
         ctx.notification_service
             .expect_get_active_bill_notification()
@@ -318,7 +318,7 @@ pub mod tests {
                 String::from("9999"),
             ])
         });
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .withf(|id| id == TEST_BILL_ID)
@@ -755,7 +755,7 @@ pub mod tests {
     #[tokio::test]
     async fn get_bill_keys_calls_storage() {
         let mut ctx = get_ctx();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         let service = get_service(ctx);
 
         assert!(service.get_bill_keys("test").await.is_ok());
@@ -772,7 +772,7 @@ pub mod tests {
     #[tokio::test]
     async fn get_bill_keys_propagates_errors() {
         let mut ctx = get_ctx();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_keys()
             .returning(|_| Err(persistence::Error::Io(std::io::Error::other("test error"))));
@@ -798,7 +798,7 @@ pub mod tests {
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
         ctx.notification_service
             .expect_get_active_bill_notification()
@@ -845,7 +845,7 @@ pub mod tests {
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string(), "4321".to_string()]));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
         ctx.notification_service
             .expect_get_active_bill_notifications()
@@ -897,7 +897,7 @@ pub mod tests {
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string(), "4321".to_string()]));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
         ctx.notification_service
             .expect_get_active_bill_notifications()
@@ -927,7 +927,7 @@ pub mod tests {
         ctx.bill_store
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
         ctx.notification_service
             .expect_get_active_bill_notification()
@@ -984,7 +984,7 @@ pub mod tests {
                 assert!(chain.try_add_block(req_to_pay_block));
                 Ok(chain)
             });
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
@@ -1023,7 +1023,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -1062,7 +1062,7 @@ pub mod tests {
         bill.participants
             .all_participant_node_ids
             .push(drawee_node_id.clone());
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_bill_from_cache()
             .returning(move |_| Ok(Some(bill.clone())));
@@ -1112,7 +1112,7 @@ pub mod tests {
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
         };
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_bill_from_cache()
             .returning(move |_| Ok(Some(bill.clone())));
@@ -1150,7 +1150,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_bill_from_cache()
             .returning(move |_| Err(persistence::Error::Io(std::io::Error::other("test error"))));
@@ -1187,7 +1187,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -1214,7 +1214,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -1261,7 +1261,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -1324,7 +1324,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -1372,7 +1372,7 @@ pub mod tests {
         let now = util::date::now().timestamp() as u64;
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -1422,7 +1422,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1483,7 +1483,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1549,7 +1549,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1614,7 +1614,7 @@ pub mod tests {
         let now = util::date::now().timestamp() as u64;
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1674,7 +1674,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1726,7 +1726,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1778,7 +1778,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1833,7 +1833,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1891,7 +1891,7 @@ pub mod tests {
         bill.maturity_date =
             util::date::format_date_string(util::date::seconds(now - PAYMENT_DEADLINE_SECONDS * 2));
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -1946,7 +1946,7 @@ pub mod tests {
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         let now = util::date::now().timestamp() as u64;
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2000,7 +2000,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2050,7 +2050,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2102,7 +2102,7 @@ pub mod tests {
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         let now = util::date::now().timestamp() as u64;
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2157,7 +2157,7 @@ pub mod tests {
         let now = util::date::now().timestamp() as u64;
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -3647,7 +3647,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3680,7 +3680,7 @@ pub mod tests {
         bill.payee = BillParticipant::Ident(
             BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
         );
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         let mint_endorsee_clone = mint_endorsee.clone();
         let sell_endorsee_clone = sell_endorsee.clone();
 
@@ -3799,7 +3799,7 @@ pub mod tests {
         bill.payee = BillParticipant::Ident(
             BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
         );
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         let endorse_endorsee_clone = endorse_endorsee.clone();
         let mint_endorsee_clone = mint_endorsee.clone();
         let sell_endorsee_clone = sell_endorsee.clone();
@@ -3912,7 +3912,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3933,7 +3933,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(TEST_BILL_ID);
         bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3957,7 +3957,7 @@ pub mod tests {
             BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
         );
 
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3996,7 +3996,7 @@ pub mod tests {
             BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
         );
 
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         let mint_endorsee_clone = mint_endorsee.clone();
         let sell_endorsee_clone = sell_endorsee.clone();
 
@@ -4169,7 +4169,7 @@ pub mod tests {
             BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
         );
 
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         let endorse_endorsee_clone = endorse_endorsee.clone();
         let mint_endorsee_clone = mint_endorsee.clone();
         let sell_endorsee_clone = sell_endorsee.clone();
@@ -4334,7 +4334,7 @@ pub mod tests {
         let bill = get_baseline_bill(TEST_BILL_ID);
 
         let identity_clone = identity.identity.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         // paid
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
         ctx.bill_blockchain_store
@@ -4436,7 +4436,7 @@ pub mod tests {
         let bill = get_baseline_bill(TEST_BILL_ID);
 
         let identity_clone = identity.identity.clone();
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         // not paid
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
@@ -4667,7 +4667,7 @@ pub mod tests {
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -4717,7 +4717,7 @@ pub mod tests {
         ctx.bill_store
             .expect_save_bill_to_cache()
             .returning(|_, _| Ok(()));
-        ctx.bill_store.expect_exists().returning(|_| true);
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {

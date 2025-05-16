@@ -2,10 +2,12 @@ use std::path::Path;
 
 use super::Result;
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
 
 /// Backup and restore the database from/to bytes.
-#[async_trait]
-pub trait BackupStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait BackupStoreApi: ServiceTraitBounds {
     /// creates a backup of the currently active database as a byte vector
     /// ready for encryption
     async fn backup(&self) -> Result<Vec<u8>>;

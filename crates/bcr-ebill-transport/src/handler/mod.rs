@@ -156,6 +156,7 @@ mod tests {
 mod test_utils {
     use async_trait::async_trait;
     use bcr_ebill_core::{
+        ServiceTraitBounds,
         bill::{BillKeys, BitcreditBillResult},
         blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
         notification::{ActionType, Notification, NotificationType},
@@ -173,6 +174,8 @@ mod test_utils {
 
     mock! {
         pub NotificationStore {}
+
+        impl ServiceTraitBounds for NotificationStore {}
 
         #[async_trait]
         impl NotificationStoreApi for NotificationStore {
@@ -210,6 +213,9 @@ mod test_utils {
 
     mock! {
         pub PushService {}
+
+        impl ServiceTraitBounds for PushService {}
+
         #[async_trait]
         impl PushApi for PushService {
             async fn send(&self, value: serde_json::Value);
@@ -219,6 +225,8 @@ mod test_utils {
 
     mock! {
         pub BillChainStore {}
+
+        impl ServiceTraitBounds for BillChainStore {}
 
         #[async_trait]
         impl BillChainStoreApi for BillChainStore {
@@ -231,6 +239,8 @@ mod test_utils {
     mock! {
         pub BillStore {}
 
+        impl ServiceTraitBounds for BillStore {}
+
         #[async_trait]
         impl BillStoreApi for BillStore {
             async fn get_bills_from_cache(&self, ids: &[String]) -> Result<Vec<BitcreditBillResult>>;
@@ -238,7 +248,7 @@ mod test_utils {
             async fn save_bill_to_cache(&self, id: &str, bill: &BitcreditBillResult) -> Result<()>;
             async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()>;
             async fn clear_bill_cache(&self) -> Result<()>;
-            async fn exists(&self, id: &str) -> bool;
+            async fn exists(&self, id: &str) -> Result<bool>;
             async fn get_ids(&self) -> Result<Vec<String>>;
             async fn save_keys(&self, id: &str, keys: &BillKeys) -> Result<()>;
             async fn get_keys(&self, id: &str) -> Result<BillKeys>;
@@ -257,6 +267,8 @@ mod test_utils {
 
     mock! {
         pub NostrContactStore {}
+
+        impl ServiceTraitBounds for NostrContactStore {}
 
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {

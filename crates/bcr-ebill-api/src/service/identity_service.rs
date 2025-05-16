@@ -11,14 +11,15 @@ use crate::data::{
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
-use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
+use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
 use log::{debug, info};
 use std::sync::Arc;
 
-#[async_trait]
-pub trait IdentityServiceApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait IdentityServiceApi: ServiceTraitBounds {
     /// Updates the identity
     async fn update_identity(
         &self,
@@ -153,7 +154,10 @@ impl IdentityService {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for IdentityService {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityServiceApi for IdentityService {
     async fn get_full_identity(&self) -> Result<IdentityWithAll> {
         let identity = self.store.get_full().await?;

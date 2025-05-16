@@ -1,12 +1,11 @@
 use super::Result;
 #[cfg(target_arch = "wasm32")]
 use crate::constants::{
-    SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_CON_INDXDB_FILES, SURREAL_DB_INDXDB_DB_DATA,
-    SURREAL_DB_INDXDB_DB_FILES, SURREAL_DB_INDXDB_NS_DATA, SURREAL_DB_INDXDB_NS_FILES,
+    SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
 };
 use bcr_ebill_core::{File, OptionalPostalAddress, PostalAddress};
-use log::error;
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use surrealdb::{
     Surreal,
     engine::any::{Any, connect},
@@ -26,6 +25,7 @@ pub mod nostr_contact_store;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;
 pub mod notification;
+pub mod surreal;
 
 /// Configuration for the SurrealDB connection string, namespace and
 /// database name
@@ -55,34 +55,11 @@ impl Default for SurrealDbConfig {
     }
 }
 
-/// On WASM using IndexedDB, we need to get a new DB connection per API call
-/// to avoid overlapping transactions
-#[cfg(target_arch = "wasm32")]
-async fn get_new_surreal_db() -> Result<Surreal<Any>> {
-    let db = get_surreal_db(&SurrealDbConfig {
-        connection_string: SURREAL_DB_CON_INDXDB_DATA.to_string(),
-        namespace: SURREAL_DB_INDXDB_NS_DATA.to_string(),
-        database: SURREAL_DB_INDXDB_DB_DATA.to_string(),
-    })
-    .await?;
-    Ok(db)
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn get_new_surreal_files_db() -> Result<Surreal<Any>> {
-    let db = get_surreal_db(&SurrealDbConfig {
-        connection_string: SURREAL_DB_CON_INDXDB_FILES.to_string(),
-        namespace: SURREAL_DB_INDXDB_NS_FILES.to_string(),
-        database: SURREAL_DB_INDXDB_DB_FILES.to_string(),
-    })
-    .await?;
-    Ok(db)
-}
-
 /// Connect to the SurrealDB instance using the provided configuration.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn get_surreal_db(config: &SurrealDbConfig) -> Result<Surreal<Any>> {
     let db = connect(&config.connection_string).await.map_err(|e| {
-        error!("Error connecting to SurrealDB with config: {config:?}. Error: {e}");
+        log::error!("Error connecting to SurrealDB with config: {config:?}. Error: {e}");
         e
     })?;
     db.use_ns(&config.namespace)

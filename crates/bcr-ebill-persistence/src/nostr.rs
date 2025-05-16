@@ -1,14 +1,18 @@
 use super::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+};
 use nostr::key::PublicKey;
 use serde_json::Value;
 
 /// Allows storing and retrieving time based offsets for subscriptions
 /// to Nostr relays. It will also store the event ids that have been
 /// received and processed already.
-#[async_trait]
-pub trait NostrEventOffsetStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NostrEventOffsetStoreApi: ServiceTraitBounds {
     /// Returns the current timestamp offset of our nostr subscription
     /// Will return 0 if there are no events in the store yet, otherwise
     /// the highest timestamp of all events processed.
@@ -42,8 +46,9 @@ pub struct NostrEventOffset {
 }
 
 /// A dumb retry queue for Nostr messages that failed to be sent.
-#[async_trait]
-pub trait NostrQueuedMessageStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NostrQueuedMessageStoreApi: ServiceTraitBounds {
     /// Adds a new retry message
     async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()>;
     /// Selects all messages that are ready to be retried
@@ -66,8 +71,9 @@ pub struct NostrQueuedMessage {
 /// Keeps track of our Nostr contacts. We need to communicate with some network participants before
 /// we actually can add them as real contacts. This is also used to track the contact handshake
 /// process.
-#[async_trait]
-pub trait NostrContactStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.

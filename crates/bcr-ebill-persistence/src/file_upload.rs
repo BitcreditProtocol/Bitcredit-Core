@@ -3,13 +3,15 @@ use crate::Error;
 
 use super::Result;
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::io::AsyncReadExt;
 
-#[async_trait]
-pub trait FileUploadStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait FileUploadStoreApi: ServiceTraitBounds {
     /// Creates temporary upload folder with the given name
     async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()>;
 
@@ -93,7 +95,10 @@ impl FileUploadStore {
     }
 }
 
-#[async_trait]
+#[cfg(not(target_arch = "wasm32"))]
+impl ServiceTraitBounds for FileUploadStore {}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg(not(target_arch = "wasm32"))]
 impl FileUploadStoreApi for FileUploadStore {
     async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()> {
