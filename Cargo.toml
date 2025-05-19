@@ -13,6 +13,9 @@ opt-level = "s"   # Optimize for size ("z" can be used for even more aggressive 
 lto = true        # Enable Link-Time Optimization
 codegen-units = 1 # Reduces binary size at the cost of compile time
 
+[profile.dev]
+opt-level = 1     # Avoid surrealdb index out of bounds issue in dev build
+
 [workspace.dependencies]
 sha2 = { version = "0.10", default-features = false }
 borsh = "1.5"
@@ -23,8 +26,8 @@ chrono = { version = "0.4", default-features = false, features = [
   "serde",
   "clock",
 ] }
-tokio = { version = "1.43", default-features = false, features = ["rt"] }
-tokio_with_wasm = { version = "0.8.2", features = ["rt"] }
+tokio = { version = "1.43", default-features = false, features = ["rt", "sync"] }
+tokio_with_wasm = { version = "0.8", features = ["rt", "sync"] }
 async-trait = "0.1"
 serde_json = "1"
 serde = { version = "1", default-features = false, features = ["derive"] }
@@ -38,7 +41,6 @@ bip39 = { version = "2.1", features = ["rand"] }
 ecies = { version = "0.2", default-features = false, features = ["pure"] }
 nostr = { version = "0.41" }
 nostr-sdk = { version = "0.41", features = ["nip04", "nip59"] }
-getrandom = { version = "0.3.1", features = ["wasm_js"] }
 async-broadcast = "0.7.2"
 rstest = "0.25.0"
 secp256k1 = { version = "0.29" }

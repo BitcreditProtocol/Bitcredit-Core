@@ -4,12 +4,13 @@ use crate::data::UploadFileResult;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::{persistence, util};
 use async_trait::async_trait;
-use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
 use log::{debug, error};
 use std::sync::Arc;
 
-#[async_trait]
-pub trait FileUploadServiceApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait FileUploadServiceApi: ServiceTraitBounds {
     /// validates the given uploaded file
     async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()>;
 
@@ -34,7 +35,10 @@ impl FileUploadService {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for FileUploadService {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileUploadServiceApi for FileUploadService {
     async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()> {
         if file.len() > MAX_FILE_SIZE_BYTES as u64 {

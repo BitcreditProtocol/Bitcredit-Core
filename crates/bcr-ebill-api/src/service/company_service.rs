@@ -23,13 +23,14 @@ use crate::{
     util,
 };
 use async_trait::async_trait;
-use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
 use log::{debug, error, info};
 use std::sync::Arc;
 
-#[async_trait]
-pub trait CompanyServiceApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait CompanyServiceApi: ServiceTraitBounds {
     /// List signatories for company
     async fn list_signatories(&self, id: &str) -> Result<Vec<Contact>>;
 
@@ -162,7 +163,10 @@ impl CompanyService {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for CompanyService {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompanyServiceApi for CompanyService {
     async fn list_signatories(&self, id: &str) -> Result<Vec<Contact>> {
         if !self.store.exists(id).await {

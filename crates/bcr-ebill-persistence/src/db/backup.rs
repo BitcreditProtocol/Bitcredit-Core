@@ -1,27 +1,27 @@
 use std::path::Path;
 
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
 use crate::backup::BackupStoreApi;
 
 use super::Result;
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
+#[cfg(not(target_arch = "wasm32"))]
 use futures::StreamExt;
+#[cfg(not(target_arch = "wasm32"))]
 use surrealdb::{Surreal, engine::any::Any};
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct SurrealBackupStore {
-    #[allow(dead_code)]
     db: Surreal<Any>,
 }
 
+#[cfg(target_arch = "wasm32")]
+pub struct SurrealBackupStore {}
+
 impl SurrealBackupStore {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(db: Surreal<Any>) -> Self {
         Self { db }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -30,7 +30,27 @@ impl SurrealBackupStore {
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealBackupStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg(target_arch = "wasm32")]
+impl BackupStoreApi for SurrealBackupStore {
+    /// returns the whole database as a byte vector backup ready for encryption
+    async fn backup(&self) -> Result<Vec<u8>> {
+        Ok(vec![])
+    }
+
+    async fn restore(&self, _file_path: &Path) -> Result<()> {
+        Ok(())
+    }
+
+    async fn drop_db(&self, _name: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg(not(target_arch = "wasm32"))]
 impl BackupStoreApi for SurrealBackupStore {
     /// returns the whole database as a byte vector backup ready for encryption
     async fn backup(&self) -> Result<Vec<u8>> {

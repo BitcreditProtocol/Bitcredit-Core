@@ -1,6 +1,7 @@
-use super::super::{Error, Result};
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::{
+    super::{Error, Result},
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::{
     bill::BillChainStoreApi,
     constants::{
@@ -9,12 +10,14 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use bcr_ebill_core::blockchain::{
-    Block,
-    bill::{BillBlock, BillBlockchain, BillOpCode},
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    blockchain::{
+        Block,
+        bill::{BillBlock, BillBlockchain, BillOpCode},
+    },
 };
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
                                     bill_id: $bill_id,
@@ -30,62 +33,50 @@ const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
 
 #[derive(Clone)]
 pub struct SurrealBillChainStore {
-    #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 
 impl SurrealBillChainStore {
     const TABLE: &'static str = "bill_chain";
 
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
     }
 
     async fn create_block(&self, query: &str, entity: BillBlockDb) -> Result<()> {
-        let _ = self
-            .db()
-            .await?
-            .query(query)
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_BILL_ID, entity.bill_id))
-            .bind((DB_BLOCK_ID, entity.block_id))
-            .bind((DB_HASH, entity.hash))
-            .bind((DB_PREVIOUS_HASH, entity.previous_hash))
-            .bind((DB_SIGNATURE, entity.signature))
-            .bind((DB_TIMESTAMP, entity.timestamp))
-            .bind((DB_PUBLIC_KEY, entity.public_key))
-            .bind((DB_DATA, entity.data))
-            .bind((DB_OP_CODE, entity.op_code))
-            .await?
-            .check()?;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_BILL_ID, entity.bill_id)?;
+        bindings.add(DB_BLOCK_ID, entity.block_id)?;
+        bindings.add(DB_HASH, entity.hash)?;
+        bindings.add(DB_PREVIOUS_HASH, entity.previous_hash)?;
+        bindings.add(DB_SIGNATURE, entity.signature)?;
+        bindings.add(DB_TIMESTAMP, entity.timestamp)?;
+        bindings.add(DB_PUBLIC_KEY, entity.public_key)?;
+        bindings.add(DB_DATA, entity.data)?;
+        bindings.add(DB_OP_CODE, entity.op_code)?;
+        self.db.query_check(query, bindings).await?;
         Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        Ok(self.db.clone())
     }
 }
 
-#[async_trait]
+impl ServiceTraitBounds for SurrealBillChainStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl BillChainStoreApi for SurrealBillChainStore {
     async fn get_latest_block(&self, id: &str) -> Result<BillBlock> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_BILL_ID, id.to_owned())?;
         let result: Vec<BillBlockDb> = self
-            .db().await?
-            .query("SELECT * FROM type::table($table) WHERE bill_id = $bill_id ORDER BY block_id DESC LIMIT 1")
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_BILL_ID, id.to_owned()))
+            .db
+            .query("SELECT * FROM type::table($table) WHERE bill_id = $bill_id ORDER BY block_id DESC LIMIT 1", bindings)
             .await
             .map_err(|e| {
                 log::error!("Get Latest Bill Block: {e}");
                 e
-            })?
-            .take(0)?;
+            })?;
 
         match result.first() {
             None => Err(Error::NoBillBlock),
@@ -158,20 +149,20 @@ impl BillChainStoreApi for SurrealBillChainStore {
     }
 
     async fn get_chain(&self, id: &str) -> Result<BillBlockchain> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_BILL_ID, id.to_owned())?;
         let result: Vec<BillBlockDb> = self
-            .db()
-            .await?
+            .db
             .query(
                 "SELECT * FROM type::table($table) WHERE bill_id = $bill_id ORDER BY block_id ASC",
+                bindings,
             )
-            .bind((DB_TABLE, Self::TABLE))
-            .bind((DB_BILL_ID, id.to_owned()))
             .await
             .map_err(|e| {
                 log::error!("Get Bill Chain: {e}");
                 e
-            })?
-            .take(0)?;
+            })?;
 
         let blocks: Vec<BillBlock> = result.into_iter().map(|b| b.into()).collect();
         let chain = BillBlockchain::new_from_blocks(blocks)?;
@@ -245,7 +236,10 @@ mod tests {
         let mem_db = get_memory_db("test", "bill_chain")
             .await
             .expect("could not create get_memory_db");
-        SurrealBillChainStore::new(mem_db)
+        SurrealBillChainStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     #[tokio::test]
