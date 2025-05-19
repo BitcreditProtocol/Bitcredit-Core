@@ -75,8 +75,7 @@ impl NotificationStoreApi for SurrealNotificationStore {
             bindings.add(&node_ids.0, node_ids.1.to_owned())?;
         }
         let result: Vec<NotificationDb> = self.db.query(&format!(
-                "SELECT * FROM type::table($table) {} ORDER BY datetime DESC LIMIT $limit START $offset",
-                filters
+                "SELECT * FROM type::table($table) {filters} ORDER BY datetime DESC LIMIT $limit START $offset"
             ), bindings).await?;
         Ok(result.into_iter().map(|n| n.into()).collect())
     }
