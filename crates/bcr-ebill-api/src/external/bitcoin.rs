@@ -177,18 +177,18 @@ impl BitcoinClientApi for BitcoinClient {
     }
 
     fn get_address_to_pay(&self, bill_public_key: &str, holder_public_key: &str) -> Result<String> {
-        let public_key_bill = bitcoin::PublicKey::from_str(bill_public_key)
+        let public_key_bill = bitcoin::CompressedPublicKey::from_str(bill_public_key)
             .map_err(|e| Error::PublicKey(e.to_string()))?;
-        let public_key_bill_holder = bitcoin::PublicKey::from_str(holder_public_key)
+        let public_key_bill_holder = bitcoin::CompressedPublicKey::from_str(holder_public_key)
             .map_err(|e| Error::PublicKey(e.to_string()))?;
 
         let public_key_bill = public_key_bill
-            .inner
-            .combine(&public_key_bill_holder.inner)
+            .0
+            .combine(&public_key_bill_holder.0)
             .map_err(Error::from)?;
-        let pub_key_bill = bitcoin::PublicKey::new(public_key_bill);
+        let pub_key_bill = bitcoin::CompressedPublicKey(public_key_bill);
 
-        Ok(bitcoin::Address::p2pkh(pub_key_bill, get_config().bitcoin_network()).to_string())
+        Ok(bitcoin::Address::p2wpkh(&pub_key_bill, get_config().bitcoin_network()).to_string())
     }
 
     fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String {
@@ -217,7 +217,7 @@ impl BitcoinClientApi for BitcoinClient {
             desc_pubkey.clone(),
             desc_seckey,
         )));
-        let desc = miniscript::Descriptor::new_pkh(desc_pubkey).unwrap();
+        let desc = miniscript::Descriptor::new_wpkh(desc_pubkey).unwrap();
         Ok(desc.to_string_with_secret(&kmap))
     }
 
