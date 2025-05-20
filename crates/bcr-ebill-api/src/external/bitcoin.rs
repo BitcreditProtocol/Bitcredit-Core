@@ -54,7 +54,7 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
 
     fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String;
 
-    fn get_combined_private_key(
+    fn get_combined_private_descriptor(
         &self,
         pkey: &bitcoin::PrivateKey,
         pkey_to_combine: &bitcoin::PrivateKey,
@@ -197,7 +197,7 @@ impl BitcoinClientApi for BitcoinClient {
         link
     }
 
-    fn get_combined_private_key(
+    fn get_combined_private_descriptor(
         &self,
         pkey: &bitcoin::PrivateKey,
         pkey_to_combine: &bitcoin::PrivateKey,
@@ -206,7 +206,19 @@ impl BitcoinClientApi for BitcoinClient {
             .inner
             .add_tweak(&Scalar::from(pkey_to_combine.inner))
             .map_err(|e| Error::PrivateKey(e.to_string()))?;
-        Ok(bitcoin::PrivateKey::new(private_key_bill, get_config().bitcoin_network()).to_string())
+        let priv_key = bitcoin::PrivateKey::new(private_key_bill, get_config().bitcoin_network());
+        let single = miniscript::descriptor::SinglePriv {
+            key: priv_key,
+            origin: None,
+        };
+        let desc_seckey = miniscript::descriptor::DescriptorSecretKey::Single(single);
+        let desc_pubkey = desc_seckey.to_public(secp256k1::global::SECP256K1).unwrap();
+        let kmap = miniscript::descriptor::KeyMap::from_iter(std::iter::once((
+            desc_pubkey.clone(),
+            desc_seckey,
+        )));
+        let desc = miniscript::Descriptor::new_pkh(desc_pubkey).unwrap();
+        Ok(desc.to_string_with_secret(&kmap))
     }
 
     fn get_mempool_link_for_address(&self, address: &str) -> String {

@@ -471,12 +471,12 @@ impl BillServiceApi for BillService {
         }
 
         // The first key is always the bill key
-        let private_key = self.bitcoin_client.get_combined_private_key(
+        let private_descriptor = self.bitcoin_client.get_combined_private_descriptor(
             &BcrKeys::from_private_key(&bill_keys.private_key)?
                 .get_bitcoin_private_key(get_config().bitcoin_network()),
             &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
         )?;
-        return Ok(BillCombinedBitcoinKey { private_key });
+        return Ok(BillCombinedBitcoinKey { private_descriptor });
     }
 
     async fn get_detail(
@@ -827,7 +827,7 @@ impl BillServiceApi for BillService {
             Some(ref endorsee) => endorsee,
         };
 
-        let private_key_to_spend = self.bitcoin_client.get_combined_private_key(
+        let descriptor_to_spend = self.bitcoin_client.get_combined_private_descriptor(
             &BcrKeys::from_private_key(&bill_keys.private_key)?
                 .get_bitcoin_private_key(get_config().bitcoin_network()),
             &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
@@ -872,7 +872,7 @@ impl BillServiceApi for BillService {
                         sum: currency::sum_to_string(bill.sum),
                         link_to_pay,
                         address_to_pay,
-                        private_key_to_spend: private_key_to_spend.clone(),
+                        private_descriptor_to_spend: descriptor_to_spend.clone(),
                         mempool_link_for_address_to_pay,
                         status: if is_paid {
                             PastPaymentStatus::Paid(req_to_pay.timestamp)
@@ -918,7 +918,7 @@ impl BillServiceApi for BillService {
                 sum: currency::sum_to_string(past_sell_payment.0.sum),
                 link_to_pay,
                 address_to_pay,
-                private_key_to_spend: private_key_to_spend.clone(),
+                private_descriptor_to_spend: descriptor_to_spend.clone(),
                 mempool_link_for_address_to_pay,
                 status: past_sell_payment.1,
             }));
@@ -952,7 +952,7 @@ impl BillServiceApi for BillService {
                 sum: currency::sum_to_string(past_sell_payment.0.sum),
                 link_to_pay,
                 address_to_pay,
-                private_key_to_spend: private_key_to_spend.clone(),
+                private_descriptor_to_spend: descriptor_to_spend.clone(),
                 mempool_link_for_address_to_pay,
                 status: past_sell_payment.1,
             }));

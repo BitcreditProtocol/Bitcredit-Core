@@ -168,11 +168,11 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_check_if_paid()
         .returning(|_, _| Ok((true, 100)));
     bitcoin_client
-        .expect_get_combined_private_key()
-        .returning(|_, _| Ok(String::from("123412341234")));
+        .expect_get_combined_private_descriptor()
+        .returning(|_, _| Ok(String::from("wpkh(cNjLH9K88VEhLeinPJkgPCZJZ9vNdi2L2UiTBuEfy4gSbTsMvvJg)")));
     bitcoin_client
         .expect_get_address_to_pay()
-        .returning(|_, _| Ok(String::from("tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0")));
+        .returning(|_, _| Ok(String::from("tb1qssh7nk78mm35h75dg4th77zqz4qk3eay68krf9")));
     bitcoin_client
         .expect_get_mempool_link_for_address()
         .returning(|_| {

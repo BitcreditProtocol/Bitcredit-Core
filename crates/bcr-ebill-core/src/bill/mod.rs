@@ -402,7 +402,7 @@ pub enum BillRole {
 
 #[derive(Debug)]
 pub struct BillCombinedBitcoinKey {
-    pub private_key: String,
+    pub private_descriptor: String,
 }
 
 #[derive(Debug)]
@@ -458,7 +458,7 @@ pub struct PastPaymentDataSell {
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
-    pub private_key_to_spend: String,
+    pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
 }
@@ -472,7 +472,7 @@ pub struct PastPaymentDataPayment {
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
-    pub private_key_to_spend: String,
+    pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
 }
@@ -486,7 +486,7 @@ pub struct PastPaymentDataRecourse {
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
-    pub private_key_to_spend: String,
+    pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
 }
