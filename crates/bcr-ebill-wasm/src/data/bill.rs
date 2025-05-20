@@ -125,13 +125,13 @@ pub struct RejectActionBillPayload {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct BillCombinedBitcoinKeyWeb {
-    pub private_key: String,
+    pub private_descriptor: String,
 }
 
 impl From<BillCombinedBitcoinKey> for BillCombinedBitcoinKeyWeb {
     fn from(val: BillCombinedBitcoinKey) -> Self {
         BillCombinedBitcoinKeyWeb {
-            private_key: val.private_key,
+            private_descriptor: val.private_descriptor,
         }
     }
 }
@@ -310,7 +310,7 @@ pub struct PastPaymentDataSellWeb {
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
-    pub private_key_to_spend: String,
+    pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
 }
@@ -325,7 +325,7 @@ impl From<PastPaymentDataSell> for PastPaymentDataSellWeb {
             sum: val.sum,
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
-            private_key_to_spend: val.private_key_to_spend,
+            private_descriptor_to_spend: val.private_descriptor_to_spend,
             mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             status: val.status.into(),
         }
@@ -342,7 +342,7 @@ pub struct PastPaymentDataPaymentWeb {
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
-    pub private_key_to_spend: String,
+    pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
 }
@@ -356,7 +356,7 @@ impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
             sum: val.sum,
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
-            private_key_to_spend: val.private_key_to_spend,
+            private_descriptor_to_spend: val.private_descriptor_to_spend,
             mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             status: val.status.into(),
         }
@@ -373,7 +373,7 @@ pub struct PastPaymentDataRecourseWeb {
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
-    pub private_key_to_spend: String,
+    pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
 }
@@ -388,7 +388,7 @@ impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
             sum: val.sum,
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
-            private_key_to_spend: val.private_key_to_spend,
+            private_descriptor_to_spend: val.private_descriptor_to_spend,
             mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             status: val.status.into(),
         }
