@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::company::CompanyKeys;
+use crate::{bill::BillKeys, company::CompanyKeys};
 
 use super::{base58_decode, base58_encode};
 use bip39::Mnemonic;
@@ -140,6 +140,14 @@ impl TryFrom<CompanyKeys> for BcrKeys {
     type Error = Error;
 
     fn try_from(keys: CompanyKeys) -> Result<Self> {
+        BcrKeys::from_private_key(&keys.private_key)
+    }
+}
+
+impl TryFrom<BillKeys> for BcrKeys {
+    type Error = Error;
+
+    fn try_from(keys: BillKeys) -> Result<Self> {
         BcrKeys::from_private_key(&keys.private_key)
     }
 }

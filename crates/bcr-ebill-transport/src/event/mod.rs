@@ -1,5 +1,5 @@
+pub mod bill_chain_event;
 pub mod bill_events;
-pub mod chain_event;
 
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -8,19 +8,20 @@ use serde_json::Value;
 /// The global event type that is used for all events.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EventType {
-    /// Bill related events
+    /// Private Bill related events
     Bill,
+    /// Public Bill chain events
+    BillChain,
 }
 
 impl EventType {
     pub fn all() -> Vec<EventType> {
-        vec![EventType::Bill]
+        vec![EventType::Bill, EventType::BillChain]
     }
 }
 
 /// A generic event that can be sent to a specific recipient
-/// and is serializable. The recipient is currently just a string,
-/// and we have to decide what the identifier is.
+/// and is serializable.
 /// This event should contain all the information that is needed
 /// to send to different channels including email, push and Nostr.
 #[derive(Serialize, Debug, Clone)]

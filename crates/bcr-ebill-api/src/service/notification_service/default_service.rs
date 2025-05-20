@@ -96,7 +96,7 @@ impl DefaultNotificationService {
             for event_to_process in events.into_iter() {
                 if let Some(identity) = self.resolve_identity(&event_to_process.node_id).await {
                     if let Err(e) = node
-                        .send(&identity, event_to_process.clone().try_into()?)
+                        .send_private_event(&identity, event_to_process.clone().try_into()?)
                         .await
                     {
                         error!(
@@ -139,7 +139,7 @@ impl DefaultNotificationService {
         if let Some(node) = self.notification_transport.get(sender) {
             if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
             {
-                node.send(&identity, message).await?;
+                node.send_private_event(&identity, message).await?;
             }
         }
         Ok(())
@@ -306,7 +306,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             },
         );
         if let Some(node) = self.notification_transport.get(sender_node_id) {
-            node.send(bill.endorsee.as_ref().unwrap(), event.try_into()?)
+            node.send_private_event(bill.endorsee.as_ref().unwrap(), event.try_into()?)
                 .await?;
         }
         Ok(())
@@ -352,7 +352,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 };
                 for (_, recipient) in unique {
                     let event = Event::new_bill(&recipient.node_id(), payload.clone());
-                    node.send(&recipient, event.try_into()?).await?;
+                    node.send_private_event(&recipient, event.try_into()?)
+                        .await?;
                 }
             }
         }
@@ -510,14 +511,14 @@ mod tests {
 
     use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
-    use bcr_ebill_core::blockchain::Blockchain;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
         BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestToAcceptBlockData,
         BillRequestToPayBlockData,
     };
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
-    use bcr_ebill_core::util::date::now;
+    use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
+    use bcr_ebill_core::util::{BcrKeys, date::now};
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
     use std::sync::Arc;
@@ -534,7 +535,8 @@ mod tests {
         #[async_trait]
         impl NotificationJsonTransportApi for NotificationJsonTransport {
             fn get_sender_key(&self) -> String;
-            async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn send_public_chain_event(&self, id: &str, blockchain: BlockchainType, keys: BcrKeys, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
             async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
         }
     }
@@ -633,25 +635,25 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to send payment rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentRejected))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send acceptance rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceRejected))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send buying rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillBuyingRejected))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send recourse rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
             .returning(|_, _| Ok(()))
             .times(3);
@@ -740,7 +742,7 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to not send rejected event for non rejectable actions
-        mock.expect_send().never();
+        mock.expect_send_private_event().never();
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
@@ -783,13 +785,13 @@ mod tests {
             .returning(move || "node_id".to_string());
 
         // expect to send payment timeout event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send acceptance timeout event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceTimeout))
             .returning(|_, _| Ok(()))
             .times(3);
@@ -850,7 +852,7 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to never send timeout event on non expiring events
-        mock.expect_send().never();
+        mock.expect_send_private_event().never();
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
@@ -936,21 +938,21 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to send payment recourse event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentRecourse))
             .returning(|_, _| Ok(()))
             .times(1);
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillBlock))
             .returning(|_, _| Ok(()))
             .times(2);
 
         // expect to send acceptance recourse event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceRecourse))
             .returning(|_, _| Ok(()))
             .times(1);
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillBlock))
             .returning(|_, _| Ok(()))
             .times(2);
@@ -1029,7 +1031,7 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect not to send non recourse event
-        mock.expect_send().never();
+        mock.expect_send_private_event().never();
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
@@ -1068,8 +1070,10 @@ mod tests {
         mock.expect_get_sender_key()
             .returning(|| "node_id".to_string());
 
-        mock.expect_send().returning(|_, _| Ok(())).once();
-        mock.expect_send()
+        mock.expect_send_private_event()
+            .returning(|_, _| Ok(()))
+            .once();
+        mock.expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         let mut queue_mock = MockNostrQueuedMessageStore::new();
@@ -1123,7 +1127,7 @@ mod tests {
                 .returning(|| "node_id".to_string());
 
             let clone2 = p.clone();
-            mock.expect_send()
+            mock.expect_send_private_event()
                 .withf(move |r, e| {
                     let part = clone2.clone();
                     let valid_node_id =
@@ -1623,7 +1627,7 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
             .returning(move || "node_id".to_string());
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(move |r, e| {
                 let valid_node_id = r.node_id() == node_id && e.node_id == node_id;
                 let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
@@ -1714,7 +1718,9 @@ mod tests {
         mock_transport
             .expect_get_sender_key()
             .returning(|| "node_id".to_string());
-        mock_transport.expect_send().returning(|_, _| Ok(()));
+        mock_transport
+            .expect_send_private_event()
+            .returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
         mock_queue
@@ -1778,7 +1784,7 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -1868,11 +1874,11 @@ mod tests {
 
         // First message succeeds, second fails
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Ok(()))
             .times(1);
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())))
             .times(1);
 
@@ -1993,7 +1999,7 @@ mod tests {
             .expect_get_sender_key()
             .returning(|| "node_id".to_string());
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -2062,7 +2068,9 @@ mod tests {
         mock_transport
             .expect_get_sender_key()
             .returning(|| "node_id".to_string());
-        mock_transport.expect_send().returning(|_, _| Ok(()));
+        mock_transport
+            .expect_send_private_event()
+            .returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
         mock_queue

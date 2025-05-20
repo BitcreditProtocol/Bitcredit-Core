@@ -39,4 +39,4 @@ surrealdb = { version = "2.3", features = ["kv-mem"], default-features = false }
 base64 = "0.22"
 
 [features]
-embedded-db = ["surrealdb/kv-rocksdb"]
+# embedded-db = ["surrealdb/kv-rocksdb"]

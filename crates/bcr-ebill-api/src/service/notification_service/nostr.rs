@@ -1,9 +1,18 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{blockchain::bill::block::NodeId, contact::BillParticipant, util::crypto};
+use bcr_ebill_core::{
+    blockchain::{BlockchainType, bill::block::NodeId},
+    contact::BillParticipant,
+    util::{
+        base58_decode, base58_encode,
+        crypto::{self, decrypt_ecies, encrypt_ecies},
+    },
+};
 use bcr_ebill_transport::{
-    event::EventEnvelope, handler::NotificationHandlerApi, transport::NostrContactData,
+    bcr_nostr_tag, event::EventEnvelope, handler::NotificationHandlerApi,
+    transport::NostrContactData,
 };
 use log::{error, info, trace, warn};
+use nostr::nips::nip73::ExternalContentId;
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
     RelayPoolNotification, RelayUrl, SecretKey, SingleLetterTag, Tag, TagKind, TagStandard,
@@ -369,7 +378,7 @@ impl NotificationJsonTransportApi for NostrClient {
         self.get_node_id()
     }
 
-    async fn send(
+    async fn send_private_event(
         &self,
         recipient: &BillParticipant,
         event: EventEnvelope,
@@ -379,6 +388,21 @@ impl NotificationJsonTransportApi for NostrClient {
         } else {
             self.send_nip17_message(recipient, event).await?;
         }
+        Ok(())
+    }
+
+    async fn send_public_chain_event(
+        &self,
+        id: &str,
+        blockchain: BlockchainType,
+        keys: BcrKeys,
+        event: EventEnvelope,
+    ) -> Result<()> {
+        let event = create_public_chain_event(id, event, blockchain, keys)?;
+        self.client.send_event_builder(event).await.map_err(|e| {
+            error!("Failed to send Nostr event: {e}");
+            Error::Network("Failed to send Nostr event".to_string())
+        })?;
         Ok(())
     }
 
@@ -612,6 +636,65 @@ fn create_nip04_event(
     .tag(Tag::public_key(*public_key)))
 }
 
+/// Takes an event envelope and creates a public chain event with appropriate tags and encypted
+/// base58 encoded payload.
+fn create_public_chain_event(
+    id: &str,
+    event: EventEnvelope,
+    blockchain: BlockchainType,
+    keys: BcrKeys,
+) -> Result<EventBuilder> {
+    let payload = base58_encode(&encrypt_ecies(
+        &serde_json::to_vec(&event)?,
+        &keys.get_public_key(),
+    )?);
+    let event = EventBuilder::new(Kind::TextNote, payload).tag(bcr_nostr_tag(id, blockchain));
+    Ok(event)
+}
+
+#[allow(dead_code)]
+/// Unwraps a Nostr chain event with its metadata. Will return the encrypted payload and
+/// the metadata if the event matches a public chain event. Otherwise it returns None.
+fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPublicEventData>> {
+    let data: Vec<EncryptedPublicEventData> = event
+        .tags
+        .filter_standardized(TagKind::SingleLetter(SingleLetterTag::lowercase(
+            Alphabet::I,
+        )))
+        .filter_map(|t| match t {
+            TagStandard::ExternalContent {
+                content:
+                    ExternalContentId::BlockchainAddress {
+                        address, chain_id, ..
+                    },
+                ..
+            } => chain_id.as_ref().map(|id| EncryptedPublicEventData {
+                id: address.to_owned(),
+                chain_type: BlockchainType::try_from(id.as_ref()).unwrap(),
+                payload: event.content.clone(),
+            }),
+            _ => None,
+        })
+        .collect();
+    Ok(data.first().cloned())
+}
+
+#[allow(dead_code)]
+/// Given a encrypted payload and a private key, decrypts the payload and returns the
+/// its content as an EventEnvelope.
+fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
+    let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key_string())?;
+    let payload = serde_json::from_slice::<EventEnvelope>(&decrypted)?;
+    Ok(payload)
+}
+
+#[derive(Clone, Debug)]
+struct EncryptedPublicEventData {
+    id: String,
+    chain_type: BlockchainType,
+    payload: String,
+}
+
 /// Handle extracted event with given handlers.
 async fn handle_event(
     event: EventEnvelope,
@@ -776,7 +859,7 @@ mod tests {
                 });
                 // and send an event
                 client1
-                    .send(
+                    .send_private_event(
                         &BillParticipant::Ident(contact),
                         event.try_into().expect("could not convert event"),
                     )
