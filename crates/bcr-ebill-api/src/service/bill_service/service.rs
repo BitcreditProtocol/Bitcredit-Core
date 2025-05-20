@@ -14,6 +14,7 @@ use crate::data::{
     identity::Identity,
 };
 use crate::external::bitcoin::BitcoinClientApi;
+use crate::external::mint::MintClientApi;
 use crate::get_config;
 use crate::persistence::bill::BillChainStoreApi;
 use crate::persistence::bill::BillStoreApi;
@@ -35,9 +36,11 @@ use bcr_ebill_core::constants::{
 };
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
+use bcr_ebill_core::mint::MintRequestStatus;
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
-use bcr_ebill_core::{ServiceTraitBounds, Validate};
+use bcr_ebill_core::{ServiceTraitBounds, Validate, ValidationError};
+use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_transport::NotificationServiceApi;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
@@ -57,6 +60,8 @@ pub struct BillService {
     pub company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     pub contact_store: Arc<dyn ContactStoreApi>,
     pub company_store: Arc<dyn CompanyStoreApi>,
+    pub mint_store: Arc<dyn MintStoreApi>,
+    pub mint_client: Arc<dyn MintClientApi>,
 }
 impl ServiceTraitBounds for BillService {}
 
@@ -72,6 +77,8 @@ impl BillService {
         company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
+        mint_store: Arc<dyn MintStoreApi>,
+        mint_client: Arc<dyn MintClientApi>,
     ) -> Self {
         Self {
             store,
@@ -84,6 +91,8 @@ impl BillService {
             company_blockchain_store,
             contact_store,
             company_store,
+            mint_store,
+            mint_client,
         }
     }
 
@@ -629,6 +638,107 @@ impl BillServiceApi for BillService {
         debug!("Executed bill action {:?} for bill {bill_id}", &bill_action);
 
         Ok(blockchain)
+    }
+
+    async fn request_to_mint(
+        &self,
+        bill_id: &str,
+        mint_node_id: &str,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<()> {
+        debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
+        let mint_cfg = &get_config().mint_config;
+        // make sure the mint is a valid one - currently just checks it against the default mint
+        if mint_cfg.default_mint_node_id != mint_node_id {
+            return Err(Error::Validation(ValidationError::InvalidMint(
+                mint_node_id.to_owned(),
+            )));
+        }
+        // fetch data
+        let identity = self.identity_store.get_full().await?;
+        let contacts = self.contact_store.get_map().await?;
+        let blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity, &contacts)
+            .await?;
+        let is_paid = self.store.is_paid(bill_id).await?;
+
+        let mint_anon_participant = BillParticipant::Anon(BillAnonParticipant {
+            node_id: mint_node_id.to_owned(),
+            email: None,
+            nostr_relays: identity.identity.nostr_relays.clone(), // TODO next task: take from network, or config, or default to own relays
+        });
+
+        // validate using mint bill action - no point doing a mint request, if it can't be minted
+        BillValidateActionData {
+            blockchain: blockchain.clone(),
+            drawee_node_id: bill.drawee.node_id.clone(),
+            payee_node_id: bill.payee.node_id().clone(),
+            endorsee_node_id: bill.endorsee.clone().map(|e| e.node_id()),
+            maturity_date: bill.maturity_date.clone(),
+            bill_keys: bill_keys.clone(),
+            timestamp,
+            signer_node_id: signer_public_data.node_id().clone(),
+            bill_action: BillAction::Mint(mint_anon_participant, bill.sum, bill.currency.clone()),
+            is_paid,
+        }
+        .validate()?;
+
+        let requests_to_mint_for_bill_and_mint = self
+            .mint_store
+            .get_requests(&signer_public_data.node_id(), bill_id, mint_node_id)
+            .await?;
+        // If there are any active (i.e. pending, accepted or offered) requests, we can't make another one
+        if requests_to_mint_for_bill_and_mint.iter().any(|rtm| {
+            matches!(
+                rtm.status,
+                MintRequestStatus::Pending
+                    | MintRequestStatus::Offered { .. }
+                    | MintRequestStatus::Accepted { .. }
+            )
+        }) {
+            return Err(Error::Validation(
+                ValidationError::RequestToMintForBillAndMintAlreadyActive,
+            ));
+        }
+
+        // Send request to mint to mint
+        let endorsees = blockchain.get_endorsees_for_bill(&bill_keys);
+        let mint_request_id = self
+            .mint_client
+            .enquire_mint_quote(&mint_cfg.default_mint_url, signer_keys, &bill, &endorsees)
+            .await?;
+
+        // Store request to mint
+        self.mint_store
+            .add_request(
+                &signer_public_data.node_id(),
+                bill_id,
+                mint_node_id,
+                &mint_request_id,
+                timestamp,
+            )
+            .await?;
+
+        // Calculate bill and persist it to cache
+        self.recalculate_and_persist_bill(
+            bill_id,
+            &blockchain,
+            &bill_keys,
+            &identity.identity,
+            &signer_public_data.node_id(),
+            timestamp,
+        )
+        .await?;
+
+        // TODO next task: send notifications
+
+        debug!("Executed request to mint with mint {mint_node_id} for bill {bill_id}");
+
+        Ok(())
     }
 
     async fn check_bills_payment(&self) -> Result<()> {

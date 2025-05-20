@@ -586,10 +586,18 @@ impl Bill {
     ) -> Result<()> {
         let request_to_mint_bill_payload: RequestToMintBitcreditBillPayload =
             serde_wasm_bindgen::from_value(payload)?;
-        info!(
-            "request to mint bill called with payload {} {} - not implemented",
-            request_to_mint_bill_payload.mint_node, request_to_mint_bill_payload.bill_id
-        );
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+        get_ctx()
+            .bill_service
+            .request_to_mint(
+                &request_to_mint_bill_payload.bill_id,
+                &request_to_mint_bill_payload.mint_node,
+                &signer_public_data,
+                &signer_keys,
+                timestamp,
+            )
+            .await?;
 
         Ok(())
     }

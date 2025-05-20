@@ -1,4 +1,5 @@
 pub mod bitcoin;
+pub mod mint;
 pub mod time;
 
 use thiserror::Error;
@@ -13,4 +14,8 @@ pub enum Error {
     /// all errors originating from the external bitcoin API
     #[error("External Bitcoin API error: {0}")]
     ExternalBitcoinApi(#[from] bitcoin::Error),
+
+    /// all errors originating from the external mint API
+    #[error("External Mint API error: {0}")]
+    ExternalMintApi(#[from] mint::Error),
 }

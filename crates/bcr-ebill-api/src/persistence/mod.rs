@@ -9,11 +9,12 @@ use bcr_ebill_persistence::{
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
-        nostr_contact_store::SurrealNostrContactStore,
+        mint::SurrealMintStore, nostr_contact_store::SurrealNostrContactStore,
         nostr_send_queue::SurrealNostrEventQueueStore, surreal::SurrealWrapper,
     },
     file_upload::FileUploadStoreApi,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
+    mint::MintStoreApi,
     nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
 };
 use log::error;
@@ -47,6 +48,7 @@ pub struct DbContext {
     pub backup_store: Arc<dyn BackupStoreApi>,
     pub queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    pub mint_store: Arc<dyn MintStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -106,6 +108,7 @@ pub async fn get_db_context(
     let backup_store = Arc::new(SurrealBackupStore::new(db.clone()));
     let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
     let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
+    let mint_store = Arc::new(SurrealMintStore::new(surreal_wrapper.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -121,5 +124,6 @@ pub async fn get_db_context(
         backup_store,
         queued_message_store,
         nostr_contact_store,
+        mint_store,
     })
 }

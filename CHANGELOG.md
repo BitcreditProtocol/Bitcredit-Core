@@ -1,3 +1,12 @@
+# 0.3.13
+
+* Add default mint configuration options
+    * `default_mint_url`
+    * `default_mint_node_id`
+* Implement `request_to_mint`
+* Change bitcoin addresses and descriptor to p2wpkh
+* Suppress logging from crates we don't control
+
 # 0.3.12
 
 * impl Default for BillParticipant and BillAnonParticipant

@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
-    use crate::{CONFIG, NostrConfig, data::bill::BillKeys};
+    use crate::{CONFIG, MintConfig, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
@@ -14,6 +14,7 @@ pub mod tests {
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
+        mint::MintRequest,
         nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
@@ -25,6 +26,7 @@ pub mod tests {
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
         identity::{IdentityChainStoreApi, IdentityStoreApi},
+        mint::MintStoreApi,
         nostr::{NostrContactStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi},
         notification::NotificationFilter,
     };
@@ -46,6 +48,30 @@ pub mod tests {
             async fn insert(&self, node_id: &str, data: Contact) -> Result<()>;
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn update(&self, node_id: &str, data: Contact) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub MintStore {}
+
+        impl ServiceTraitBounds for MintStore {}
+
+        #[async_trait]
+        impl MintStoreApi for MintStore {
+            async fn get_requests(
+                &self,
+                requester_node_id: &str,
+                bill_id: &str,
+                mint_node_id: &str,
+            ) -> Result<Vec<MintRequest>>;
+            async fn add_request(
+                &self,
+                requester_node_id: &str,
+                bill_id: &str,
+                mint_node_id: &str,
+                mint_request_id: &str,
+                timestamp: u64,
+            ) -> Result<()>;
         }
     }
 
@@ -366,6 +392,12 @@ pub mod tests {
                     nostr_config: NostrConfig {
                         only_known_contacts: false,
                         relays: vec!["ws://localhost:8080".to_string()],
+                    },
+                    mint_config: MintConfig {
+                        default_mint_url: "http://localhost:4242/".into(),
+                        default_mint_node_id:
+                            "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                                .into(),
                     },
                 })
                 .unwrap();

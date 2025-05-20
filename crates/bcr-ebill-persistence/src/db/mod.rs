@@ -21,6 +21,7 @@ pub mod contact;
 pub mod file_upload;
 pub mod identity;
 pub mod identity_chain;
+pub mod mint;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;

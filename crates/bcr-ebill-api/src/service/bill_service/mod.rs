@@ -109,6 +109,16 @@ pub trait BillServiceApi: ServiceTraitBounds {
         timestamp: u64,
     ) -> Result<BillBlockchain>;
 
+    /// request to mint a bill
+    async fn request_to_mint(
+        &self,
+        bill_id: &str,
+        mint_node_id: &str,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<()>;
+
     /// Check payment status of bills that are requested to pay and not expired and not paid yet, updating their
     /// paid status if they were paid
     async fn check_bills_payment(&self) -> Result<()>;

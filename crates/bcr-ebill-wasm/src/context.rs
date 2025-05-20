@@ -2,7 +2,7 @@
 use super::{CONTEXT, Result};
 use bcr_ebill_api::{
     Config, DbContext,
-    external::bitcoin::BitcoinClient,
+    external::{bitcoin::BitcoinClient, mint::MintClient},
     service::{
         bill_service::{BillServiceApi, service::BillService},
         company_service::{CompanyService, CompanyServiceApi},
@@ -45,6 +45,7 @@ impl Context {
             &cfg,
         ));
         let bitcoin_client = Arc::new(BitcoinClient::new());
+        let mint_client = Arc::new(MintClient::new());
 
         let nostr_clients =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
@@ -68,6 +69,8 @@ impl Context {
             db.company_chain_store.clone(),
             db.contact_store.clone(),
             db.company_store.clone(),
+            db.mint_store.clone(),
+            mint_client,
         ));
         let identity_service = IdentityService::new(
             db.identity_store.clone(),

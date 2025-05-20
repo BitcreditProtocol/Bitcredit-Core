@@ -27,6 +27,7 @@ pub struct Config {
     pub db_config: SurrealDbConfig,
     pub data_dir: String,
     pub nostr_config: NostrConfig,
+    pub mint_config: MintConfig,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -50,6 +51,27 @@ pub struct NostrConfig {
     pub only_known_contacts: bool,
     /// All relays we want to publish our messages to and receive messages from.
     pub relays: Vec<String>,
+}
+
+/// Mint configuration
+#[derive(Debug, Clone, Default)]
+pub struct MintConfig {
+    /// URL of the default mint
+    pub default_mint_url: String,
+    /// Node Id of the default mint
+    pub default_mint_node_id: String,
+}
+
+impl MintConfig {
+    pub fn new(default_mint_url: String, default_mint_node_id: String) -> Result<Self> {
+        util::crypto::validate_pub_key(&default_mint_node_id)?;
+        reqwest::Url::parse(&default_mint_url)
+            .map_err(|e| anyhow!("Invalid Default Mint URL: {e}"))?;
+        Ok(Self {
+            default_mint_url,
+            default_mint_node_id,
+        })
+    }
 }
 
 pub fn init(conf: Config) -> Result<()> {

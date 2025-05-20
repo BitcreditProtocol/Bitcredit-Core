@@ -10,7 +10,9 @@ use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
 use crate::bill::{BillKeys, Endorsement, LightSignedBy, PastEndorsee, PastPaymentStatus};
 use crate::blockchain::{Block, Blockchain, Error};
 use crate::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
-use crate::contact::{ContactType, LightBillIdentParticipant, LightBillParticipant};
+use crate::contact::{
+    BillParticipant, ContactType, LightBillIdentParticipant, LightBillParticipant,
+};
 use crate::util::{self, BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -510,6 +512,24 @@ impl BillBlockchain {
                         },
                     });
                 }
+            }
+        }
+
+        result
+    }
+
+    /// Returns all endorsees from front to back (current holder is the last one in the list)
+    pub fn get_endorsees_for_bill(&self, bill_keys: &BillKeys) -> Vec<BillParticipant> {
+        let mut result: Vec<BillParticipant> = vec![];
+        // iterate from the front to the back, collecting all endorsement blocks
+        for block in self.blocks().iter() {
+            // we ignore issue blocks, since we are only interested in endorsements
+            if block.op_code == BillOpCode::Issue {
+                continue;
+            }
+            if let Ok(Some(holder_from_block)) = block.get_holder_from_block(bill_keys) {
+                let holder = holder_from_block.holder;
+                result.push(holder.into());
             }
         }
 
