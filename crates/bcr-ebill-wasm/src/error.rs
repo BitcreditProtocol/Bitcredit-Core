@@ -49,9 +49,11 @@ enum JsErrorType {
     InvalidIdentityType,
     InvalidDate,
     SelfDraftedBillCantBeBlank,
+    RequestToMintForBillAndMintAlreadyActive,
     SignerCantBeAnon,
     ContactIsAnonymous,
     InvalidContact,
+    InvalidMint,
     IssueDateAfterMaturityDate,
     MaturityDateInThePast,
     InvalidFileUploadId,
@@ -211,8 +213,12 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
             err_400(e, JsErrorType::IdentityIsNotBillIssuer)
         }
         ValidationError::SignerCantBeAnon => err_400(e, JsErrorType::SignerCantBeAnon),
+        ValidationError::RequestToMintForBillAndMintAlreadyActive => {
+            err_400(e, JsErrorType::RequestToMintForBillAndMintAlreadyActive)
+        }
         ValidationError::ContactIsAnonymous(_) => err_400(e, JsErrorType::ContactIsAnonymous),
         ValidationError::InvalidContact(_) => err_400(e, JsErrorType::InvalidContact),
+        ValidationError::InvalidMint(_) => err_400(e, JsErrorType::InvalidMint),
         ValidationError::MaturityDateInThePast => err_400(e, JsErrorType::MaturityDateInThePast),
         ValidationError::IssueDateAfterMaturityDate => {
             err_400(e, JsErrorType::IssueDateAfterMaturityDate)

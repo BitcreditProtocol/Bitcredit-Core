@@ -22,6 +22,7 @@ document.getElementById("bill_search").addEventListener("click", fetchBillSearch
 document.getElementById("endorse_bill").addEventListener("click", endorseBill);
 document.getElementById("blank_endorse_bill").addEventListener("click", endorseBillBlank);
 document.getElementById("req_to_accept_bill").addEventListener("click", requestToAcceptBill);
+document.getElementById("accept_bill").addEventListener("click", acceptBill);
 document.getElementById("req_to_pay_bill").addEventListener("click", requestToPayBill);
 document.getElementById("offer_to_sell_bill").addEventListener("click", offerToSellBill);
 document.getElementById("req_to_recourse_bill").addEventListener("click", requestToRecourseBill);
@@ -29,24 +30,28 @@ document.getElementById("reject_accept").addEventListener("click", rejectAcceptB
 document.getElementById("reject_pay").addEventListener("click", rejectPayBill);
 document.getElementById("reject_buying").addEventListener("click", rejectBuyingBill);
 document.getElementById("reject_recourse").addEventListener("click", rejectRecourseBill);
+document.getElementById("request_to_mint").addEventListener("click", requestToMint);
 document.getElementById("bill_test_self_drafted").addEventListener("click", triggerBill.bind(null, 1, false));
 document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 
+let config = {
+  log_level: "debug",
+  // bitcoin_network: "regtest", // local reg test
+  // esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
+  bitcoin_network: "testnet",
+  esplora_base_url: "https://esplora.minibill.tech",
+  nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
+  // if set to true we will drop DMs from nostr that we don't have in contacts
+  nostr_only_known_contacts: false,
+  job_runner_initial_delay_seconds: 1,
+  job_runner_check_interval_seconds: 600,
+  default_mint_url: "http://localhost:4343",
+  default_mint_node_id: "039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943",
+};
+
 async function start() {
-  let config = {
-    log_level: "debug",
-    // bitcoin_network: "regtest", // local reg test
-    // esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
-    bitcoin_network: "testnet",
-    esplora_base_url: "https://esplora.minibill.tech",
-    nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
-    // if set to true we will drop DMs from nostr that we don't have in contacts
-    nostr_only_known_contacts: false,
-    job_runner_initial_delay_seconds: 1,
-    job_runner_check_interval_seconds: 600,
-  };
   await wasm.default();
   await wasm.initialize_api(config);
 
@@ -361,6 +366,14 @@ async function requestToAcceptBill() {
   await measured();
 }
 
+async function acceptBill() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let measured = measure(async () => {
+    return await billApi.accept({ bill_id });
+  });
+  await measured();
+}
+
 async function requestToPayBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
@@ -415,6 +428,14 @@ async function rejectRecourseBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
     return await billApi.reject_to_pay_recourse({ bill_id });
+  });
+  await measured();
+}
+
+async function requestToMint() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let measured = measure(async () => {
+    return await billApi.request_to_mint({ bill_id, mint_node: config.default_mint_node_id });
   });
   await measured();
 }

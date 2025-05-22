@@ -123,6 +123,11 @@ impl BcrKeys {
     pub fn get_nostr_npriv(&self) -> String {
         self.get_nostr_keys().secret_key().to_bech32().unwrap()
     }
+
+    /// Returns the secp256k1 key pair
+    pub fn get_key_pair(&self) -> Keypair {
+        self.inner
+    }
 }
 
 impl Default for BcrKeys {
@@ -786,5 +791,13 @@ mod tests {
             node_id,
             TEST_NODE_ID_SECP_AS_NPUB_HEX
         ));
+    }
+
+    #[test]
+    fn get_key_pair() {
+        let keys = BcrKeys::new();
+        let key_pair = keys.get_key_pair();
+        let pub_key = key_pair.public_key().to_string();
+        assert_eq!(keys.get_public_key(), pub_key);
     }
 }

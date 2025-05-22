@@ -37,6 +37,12 @@ jobs:
       - name: Check
         run: cargo check --verbose
 
+      - name: Add fmt
+        run: rustup component add rustfmt
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
       - name: Test
         run: cargo test
         continue-on-error: true
@@ -58,12 +64,6 @@ jobs:
 
       - name: Add clippy
         run: rustup component add clippy
-
-      - name: Add fmt
-        run: rustup component add rustfmt
-
-      - name: Check formatting
-        run: cargo fmt -- --check
 
       - name: Clippy
         run:

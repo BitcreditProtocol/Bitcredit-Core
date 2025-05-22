@@ -1,6 +1,6 @@
 [package]
 name = "bcr-ebill-api"
-version = "0.3.12"
+version = "0.3.13"
 edition = "2024"
 license = "MIT"
 
@@ -31,6 +31,9 @@ bcr-ebill-transport = { path = "../bcr-ebill-transport" }
 tokio.workspace = true
 tokio_with_wasm.workspace = true
 secp256k1.workspace = true
+bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "db63f77e092e529912baebd201f998479b8fefcb" }
+bcr-wdc-utils = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "db63f77e092e529912baebd201f998479b8fefcb" }
+cashu = { version = "0.9", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

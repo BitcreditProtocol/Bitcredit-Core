@@ -43,6 +43,17 @@ pub fn end_of_day_as_timestamp(timestamp: u64) -> u64 {
     date_utc.timestamp() as u64
 }
 
+/// Converts the given date string (default format) to rfc3339
+pub fn date_string_to_rfc3339(date_str: &str) -> Result<String, ValidationError> {
+    let naive_date_time = NaiveDate::parse_from_str(date_str, DEFAULT_DATE_FORMAT)
+        .map_err(|_| ValidationError::InvalidDate)?
+        .and_hms_opt(0, 0, 0)
+        .ok_or(ValidationError::InvalidDate)?;
+    let date_utc = Utc.from_utc_datetime(&naive_date_time);
+
+    Ok(date_utc.to_rfc3339())
+}
+
 /// Returns the timestamp for the given date string, with the time set to the start of day
 pub fn date_string_to_timestamp(
     date_str: &str,
@@ -150,5 +161,22 @@ mod tests {
         assert!(date_string_to_timestamp("2025-32-99", None).is_err());
         assert!(date_string_to_timestamp("2025/01/15", None).is_err());
         assert!(date_string_to_timestamp("", None).is_err());
+    }
+
+    #[test]
+    fn test_date_string_to_rfc3339() {
+        let date_str = "2025-01-15";
+        let expected_timestamp = "2025-01-15T00:00:00+00:00";
+        assert_eq!(
+            date_string_to_rfc3339(date_str).unwrap(),
+            expected_timestamp
+        );
+    }
+
+    #[test]
+    fn test_date_string_to_rfc3339_invalid_data() {
+        assert!(date_string_to_rfc3339("2025-32-99").is_err());
+        assert!(date_string_to_rfc3339("2025/01/15").is_err());
+        assert!(date_string_to_rfc3339("").is_err());
     }
 }

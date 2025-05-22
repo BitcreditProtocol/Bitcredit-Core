@@ -13,6 +13,7 @@ pub mod company;
 pub mod constants;
 pub mod contact;
 pub mod identity;
+pub mod mint;
 pub mod nostr_contact;
 pub mod notification;
 #[cfg(test)]
@@ -203,6 +204,14 @@ pub enum ValidationError {
     /// error returned if the contact is invalid, e.g. a non-anon contact with no address
     #[error("the contact {0} is invalid")]
     InvalidContact(String),
+
+    /// error returned if the mint is invalid
+    #[error("the mint {0} is invalid")]
+    InvalidMint(String),
+
+    /// error returned if there is already a request to mint for this bill and mint
+    #[error("There is already a request to mint for this bill and mint")]
+    RequestToMintForBillAndMintAlreadyActive,
 
     /// error returned if the signer for a certain action is not allowed to be anonymous
     #[error("The signer can't be anonymous")]

@@ -1,6 +1,8 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
-use bcr_ebill_api::{Config as ApiConfig, NostrConfig, SurrealDbConfig, get_db_context, init};
+use bcr_ebill_api::{
+    Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, get_db_context, init,
+};
 use context::{Context, get_ctx};
 use futures::{StreamExt, future::ready};
 use gloo_timers::future::{IntervalStream, TimeoutFuture};
@@ -30,6 +32,8 @@ pub struct Config {
     pub nostr_only_known_contacts: Option<bool>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
+    pub default_mint_url: String,
+    pub default_mint_node_id: String,
 }
 
 pub type Result<T> = std::result::Result<T, error::WasmError>;
@@ -49,15 +53,25 @@ pub async fn initialize_api(
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     let log_level = match config.log_level {
         Some(ref log_level) => match log_level.as_str() {
-            "info" => log::Level::Info,
-            "debug" => log::Level::Debug,
-            "error" => log::Level::Error,
-            "trace" => log::Level::Trace,
-            _ => log::Level::Info,
+            "info" => log::LevelFilter::Info,
+            "debug" => log::LevelFilter::Debug,
+            "error" => log::LevelFilter::Error,
+            "trace" => log::LevelFilter::Trace,
+            _ => log::LevelFilter::Info,
         },
-        None => log::Level::Info,
+        None => log::LevelFilter::Info,
     };
-    console_log::init_with_level(log_level).expect("can initialize logging");
+    // only log from our own crates
+    fern::Dispatch::new()
+        .level(log::LevelFilter::Off)
+        .level_for("bcr_ebill_wasm", log_level)
+        .level_for("bcr_ebill_api", log_level)
+        .level_for("bcr_ebill_persistence", log_level)
+        .level_for("bcr_ebill_transport", log_level)
+        .level_for("bcr_ebill_core", log_level)
+        .chain(fern::Output::call(console_log::log))
+        .apply()
+        .expect("can initialize logging");
     let api_config = ApiConfig {
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
@@ -67,6 +81,7 @@ pub async fn initialize_api(
             relays: config.nostr_relays.to_owned(),
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
         },
+        mint_config: MintConfig::new(config.default_mint_url, config.default_mint_node_id)?,
     };
     init(api_config.clone())?;
 
