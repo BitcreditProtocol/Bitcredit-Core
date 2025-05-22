@@ -19,14 +19,16 @@ pub struct MintRequest {
 pub enum MintRequestStatus {
     /// Waiting for an answer from the mint
     Pending,
-    /// Denied by the requester
+    /// Denied by the mint
     Denied,
     /// Offer was made
     Offered,
     /// Offer was accepted
     Accepted,
-    /// Rejected by the mint
+    /// The offer was rejected by the requester
     Rejected,
+    /// The request was cancelled by the requester
+    Cancelled,
 }
 
 /// An offer from a mint as a response to a request to mint
