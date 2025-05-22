@@ -1,8 +1,8 @@
 [package]
 name = "bcr-ebill-core"
-version = "0.3.13"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 doctest = false
