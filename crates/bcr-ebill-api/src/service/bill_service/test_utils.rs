@@ -19,8 +19,8 @@ use crate::{
 };
 use bcr_ebill_core::{
     bill::{
-        BillAcceptanceStatus, BillData, BillParticipants, BillPaymentStatus, BillRecourseStatus,
-        BillSellStatus, BillStatus,
+        BillAcceptanceStatus, BillData, BillMintStatus, BillParticipants, BillPaymentStatus,
+        BillRecourseStatus, BillSellStatus, BillStatus,
     },
     blockchain::{
         Blockchain,
@@ -130,6 +130,9 @@ pub fn get_baseline_cached_bill(id: String) -> BitcreditBillResult {
                 requested_to_recourse: false,
                 request_to_recourse_timed_out: false,
                 rejected_request_to_recourse: false,
+            },
+            mint: BillMintStatus {
+                has_mint_requests: false,
             },
             redeemed_funds_available: false,
             has_requested_funds: false,
@@ -247,6 +250,9 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.identity_store
         .expect_get_full()
         .returning(|| Ok(get_baseline_identity()));
+    ctx.mint_store
+        .expect_exists_for_bill()
+        .returning(|_, _| Ok(false));
     BillService::new(
         Arc::new(ctx.bill_store),
         Arc::new(ctx.bill_blockchain_store),

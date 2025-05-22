@@ -36,7 +36,7 @@ use bcr_ebill_core::constants::{
 };
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
-use bcr_ebill_core::mint::MintRequestStatus;
+use bcr_ebill_core::mint::{MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{ServiceTraitBounds, Validate, ValidationError};
@@ -696,8 +696,8 @@ impl BillServiceApi for BillService {
             matches!(
                 rtm.status,
                 MintRequestStatus::Pending
-                    | MintRequestStatus::Offered { .. }
-                    | MintRequestStatus::Accepted { .. }
+                    | MintRequestStatus::Offered
+                    | MintRequestStatus::Accepted
             )
         }) {
             return Err(Error::Validation(
@@ -1098,6 +1098,24 @@ impl BillServiceApi for BillService {
 
         let result = chain.get_endorsements_for_bill(&bill_keys);
         Ok(result)
+    }
+
+    async fn get_mint_state(
+        &self,
+        bill_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<Vec<MintRequestState>> {
+        let requests = self
+            .mint_store
+            .get_requests_for_bill(current_identity_node_id, bill_id)
+            .await?;
+        Ok(requests
+            .into_iter()
+            .map(|req| MintRequestState {
+                request: req,
+                offer: None,
+            })
+            .collect())
     }
 
     async fn clear_bill_cache(&self) -> Result<()> {

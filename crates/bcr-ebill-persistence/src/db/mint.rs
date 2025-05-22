@@ -1,4 +1,4 @@
-use super::{Result, surreal::Bindings};
+use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
@@ -31,6 +31,37 @@ impl ServiceTraitBounds for SurrealMintStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl MintStoreApi for SurrealMintStore {
+    async fn exists_for_bill(&self, requester_node_id: &str, bill_id: &str) -> Result<bool> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
+        bindings.add(DB_BILL_ID, bill_id.to_owned())?;
+        bindings.add(DB_MINT_REQUESTER_NODE_ID, requester_node_id.to_owned())?;
+        match self
+            .db
+            .query::<Option<BillIdDb>>(
+                "SELECT bill_id FROM type::table($table) WHERE bill_id = $bill_id GROUP BY bill_id",
+                bindings,
+            )
+            .await
+        {
+            Ok(res) => {
+                if res.is_empty() {
+                    // not found
+                    Ok(false)
+                } else {
+                    // found - check keys
+                    Ok(true)
+                }
+            }
+            Err(e) => {
+                log::error!(
+                    "Error checking if there are mint requests for bill {bill_id} exists: {e}"
+                );
+                Ok(false)
+            }
+        }
+    }
+
     async fn get_requests(
         &self,
         requester_node_id: &str,
@@ -44,6 +75,20 @@ impl MintStoreApi for SurrealMintStore {
         bindings.add(DB_MINT_REQUESTER_NODE_ID, requester_node_id.to_owned())?;
         let results: Vec<MintRequestDb> = self.db
             .query("SELECT * from type::table($table) WHERE bill_id = $bill_id AND mint_node_id = $mint_node_id AND requester_node_id = $requester_node_id", bindings).await?;
+        Ok(results.into_iter().map(|c| c.into()).collect())
+    }
+
+    async fn get_requests_for_bill(
+        &self,
+        requester_node_id: &str,
+        bill_id: &str,
+    ) -> Result<Vec<MintRequest>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
+        bindings.add(DB_BILL_ID, bill_id.to_owned())?;
+        bindings.add(DB_MINT_REQUESTER_NODE_ID, requester_node_id.to_owned())?;
+        let results: Vec<MintRequestDb> = self.db
+            .query("SELECT * from type::table($table) WHERE bill_id = $bill_id AND requester_node_id = $requester_node_id", bindings).await?;
         Ok(results.into_iter().map(|c| c.into()).collect())
     }
 
@@ -108,17 +153,9 @@ impl From<MintRequest> for MintRequestDb {
 pub enum MintRequestStatusDb {
     Pending,
     Denied,
-    Offered {
-        keyset_id: String,
-        expiration_timestamp: u64,
-        discounted: u64,
-    },
-    Accepted {
-        keyset_id: String,
-    },
-    Rejected {
-        timestamp: u64,
-    },
+    Offered,
+    Accepted,
+    Rejected,
 }
 
 impl From<MintRequestStatusDb> for MintRequestStatus {
@@ -126,21 +163,9 @@ impl From<MintRequestStatusDb> for MintRequestStatus {
         match value {
             MintRequestStatusDb::Pending => MintRequestStatus::Pending,
             MintRequestStatusDb::Denied => MintRequestStatus::Denied,
-            MintRequestStatusDb::Offered {
-                keyset_id,
-                expiration_timestamp,
-                discounted,
-            } => MintRequestStatus::Offered {
-                keyset_id,
-                expiration_timestamp,
-                discounted,
-            },
-            MintRequestStatusDb::Accepted { keyset_id } => {
-                MintRequestStatus::Accepted { keyset_id }
-            }
-            MintRequestStatusDb::Rejected { timestamp } => {
-                MintRequestStatus::Rejected { timestamp }
-            }
+            MintRequestStatusDb::Offered => MintRequestStatus::Offered,
+            MintRequestStatusDb::Accepted => MintRequestStatus::Accepted,
+            MintRequestStatusDb::Rejected => MintRequestStatus::Rejected,
         }
     }
 }
@@ -150,21 +175,9 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
         match value {
             MintRequestStatus::Pending => MintRequestStatusDb::Pending,
             MintRequestStatus::Denied => MintRequestStatusDb::Denied,
-            MintRequestStatus::Offered {
-                keyset_id,
-                expiration_timestamp,
-                discounted,
-            } => MintRequestStatusDb::Offered {
-                keyset_id,
-                expiration_timestamp,
-                discounted,
-            },
-            MintRequestStatus::Accepted { keyset_id } => {
-                MintRequestStatusDb::Accepted { keyset_id }
-            }
-            MintRequestStatus::Rejected { timestamp } => {
-                MintRequestStatusDb::Rejected { timestamp }
-            }
+            MintRequestStatus::Offered => MintRequestStatusDb::Offered,
+            MintRequestStatus::Accepted => MintRequestStatusDb::Accepted,
+            MintRequestStatus::Rejected => MintRequestStatusDb::Rejected,
         }
     }
 }

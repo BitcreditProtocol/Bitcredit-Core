@@ -1,8 +1,11 @@
 # 0.3.13
 
-* Add default mint configuration options
-    * `default_mint_url`
-    * `default_mint_node_id`
+* Minting
+    * Add default mint configuration options
+        * `default_mint_url`
+        * `default_mint_node_id`
+    * Add minting status flag to bill
+    * Add endpoint to fetch minting status for a bill
 * Implement `request_to_mint`
 * Change bitcoin addresses and descriptor to p2wpkh
 * Suppress logging from crates we don't control

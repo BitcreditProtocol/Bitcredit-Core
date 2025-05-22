@@ -58,11 +58,17 @@ pub mod tests {
 
         #[async_trait]
         impl MintStoreApi for MintStore {
+            async fn exists_for_bill(&self, requester_node_id: &str, bill_id: &str) -> Result<bool>;
             async fn get_requests(
                 &self,
                 requester_node_id: &str,
                 bill_id: &str,
                 mint_node_id: &str,
+            ) -> Result<Vec<MintRequest>>;
+            async fn get_requests_for_bill(
+                &self,
+                requester_node_id: &str,
+                bill_id: &str,
             ) -> Result<Vec<MintRequest>>;
             async fn add_request(
                 &self,

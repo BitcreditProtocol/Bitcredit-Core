@@ -32,6 +32,7 @@ use crate::{
             RequestRecourseForPaymentPayload, RequestToAcceptBitcreditBillPayload,
             RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload,
         },
+        mint::MintRequestStateResponse,
     },
 };
 
@@ -600,6 +601,18 @@ impl Bill {
             .await?;
 
         Ok(())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "MintRequestStateWeb")]
+    pub async fn mint_state(&self, id: &str) -> Result<JsValue> {
+        let result = get_ctx()
+            .bill_service
+            .get_mint_state(id, &get_current_identity_node_id().await?)
+            .await?;
+        let res = serde_wasm_bindgen::to_value(&MintRequestStateResponse {
+            request_states: result.into_iter().map(|e| e.into()).collect(),
+        })?;
+        Ok(res)
     }
 
     async fn mint(

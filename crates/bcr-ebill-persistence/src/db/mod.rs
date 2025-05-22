@@ -194,6 +194,11 @@ impl From<&PostalAddress> for PostalAddressDb {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillIdDb {
+    pub bill_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

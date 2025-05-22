@@ -31,6 +31,7 @@ document.getElementById("reject_pay").addEventListener("click", rejectPayBill);
 document.getElementById("reject_buying").addEventListener("click", rejectBuyingBill);
 document.getElementById("reject_recourse").addEventListener("click", rejectRecourseBill);
 document.getElementById("request_to_mint").addEventListener("click", requestToMint);
+document.getElementById("get_mint_state").addEventListener("click", getMintState);
 document.getElementById("bill_test_self_drafted").addEventListener("click", triggerBill.bind(null, 1, false));
 document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
@@ -439,6 +440,14 @@ async function requestToMint() {
   });
   await measured();
 }
+async function getMintState() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let measured = measure(async () => {
+    return await billApi.mint_state(bill_id);
+  });
+  await measured();
+}
+
 
 async function fetchBillDetail() {
   let measured = measure(async () => {

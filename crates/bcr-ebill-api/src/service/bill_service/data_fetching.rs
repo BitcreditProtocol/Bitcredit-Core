@@ -3,6 +3,7 @@ use crate::util;
 use super::service::BillService;
 use super::{Error, Result};
 use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::bill::BillMintStatus;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
@@ -157,6 +158,10 @@ impl BillService {
             Some(ref endorsee) => endorsee,
         };
 
+        let has_mint_requests = self
+            .mint_store
+            .exists_for_bill(current_identity_node_id, &bill.id)
+            .await?;
         let mut paid = false;
         let mut requested_to_pay = false;
         let mut rejected_to_pay = false;
@@ -473,6 +478,7 @@ impl BillService {
                 request_to_recourse_timed_out,
                 rejected_request_to_recourse,
             },
+            mint: BillMintStatus { has_mint_requests },
             redeemed_funds_available,
             has_requested_funds,
         };
