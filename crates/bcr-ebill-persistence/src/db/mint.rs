@@ -157,6 +157,7 @@ pub enum MintRequestStatusDb {
     Accepted,
     Rejected,
     Cancelled,
+    Expired,
 }
 
 impl From<MintRequestStatusDb> for MintRequestStatus {
@@ -168,6 +169,7 @@ impl From<MintRequestStatusDb> for MintRequestStatus {
             MintRequestStatusDb::Accepted => MintRequestStatus::Accepted,
             MintRequestStatusDb::Rejected => MintRequestStatus::Rejected,
             MintRequestStatusDb::Cancelled => MintRequestStatus::Cancelled,
+            MintRequestStatusDb::Expired => MintRequestStatus::Expired,
         }
     }
 }
@@ -181,6 +183,7 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
             MintRequestStatus::Accepted => MintRequestStatusDb::Accepted,
             MintRequestStatus::Rejected => MintRequestStatusDb::Rejected,
             MintRequestStatus::Cancelled => MintRequestStatusDb::Cancelled,
+            MintRequestStatus::Expired => MintRequestStatusDb::Expired,
         }
     }
 }

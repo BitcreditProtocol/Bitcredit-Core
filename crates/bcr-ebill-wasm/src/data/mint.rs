@@ -35,6 +35,7 @@ pub enum MintRequestStatusWeb {
     Accepted,
     Rejected,
     Cancelled,
+    Expired,
 }
 impl From<MintRequestStatus> for MintRequestStatusWeb {
     fn from(val: MintRequestStatus) -> Self {
@@ -45,6 +46,7 @@ impl From<MintRequestStatus> for MintRequestStatusWeb {
             MintRequestStatus::Accepted => MintRequestStatusWeb::Accepted,
             MintRequestStatus::Rejected => MintRequestStatusWeb::Rejected,
             MintRequestStatus::Cancelled => MintRequestStatusWeb::Cancelled,
+            MintRequestStatus::Expired => MintRequestStatusWeb::Expired,
         }
     }
 }

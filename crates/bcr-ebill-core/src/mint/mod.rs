@@ -29,6 +29,8 @@ pub enum MintRequestStatus {
     Rejected,
     /// The request was cancelled by the requester
     Cancelled,
+    /// The offer expired
+    Expired,
 }
 
 /// An offer from a mint as a response to a request to mint
