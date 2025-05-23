@@ -48,4 +48,4 @@ tokio.workspace = true
 async-broadcast.workspace = true
 
 [features]
-# embedded-db = ["bcr-ebill-persistence/embedded-db"]
+embedded-db = ["bcr-ebill-persistence/embedded-db"]

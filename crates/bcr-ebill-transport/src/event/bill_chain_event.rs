@@ -18,5 +18,5 @@ pub struct ChainInvite {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChainEvent {
     pub bill_id: String,
-    pub blocks: BillBlock,
+    pub block: BillBlock,
 }

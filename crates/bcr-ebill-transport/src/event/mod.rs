@@ -33,7 +33,6 @@ pub struct Event<T: Serialize> {
 }
 
 impl<T: Serialize> Event<T> {
-    #[allow(dead_code)]
     pub fn new(event_type: EventType, node_id: &str, data: T) -> Self {
         Self {
             event_type: event_type.to_owned(),

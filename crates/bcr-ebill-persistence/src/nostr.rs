@@ -1,10 +1,12 @@
 use super::Result;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    BoxedFuture, ServiceTraitBounds,
+    blockchain::BlockchainType,
     nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
 };
-use nostr::key::PublicKey;
+use nostr::{event::Event, key::PublicKey};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Allows storing and retrieving time based offsets for subscriptions
@@ -87,4 +89,67 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// Sets a new trust level for the contact. This is used to track the trust level of the
     /// contact.
     async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
+}
+
+/// Allows us to keep track of Nostr chain events and have an archive of signed events that
+/// allows us to proof certain Events where published.
+pub trait NostrChainEventStoreApi: Send + Sync {
+    /// Finds all chain events for the given chain id and type. This will return all valid
+    /// events we ever received for a chain id.
+    fn find_chain_events(
+        &self,
+        chain_id: &str,
+        chain_type: BlockchainType,
+    ) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>>;
+
+    /// Finds the latest chain events for the given chain id and type. This can be considered the
+    /// tip of the current chain state on Nostr. Latest means the blocks with the highest block
+    /// height. In split chain scenarios this can return more than one event.
+    fn find_latest_block_events(
+        &self,
+        chain_id: &str,
+        chain_type: BlockchainType,
+    ) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>>;
+
+    /// Finds the root (genesis) event for a given chain
+    fn find_root_event(
+        &self,
+        chain_id: &str,
+        chain_type: BlockchainType,
+    ) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+
+    /// Finds a message with a specific block hash as extracted from the chain payload.
+    fn find_by_block_hash(&self, hash: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+
+    /// Adds a new chain event to the store.
+    fn add_chain_event(&self, event: NostrChainEvent) -> BoxedFuture<'_, Result<()>>;
+
+    /// Finds an event by a specific Nostr event_id
+    fn by_event_id(&self, event_id: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NostrChainEvent {
+    /// The nostr event id of this event.
+    pub event_id: String,
+    /// The event id that started the thread.
+    pub root_id: String,
+    /// The event id this event was appended to.
+    pub reply_id: Option<String>,
+    /// The npub of the sender of this event.
+    pub author: String,
+    /// The BCR id of the blockchain.
+    pub chain_id: String,
+    /// The type of the blockchain.
+    pub chain_type: BlockchainType,
+    /// The block height of the block contained in this event.
+    pub block_height: usize,
+    /// The hash of the block contained in this event.
+    pub block_hash: String,
+    /// The timestamp when we received the event.
+    pub received: u64,
+    /// The timestamp of the event.
+    pub time: u64,
+    /// The event as we received it via nostr.
+    pub payload: Event,
 }

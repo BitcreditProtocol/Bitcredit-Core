@@ -270,7 +270,7 @@ mod tests {
     }
 
     async fn get_store() -> SurrealNostrContactStore {
-        let mem_db = get_memory_db("test", "nostr_event_queue")
+        let mem_db = get_memory_db("test", "nostr_contact")
             .await
             .expect("could not create memory db");
         SurrealNostrContactStore::new(SurrealWrapper {

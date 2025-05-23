@@ -91,7 +91,6 @@ pub struct NostrClient {
 }
 
 impl NostrClient {
-    #[allow(dead_code)]
     pub async fn new(config: &NostrConfig) -> Result<Self> {
         let keys = config.keys.clone();
         let options = Options::new();
@@ -688,11 +687,12 @@ fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelop
     Ok(payload)
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 struct EncryptedPublicEventData {
-    id: String,
-    chain_type: BlockchainType,
-    payload: String,
+    pub id: String,
+    pub chain_type: BlockchainType,
+    pub payload: String,
 }
 
 /// Handle extracted event with given handlers.
