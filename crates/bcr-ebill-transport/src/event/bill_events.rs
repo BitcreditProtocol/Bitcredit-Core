@@ -87,13 +87,14 @@ impl BillChainEvent {
 
     /// Generates bill block events for all participants in the chain. Individual node_ids can be
     /// assigned a specific event and action type by providing an override. If include_blocks is
-    /// false, the blocks list will be empty in the generated events.
+    /// false, the blocks list will be empty in the generated events. The recipient node_id is the
+    /// key in the map.
     pub fn generate_action_messages(
         &self,
         event_overrides: HashMap<String, (BillEventType, ActionType)>,
         event_type: Option<BillEventType>,
         action: Option<ActionType>,
-    ) -> Vec<Event<BillChainEventPayload>> {
+    ) -> HashMap<String, Event<BillChainEventPayload>> {
         let base_event = event_type.unwrap_or(BillEventType::BillBlock);
         self.participants
             .keys()
@@ -102,17 +103,19 @@ impl BillChainEvent {
                     .get(node_id)
                     .map(|(event_type, action)| (event_type.clone(), Some(action.clone())))
                     .unwrap_or((base_event.clone(), None));
-                Event::new(
-                    EventType::Bill,
-                    node_id,
-                    BillChainEventPayload {
-                        event_type,
-                        bill_id: self.bill.id.to_owned(),
-                        action_type: override_action.or(action.clone()),
-                        sum: Some(self.bill.sum),
-                        blocks: self.get_blocks_for_node(node_id),
-                        keys: self.get_keys_for_node(node_id),
-                    },
+                (
+                    node_id.to_owned(),
+                    Event::new(
+                        EventType::Bill,
+                        BillChainEventPayload {
+                            event_type,
+                            bill_id: self.bill.id.to_owned(),
+                            action_type: override_action.or(action.clone()),
+                            sum: Some(self.bill.sum),
+                            blocks: self.get_blocks_for_node(node_id),
+                            keys: self.get_keys_for_node(node_id),
+                        },
+                    ),
                 )
             })
             .collect()

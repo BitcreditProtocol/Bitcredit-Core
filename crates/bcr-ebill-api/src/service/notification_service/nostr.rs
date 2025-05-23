@@ -784,8 +784,7 @@ mod tests {
         // and a contact we want to send an event to
         let contact =
             get_identity_public_data(&keys2.get_public_key(), "payee@example.com", vec![&url]);
-        let mut event = create_test_event(&BillEventType::BillSigned);
-        event.node_id = contact.node_id.to_owned();
+        let event = create_test_event(&BillEventType::BillSigned);
 
         // expect the receiver to check if the sender contact is known
         let mut contact_service = MockContactServiceApi::new();
@@ -810,10 +809,9 @@ mod tests {
                 let received: Event<TestEventPayload> =
                     e.clone().try_into().expect("could not convert event");
                 let valid_type = received.event_type == expected.event_type;
-                let valid_receiver = received.node_id == expected.node_id;
                 let valid_payload = received.data.foo == expected.data.foo;
                 let valid_identity = i == keys2.get_public_key();
-                valid_type && valid_receiver && valid_payload && valid_identity
+                valid_type && valid_payload && valid_identity
             })
             .returning(|_, _| Ok(()));
 

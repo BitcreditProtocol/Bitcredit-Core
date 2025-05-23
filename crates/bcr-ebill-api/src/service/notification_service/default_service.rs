@@ -90,11 +90,11 @@ impl DefaultNotificationService {
     async fn send_all_events(
         &self,
         sender: &str,
-        events: Vec<Event<BillChainEventPayload>>,
+        events: HashMap<String, Event<BillChainEventPayload>>,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender) {
-            for event_to_process in events.into_iter() {
-                if let Some(identity) = self.resolve_identity(&event_to_process.node_id).await {
+            for (node_id, event_to_process) in events.into_iter() {
+                if let Some(identity) = self.resolve_identity(&node_id).await {
                     if let Err(e) = node
                         .send_private_event(&identity, event_to_process.clone().try_into()?)
                         .await
@@ -106,7 +106,7 @@ impl DefaultNotificationService {
                         let queue_message = NostrQueuedMessage {
                             id: uuid::Uuid::new_v4().to_string(),
                             sender_id: sender.to_owned(),
-                            node_id: event_to_process.node_id.clone(),
+                            node_id: node_id.to_owned(),
                             payload: serde_json::to_value(event_to_process)?,
                         };
                         if let Err(e) = self
@@ -120,7 +120,7 @@ impl DefaultNotificationService {
                 } else {
                     warn!(
                         "Failed to find recipient in contacts for node_id: {}",
-                        event_to_process.node_id
+                        node_id
                     );
                 }
             }
@@ -295,16 +295,13 @@ impl NotificationServiceApi for DefaultNotificationService {
         sender_node_id: &str,
         bill: &BitcreditBill,
     ) -> Result<()> {
-        let event = Event::new_bill(
-            &bill.endorsee.as_ref().unwrap().node_id(),
-            BillChainEventPayload {
-                event_type: BillEventType::BillMintingRequested,
-                bill_id: bill.id.clone(),
-                action_type: Some(ActionType::CheckBill),
-                sum: Some(bill.sum),
-                ..Default::default()
-            },
-        );
+        let event = Event::new_bill(BillChainEventPayload {
+            event_type: BillEventType::BillMintingRequested,
+            bill_id: bill.id.clone(),
+            action_type: Some(ActionType::CheckBill),
+            sum: Some(bill.sum),
+            ..Default::default()
+        });
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             node.send_private_event(bill.endorsee.as_ref().unwrap(), event.try_into()?)
                 .await?;
@@ -351,7 +348,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                     ..Default::default()
                 };
                 for (_, recipient) in unique {
-                    let event = Event::new_bill(&recipient.node_id(), payload.clone());
+                    let event = Event::new_bill(payload.clone());
                     node.send_private_event(&recipient, event.try_into()?)
                         .await?;
                 }
@@ -480,7 +477,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                 if let Err(e) = self
                     .send_retry_message(
                         &queued_message.sender_id,
-                        &message.node_id,
+                        &queued_message.node_id,
                         message.clone(),
                     )
                     .await
@@ -1130,8 +1127,7 @@ mod tests {
             mock.expect_send_private_event()
                 .withf(move |r, e| {
                     let part = clone2.clone();
-                    let valid_node_id =
-                        r.node_id() == part.0.node_id && e.node_id == part.0.node_id;
+                    let valid_node_id = r.node_id() == part.0.node_id;
                     let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
                     let valid_event_type = event.data.event_type == part.1;
                     valid_node_id && valid_event_type && event.data.action_type == part.2
@@ -1629,7 +1625,7 @@ mod tests {
             .returning(move || "node_id".to_string());
         mock.expect_send_private_event()
             .withf(move |r, e| {
-                let valid_node_id = r.node_id() == node_id && e.node_id == node_id;
+                let valid_node_id = r.node_id() == node_id;
                 let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
                 valid_node_id
                     && event.data.event_type == event_type
@@ -1692,7 +1688,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1755,7 +1750,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1823,7 +1817,6 @@ mod tests {
         let message_id2 = "test_message_id_2";
 
         let payload1 = serde_json::to_value(EventEnvelope {
-            node_id: node_id1.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1831,7 +1824,6 @@ mod tests {
         .unwrap();
 
         let payload2 = serde_json::to_value(EventEnvelope {
-            node_id: node_id2.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1971,7 +1963,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -2041,7 +2032,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,

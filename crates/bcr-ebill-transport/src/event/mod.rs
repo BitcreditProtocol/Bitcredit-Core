@@ -28,22 +28,20 @@ impl EventType {
 pub struct Event<T: Serialize> {
     pub event_type: EventType,
     pub version: String,
-    pub node_id: String,
     pub data: T,
 }
 
 impl<T: Serialize> Event<T> {
-    pub fn new(event_type: EventType, node_id: &str, data: T) -> Self {
+    pub fn new(event_type: EventType, data: T) -> Self {
         Self {
             event_type: event_type.to_owned(),
             version: get_version(&event_type),
-            node_id: node_id.to_owned(),
             data,
         }
     }
 
-    pub fn new_bill(node_id: &str, data: T) -> Self {
-        Self::new(EventType::Bill, node_id, data)
+    pub fn new_bill(data: T) -> Self {
+        Self::new(EventType::Bill, data)
     }
 }
 
@@ -65,7 +63,6 @@ fn get_version(_event_type: &EventType) -> String {
 pub struct EventEnvelope {
     pub event_type: EventType,
     pub version: String,
-    pub node_id: String,
     pub data: Value,
 }
 
@@ -76,7 +73,6 @@ impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
         Ok(Self {
             event_type: event.event_type,
             version: event.version,
-            node_id: event.node_id,
             data: serde_json::to_value(event.data)?,
         })
     }
@@ -113,7 +109,6 @@ impl<T: DeserializeOwned + Serialize> TryFrom<EventEnvelope> for Event<T> {
         Ok(Self {
             event_type: envelope.event_type,
             version: envelope.version,
-            node_id: envelope.node_id,
             data,
         })
     }
@@ -129,7 +124,7 @@ mod tests {
         // give payload
         let payload = create_test_event_payload();
         // create event
-        let event = Event::new(EventType::Bill, "node_id", payload.clone());
+        let event = Event::new(EventType::Bill, payload.clone());
         // create envelope
         let envelope: EventEnvelope = event.clone().try_into().unwrap();
 
@@ -137,10 +132,6 @@ mod tests {
         assert_eq!(
             &event.event_type, &envelope.event_type,
             "envelope has wrong event type"
-        );
-        assert_eq!(
-            &event.node_id, &envelope.node_id,
-            "envelope has wrong node id"
         );
 
         // check that the deserialization works
@@ -152,10 +143,6 @@ mod tests {
         assert_eq!(
             &deserialized_event.event_type, &event.event_type,
             "deserialized event has wrong event type"
-        );
-        assert_eq!(
-            &deserialized_event.node_id, &event.node_id,
-            "deserialized event has wrong node id"
         );
     }
 
