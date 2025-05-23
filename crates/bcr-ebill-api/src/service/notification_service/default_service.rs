@@ -164,7 +164,7 @@ impl DefaultNotificationService {
                 // now send the event
                 let event = node
                     .send_public_chain_event(
-                        &events.sender(),
+                        &block_event.data.bill_id,
                         BlockchainType::Bill,
                         events.bill_keys.clone().try_into()?,
                         block_event.clone().try_into()?,
