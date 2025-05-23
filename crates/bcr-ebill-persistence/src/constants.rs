@@ -21,7 +21,11 @@ pub const DB_OP_CODE: &str = "op_code";
 
 pub const DB_COMPANY_ID: &str = "company_id";
 pub const DB_BILL_ID: &str = "bill_id";
+pub const DB_STATUS: &str = "status";
+pub const DB_STATUS_OFFERED: &str = "status_offered";
+pub const DB_STATUS_PENDING: &str = "status_pending";
 pub const DB_MINT_NODE_ID: &str = "mint_node_id";
+pub const DB_MINT_REQUEST_ID: &str = "mint_request_id";
 pub const DB_MINT_REQUESTER_NODE_ID: &str = "requester_node_id";
 pub const DB_SEARCH_TERM: &str = "search_term";
 

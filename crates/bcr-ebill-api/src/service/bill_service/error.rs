@@ -62,6 +62,10 @@ pub enum Error {
     #[error("Can not get recoursee identity from contacts.")]
     RecourseeNotInContacts,
 
+    /// errors that stem from trying to cancel a mint request that's not pending
+    #[error("Mint request can only be cancelled if it's pending.")]
+    CancelMintRequestNotPending,
+
     /// errors that stem from bill validation errors
     #[error("bill validation error {0}")]
     Validation(#[from] bcr_ebill_core::ValidationError),

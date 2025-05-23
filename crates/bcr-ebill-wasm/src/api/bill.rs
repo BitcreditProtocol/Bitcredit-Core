@@ -615,6 +615,24 @@ impl Bill {
         Ok(res)
     }
 
+    #[wasm_bindgen]
+    pub async fn check_mint_state(&self, id: &str) -> Result<()> {
+        get_ctx()
+            .bill_service
+            .check_mint_state(id, &get_current_identity_node_id().await?)
+            .await?;
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub async fn cancel_request_to_mint(&self, mint_request_id: &str) -> Result<()> {
+        get_ctx()
+            .bill_service
+            .cancel_request_to_mint(mint_request_id, &get_current_identity_node_id().await?)
+            .await?;
+        Ok(())
+    }
+
     async fn mint(
         &self,
         payload: MintBitcreditBillPayload,

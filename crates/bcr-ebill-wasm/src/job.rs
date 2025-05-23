@@ -6,6 +6,7 @@ use crate::context::get_ctx;
 pub fn run_jobs() {
     wasm_bindgen_futures::spawn_local(async {
         futures::join!(
+            run_check_mint_state_job(),
             run_check_bill_payment_job(),
             run_check_bill_offer_to_sell_payment_job(),
             run_check_bill_recourse_payment_job(),
@@ -13,6 +14,18 @@ pub fn run_jobs() {
         );
         run_check_bill_timeouts().await;
     });
+}
+
+async fn run_check_mint_state_job() {
+    info!("Running Check Mint State Job");
+    if let Err(e) = get_ctx()
+        .bill_service
+        .check_mint_state_for_all_bills()
+        .await
+    {
+        error!("Error while running Check Mint State Job: {e}");
+    }
+    info!("Finished running Check Mint State Job");
 }
 
 async fn run_check_bill_payment_job() {

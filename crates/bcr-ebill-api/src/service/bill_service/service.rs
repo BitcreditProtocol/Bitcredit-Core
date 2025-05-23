@@ -14,7 +14,7 @@ use crate::data::{
     identity::Identity,
 };
 use crate::external::bitcoin::BitcoinClientApi;
-use crate::external::mint::MintClientApi;
+use crate::external::mint::{MintClientApi, QuoteStatusReply};
 use crate::get_config;
 use crate::persistence::bill::BillChainStoreApi;
 use crate::persistence::bill::BillStoreApi;
@@ -36,7 +36,7 @@ use bcr_ebill_core::constants::{
 };
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
-use bcr_ebill_core::mint::{MintRequestState, MintRequestStatus};
+use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{ServiceTraitBounds, Validate, ValidationError};
@@ -272,6 +272,86 @@ impl BillService {
                 self.notification_service
                     .mark_bill_notification_sent(bill_id, chain.block_height() as i32, action)
                     .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks a given mint quote and updates the bill mint state, if there was a change
+    pub(super) async fn check_mint_quote_and_update_bill_mint_state(
+        &self,
+        mint_request: &MintRequest,
+    ) -> Result<()> {
+        debug!(
+            "Checking mint request for quote {}",
+            &mint_request.mint_request_id
+        );
+        // if it doesn't have a 'finished' state, we check the quote at the mint
+        if !matches!(
+            mint_request.status,
+            MintRequestStatus::Cancelled
+                | MintRequestStatus::Rejected
+                | MintRequestStatus::Expired
+                | MintRequestStatus::Denied
+                | MintRequestStatus::Accepted
+        ) {
+            let mint_cfg = &get_config().mint_config;
+            // for now, we only support the default mint
+            if mint_request.mint_node_id == mint_cfg.default_mint_node_id {
+                let updated_status = self
+                    .mint_client
+                    .lookup_quote_for_mint(
+                        &mint_cfg.default_mint_url,
+                        &mint_request.mint_request_id,
+                    )
+                    .await?;
+                // only update, if changed
+                match updated_status {
+                        QuoteStatusReply::Pending => {
+                            if !matches!(mint_request.status, MintRequestStatus::Pending) {
+                                self.mint_store
+                                    .update_request(
+                                        &mint_request.mint_request_id,
+                                        &MintRequestStatus::Pending,
+                                    )
+                                    .await?;
+                            }
+                        }
+                        QuoteStatusReply::Denied => {
+                            // checked above, that it's not denied
+                            self.mint_store
+                                .update_request(&mint_request.mint_request_id, &MintRequestStatus::Denied)
+                                .await?;
+                        }
+                        QuoteStatusReply::Offered {
+                            ..
+                            // keyset_id,
+                            // expiration_date,
+                            // discounted,
+                        } => {
+                            if !matches!(mint_request.status, MintRequestStatus::Offered) {
+                                // TODO next task: if not offered yet, persist offer
+                                self.mint_store
+                                    .update_request(
+                                        &mint_request.mint_request_id,
+                                        &MintRequestStatus::Offered,
+                                    )
+                                    .await?;
+                            }
+                        }
+                        QuoteStatusReply::Accepted { .. } => {
+                            // checked above, that it's not accepted
+                            self.mint_store
+                                .update_request(&mint_request.mint_request_id, &MintRequestStatus::Accepted)
+                                .await?;
+                        }
+                        QuoteStatusReply::Rejected { .. } => {
+                            // checked above, that it's not rejected
+                            self.mint_store
+                                .update_request(&mint_request.mint_request_id, &MintRequestStatus::Rejected)
+                                .await?;
+                        }
+                    };
             }
         }
         Ok(())
@@ -691,7 +771,7 @@ impl BillServiceApi for BillService {
             .mint_store
             .get_requests(&signer_public_data.node_id(), bill_id, mint_node_id)
             .await?;
-        // If there are any active (i.e. pending, accepted or offered) requests, we can't make another one
+        // If there are any active, or accepted (i.e. pending, accepted or offered) requests, we can't make another one
         if requests_to_mint_for_bill_and_mint.iter().any(|rtm| {
             matches!(
                 rtm.status,
@@ -1116,6 +1196,66 @@ impl BillServiceApi for BillService {
                 offer: None,
             })
             .collect())
+    }
+
+    async fn cancel_request_to_mint(
+        &self,
+        mint_request_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<()> {
+        debug!("trying to cancel request to mint {mint_request_id}");
+        match self.mint_store.get_request(mint_request_id).await {
+            Ok(Some(req)) => {
+                if req.requester_node_id == current_identity_node_id {
+                    if matches!(req.status, MintRequestStatus::Pending) {
+                        // TODO next task: call endpoint on mint to cancel
+                        self.mint_store
+                            .update_request(mint_request_id, &MintRequestStatus::Cancelled)
+                            .await?;
+                        Ok(())
+                    } else {
+                        Err(Error::CancelMintRequestNotPending)
+                    }
+                } else {
+                    Err(Error::NotFound)
+                }
+            }
+            Ok(None) => Err(Error::NotFound),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn check_mint_state(&self, bill_id: &str, current_identity_node_id: &str) -> Result<()> {
+        debug!("checking mint requests for bill {bill_id}");
+        let requests = self
+            .mint_store
+            .get_requests_for_bill(current_identity_node_id, bill_id)
+            .await?;
+        for req in requests {
+            if let Err(e) = self.check_mint_quote_and_update_bill_mint_state(&req).await {
+                error!(
+                    "Could not check mint state for {}: {e}",
+                    &req.mint_request_id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    async fn check_mint_state_for_all_bills(&self) -> Result<()> {
+        debug!("checking all active mint requests");
+        // get all active (offered, pending) requests
+        let requests = self.mint_store.get_all_active_requests().await?;
+        debug!("checking all active mint requests ({})", requests.len());
+        for req in requests {
+            if let Err(e) = self.check_mint_quote_and_update_bill_mint_state(&req).await {
+                error!(
+                    "Could not check mint state for {}: {e}",
+                    &req.mint_request_id
+                );
+            }
+        }
+        Ok(())
     }
 
     async fn clear_bill_cache(&self) -> Result<()> {

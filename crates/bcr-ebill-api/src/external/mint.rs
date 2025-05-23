@@ -3,10 +3,10 @@ use bcr_ebill_core::{
     PostalAddress, ServiceTraitBounds,
     bill::BitcreditBill,
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType},
-    util::BcrKeys,
+    util::{BcrKeys, date::DateTimeUtc},
 };
-use bcr_wdc_webapi::quotes::{BillInfo, EnquireReply, EnquireRequest};
-use cashu::nut01 as cdk01;
+use bcr_wdc_webapi::quotes::{BillInfo, EnquireReply, EnquireRequest, StatusReply};
+use cashu::{nut01 as cdk01, nut02 as cdk02};
 use thiserror::Error;
 
 /// Generic result type
@@ -38,6 +38,7 @@ use crate::util;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait MintClientApi: ServiceTraitBounds {
+    /// Request to mint a bill with a given mint
     async fn enquire_mint_quote(
         &self,
         mint_url: &str,
@@ -45,6 +46,12 @@ pub trait MintClientApi: ServiceTraitBounds {
         bill: &BitcreditBill,
         endorsees: &[BillParticipant],
     ) -> Result<String>;
+    /// Look up a quote for a mint
+    async fn lookup_quote_for_mint(
+        &self,
+        mint_url: &str,
+        quote_id: &str,
+    ) -> Result<QuoteStatusReply>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -112,6 +119,54 @@ impl MintClientApi for MintClient {
             .map_err(Error::from)?;
         let reply: EnquireReply = res.json().await.map_err(Error::from)?;
         Ok(reply.id.to_string())
+    }
+
+    async fn lookup_quote_for_mint(
+        &self,
+        mint_url: &str,
+        quote_id: &str,
+    ) -> Result<QuoteStatusReply> {
+        let url = format!("{}/v1/mint/credit/quote/{quote_id}", mint_url);
+        let res = self.cl.get(&url).send().await.map_err(Error::from)?;
+        let reply: StatusReply = res.json().await.map_err(Error::from)?;
+        Ok(reply.into())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum QuoteStatusReply {
+    Pending,
+    Denied,
+    Offered {
+        keyset_id: cdk02::Id,
+        expiration_date: DateTimeUtc,
+        discounted: bitcoin::Amount,
+    },
+    Accepted {
+        keyset_id: cdk02::Id,
+    },
+    Rejected {
+        tstamp: DateTimeUtc,
+    },
+}
+
+impl From<StatusReply> for QuoteStatusReply {
+    fn from(value: StatusReply) -> Self {
+        match value {
+            StatusReply::Pending => QuoteStatusReply::Pending,
+            StatusReply::Denied => QuoteStatusReply::Denied,
+            StatusReply::Offered {
+                keyset_id,
+                expiration_date,
+                discounted,
+            } => QuoteStatusReply::Offered {
+                keyset_id,
+                expiration_date,
+                discounted,
+            },
+            StatusReply::Accepted { keyset_id } => QuoteStatusReply::Accepted { keyset_id },
+            StatusReply::Rejected { tstamp } => QuoteStatusReply::Rejected { tstamp },
+        }
     }
 }
 
