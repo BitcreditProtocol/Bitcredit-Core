@@ -68,6 +68,7 @@ enum JsErrorType {
     BuyerNotInContacts,
     EndorseeNotInContacts,
     RecourseeNotInContacts,
+    CancelMintRequestNotPending,
     NoFileForFileUploadId,
     NotFound,
     ExternalApi,
@@ -182,6 +183,9 @@ fn bill_service_error_data(e: BillServiceError) -> JsErrorData {
         BillServiceError::EndorseeNotInContacts => err_400(e, JsErrorType::EndorseeNotInContacts),
         BillServiceError::MintNotInContacts => err_400(e, JsErrorType::MintNotInContacts),
         BillServiceError::RecourseeNotInContacts => err_400(e, JsErrorType::RecourseeNotInContacts),
+        BillServiceError::CancelMintRequestNotPending => {
+            err_400(e, JsErrorType::CancelMintRequestNotPending)
+        }
         BillServiceError::NoFileForFileUploadId => err_400(e, JsErrorType::NoFileForFileUploadId),
         BillServiceError::InvalidOperation => err_400(e, JsErrorType::InvalidOperation),
         BillServiceError::Validation(e) => validation_error_data(e),

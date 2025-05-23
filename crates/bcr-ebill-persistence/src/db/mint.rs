@@ -7,7 +7,10 @@ use bcr_ebill_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    constants::{DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUESTER_NODE_ID, DB_TABLE},
+    constants::{
+        DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_STATUS,
+        DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
+    },
     mint::MintStoreApi,
 };
 
@@ -62,6 +65,16 @@ impl MintStoreApi for SurrealMintStore {
         }
     }
 
+    async fn get_all_active_requests(&self) -> Result<Vec<MintRequest>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
+        bindings.add(DB_STATUS_OFFERED, MintRequestStatusDb::Offered)?;
+        bindings.add(DB_STATUS_PENDING, MintRequestStatusDb::Pending)?;
+        let results: Vec<MintRequestDb> = self.db
+            .query("SELECT * from type::table($table) WHERE status = $status_offered OR status = $status_pending", bindings).await?;
+        Ok(results.into_iter().map(|c| c.into()).collect())
+    }
+
     async fn get_requests(
         &self,
         requester_node_id: &str,
@@ -109,6 +122,36 @@ impl MintStoreApi for SurrealMintStore {
             status: MintRequestStatusDb::Pending,
         };
         let _: Option<MintRequestDb> = self.db.create(Self::REQUESTS_TABLE, None, entity).await?;
+        Ok(())
+    }
+
+    async fn get_request(&self, mint_request_id: &str) -> Result<Option<MintRequest>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        let results: Vec<MintRequestDb> = self
+            .db
+            .query(
+                "SELECT * from type::table($table) WHERE mint_request_id = $mint_request_id",
+                bindings,
+            )
+            .await?;
+        Ok(results.first().map(|r| r.clone().into()))
+    }
+
+    async fn update_request(
+        &self,
+        mint_request_id: &str,
+        new_status: &MintRequestStatus,
+    ) -> Result<()> {
+        let mut bindings = Bindings::default();
+        let status: MintRequestStatusDb = new_status.clone().into();
+        bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        bindings.add(DB_STATUS, status)?;
+        self.db
+            .query_check("UPDATE type::table($table) SET status = $status WHERE mint_request_id = $mint_request_id", bindings)
+            .await?;
         Ok(())
     }
 }

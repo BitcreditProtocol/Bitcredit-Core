@@ -4,9 +4,12 @@
     * Add default mint configuration options
         * `default_mint_url`
         * `default_mint_node_id`
+    * Implement `request_to_mint`
     * Add minting status flag to bill
     * Add endpoint to fetch minting status for a bill
-* Implement `request_to_mint`
+    * Add logic for checking mint request status on the mint
+    * Add cronjob to check mint requests
+    * Add endpoint to cancel mint requests
 * Change bitcoin addresses and descriptor to p2wpkh
 * Suppress logging from crates we don't control
 

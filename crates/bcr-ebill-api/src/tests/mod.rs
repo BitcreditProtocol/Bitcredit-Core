@@ -14,7 +14,7 @@ pub mod tests {
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
-        mint::MintRequest,
+        mint::{MintRequest, MintRequestStatus},
         nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
@@ -59,6 +59,7 @@ pub mod tests {
         #[async_trait]
         impl MintStoreApi for MintStore {
             async fn exists_for_bill(&self, requester_node_id: &str, bill_id: &str) -> Result<bool>;
+            async fn get_all_active_requests(&self) -> Result<Vec<MintRequest>>;
             async fn get_requests(
                 &self,
                 requester_node_id: &str,
@@ -77,6 +78,12 @@ pub mod tests {
                 mint_node_id: &str,
                 mint_request_id: &str,
                 timestamp: u64,
+            ) -> Result<()>;
+            async fn get_request(&self, mint_request_id: &str) -> Result<Option<MintRequest>>;
+            async fn update_request(
+                &self,
+                mint_request_id: &str,
+                new_status: &MintRequestStatus,
             ) -> Result<()>;
         }
     }

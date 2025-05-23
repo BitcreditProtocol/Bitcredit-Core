@@ -1,7 +1,10 @@
 use super::Result;
 use async_trait::async_trait;
 
-use bcr_ebill_core::{ServiceTraitBounds, mint::MintRequest};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    mint::{MintRequest, MintRequestStatus},
+};
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -15,6 +18,8 @@ pub trait MintStoreApi: ServiceTraitBounds {
         bill_id: &str,
         mint_node_id: &str,
     ) -> Result<Vec<MintRequest>>;
+    /// Returns all mint requests, which are not finished (i.e. offered, or pending)
+    async fn get_all_active_requests(&self) -> Result<Vec<MintRequest>>;
     /// Checks if there is an active request to mint for the given bill
     async fn get_requests_for_bill(
         &self,
@@ -29,5 +34,13 @@ pub trait MintStoreApi: ServiceTraitBounds {
         mint_node_id: &str,
         mint_request_id: &str,
         timestamp: u64,
+    ) -> Result<()>;
+    /// Get request to mint for the given mint request id
+    async fn get_request(&self, mint_request_id: &str) -> Result<Option<MintRequest>>;
+    /// Update the given request to mint with a new status
+    async fn update_request(
+        &self,
+        mint_request_id: &str,
+        new_status: &MintRequestStatus,
     ) -> Result<()>;
 }

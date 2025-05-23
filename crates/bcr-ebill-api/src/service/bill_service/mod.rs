@@ -187,6 +187,19 @@ pub trait BillServiceApi: ServiceTraitBounds {
         current_identity_node_id: &str,
     ) -> Result<Vec<MintRequestState>>;
 
+    /// Cancel a pending request to mint
+    async fn cancel_request_to_mint(
+        &self,
+        mint_request_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<()>;
+
+    /// Check mint state for a given bill
+    async fn check_mint_state(&self, bill_id: &str, current_identity_node_id: &str) -> Result<()>;
+
+    /// Check mint state for all bills
+    async fn check_mint_state_for_all_bills(&self) -> Result<()>;
+
     /// Clear the bill cache
     async fn clear_bill_cache(&self) -> Result<()>;
 }
