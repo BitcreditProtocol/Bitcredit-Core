@@ -23,6 +23,10 @@ pub mod util;
 /// Return type of an async function. Can be used to avoid async_trait
 pub type BoxedFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 
+pub fn as_boxed_future<T: Send + 'static>(v: T) -> BoxedFuture<'static, T> {
+    Box::pin(async { v })
+}
+
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
 /// multi-threaded (e.g. web) environment without issues.
 #[cfg(not(target_arch = "wasm32"))]

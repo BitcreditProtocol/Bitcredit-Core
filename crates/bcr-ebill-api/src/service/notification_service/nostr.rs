@@ -396,8 +396,17 @@ impl NotificationJsonTransportApi for NostrClient {
         blockchain: BlockchainType,
         keys: BcrKeys,
         event: EventEnvelope,
-    ) -> Result<()> {
-        let event = create_public_chain_event(id, event, blockchain.to_owned(), keys)?;
+        previous_event: Option<Event>,
+        root_event: Option<Event>,
+    ) -> Result<Event> {
+        let event = create_public_chain_event(
+            id,
+            event,
+            blockchain.to_owned(),
+            keys,
+            previous_event,
+            root_event,
+        )?;
         info!("Sending public {} chain event: {:?}", blockchain, event);
         let send_event = self.client.sign_event_builder(event).await.map_err(|e| {
             error!("Failed to sign Nostr event: {e}");
@@ -410,7 +419,7 @@ impl NotificationJsonTransportApi for NostrClient {
             error!("Failed to send Nostr event: {e}");
             Error::Network("Failed to send Nostr event".to_string())
         })?;
-        Ok(())
+        Ok(send_event)
     }
 
     async fn resolve_contact(
@@ -650,12 +659,17 @@ fn create_public_chain_event(
     event: EventEnvelope,
     blockchain: BlockchainType,
     keys: BcrKeys,
+    previous_event: Option<Event>,
+    root_event: Option<Event>,
 ) -> Result<EventBuilder> {
     let payload = base58_encode(&encrypt_ecies(
         &serde_json::to_vec(&event)?,
         &keys.get_public_key(),
     )?);
-    let event = EventBuilder::new(Kind::TextNote, payload).tag(bcr_nostr_tag(id, blockchain));
+    let event = match previous_event {
+        Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None),
+        None => EventBuilder::new(Kind::TextNote, payload).tag(bcr_nostr_tag(id, blockchain)),
+    };
     Ok(event)
 }
 

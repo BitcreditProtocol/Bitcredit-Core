@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::contact::{BillParticipant, ContactType};
-use bcr_ebill_persistence::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
+use bcr_ebill_persistence::nostr::{
+    NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
+};
 use bcr_ebill_transport::{BillChainEvent, BillChainEventPayload, Error, Event, EventEnvelope};
 use log::{error, warn};
 
@@ -29,6 +31,7 @@ pub struct DefaultNotificationService {
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     nostr_relays: Vec<String>,
 }
 
@@ -43,6 +46,7 @@ impl DefaultNotificationService {
         notification_store: Arc<dyn NotificationStoreApi>,
         contact_service: Arc<dyn ContactServiceApi>,
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         nostr_relays: Vec<String>,
     ) -> Self {
         Self {
@@ -53,6 +57,7 @@ impl DefaultNotificationService {
             notification_store,
             contact_service,
             queued_message_store,
+            chain_event_store,
             nostr_relays,
         }
     }
@@ -132,19 +137,65 @@ impl DefaultNotificationService {
     }
 
     // sends all required bill chain events like public bill data and bill invites
-    async fn send_bill_chain_events(&self, event: &BillChainEvent) -> Result<()> {
-        if let Some(node) = self.notification_transport.get(&event.sender()) {
-            if let Some(block_event) = event.generate_blockchain_message() {
-                node.send_public_chain_event(
-                    &event.sender(),
-                    BlockchainType::Bill,
-                    event.bill_keys.clone().try_into()?,
-                    block_event.try_into()?,
-                )
-                .await?;
+    async fn send_bill_chain_events(&self, events: &BillChainEvent) -> Result<()> {
+        if let Some(node) = self.notification_transport.get(&events.sender()) {
+            if let Some(block_event) = events.generate_blockchain_message() {
+                // find potential previous block event
+                let previous_event = self
+                    .chain_event_store
+                    .find_by_block_hash(&block_event.data.block.previous_hash)
+                    .await
+                    .map_err(|_| {
+                        Error::Persistence("failed to read from chain events".to_owned())
+                    })?;
+
+                // if there is a previous and it is not the root event, also get the root event
+                let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
+                    self.chain_event_store
+                        .find_root_event(&block_event.data.bill_id, BlockchainType::Bill)
+                        .await
+                        .map_err(|_| {
+                            Error::Persistence("failed to read from chain events".to_owned())
+                        })?
+                } else {
+                    previous_event.clone()
+                };
+
+                // now send the event
+                let event = node
+                    .send_public_chain_event(
+                        &events.sender(),
+                        BlockchainType::Bill,
+                        events.bill_keys.clone().try_into()?,
+                        block_event.clone().try_into()?,
+                        previous_event.clone().map(|e| e.payload),
+                        root_event.clone().map(|e| e.payload),
+                    )
+                    .await?;
+
+                self.chain_event_store
+                    .add_chain_event(NostrChainEvent {
+                        event_id: event.id.to_string(),
+                        root_id: root_event
+                            .map(|e| e.event_id.to_string())
+                            .unwrap_or(event.id.to_string()),
+                        reply_id: previous_event.map(|e| e.event_id.to_string()),
+                        author: event.pubkey.to_string(),
+                        chain_id: block_event.data.bill_id.to_owned(),
+                        chain_type: BlockchainType::Bill,
+                        block_height: events.block_height(),
+                        block_hash: block_event.data.block.hash.to_owned(),
+                        received: block_event.data.block.timestamp,
+                        time: event.created_at.as_u64(),
+                        payload: event,
+                    })
+                    .await
+                    .map_err(|_| {
+                        Error::Persistence("failed to write to chain events".to_owned())
+                    })?;
             }
 
-            let invites = event.generate_bill_invite_events();
+            let invites = events.generate_bill_invite_events();
             if !invites.is_empty() {
                 for (recipient, event) in invites {
                     if let Some(identity) = self.resolve_identity(&recipient).await {
@@ -543,7 +594,6 @@ impl NotificationServiceApi for DefaultNotificationService {
 #[cfg(test)]
 mod tests {
 
-    use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
@@ -553,6 +603,7 @@ mod tests {
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
     use bcr_ebill_core::util::{BcrKeys, date::now};
+    use bcr_ebill_core::{PostalAddress, as_boxed_future};
     use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
@@ -571,7 +622,14 @@ mod tests {
         impl NotificationJsonTransportApi for NotificationJsonTransport {
             fn get_sender_key(&self) -> String;
             async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
-            async fn send_public_chain_event(&self, id: &str, blockchain: BlockchainType, keys: BcrKeys, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn send_public_chain_event(
+                &self,
+                id: &str,
+                blockchain: BlockchainType,
+                keys: BcrKeys,
+                event: EventEnvelope,
+                previous_event: Option<nostr::event::Event>,
+                root_event: Option<nostr::event::Event>) -> bcr_ebill_transport::Result<nostr::event::Event>;
             async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
         }
     }
@@ -593,8 +651,8 @@ mod tests {
     };
     use super::*;
     use crate::tests::tests::{
-        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrContactStore,
-        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrChainEventStore,
+        MockNostrContactStore, MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
         MockNotificationStoreApiMock, TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
     };
 
@@ -606,6 +664,21 @@ mod tests {
         } else {
             false
         }
+    }
+
+    fn get_test_nostr_event() -> nostr::event::Event {
+        let keys = nostr::key::Keys::generate();
+        let sig = [0u8; 64];
+        let id = [0u8; 32];
+        nostr::event::Event::new(
+            nostr::event::EventId::from_byte_array(id),
+            keys.public_key(),
+            nostr::Timestamp::from_secs(now().timestamp() as u64),
+            nostr::event::Kind::TextNote,
+            nostr::event::Tags::default(),
+            "test".to_string(),
+            nostr::secp256k1::schnorr::Signature::from_slice(&sig).unwrap(),
+        )
     }
 
     #[tokio::test]
@@ -702,6 +775,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -788,6 +862,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -840,6 +915,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -898,6 +974,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -997,7 +1074,7 @@ mod tests {
             .times(2);
 
         mock.expect_send_public_chain_event()
-            .returning(|_, _, _, _| Ok(()))
+            .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
             .times(2);
 
         mock.expect_send_private_event()
@@ -1007,11 +1084,17 @@ mod tests {
             })
             .returning(|_, _| Ok(()));
 
+        let event_store = setup_event_store_expectations(
+            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            bill.id.as_str(),
+        );
+
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(event_store),
             vec!["ws://test.relay".into()],
         );
 
@@ -1088,6 +1171,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1132,7 +1216,7 @@ mod tests {
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         mock.expect_send_public_chain_event()
-            .returning(|_, _, _, _| Ok(()));
+            .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()));
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
@@ -1140,6 +1224,11 @@ mod tests {
                 r.is_ok()
             })
             .returning(|_, _| Ok(()));
+
+        let mock_event_store = setup_event_store_expectations(
+            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            bill.id.as_str(),
+        );
 
         let mut queue_mock = MockNostrQueuedMessageStore::new();
         queue_mock
@@ -1152,6 +1241,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(queue_mock),
+            Arc::new(mock_event_store),
             vec!["ws://test.relay".into()],
         );
 
@@ -1171,6 +1261,31 @@ mod tests {
             .send_bill_is_signed_event(&event)
             .await
             .expect("failed to send event");
+    }
+
+    fn setup_event_store_expectations(
+        previous_hash: &str,
+        bill_id: &str,
+    ) -> MockNostrChainEventStore {
+        let mut mock_event_store = MockNostrChainEventStore::new();
+        // lookup parent event
+        mock_event_store
+            .expect_find_by_block_hash()
+            .with(eq(previous_hash.to_owned()))
+            .returning(|_| as_boxed_future(Ok(None)));
+
+        // if no parent we don't need to lookup the root event
+        mock_event_store
+            .expect_find_root_event()
+            .with(eq(bill_id.to_owned()), eq(BlockchainType::Bill))
+            .returning(|_, _| as_boxed_future(Ok(None)))
+            .never();
+
+        // afterwards we store the event we have sent
+        mock_event_store
+            .expect_add_chain_event()
+            .returning(|_| as_boxed_future(Ok(())));
+        mock_event_store
     }
 
     fn setup_chain_expectation(
@@ -1213,14 +1328,18 @@ mod tests {
                 })
                 .returning(|_, _| Ok(()));
         }
-
+        let mut mock_event_store: MockNostrChainEventStore = MockNostrChainEventStore::new();
         if new_blocks {
             mock.expect_send_public_chain_event()
-                .returning(|_, _, _, _| Ok(()))
+                .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
                 .once();
+            mock_event_store = setup_event_store_expectations(
+                chain.get_latest_block().previous_hash.to_owned().as_str(),
+                bill.id.as_str(),
+            );
         } else {
             mock.expect_send_public_chain_event()
-                .returning(|_, _, _, _| Ok(()))
+                .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
                 .never();
         }
 
@@ -1229,6 +1348,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(mock_event_store),
             vec!["ws://test.relay".into()],
         );
 
@@ -1665,6 +1785,7 @@ mod tests {
             Arc::new(mock_store),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1694,6 +1815,7 @@ mod tests {
             Arc::new(mock_store),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1726,6 +1848,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         )
     }
@@ -1826,6 +1949,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1890,6 +2014,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1995,6 +2120,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2039,6 +2165,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2108,6 +2235,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2177,6 +2305,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2202,6 +2331,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 

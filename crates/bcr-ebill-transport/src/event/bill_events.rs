@@ -65,6 +65,10 @@ impl BillChainEvent {
         self.chain.get_latest_block().clone()
     }
 
+    pub fn block_height(&self) -> usize {
+        self.chain.block_height()
+    }
+
     fn new_participants(&self) -> HashMap<String, usize> {
         let block_height = self.chain.block_height();
         self.participants

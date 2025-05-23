@@ -153,3 +153,11 @@ pub struct NostrChainEvent {
     /// The event as we received it via nostr.
     pub payload: Event,
 }
+
+impl NostrChainEvent {
+    /// Returns the block hash of the event. This is the hash of the block
+    /// contained in the event.
+    pub fn is_root_event(&self) -> bool {
+        self.event_id == self.root_id
+    }
+}
