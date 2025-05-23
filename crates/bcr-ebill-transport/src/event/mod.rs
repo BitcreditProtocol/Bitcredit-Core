@@ -1,4 +1,4 @@
-pub mod bill_chain_event;
+pub mod bill_blockchain_event;
 pub mod bill_events;
 
 use crate::{Error, Result};
@@ -42,6 +42,10 @@ impl<T: Serialize> Event<T> {
 
     pub fn new_bill(data: T) -> Self {
         Self::new(EventType::Bill, data)
+    }
+
+    pub fn new_chain(data: T) -> Self {
+        Self::new(EventType::BillChain, data)
     }
 }
 

@@ -12,13 +12,16 @@ use std::collections::HashMap;
 
 use crate::{Error, Result};
 
-use super::{Event, EventType};
+use super::{
+    Event, EventType,
+    bill_blockchain_event::{BillBlockEvent, ChainInvite},
+};
 
 pub struct BillChainEvent {
     pub bill: BitcreditBill,
     chain: BillBlockchain,
     participants: HashMap<String, usize>,
-    bill_keys: BillKeys,
+    pub bill_keys: BillKeys,
     new_blocks: bool,
     sender_node_id: String,
 }
@@ -60,6 +63,18 @@ impl BillChainEvent {
     // Returns the latest block in the chain.
     fn latest_block(&self) -> BillBlock {
         self.chain.get_latest_block().clone()
+    }
+
+    fn new_participants(&self) -> HashMap<String, usize> {
+        let block_height = self.chain.block_height();
+        self.participants
+            .iter()
+            .filter(|(node_id, height)| {
+                // Filter out the sender node id and only include new participants.
+                node_id != &&self.sender_node_id && **height == block_height
+            })
+            .map(|(node_id, height)| (node_id.to_owned(), *height))
+            .collect()
     }
 
     // Returns all blocks for newly added participants, otherwise just the latest block or no
@@ -118,6 +133,25 @@ impl BillChainEvent {
                     ),
                 )
             })
+            .collect()
+    }
+
+    /// generates the latest block event for the bill.
+    pub fn generate_blockchain_message(&self) -> Option<Event<BillBlockEvent>> {
+        if !self.new_blocks {
+            return None;
+        }
+        Some(Event::new_chain(BillBlockEvent {
+            bill_id: self.bill.id.to_owned(),
+            block: self.latest_block(),
+        }))
+    }
+
+    pub fn generate_bill_invite_events(&self) -> HashMap<String, Event<ChainInvite>> {
+        let invite = ChainInvite::bill(self.bill.id.to_owned(), self.bill_keys.clone());
+        self.new_participants()
+            .keys()
+            .map(|node_id| (node_id.to_owned(), Event::new_chain(invite.clone())))
             .collect()
     }
 }

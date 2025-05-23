@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::contact::{BillParticipant, ContactType};
 use bcr_ebill_persistence::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
@@ -130,6 +131,32 @@ impl DefaultNotificationService {
         Ok(())
     }
 
+    // sends all required bill chain events like public bill data and bill invites
+    async fn send_bill_chain_events(&self, event: &BillChainEvent) -> Result<()> {
+        if let Some(node) = self.notification_transport.get(&event.sender()) {
+            if let Some(block_event) = event.generate_blockchain_message() {
+                node.send_public_chain_event(
+                    &event.sender(),
+                    BlockchainType::Bill,
+                    event.bill_keys.clone().try_into()?,
+                    block_event.try_into()?,
+                )
+                .await?;
+            }
+
+            let invites = event.generate_bill_invite_events();
+            if !invites.is_empty() {
+                for (recipient, event) in invites {
+                    if let Some(identity) = self.resolve_identity(&recipient).await {
+                        node.send_private_event(&identity, event.try_into()?)
+                            .await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn send_retry_message(
         &self,
         sender: &str,
@@ -168,6 +195,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
 
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -181,6 +209,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -197,6 +226,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -210,6 +240,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -223,6 +254,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -236,6 +268,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&bill.sender(), all_events).await?;
+        self.send_bill_chain_events(bill).await?;
         Ok(())
     }
 
@@ -253,6 +286,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -270,6 +304,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -287,6 +322,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -373,6 +409,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                 None,
             );
             self.send_all_events(&event.sender(), all_events).await?;
+            self.send_bill_chain_events(event).await?;
         }
         Ok(())
     }
@@ -516,6 +553,7 @@ mod tests {
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
     use bcr_ebill_core::util::{BcrKeys, date::now};
+    use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
     use std::sync::Arc;
@@ -562,8 +600,12 @@ mod tests {
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
         let valid_event_type = event.event_type == EventType::Bill;
-        let event: Event<BillChainEventPayload> = event.clone().try_into().unwrap();
-        valid_event_type && event.data.event_type == bill_event_type
+        let event: Result<Event<BillChainEventPayload>> = event.clone().try_into();
+        if let Ok(event) = event {
+            valid_event_type && event.data.event_type == bill_event_type
+        } else {
+            false
+        }
     }
 
     #[tokio::test]
@@ -954,6 +996,17 @@ mod tests {
             .returning(|_, _| Ok(()))
             .times(2);
 
+        mock.expect_send_public_chain_event()
+            .returning(|_, _, _, _| Ok(()))
+            .times(2);
+
+        mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_ok()
+            })
+            .returning(|_, _| Ok(()));
+
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStoreApiMock::new()),
@@ -1070,8 +1123,23 @@ mod tests {
         mock.expect_send_private_event()
             .returning(|_, _| Ok(()))
             .once();
+
         mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_err()
+            })
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
+
+        mock.expect_send_public_chain_event()
+            .returning(|_, _, _, _| Ok(()));
+
+        mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_ok()
+            })
+            .returning(|_, _| Ok(()));
 
         let mut queue_mock = MockNostrQueuedMessageStore::new();
         queue_mock
@@ -1128,11 +1196,32 @@ mod tests {
                 .withf(move |r, e| {
                     let part = clone2.clone();
                     let valid_node_id = r.node_id() == part.0.node_id;
-                    let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
-                    let valid_event_type = event.data.event_type == part.1;
-                    valid_node_id && valid_event_type && event.data.action_type == part.2
+                    let event_result: Result<Event<BillChainEventPayload>> = e.clone().try_into();
+                    if let Ok(event) = event_result {
+                        let valid_event_type = event.data.event_type == part.1;
+                        valid_node_id && valid_event_type && event.data.action_type == part.2
+                    } else {
+                        false
+                    }
                 })
                 .returning(|_, _| Ok(()));
+
+            mock.expect_send_private_event()
+                .withf(move |_, e| {
+                    let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                    r.is_ok()
+                })
+                .returning(|_, _| Ok(()));
+        }
+
+        if new_blocks {
+            mock.expect_send_public_chain_event()
+                .returning(|_, _, _, _| Ok(()))
+                .once();
+        } else {
+            mock.expect_send_public_chain_event()
+                .returning(|_, _, _, _| Ok(()))
+                .never();
         }
 
         let service = DefaultNotificationService::new(
