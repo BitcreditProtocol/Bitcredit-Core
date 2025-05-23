@@ -175,6 +175,7 @@ pub struct BillStatus {
     pub payment: BillPaymentStatus,
     pub sell: BillSellStatus,
     pub recourse: BillRecourseStatus,
+    pub mint: BillMintStatus,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
 }
@@ -213,6 +214,11 @@ pub struct BillRecourseStatus {
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct BillMintStatus {
+    pub has_mint_requests: bool,
 }
 
 #[derive(Debug, Clone)]

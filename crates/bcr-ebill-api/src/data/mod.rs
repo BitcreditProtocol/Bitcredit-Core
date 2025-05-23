@@ -2,6 +2,7 @@ pub use bcr_ebill_core::bill;
 pub use bcr_ebill_core::company;
 pub use bcr_ebill_core::contact;
 pub use bcr_ebill_core::identity;
+pub use bcr_ebill_core::mint;
 pub use bcr_ebill_core::notification;
 
 pub use bcr_ebill_core::File;

@@ -4,8 +4,9 @@ pub mod tests {
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress,
         bill::{
-            BillAcceptanceStatus, BillData, BillKeys, BillParticipants, BillPaymentStatus,
-            BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill, BitcreditBillResult,
+            BillAcceptanceStatus, BillData, BillKeys, BillMintStatus, BillParticipants,
+            BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill,
+            BitcreditBillResult,
         },
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         identity::{Identity, IdentityType},
@@ -147,6 +148,9 @@ pub mod tests {
                     requested_to_recourse: false,
                     request_to_recourse_timed_out: false,
                     rejected_request_to_recourse: false,
+                },
+                mint: BillMintStatus {
+                    has_mint_requests: false,
                 },
                 redeemed_funds_available: false,
                 has_requested_funds: false,

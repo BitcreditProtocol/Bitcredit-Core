@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 
 use super::surreal::{Bindings, SurrealWrapper};
-use super::{FileDb, PostalAddressDb, Result};
+use super::{BillIdDb, FileDb, PostalAddressDb, Result};
 use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::bill::{
-    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillParticipants, BillPaymentStatus,
-    BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
+    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillMintStatus, BillParticipants,
+    BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
     BillWaitingForRecourseState, BillWaitingForSellState, BitcreditBillResult,
 };
 use bcr_ebill_core::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
@@ -445,6 +445,7 @@ pub struct BillStatusDb {
     pub payment: BillPaymentStatusDb,
     pub sell: BillSellStatusDb,
     pub recourse: BillRecourseStatusDb,
+    pub mint: BillMintStatusDb,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
 }
@@ -456,6 +457,7 @@ impl From<BillStatusDb> for BillStatus {
             payment: value.payment.into(),
             sell: value.sell.into(),
             recourse: value.recourse.into(),
+            mint: value.mint.into(),
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
         }
@@ -469,6 +471,7 @@ impl From<&BillStatus> for BillStatusDb {
             payment: (&value.payment).into(),
             sell: (&value.sell).into(),
             recourse: (&value.recourse).into(),
+            mint: (&value.mint).into(),
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
         }
@@ -603,6 +606,27 @@ impl From<&BillRecourseStatus> for BillRecourseStatusDb {
             requested_to_recourse: value.requested_to_recourse,
             request_to_recourse_timed_out: value.request_to_recourse_timed_out,
             rejected_request_to_recourse: value.rejected_request_to_recourse,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillMintStatusDb {
+    pub has_mint_requests: bool,
+}
+
+impl From<BillMintStatusDb> for BillMintStatus {
+    fn from(value: BillMintStatusDb) -> Self {
+        Self {
+            has_mint_requests: value.has_mint_requests,
+        }
+    }
+}
+
+impl From<&BillMintStatus> for BillMintStatusDb {
+    fn from(value: &BillMintStatus) -> Self {
+        Self {
+            has_mint_requests: value.has_mint_requests,
         }
     }
 }
@@ -781,11 +805,6 @@ impl From<&BillIdentParticipant> for BillIdentParticipantDb {
 pub struct BillPaidDb {
     pub id: Thing,
     pub payment_address: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BillIdDb {
-    pub bill_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -7,6 +7,7 @@ use crate::data::{
     },
     contact::BillParticipant,
     identity::{Identity, IdentityWithAll},
+    mint::MintRequestState,
 };
 use crate::util::BcrKeys;
 use async_trait::async_trait;
@@ -179,6 +180,14 @@ pub trait BillServiceApi: ServiceTraitBounds {
         current_identity_node_id: &str,
     ) -> Result<Vec<Endorsement>>;
 
+    /// Returns the mint state for a given bill
+    async fn get_mint_state(
+        &self,
+        bill_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<Vec<MintRequestState>>;
+
+    /// Clear the bill cache
     async fn clear_bill_cache(&self) -> Result<()>;
 }
 

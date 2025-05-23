@@ -1,11 +1,11 @@
 use bcr_ebill_api::data::{
     bill::{
         BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData,
-        BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
-        BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-        BillsFilterRole, BitcreditBillResult, Endorsement, LightBitcreditBillResult, LightSignedBy,
-        PastEndorsee, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
-        PastPaymentResult, PastPaymentStatus,
+        BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
+        BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
+        BillWaitingForSellState, BillsFilterRole, BitcreditBillResult, Endorsement,
+        LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
+        PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
     },
     contact::{
         BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
@@ -541,6 +541,7 @@ pub struct BillStatusWeb {
     pub payment: BillPaymentStatusWeb,
     pub sell: BillSellStatusWeb,
     pub recourse: BillRecourseStatusWeb,
+    pub mint: BillMintStatusWeb,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
 }
@@ -552,6 +553,7 @@ impl From<BillStatus> for BillStatusWeb {
             payment: val.payment.into(),
             sell: val.sell.into(),
             recourse: val.recourse.into(),
+            mint: val.mint.into(),
             redeemed_funds_available: val.redeemed_funds_available,
             has_requested_funds: val.has_requested_funds,
         }
@@ -640,6 +642,20 @@ impl From<BillRecourseStatus> for BillRecourseStatusWeb {
             requested_to_recourse: val.requested_to_recourse,
             request_to_recourse_timed_out: val.request_to_recourse_timed_out,
             rejected_request_to_recourse: val.rejected_request_to_recourse,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillMintStatusWeb {
+    pub has_mint_requests: bool,
+}
+
+impl From<BillMintStatus> for BillMintStatusWeb {
+    fn from(val: BillMintStatus) -> Self {
+        BillMintStatusWeb {
+            has_mint_requests: val.has_mint_requests,
         }
     }
 }
