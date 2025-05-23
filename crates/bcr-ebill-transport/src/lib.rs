@@ -42,8 +42,7 @@ impl From<serde_json::Error> for Error {
 }
 
 pub use async_broadcast::Receiver;
-pub use event::bill_events::BillChainEventPayload;
-pub use event::chain_event::BillChainEvent;
+pub use event::bill_events::{BillChainEvent, BillChainEventPayload};
 pub use event::{Event, EventEnvelope, EventType};
 pub use notification_service::NotificationServiceApi;
 pub use push_notification::{PushApi, PushService};
