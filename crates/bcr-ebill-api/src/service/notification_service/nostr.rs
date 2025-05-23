@@ -652,7 +652,7 @@ fn create_nip04_event(
     .tag(Tag::public_key(*public_key)))
 }
 
-/// Takes an event envelope and creates a public chain event with appropriate tags and encypted
+/// Takes an event envelope and creates a public chain event with appropriate tags and encrypted
 /// base58 encoded payload.
 fn create_public_chain_event(
     id: &str,
