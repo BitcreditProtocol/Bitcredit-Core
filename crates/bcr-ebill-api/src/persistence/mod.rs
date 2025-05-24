@@ -2,10 +2,11 @@ use crate::Config;
 #[cfg(not(target_arch = "wasm32"))]
 use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
-    BackupStoreApi, ContactStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
-    SurrealBackupStore, SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore,
-    SurrealCompanyStore, SurrealContactStore, SurrealIdentityChainStore, SurrealIdentityStore,
-    SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    BackupStoreApi, ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi,
+    NotificationStoreApi, SurrealBackupStore, SurrealBillChainStore, SurrealBillStore,
+    SurrealCompanyChainStore, SurrealCompanyStore, SurrealContactStore, SurrealIdentityChainStore,
+    SurrealIdentityStore, SurrealNostrChainEventStore, SurrealNostrEventOffsetStore,
+    SurrealNotificationStore,
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
@@ -49,6 +50,7 @@ pub struct DbContext {
     pub queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     pub mint_store: Arc<dyn MintStoreApi>,
+    pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -109,6 +111,8 @@ pub async fn get_db_context(
     let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
     let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
     let mint_store = Arc::new(SurrealMintStore::new(surreal_wrapper.clone()));
+    let nostr_chain_event_store =
+        Arc::new(SurrealNostrChainEventStore::new(surreal_wrapper.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -125,5 +129,6 @@ pub async fn get_db_context(
         queued_message_store,
         nostr_contact_store,
         mint_store,
+        nostr_chain_event_store,
     })
 }

@@ -4,9 +4,10 @@ pub mod tests {
     use crate::{CONFIG, MintConfig, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
+        BoxedFuture, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
         bill::{BitcreditBill, BitcreditBillResult},
         blockchain::{
+            BlockchainType,
             bill::{BillBlock, BillBlockchain, BillOpCode},
             company::{CompanyBlock, CompanyBlockchain},
             identity::IdentityBlock,
@@ -27,7 +28,10 @@ pub mod tests {
         file_upload::FileUploadStoreApi,
         identity::{IdentityChainStoreApi, IdentityStoreApi},
         mint::MintStoreApi,
-        nostr::{NostrContactStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi},
+        nostr::{
+            NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
+            NostrQueuedMessageStoreApi,
+        },
         notification::NotificationFilter,
     };
     use bcr_ebill_transport::{BillChainEvent, NotificationServiceApi};
@@ -248,6 +252,19 @@ pub mod tests {
             async fn get_retry_messages(&self, limit: u64) -> Result<Vec<NostrQueuedMessage>>;
             async fn fail_retry(&self, id: &str) -> Result<()>;
             async fn succeed_retry(&self, id: &str) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub NostrChainEventStore {}
+
+        impl NostrChainEventStoreApi for NostrChainEventStore {
+            fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> BoxedFuture<'static,Result<Vec<NostrChainEvent> > > ;
+            fn find_latest_block_events(&self, chain_id: &str,chain_type: BlockchainType) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>>;
+            fn find_root_event(&self,chain_id: &str,chain_type: BlockchainType) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+            fn find_by_block_hash(&self, hash: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+            fn add_chain_event(&self, event: NostrChainEvent) -> BoxedFuture<'_, Result<()>>;
+            fn by_event_id(&self, event_id: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
         }
     }
 

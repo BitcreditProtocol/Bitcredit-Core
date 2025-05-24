@@ -161,7 +161,7 @@ async function start() {
   let status = await generalApi.status();
   console.log("status: ", status);
 
-  let search = await generalApi.search({ filter: { search_term: "Test", currency: "sat", item_types: ["Contact"]}});
+  let search = await generalApi.search({ filter: { search_term: "Test", currency: "sat", item_types: ["Contact"] } });
   console.log("search: ", search);
 
   // Notifications
@@ -206,17 +206,17 @@ async function uploadFile(event) {
 }
 
 async function createCompany() {
-    let company = await companyApi.create({
-      name: "hayek Ltd",
-      email: "test@example.com",
-      postal_address: {
-        country: "AT",
-        city: "Vienna",
-        zip: "1020",
-        address: "street 1",
-      }
-    });
-    console.log("company: ", company);
+  let company = await companyApi.create({
+    name: "hayek Ltd",
+    email: "test@example.com",
+    postal_address: {
+      country: "AT",
+      city: "Vienna",
+      zip: "1020",
+      address: "street 1",
+    }
+  });
+  console.log("company: ", company);
 }
 
 async function triggerContact() {

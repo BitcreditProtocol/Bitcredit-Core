@@ -104,9 +104,10 @@ pub use db::{
     bill_chain::SurrealBillChainStore, company::SurrealCompanyStore,
     company_chain::SurrealCompanyChainStore, contact::SurrealContactStore,
     identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
+    nostr_chain_event::SurrealNostrChainEventStore,
     nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use file_upload::FileUploadStore;
-pub use nostr::{NostrEventOffset, NostrEventOffsetStoreApi};
+pub use nostr::{NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
 pub use notification::NotificationStoreApi;

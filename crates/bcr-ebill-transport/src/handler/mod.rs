@@ -144,11 +144,7 @@ mod tests {
     }
 
     fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> {
-        Event::new(
-            EventType::Bill,
-            "node_id",
-            create_test_event_payload(event_type),
-        )
+        Event::new(EventType::Bill, create_test_event_payload(event_type))
     }
 }
 

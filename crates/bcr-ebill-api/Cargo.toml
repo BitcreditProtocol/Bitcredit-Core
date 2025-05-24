@@ -43,7 +43,7 @@ reqwest = { workspace = true, features = ["default", "json"] }
 
 [dev-dependencies]
 mockall = "0.13.1"
-nostr-relay-builder = "0.41"
+nostr-relay-builder = "0.42"
 tokio.workspace = true
 async-broadcast.workspace = true
 

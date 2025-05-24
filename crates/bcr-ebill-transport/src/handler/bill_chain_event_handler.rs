@@ -602,7 +602,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -683,7 +682,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -745,7 +743,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -844,7 +841,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -922,7 +918,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -1005,7 +1000,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -1079,7 +1073,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: TEST_BILL_ID.to_string(),
                 event_type: BillEventType::BillBlock,
@@ -1126,7 +1119,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: "bill_id".to_string(),
                 event_type: BillEventType::BillBlock,
@@ -1184,7 +1176,6 @@ mod tests {
         );
         let event = Event::new(
             EventType::Bill,
-            "node_id",
             BillChainEventPayload {
                 bill_id: "bill_id".to_string(),
                 event_type: BillEventType::BillSigned,

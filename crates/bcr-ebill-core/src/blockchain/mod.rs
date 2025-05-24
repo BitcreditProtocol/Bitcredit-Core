@@ -1,9 +1,11 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::util::crypto;
 use crate::{ValidationError, util};
 use borsh::{BorshSerialize, to_vec};
 use log::{error, warn};
+use std::fmt::Display;
 use std::string::FromUtf8Error;
 
 pub mod bill;
@@ -62,6 +64,43 @@ pub enum Error {
     /// there is no endorsee
     #[error("Invalid block data error: {0}")]
     InvalidBlockdata(String),
+
+    /// The given blockchain type string could not be converted to a valid type
+    #[error("Invalid blockchain type: {0}")]
+    InvalidBlockchainType(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlockchainType {
+    #[serde(rename = "bill")]
+    Bill,
+    #[serde(rename = "company")]
+    Company,
+    #[serde(rename = "identity")]
+    Identity,
+}
+
+impl TryFrom<&str> for BlockchainType {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        match value {
+            "bill" => Ok(BlockchainType::Bill),
+            "company" => Ok(BlockchainType::Company),
+            "identity" => Ok(BlockchainType::Identity),
+            _ => Err(Error::InvalidBlockchainType(value.to_string())),
+        }
+    }
+}
+
+impl Display for BlockchainType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockchainType::Bill => write!(f, "bill"),
+            BlockchainType::Company => write!(f, "company"),
+            BlockchainType::Identity => write!(f, "identity"),
+        }
+    }
 }
 
 /// Generic trait for a Block within a Blockchain

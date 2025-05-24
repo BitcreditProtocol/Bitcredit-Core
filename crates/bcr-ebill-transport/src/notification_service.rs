@@ -1,4 +1,4 @@
-use crate::{Result, event::chain_event::BillChainEvent};
+use crate::{Result, event::bill_events::BillChainEvent};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::{
