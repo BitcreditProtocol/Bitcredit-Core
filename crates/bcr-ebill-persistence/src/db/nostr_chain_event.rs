@@ -1,6 +1,7 @@
-use super::Result;
-#[cfg(target_arch = "wasm32")]
-use super::get_new_surreal_db;
+use super::{
+    Result,
+    surreal::{Bindings, SurrealWrapper},
+};
 use crate::{
     constants::DB_TABLE,
     nostr::{NostrChainEvent, NostrChainEventStoreApi},
@@ -8,12 +9,11 @@ use crate::{
 use bcr_ebill_core::{BoxedFuture, blockchain::BlockchainType};
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
-use surrealdb::{Surreal, engine::any::Any};
 
 #[derive(Clone)]
 pub struct SurrealNostrChainEventStore {
     #[allow(dead_code)]
-    db: Surreal<Any>,
+    db: SurrealWrapper,
 }
 //
 // columns
@@ -28,17 +28,12 @@ impl SurrealNostrChainEventStore {
     const TABLE: &'static str = "nostr_chain_event";
 
     #[allow(dead_code)]
-    pub fn new(db: Surreal<Any>) -> Self {
+    pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    async fn db(&self) -> Result<Surreal<Any>> {
-        get_new_surreal_db().await
-    }
-
     #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<Surreal<Any>> {
+    async fn db(&self) -> Result<SurrealWrapper> {
         Ok(self.db.clone())
     }
 
@@ -47,15 +42,16 @@ impl SurrealNostrChainEventStore {
         chain_id: String,
         chain_type: BlockchainType,
     ) -> Result<Vec<NostrChainEventDb>> {
-        let result: Vec<NostrChainEventDb> = self.db().await?
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(CHAIN_ID, chain_id.to_owned())?;
+        bindings.add(CHAIN_TYPE, chain_type)?;
+
+        let result: Vec<NostrChainEventDb> = self.db
                 .query(format!(
                     "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} ORDER BY {BLOCK_HEIGHT} DESC"
-                ))
-                .bind((DB_TABLE, Self::TABLE))
-                .bind((CHAIN_ID, chain_id.to_owned()))
-                .bind((CHAIN_TYPE, chain_type))
-                .await?
-                .take(0)?;
+                ).as_str(), bindings)
+                .await?;
         Ok(result)
     }
 }
@@ -105,18 +101,22 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
     fn find_by_block_hash(&self, hash: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>> {
         let hash = hash.to_owned();
         Box::pin(async move {
-            let result: Option<NostrChainEventDb> = self
-                .db()
-                .await?
-                .query(format!(
-                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {BLOCK_HASH} = ${BLOCK_HASH}"
-                ))
-                .bind((DB_TABLE, Self::TABLE))
-                .bind((BLOCK_HASH, hash))
-                .await?
-                .take(0)?;
+            let mut bindings = Bindings::default();
+            bindings.add(DB_TABLE, Self::TABLE)?;
+            bindings.add(BLOCK_HASH, hash)?;
 
-            let value = result.map(|v| v.to_owned().into());
+            let result: Vec<NostrChainEventDb> = self
+                .db
+                .query(
+                    format!(
+                        "SELECT * FROM type::table(${DB_TABLE}) WHERE {BLOCK_HASH} = ${BLOCK_HASH}"
+                    )
+                    .as_str(),
+                    bindings,
+                )
+                .await?;
+
+            let value = result.first().map(|v| v.to_owned().into());
             Ok(value)
         })
     }
@@ -128,8 +128,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
             let _: Option<NostrChainEventDb> = self
                 .db()
                 .await?
-                .upsert((Self::TABLE, event.event_id.to_owned()))
-                .content(db_data)
+                .upsert(Self::TABLE, event.event_id.to_owned(), db_data)
                 .await?;
             Ok(())
         })
@@ -140,7 +139,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
         let event_id = event_id.to_owned();
         Box::pin(async move {
             let result: Option<NostrChainEventDb> =
-                self.db().await?.select((Self::TABLE, event_id)).await?;
+                self.db().await?.select_one(Self::TABLE, event_id).await?;
             Ok(result.map(|r| r.into()))
         })
     }
@@ -153,16 +152,17 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
     ) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>> {
         let chain_id = chain_id.to_owned();
         Box::pin(async move {
-            let result: Option<NostrChainEventDb> = self.db().await?
+            let mut bindings = Bindings::default();
+            bindings.add(DB_TABLE, Self::TABLE)?;
+            bindings.add(CHAIN_ID, chain_id)?;
+            bindings.add(CHAIN_TYPE, chain_type)?;
+
+            let result: Vec<NostrChainEventDb> = self.db().await?
                 .query(format!(
                     "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {EVENT_ID} = {ROOT_ID}"
-                ))
-                .bind((DB_TABLE, Self::TABLE))
-                .bind((CHAIN_ID, chain_id.to_owned()))
-                .bind((CHAIN_TYPE, chain_type))
-                .await?
-                .take(0)?;
-            Ok(result.map(|r| r.into()))
+                ).as_str(), bindings)
+                .await?;
+            Ok(result.first().map(|r| r.to_owned().into()))
         })
     }
 }
@@ -375,7 +375,10 @@ mod tests {
         let mem_db = get_memory_db("test", db)
             .await
             .expect("could not create memory db");
-        SurrealNostrChainEventStore::new(mem_db)
+        SurrealNostrChainEventStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
     }
 
     fn get_root_event() -> NostrChainEvent {

@@ -111,7 +111,8 @@ pub async fn get_db_context(
     let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
     let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
     let mint_store = Arc::new(SurrealMintStore::new(surreal_wrapper.clone()));
-    let nostr_chain_event_store = Arc::new(SurrealNostrChainEventStore::new(db.clone()));
+    let nostr_chain_event_store =
+        Arc::new(SurrealNostrChainEventStore::new(surreal_wrapper.clone()));
 
     Ok(DbContext {
         contact_store,
