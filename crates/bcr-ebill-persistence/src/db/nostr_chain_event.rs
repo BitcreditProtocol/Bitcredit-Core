@@ -6,7 +6,8 @@ use crate::{
     constants::DB_TABLE,
     nostr::{NostrChainEvent, NostrChainEventStoreApi},
 };
-use bcr_ebill_core::{BoxedFuture, blockchain::BlockchainType};
+use async_trait::async_trait;
+use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType};
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
 
@@ -32,11 +33,6 @@ impl SurrealNostrChainEventStore {
         Self { db }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn db(&self) -> Result<SurrealWrapper> {
-        Ok(self.db.clone())
-    }
-
     async fn find_all_chain_events(
         &self,
         chain_id: String,
@@ -56,114 +52,102 @@ impl SurrealNostrChainEventStore {
     }
 }
 
+impl ServiceTraitBounds for SurrealNostrChainEventStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
     /// Finds all chain events for the given chain id and type. This will return all valid
     /// events we ever received for a chain id.
-    fn find_chain_events(
+    async fn find_chain_events(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
-    ) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>> {
-        let chain_id = chain_id.to_owned();
-        Box::pin(async move {
-            let result: Vec<NostrChainEventDb> =
-                self.find_all_chain_events(chain_id, chain_type).await?;
-            Ok(result.into_iter().map(Into::into).collect())
-        })
+    ) -> Result<Vec<NostrChainEvent>> {
+        let result: Vec<NostrChainEventDb> = self
+            .find_all_chain_events(chain_id.to_owned(), chain_type)
+            .await?;
+        Ok(result.into_iter().map(Into::into).collect())
     }
 
     /// Finds the latest chain events for the given chain id and type. This can be considered the
     /// tip of the current chain state on Nostr. Latest means the blocks with the highest block
     /// height. In split chain scenarios this can return more than one event.
-    fn find_latest_block_events(
+    async fn find_latest_block_events(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
-    ) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>> {
-        let chain_id = chain_id.to_owned();
-        Box::pin(async move {
-            let result: Vec<NostrChainEventDb> =
-                self.find_all_chain_events(chain_id, chain_type).await?;
-            // Find the highest block_height
-            let max_height = result.first().map(|e| e.block_height);
-            let latest: Vec<NostrChainEventDb> = match max_height {
-                Some(height) => result
-                    .into_iter()
-                    .filter(|e| e.block_height == height)
-                    .collect(),
-                None => vec![],
-            };
-            Ok(latest.into_iter().map(Into::into).collect())
-        })
+    ) -> Result<Vec<NostrChainEvent>> {
+        let result: Vec<NostrChainEventDb> = self
+            .find_all_chain_events(chain_id.to_owned(), chain_type)
+            .await?;
+        // Find the highest block_height
+        let max_height = result.first().map(|e| e.block_height);
+        let latest: Vec<NostrChainEventDb> = match max_height {
+            Some(height) => result
+                .into_iter()
+                .filter(|e| e.block_height == height)
+                .collect(),
+            None => vec![],
+        };
+        Ok(latest.into_iter().map(Into::into).collect())
     }
 
     /// Finds a message with a specific block hash as extracted from the chain payload.
-    fn find_by_block_hash(&self, hash: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>> {
-        let hash = hash.to_owned();
-        Box::pin(async move {
-            let mut bindings = Bindings::default();
-            bindings.add(DB_TABLE, Self::TABLE)?;
-            bindings.add(BLOCK_HASH, hash)?;
+    async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(BLOCK_HASH, hash.to_owned())?;
 
-            let result: Vec<NostrChainEventDb> = self
-                .db
-                .query(
-                    format!(
-                        "SELECT * FROM type::table(${DB_TABLE}) WHERE {BLOCK_HASH} = ${BLOCK_HASH}"
-                    )
-                    .as_str(),
-                    bindings,
+        let result: Vec<NostrChainEventDb> = self
+            .db
+            .query(
+                format!(
+                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {BLOCK_HASH} = ${BLOCK_HASH}"
                 )
-                .await?;
+                .as_str(),
+                bindings,
+            )
+            .await?;
 
-            let value = result.first().map(|v| v.to_owned().into());
-            Ok(value)
-        })
+        let value = result.first().map(|v| v.to_owned().into());
+        Ok(value)
     }
 
     /// Adds a new chain event to the store.
-    fn add_chain_event(&self, event: NostrChainEvent) -> BoxedFuture<'_, Result<()>> {
-        Box::pin(async move {
-            let db_data: NostrChainEventDb = event.clone().into();
-            let _: Option<NostrChainEventDb> = self
-                .db()
-                .await?
-                .upsert(Self::TABLE, event.event_id.to_owned(), db_data)
-                .await?;
-            Ok(())
-        })
+    async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()> {
+        let db_data: NostrChainEventDb = event.clone().into();
+        let _: Option<NostrChainEventDb> = self
+            .db
+            .upsert(Self::TABLE, event.event_id.to_owned(), db_data)
+            .await?;
+        Ok(())
     }
 
     /// Finds an event by a specific Nostr event_id
-    fn by_event_id(&self, event_id: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>> {
+    async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>> {
         let event_id = event_id.to_owned();
-        Box::pin(async move {
-            let result: Option<NostrChainEventDb> =
-                self.db().await?.select_one(Self::TABLE, event_id).await?;
-            Ok(result.map(|r| r.into()))
-        })
+        let result: Option<NostrChainEventDb> = self.db.select_one(Self::TABLE, event_id).await?;
+        Ok(result.map(|r| r.into()))
     }
 
     /// Finds the root (genesis) event for a given chain
-    fn find_root_event(
+    async fn find_root_event(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
-    ) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>> {
-        let chain_id = chain_id.to_owned();
-        Box::pin(async move {
-            let mut bindings = Bindings::default();
-            bindings.add(DB_TABLE, Self::TABLE)?;
-            bindings.add(CHAIN_ID, chain_id)?;
-            bindings.add(CHAIN_TYPE, chain_type)?;
+    ) -> Result<Option<NostrChainEvent>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(CHAIN_ID, chain_id.to_owned())?;
+        bindings.add(CHAIN_TYPE, chain_type)?;
 
-            let result: Vec<NostrChainEventDb> = self.db().await?
+        let result: Vec<NostrChainEventDb> = self.db
                 .query(format!(
                     "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {EVENT_ID} = {ROOT_ID}"
                 ).as_str(), bindings)
                 .await?;
-            Ok(result.first().map(|r| r.to_owned().into()))
-        })
+        Ok(result.first().map(|r| r.to_owned().into()))
     }
 }
 

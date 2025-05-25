@@ -4,7 +4,7 @@ pub mod tests {
     use crate::{CONFIG, MintConfig, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
-        BoxedFuture, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
+        OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
         bill::{BitcreditBill, BitcreditBillResult},
         blockchain::{
             BlockchainType,
@@ -258,13 +258,16 @@ pub mod tests {
     mockall::mock! {
         pub NostrChainEventStore {}
 
+        impl ServiceTraitBounds for NostrChainEventStore {}
+
+        #[async_trait]
         impl NostrChainEventStoreApi for NostrChainEventStore {
-            fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> BoxedFuture<'static,Result<Vec<NostrChainEvent> > > ;
-            fn find_latest_block_events(&self, chain_id: &str,chain_type: BlockchainType) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>>;
-            fn find_root_event(&self,chain_id: &str,chain_type: BlockchainType) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
-            fn find_by_block_hash(&self, hash: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
-            fn add_chain_event(&self, event: NostrChainEvent) -> BoxedFuture<'_, Result<()>>;
-            fn by_event_id(&self, event_id: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+            async fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
+            async fn find_latest_block_events(&self, chain_id: &str,chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
+            async fn find_root_event(&self,chain_id: &str,chain_type: BlockchainType) -> Result<Option<NostrChainEvent>>;
+            async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>>;
+            async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
+            async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;
         }
     }
 

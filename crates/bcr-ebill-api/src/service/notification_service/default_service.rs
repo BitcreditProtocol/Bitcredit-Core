@@ -594,6 +594,7 @@ impl NotificationServiceApi for DefaultNotificationService {
 #[cfg(test)]
 mod tests {
 
+    use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
@@ -603,7 +604,6 @@ mod tests {
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
     use bcr_ebill_core::util::{BcrKeys, date::now};
-    use bcr_ebill_core::{PostalAddress, as_boxed_future};
     use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
@@ -1272,19 +1272,19 @@ mod tests {
         mock_event_store
             .expect_find_by_block_hash()
             .with(eq(previous_hash.to_owned()))
-            .returning(|_| as_boxed_future(Ok(None)));
+            .returning(|_| Ok(None));
 
         // if no parent we don't need to lookup the root event
         mock_event_store
             .expect_find_root_event()
             .with(eq(bill_id.to_owned()), eq(BlockchainType::Bill))
-            .returning(|_, _| as_boxed_future(Ok(None)))
+            .returning(|_, _| Ok(None))
             .never();
 
         // afterwards we store the event we have sent
         mock_event_store
             .expect_add_chain_event()
-            .returning(|_| as_boxed_future(Ok(())));
+            .returning(|_| Ok(()));
         mock_event_store
     }
 

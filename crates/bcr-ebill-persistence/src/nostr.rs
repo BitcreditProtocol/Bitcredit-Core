@@ -1,7 +1,7 @@
 use super::Result;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    BoxedFuture, ServiceTraitBounds,
+    ServiceTraitBounds,
     blockchain::BlockchainType,
     nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
 };
@@ -93,39 +93,41 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
 
 /// Allows us to keep track of Nostr chain events and have an archive of signed events that
 /// allows us to proof certain Events where published.
-pub trait NostrChainEventStoreApi: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NostrChainEventStoreApi: ServiceTraitBounds {
     /// Finds all chain events for the given chain id and type. This will return all valid
     /// events we ever received for a chain id.
-    fn find_chain_events(
+    async fn find_chain_events(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
-    ) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>>;
+    ) -> Result<Vec<NostrChainEvent>>;
 
     /// Finds the latest chain events for the given chain id and type. This can be considered the
     /// tip of the current chain state on Nostr. Latest means the blocks with the highest block
     /// height. In split chain scenarios this can return more than one event.
-    fn find_latest_block_events(
+    async fn find_latest_block_events(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
-    ) -> BoxedFuture<'_, Result<Vec<NostrChainEvent>>>;
+    ) -> Result<Vec<NostrChainEvent>>;
 
     /// Finds the root (genesis) event for a given chain
-    fn find_root_event(
+    async fn find_root_event(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
-    ) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+    ) -> Result<Option<NostrChainEvent>>;
 
     /// Finds a message with a specific block hash as extracted from the chain payload.
-    fn find_by_block_hash(&self, hash: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+    async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>>;
 
     /// Adds a new chain event to the store.
-    fn add_chain_event(&self, event: NostrChainEvent) -> BoxedFuture<'_, Result<()>>;
+    async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
 
     /// Finds an event by a specific Nostr event_id
-    fn by_event_id(&self, event_id: &str) -> BoxedFuture<'_, Result<Option<NostrChainEvent>>>;
+    async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
