@@ -44,13 +44,13 @@ impl From<serde_json::Error> for Error {
 
 impl From<crypto::Error> for Error {
     fn from(e: crypto::Error) -> Self {
-        Error::Crypto(format!("Failed crypto operation: {}", e))
+        Error::Crypto(format!("Failed crypto operation: {e}"))
     }
 }
 
 impl From<util::Error> for Error {
     fn from(e: util::Error) -> Self {
-        Error::Crypto(format!("Failed base58 operation: {}", e))
+        Error::Crypto(format!("Failed base58 operation: {e}"))
     }
 }
 pub use async_broadcast::Receiver;

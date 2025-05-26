@@ -263,8 +263,8 @@ pub mod tests {
         #[async_trait]
         impl NostrChainEventStoreApi for NostrChainEventStore {
             async fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
-            async fn find_latest_block_events(&self, chain_id: &str,chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
-            async fn find_root_event(&self,chain_id: &str,chain_type: BlockchainType) -> Result<Option<NostrChainEvent>>;
+            async fn find_latest_block_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
+            async fn find_root_event(&self,chain_id: &str, chain_type: BlockchainType) -> Result<Option<NostrChainEvent>>;
             async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>>;
             async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
             async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;

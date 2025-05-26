@@ -412,9 +412,7 @@ impl NotificationJsonTransportApi for NostrClient {
             error!("Failed to sign Nostr event: {e}");
             Error::Crypto("Failed to sign Nostr event".to_string())
         })?;
-
-        info!("sending event {send_event:?}");
-
+        trace!("sending event {send_event:?}");
         self.client.send_event(&send_event).await.map_err(|e| {
             error!("Failed to send Nostr event: {e}");
             Error::Network("Failed to send Nostr event".to_string())
@@ -701,7 +699,7 @@ fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPublic
 }
 
 #[allow(dead_code)]
-/// Given a encrypted payload and a private key, decrypts the payload and returns the
+/// Given an encrypted payload and a private key, decrypts the payload and returns
 /// its content as an EventEnvelope.
 fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
     let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key_string())?;

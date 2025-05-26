@@ -40,7 +40,7 @@ impl BillChainEvent {
         let participants = chain
             .get_all_nodes_with_added_block_height(bill_keys)
             .map_err(|e| {
-                error!("Failed to get participants from blockchain: {}", e);
+                error!("Failed to get participants from blockchain: {e}");
                 Error::Blockchain(
                     "Failed to get participants from blockchain when creating a new chain event"
                         .to_string(),
