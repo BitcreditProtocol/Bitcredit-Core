@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use async_trait::async_trait;
 use bcr_ebill_core::{
     PostalAddress, ServiceTraitBounds,
@@ -5,7 +7,8 @@ use bcr_ebill_core::{
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType},
     util::{BcrKeys, date::DateTimeUtc},
 };
-use bcr_wdc_webapi::quotes::{BillInfo, EnquireReply, EnquireRequest, StatusReply};
+use bcr_wdc_quote_client::QuoteClient;
+use bcr_wdc_webapi::quotes::{BillInfo, ResolveOffer, StatusReply};
 use cashu::{nut01 as cdk01, nut02 as cdk02};
 use thiserror::Error;
 
@@ -24,9 +27,18 @@ pub enum Error {
     /// all errors originating from creating signatures
     #[error("External Mint Signature Error")]
     Signature,
-    /// all errors originating invalid dates
+    /// all errors originating from invalid dates
     #[error("External Mint Invalid Date Error")]
     InvalidDate,
+    /// all errors originating from invalid mint urls
+    #[error("External Mint Invalid Mint Url Error")]
+    InvalidMintUrl,
+    /// all errors originating from invalid mint request ids
+    #[error("External Mint Invalid Mint Request Id Error")]
+    InvalidMintRequestId,
+    /// all errors originating from the quote client
+    #[error("External Mint Quote Client Error")]
+    QuoteClient,
 }
 
 #[cfg(test)]
@@ -52,12 +64,16 @@ pub trait MintClientApi: ServiceTraitBounds {
         mint_url: &str,
         quote_id: &str,
     ) -> Result<QuoteStatusReply>;
+    async fn resolve_quote_for_mint(
+        &self,
+        mint_url: &str,
+        quote_id: &str,
+        resolve: ResolveMintOffer,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MintClient {
-    cl: reqwest::Client,
-}
+pub struct MintClient {}
 
 impl ServiceTraitBounds for MintClient {}
 
@@ -66,9 +82,14 @@ impl ServiceTraitBounds for MockMintClientApi {}
 
 impl MintClient {
     pub fn new() -> Self {
-        Self {
-            cl: reqwest::Client::new(),
-        }
+        Self {}
+    }
+
+    pub fn quote_client(&self, mint_url: &str) -> Result<QuoteClient> {
+        let quote_client = bcr_wdc_quote_client::QuoteClient::new(
+            reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?,
+        );
+        Ok(quote_client)
     }
 }
 
@@ -98,27 +119,15 @@ impl MintClientApi for MintClient {
         let public_key = cdk01::PublicKey::from_hex(requester_keys.get_public_key())
             .map_err(|_| Error::PubKey)?;
 
-        let signature = bcr_wdc_utils::keys::schnorr_sign_borsh_msg_with_key(
-            &bill_info,
-            &requester_keys.get_key_pair(),
-        )
-        .map_err(|_| Error::Signature)?;
-
-        let payload: EnquireRequest = EnquireRequest {
-            content: bill_info,
-            signature,
-            public_key,
-        };
-        let url = format!("{}/v1/mint/credit/quote", mint_url);
-        let res = self
-            .cl
-            .post(&url)
-            .json(&payload)
-            .send()
+        let mint_request_id = self
+            .quote_client(mint_url)?
+            .enquire(bill_info, public_key, &requester_keys.get_key_pair())
             .await
-            .map_err(Error::from)?;
-        let reply: EnquireReply = res.json().await.map_err(Error::from)?;
-        Ok(reply.id.to_string())
+            .map_err(|e| {
+                log::error!("Error enquiring to mint {mint_url}: {e}");
+                Error::QuoteClient
+            })?;
+        Ok(mint_request_id.to_string())
     }
 
     async fn lookup_quote_for_mint(
@@ -126,10 +135,50 @@ impl MintClientApi for MintClient {
         mint_url: &str,
         quote_id: &str,
     ) -> Result<QuoteStatusReply> {
-        let url = format!("{}/v1/mint/credit/quote/{quote_id}", mint_url);
-        let res = self.cl.get(&url).send().await.map_err(Error::from)?;
-        let reply: StatusReply = res.json().await.map_err(Error::from)?;
+        let reply = self
+            .quote_client(mint_url)?
+            .lookup(uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?)
+            .await
+            .map_err(|e| {
+                log::error!("Error looking up request on mint {mint_url}: {e}");
+                Error::QuoteClient
+            })?;
         Ok(reply.into())
+    }
+
+    #[allow(dead_code)]
+    async fn resolve_quote_for_mint(
+        &self,
+        mint_url: &str,
+        quote_id: &str,
+        resolve: ResolveMintOffer,
+    ) -> Result<()> {
+        self.quote_client(mint_url)?
+            .resolve(
+                uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
+                resolve.into(),
+            )
+            .await
+            .map_err(|e| {
+                log::error!("Error resolving request on mint {mint_url}: {e}");
+                Error::QuoteClient
+            })?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolveMintOffer {
+    Accept,
+    Reject,
+}
+
+impl From<ResolveMintOffer> for ResolveOffer {
+    fn from(value: ResolveMintOffer) -> Self {
+        match value {
+            ResolveMintOffer::Accept => ResolveOffer::Accept,
+            ResolveMintOffer::Reject => ResolveOffer::Reject,
+        }
     }
 }
 
