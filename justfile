@@ -18,3 +18,11 @@ pay address amount:
 
     @echo "Done."
 
+check: wasm
+  cargo fmt -- --check
+  cargo check
+  cargo test --all
+  cargo clippy --all-targets --all-features -- -D warnings
+
+wasm:
+  wasm-pack build --dev --target web --out-name index ./crates/bcr-ebill-wasm

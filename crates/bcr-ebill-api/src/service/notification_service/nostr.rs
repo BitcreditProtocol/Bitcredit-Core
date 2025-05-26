@@ -1,9 +1,18 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{blockchain::bill::block::NodeId, contact::BillParticipant, util::crypto};
+use bcr_ebill_core::{
+    blockchain::{BlockchainType, bill::block::NodeId},
+    contact::BillParticipant,
+    util::{
+        base58_decode, base58_encode,
+        crypto::{self, decrypt_ecies, encrypt_ecies},
+    },
+};
 use bcr_ebill_transport::{
-    event::EventEnvelope, handler::NotificationHandlerApi, transport::NostrContactData,
+    bcr_nostr_tag, event::EventEnvelope, handler::NotificationHandlerApi,
+    transport::NostrContactData,
 };
 use log::{error, info, trace, warn};
+use nostr::nips::nip73::ExternalContentId;
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
     RelayPoolNotification, RelayUrl, SecretKey, SingleLetterTag, Tag, TagKind, TagStandard,
@@ -82,7 +91,6 @@ pub struct NostrClient {
 }
 
 impl NostrClient {
-    #[allow(dead_code)]
     pub async fn new(config: &NostrConfig) -> Result<Self> {
         let keys = config.keys.clone();
         let options = Options::new();
@@ -369,7 +377,7 @@ impl NotificationJsonTransportApi for NostrClient {
         self.get_node_id()
     }
 
-    async fn send(
+    async fn send_private_event(
         &self,
         recipient: &BillParticipant,
         event: EventEnvelope,
@@ -380,6 +388,36 @@ impl NotificationJsonTransportApi for NostrClient {
             self.send_nip17_message(recipient, event).await?;
         }
         Ok(())
+    }
+
+    async fn send_public_chain_event(
+        &self,
+        id: &str,
+        blockchain: BlockchainType,
+        keys: BcrKeys,
+        event: EventEnvelope,
+        previous_event: Option<Event>,
+        root_event: Option<Event>,
+    ) -> Result<Event> {
+        let event = create_public_chain_event(
+            id,
+            event,
+            blockchain.to_owned(),
+            keys,
+            previous_event,
+            root_event,
+        )?;
+        info!("Sending public {} chain event: {:?}", blockchain, event);
+        let send_event = self.client.sign_event_builder(event).await.map_err(|e| {
+            error!("Failed to sign Nostr event: {e}");
+            Error::Crypto("Failed to sign Nostr event".to_string())
+        })?;
+        trace!("sending event {send_event:?}");
+        self.client.send_event(&send_event).await.map_err(|e| {
+            error!("Failed to send Nostr event: {e}");
+            Error::Network("Failed to send Nostr event".to_string())
+        })?;
+        Ok(send_event)
     }
 
     async fn resolve_contact(
@@ -612,6 +650,71 @@ fn create_nip04_event(
     .tag(Tag::public_key(*public_key)))
 }
 
+/// Takes an event envelope and creates a public chain event with appropriate tags and encrypted
+/// base58 encoded payload.
+fn create_public_chain_event(
+    id: &str,
+    event: EventEnvelope,
+    blockchain: BlockchainType,
+    keys: BcrKeys,
+    previous_event: Option<Event>,
+    root_event: Option<Event>,
+) -> Result<EventBuilder> {
+    let payload = base58_encode(&encrypt_ecies(
+        &serde_json::to_vec(&event)?,
+        &keys.get_public_key(),
+    )?);
+    let event = match previous_event {
+        Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None),
+        None => EventBuilder::new(Kind::TextNote, payload).tag(bcr_nostr_tag(id, blockchain)),
+    };
+    Ok(event)
+}
+
+#[allow(dead_code)]
+/// Unwraps a Nostr chain event with its metadata. Will return the encrypted payload and
+/// the metadata if the event matches a public chain event. Otherwise it returns None.
+fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPublicEventData>> {
+    let data: Vec<EncryptedPublicEventData> = event
+        .tags
+        .filter_standardized(TagKind::SingleLetter(SingleLetterTag::lowercase(
+            Alphabet::I,
+        )))
+        .filter_map(|t| match t {
+            TagStandard::ExternalContent {
+                content:
+                    ExternalContentId::BlockchainAddress {
+                        address, chain_id, ..
+                    },
+                ..
+            } => chain_id.as_ref().map(|id| EncryptedPublicEventData {
+                id: address.to_owned(),
+                chain_type: BlockchainType::try_from(id.as_ref()).unwrap(),
+                payload: event.content.clone(),
+            }),
+            _ => None,
+        })
+        .collect();
+    Ok(data.first().cloned())
+}
+
+#[allow(dead_code)]
+/// Given an encrypted payload and a private key, decrypts the payload and returns
+/// its content as an EventEnvelope.
+fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
+    let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key_string())?;
+    let payload = serde_json::from_slice::<EventEnvelope>(&decrypted)?;
+    Ok(payload)
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct EncryptedPublicEventData {
+    pub id: String,
+    pub chain_type: BlockchainType,
+    pub payload: String,
+}
+
 /// Handle extracted event with given handlers.
 async fn handle_event(
     event: EventEnvelope,
@@ -701,8 +804,7 @@ mod tests {
         // and a contact we want to send an event to
         let contact =
             get_identity_public_data(&keys2.get_public_key(), "payee@example.com", vec![&url]);
-        let mut event = create_test_event(&BillEventType::BillSigned);
-        event.node_id = contact.node_id.to_owned();
+        let event = create_test_event(&BillEventType::BillSigned);
 
         // expect the receiver to check if the sender contact is known
         let mut contact_service = MockContactServiceApi::new();
@@ -727,10 +829,9 @@ mod tests {
                 let received: Event<TestEventPayload> =
                     e.clone().try_into().expect("could not convert event");
                 let valid_type = received.event_type == expected.event_type;
-                let valid_receiver = received.node_id == expected.node_id;
                 let valid_payload = received.data.foo == expected.data.foo;
                 let valid_identity = i == keys2.get_public_key();
-                valid_type && valid_receiver && valid_payload && valid_identity
+                valid_type && valid_payload && valid_identity
             })
             .returning(|_, _| Ok(()));
 
@@ -776,7 +877,7 @@ mod tests {
                 });
                 // and send an event
                 client1
-                    .send(
+                    .send_private_event(
                         &BillParticipant::Ident(contact),
                         event.try_into().expect("could not convert event"),
                     )

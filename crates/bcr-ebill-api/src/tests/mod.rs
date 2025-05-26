@@ -7,6 +7,7 @@ pub mod tests {
         OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
         bill::{BitcreditBill, BitcreditBillResult},
         blockchain::{
+            BlockchainType,
             bill::{BillBlock, BillBlockchain, BillOpCode},
             company::{CompanyBlock, CompanyBlockchain},
             identity::IdentityBlock,
@@ -27,7 +28,10 @@ pub mod tests {
         file_upload::FileUploadStoreApi,
         identity::{IdentityChainStoreApi, IdentityStoreApi},
         mint::MintStoreApi,
-        nostr::{NostrContactStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi},
+        nostr::{
+            NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
+            NostrQueuedMessageStoreApi,
+        },
         notification::NotificationFilter,
     };
     use bcr_ebill_transport::{BillChainEvent, NotificationServiceApi};
@@ -248,6 +252,22 @@ pub mod tests {
             async fn get_retry_messages(&self, limit: u64) -> Result<Vec<NostrQueuedMessage>>;
             async fn fail_retry(&self, id: &str) -> Result<()>;
             async fn succeed_retry(&self, id: &str) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub NostrChainEventStore {}
+
+        impl ServiceTraitBounds for NostrChainEventStore {}
+
+        #[async_trait]
+        impl NostrChainEventStoreApi for NostrChainEventStore {
+            async fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
+            async fn find_latest_block_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
+            async fn find_root_event(&self,chain_id: &str, chain_type: BlockchainType) -> Result<Option<NostrChainEvent>>;
+            async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>>;
+            async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
+            async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;
         }
     }
 

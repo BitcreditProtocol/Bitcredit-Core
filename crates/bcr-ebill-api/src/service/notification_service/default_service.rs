@@ -2,9 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::contact::{BillParticipant, ContactType};
-use bcr_ebill_persistence::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
+use bcr_ebill_persistence::nostr::{
+    NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
+};
 use bcr_ebill_transport::{BillChainEvent, BillChainEventPayload, Error, Event, EventEnvelope};
 use log::{error, warn};
 
@@ -28,6 +31,7 @@ pub struct DefaultNotificationService {
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     nostr_relays: Vec<String>,
 }
 
@@ -42,6 +46,7 @@ impl DefaultNotificationService {
         notification_store: Arc<dyn NotificationStoreApi>,
         contact_service: Arc<dyn ContactServiceApi>,
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         nostr_relays: Vec<String>,
     ) -> Self {
         Self {
@@ -52,6 +57,7 @@ impl DefaultNotificationService {
             notification_store,
             contact_service,
             queued_message_store,
+            chain_event_store,
             nostr_relays,
         }
     }
@@ -90,13 +96,13 @@ impl DefaultNotificationService {
     async fn send_all_events(
         &self,
         sender: &str,
-        events: Vec<Event<BillChainEventPayload>>,
+        events: HashMap<String, Event<BillChainEventPayload>>,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender) {
-            for event_to_process in events.into_iter() {
-                if let Some(identity) = self.resolve_identity(&event_to_process.node_id).await {
+            for (node_id, event_to_process) in events.into_iter() {
+                if let Some(identity) = self.resolve_identity(&node_id).await {
                     if let Err(e) = node
-                        .send(&identity, event_to_process.clone().try_into()?)
+                        .send_private_event(&identity, event_to_process.clone().try_into()?)
                         .await
                     {
                         error!(
@@ -106,7 +112,7 @@ impl DefaultNotificationService {
                         let queue_message = NostrQueuedMessage {
                             id: uuid::Uuid::new_v4().to_string(),
                             sender_id: sender.to_owned(),
-                            node_id: event_to_process.node_id.clone(),
+                            node_id: node_id.to_owned(),
                             payload: serde_json::to_value(event_to_process)?,
                         };
                         if let Err(e) = self
@@ -120,12 +126,84 @@ impl DefaultNotificationService {
                 } else {
                     warn!(
                         "Failed to find recipient in contacts for node_id: {}",
-                        event_to_process.node_id
+                        node_id
                     );
                 }
             }
         } else {
             warn!("No transport node found for sender node_id: {}", sender);
+        }
+        Ok(())
+    }
+
+    // sends all required bill chain events like public bill data and bill invites
+    async fn send_bill_chain_events(&self, events: &BillChainEvent) -> Result<()> {
+        if let Some(node) = self.notification_transport.get(&events.sender()) {
+            if let Some(block_event) = events.generate_blockchain_message() {
+                // find potential previous block event
+                let previous_event = self
+                    .chain_event_store
+                    .find_by_block_hash(&block_event.data.block.previous_hash)
+                    .await
+                    .map_err(|_| {
+                        Error::Persistence("failed to read from chain events".to_owned())
+                    })?;
+
+                // if there is a previous and it is not the root event, also get the root event
+                let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
+                    self.chain_event_store
+                        .find_root_event(&block_event.data.bill_id, BlockchainType::Bill)
+                        .await
+                        .map_err(|_| {
+                            Error::Persistence("failed to read from chain events".to_owned())
+                        })?
+                } else {
+                    previous_event.clone()
+                };
+
+                // now send the event
+                let event = node
+                    .send_public_chain_event(
+                        &block_event.data.bill_id,
+                        BlockchainType::Bill,
+                        events.bill_keys.clone().try_into()?,
+                        block_event.clone().try_into()?,
+                        previous_event.clone().map(|e| e.payload),
+                        root_event.clone().map(|e| e.payload),
+                    )
+                    .await?;
+
+                self.chain_event_store
+                    .add_chain_event(NostrChainEvent {
+                        event_id: event.id.to_string(),
+                        root_id: root_event
+                            .map(|e| e.event_id.to_string())
+                            .unwrap_or(event.id.to_string()),
+                        reply_id: previous_event.map(|e| e.event_id.to_string()),
+                        author: event.pubkey.to_string(),
+                        chain_id: block_event.data.bill_id.to_owned(),
+                        chain_type: BlockchainType::Bill,
+                        block_height: events.block_height(),
+                        block_hash: block_event.data.block.hash.to_owned(),
+                        received: block_event.data.block.timestamp,
+                        time: event.created_at.as_u64(),
+                        payload: event,
+                    })
+                    .await
+                    .map_err(|_| {
+                        Error::Persistence("failed to write to chain events".to_owned())
+                    })?;
+            }
+
+            let invites = events.generate_bill_invite_events();
+            if !invites.is_empty() {
+                for (recipient, event) in invites {
+                    if let Some(identity) = self.resolve_identity(&recipient).await {
+                        node.send_private_event(&identity, event.try_into()?)
+                            .await?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -139,7 +217,7 @@ impl DefaultNotificationService {
         if let Some(node) = self.notification_transport.get(sender) {
             if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
             {
-                node.send(&identity, message).await?;
+                node.send_private_event(&identity, message).await?;
             }
         }
         Ok(())
@@ -168,6 +246,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
 
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -181,6 +260,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -197,6 +277,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -210,6 +291,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -223,6 +305,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -236,6 +319,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&bill.sender(), all_events).await?;
+        self.send_bill_chain_events(bill).await?;
         Ok(())
     }
 
@@ -253,6 +337,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -270,6 +355,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -287,6 +373,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_all_events(&event.sender(), all_events).await?;
+        self.send_bill_chain_events(event).await?;
         Ok(())
     }
 
@@ -295,18 +382,15 @@ impl NotificationServiceApi for DefaultNotificationService {
         sender_node_id: &str,
         bill: &BitcreditBill,
     ) -> Result<()> {
-        let event = Event::new_bill(
-            &bill.endorsee.as_ref().unwrap().node_id(),
-            BillChainEventPayload {
-                event_type: BillEventType::BillMintingRequested,
-                bill_id: bill.id.clone(),
-                action_type: Some(ActionType::CheckBill),
-                sum: Some(bill.sum),
-                ..Default::default()
-            },
-        );
+        let event = Event::new_bill(BillChainEventPayload {
+            event_type: BillEventType::BillMintingRequested,
+            bill_id: bill.id.clone(),
+            action_type: Some(ActionType::CheckBill),
+            sum: Some(bill.sum),
+            ..Default::default()
+        });
         if let Some(node) = self.notification_transport.get(sender_node_id) {
-            node.send(bill.endorsee.as_ref().unwrap(), event.try_into()?)
+            node.send_private_event(bill.endorsee.as_ref().unwrap(), event.try_into()?)
                 .await?;
         }
         Ok(())
@@ -351,8 +435,9 @@ impl NotificationServiceApi for DefaultNotificationService {
                     ..Default::default()
                 };
                 for (_, recipient) in unique {
-                    let event = Event::new_bill(&recipient.node_id(), payload.clone());
-                    node.send(&recipient, event.try_into()?).await?;
+                    let event = Event::new_bill(payload.clone());
+                    node.send_private_event(&recipient, event.try_into()?)
+                        .await?;
                 }
             }
         }
@@ -375,6 +460,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                 None,
             );
             self.send_all_events(&event.sender(), all_events).await?;
+            self.send_bill_chain_events(event).await?;
         }
         Ok(())
     }
@@ -479,7 +565,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                 if let Err(e) = self
                     .send_retry_message(
                         &queued_message.sender_id,
-                        &message.node_id,
+                        &queued_message.node_id,
                         message.clone(),
                     )
                     .await
@@ -510,14 +596,15 @@ mod tests {
 
     use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
-    use bcr_ebill_core::blockchain::Blockchain;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
         BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestToAcceptBlockData,
         BillRequestToPayBlockData,
     };
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
-    use bcr_ebill_core::util::date::now;
+    use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
+    use bcr_ebill_core::util::{BcrKeys, date::now};
+    use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
     use std::sync::Arc;
@@ -534,7 +621,15 @@ mod tests {
         #[async_trait]
         impl NotificationJsonTransportApi for NotificationJsonTransport {
             fn get_sender_key(&self) -> String;
-            async fn send(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
+            async fn send_public_chain_event(
+                &self,
+                id: &str,
+                blockchain: BlockchainType,
+                keys: BcrKeys,
+                event: EventEnvelope,
+                previous_event: Option<nostr::event::Event>,
+                root_event: Option<nostr::event::Event>) -> bcr_ebill_transport::Result<nostr::event::Event>;
             async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
         }
     }
@@ -556,15 +651,34 @@ mod tests {
     };
     use super::*;
     use crate::tests::tests::{
-        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrContactStore,
-        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockBillChainStoreApiMock, MockBillStoreApiMock, MockNostrChainEventStore,
+        MockNostrContactStore, MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
         MockNotificationStoreApiMock, TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
         let valid_event_type = event.event_type == EventType::Bill;
-        let event: Event<BillChainEventPayload> = event.clone().try_into().unwrap();
-        valid_event_type && event.data.event_type == bill_event_type
+        let event: Result<Event<BillChainEventPayload>> = event.clone().try_into();
+        if let Ok(event) = event {
+            valid_event_type && event.data.event_type == bill_event_type
+        } else {
+            false
+        }
+    }
+
+    fn get_test_nostr_event() -> nostr::event::Event {
+        let keys = nostr::key::Keys::generate();
+        let sig = [0u8; 64];
+        let id = [0u8; 32];
+        nostr::event::Event::new(
+            nostr::event::EventId::from_byte_array(id),
+            keys.public_key(),
+            nostr::Timestamp::from_secs(now().timestamp() as u64),
+            nostr::event::Kind::TextNote,
+            nostr::event::Tags::default(),
+            "test".to_string(),
+            nostr::secp256k1::schnorr::Signature::from_slice(&sig).unwrap(),
+        )
     }
 
     #[tokio::test]
@@ -633,25 +747,25 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to send payment rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentRejected))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send acceptance rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceRejected))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send buying rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillBuyingRejected))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send recourse rejected event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
             .returning(|_, _| Ok(()))
             .times(3);
@@ -661,6 +775,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -740,13 +855,14 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to not send rejected event for non rejectable actions
-        mock.expect_send().never();
+        mock.expect_send_private_event().never();
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -783,13 +899,13 @@ mod tests {
             .returning(move || "node_id".to_string());
 
         // expect to send payment timeout event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
             .returning(|_, _| Ok(()))
             .times(3);
 
         // expect to send acceptance timeout event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceTimeout))
             .returning(|_, _| Ok(()))
             .times(3);
@@ -799,6 +915,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -850,13 +967,14 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to never send timeout event on non expiring events
-        mock.expect_send().never();
+        mock.expect_send_private_event().never();
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -936,30 +1054,47 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect to send payment recourse event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentRecourse))
             .returning(|_, _| Ok(()))
             .times(1);
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillBlock))
             .returning(|_, _| Ok(()))
             .times(2);
 
         // expect to send acceptance recourse event to all recipients
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceRecourse))
             .returning(|_, _| Ok(()))
             .times(1);
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(|_, e| check_chain_payload(e, BillEventType::BillBlock))
             .returning(|_, _| Ok(()))
             .times(2);
+
+        mock.expect_send_public_chain_event()
+            .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
+            .times(2);
+
+        mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_ok()
+            })
+            .returning(|_, _| Ok(()));
+
+        let event_store = setup_event_store_expectations(
+            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            bill.id.as_str(),
+        );
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(event_store),
             vec!["ws://test.relay".into()],
         );
 
@@ -1029,13 +1164,14 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         // expect not to send non recourse event
-        mock.expect_send().never();
+        mock.expect_send_private_event().never();
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1068,9 +1204,31 @@ mod tests {
         mock.expect_get_sender_key()
             .returning(|| "node_id".to_string());
 
-        mock.expect_send().returning(|_, _| Ok(())).once();
-        mock.expect_send()
+        mock.expect_send_private_event()
+            .returning(|_, _| Ok(()))
+            .once();
+
+        mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_err()
+            })
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
+
+        mock.expect_send_public_chain_event()
+            .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()));
+
+        mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_ok()
+            })
+            .returning(|_, _| Ok(()));
+
+        let mock_event_store = setup_event_store_expectations(
+            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            bill.id.as_str(),
+        );
 
         let mut queue_mock = MockNostrQueuedMessageStore::new();
         queue_mock
@@ -1083,6 +1241,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(queue_mock),
+            Arc::new(mock_event_store),
             vec!["ws://test.relay".into()],
         );
 
@@ -1104,6 +1263,31 @@ mod tests {
             .expect("failed to send event");
     }
 
+    fn setup_event_store_expectations(
+        previous_hash: &str,
+        bill_id: &str,
+    ) -> MockNostrChainEventStore {
+        let mut mock_event_store = MockNostrChainEventStore::new();
+        // lookup parent event
+        mock_event_store
+            .expect_find_by_block_hash()
+            .with(eq(previous_hash.to_owned()))
+            .returning(|_| Ok(None));
+
+        // if no parent we don't need to lookup the root event
+        mock_event_store
+            .expect_find_root_event()
+            .with(eq(bill_id.to_owned()), eq(BlockchainType::Bill))
+            .returning(|_, _| Ok(None))
+            .never();
+
+        // afterwards we store the event we have sent
+        mock_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()));
+        mock_event_store
+    }
+
     fn setup_chain_expectation(
         participants: Vec<(BillIdentParticipant, BillEventType, Option<ActionType>)>,
         bill: &BitcreditBill,
@@ -1123,16 +1307,40 @@ mod tests {
                 .returning(|| "node_id".to_string());
 
             let clone2 = p.clone();
-            mock.expect_send()
+            mock.expect_send_private_event()
                 .withf(move |r, e| {
                     let part = clone2.clone();
-                    let valid_node_id =
-                        r.node_id() == part.0.node_id && e.node_id == part.0.node_id;
-                    let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
-                    let valid_event_type = event.data.event_type == part.1;
-                    valid_node_id && valid_event_type && event.data.action_type == part.2
+                    let valid_node_id = r.node_id() == part.0.node_id;
+                    let event_result: Result<Event<BillChainEventPayload>> = e.clone().try_into();
+                    if let Ok(event) = event_result {
+                        let valid_event_type = event.data.event_type == part.1;
+                        valid_node_id && valid_event_type && event.data.action_type == part.2
+                    } else {
+                        false
+                    }
                 })
                 .returning(|_, _| Ok(()));
+
+            mock.expect_send_private_event()
+                .withf(move |_, e| {
+                    let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                    r.is_ok()
+                })
+                .returning(|_, _| Ok(()));
+        }
+        let mut mock_event_store: MockNostrChainEventStore = MockNostrChainEventStore::new();
+        if new_blocks {
+            mock.expect_send_public_chain_event()
+                .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
+                .once();
+            mock_event_store = setup_event_store_expectations(
+                chain.get_latest_block().previous_hash.to_owned().as_str(),
+                bill.id.as_str(),
+            );
+        } else {
+            mock.expect_send_public_chain_event()
+                .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
+                .never();
         }
 
         let service = DefaultNotificationService::new(
@@ -1140,6 +1348,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(mock_event_store),
             vec!["ws://test.relay".into()],
         );
 
@@ -1576,6 +1785,7 @@ mod tests {
             Arc::new(mock_store),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1605,6 +1815,7 @@ mod tests {
             Arc::new(mock_store),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1623,9 +1834,9 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_key()
             .returning(move || "node_id".to_string());
-        mock.expect_send()
+        mock.expect_send_private_event()
             .withf(move |r, e| {
-                let valid_node_id = r.node_id() == node_id && e.node_id == node_id;
+                let valid_node_id = r.node_id() == node_id;
                 let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
                 valid_node_id
                     && event.data.event_type == event_type
@@ -1637,6 +1848,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         )
     }
@@ -1688,7 +1900,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1714,7 +1925,9 @@ mod tests {
         mock_transport
             .expect_get_sender_key()
             .returning(|| "node_id".to_string());
-        mock_transport.expect_send().returning(|_, _| Ok(()));
+        mock_transport
+            .expect_send_private_event()
+            .returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
         mock_queue
@@ -1736,6 +1949,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1749,7 +1963,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender_id = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1778,7 +1991,7 @@ mod tests {
             .returning(|| "node_id".to_string());
 
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -1801,6 +2014,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1817,7 +2031,6 @@ mod tests {
         let message_id2 = "test_message_id_2";
 
         let payload1 = serde_json::to_value(EventEnvelope {
-            node_id: node_id1.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1825,7 +2038,6 @@ mod tests {
         .unwrap();
 
         let payload2 = serde_json::to_value(EventEnvelope {
-            node_id: node_id2.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1868,11 +2080,11 @@ mod tests {
 
         // First message succeeds, second fails
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Ok(()))
             .times(1);
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())))
             .times(1);
 
@@ -1908,6 +2120,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1952,6 +2165,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1965,7 +2179,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -1993,7 +2206,7 @@ mod tests {
             .expect_get_sender_key()
             .returning(|| "node_id".to_string());
         mock_transport
-            .expect_send()
+            .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
@@ -2022,6 +2235,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2035,7 +2249,6 @@ mod tests {
         let message_id = "test_message_id";
         let sender = "node_id";
         let payload = serde_json::to_value(EventEnvelope {
-            node_id: node_id.to_string(),
             version: "1.0".to_string(),
             event_type: EventType::Bill,
             data: serde_json::Value::Null,
@@ -2062,7 +2275,9 @@ mod tests {
         mock_transport
             .expect_get_sender_key()
             .returning(|| "node_id".to_string());
-        mock_transport.expect_send().returning(|_, _| Ok(()));
+        mock_transport
+            .expect_send_private_event()
+            .returning(|_, _| Ok(()));
 
         let mut mock_queue = MockNostrQueuedMessageStore::new();
         mock_queue
@@ -2090,6 +2305,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2115,6 +2331,7 @@ mod tests {
             Arc::new(MockNotificationStoreApiMock::new()),
             Arc::new(MockContactServiceApi::new()),
             Arc::new(mock_queue),
+            Arc::new(MockNostrChainEventStore::new()),
             vec!["ws://test.relay".into()],
         );
 

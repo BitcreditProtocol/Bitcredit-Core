@@ -54,6 +54,7 @@ impl Context {
             db.notification_store.clone(),
             contact_service.clone(),
             db.queued_message_store.clone(),
+            db.nostr_chain_event_store.clone(),
             cfg.nostr_config.relays.to_owned(),
         )
         .await?;

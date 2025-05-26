@@ -5,9 +5,10 @@ use crate::{
         MockBackupStoreApiMock, MockBillChainStoreApiMock, MockBillStoreApiMock,
         MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
         MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-        MockMintStore, MockNostrContactStore, MockNostrEventOffsetStoreApiMock,
-        MockNostrQueuedMessageStore, MockNotificationStoreApiMock,
-        bill_identified_participant_only_node_id, empty_bitcredit_bill,
+        MockMintStore, MockNostrChainEventStore, MockNostrContactStore,
+        MockNostrEventOffsetStoreApiMock, MockNostrQueuedMessageStore,
+        MockNotificationStoreApiMock, bill_identified_participant_only_node_id,
+        empty_bitcredit_bill,
     },
     util::BcrKeys,
 };
@@ -85,11 +86,7 @@ pub fn create_test_event_payload(event_type: &BillEventType) -> TestEventPayload
 }
 
 pub fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> {
-    Event::new(
-        EventType::Bill,
-        "node_id",
-        create_test_event_payload(event_type),
-    )
+    Event::new(EventType::Bill, create_test_event_payload(event_type))
 }
 
 pub fn get_identity_public_data(
@@ -155,5 +152,6 @@ pub fn get_mock_db_context() -> DbContext {
         queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
         nostr_contact_store: Arc::new(MockNostrContactStore::new()),
         mint_store: Arc::new(MockMintStore::new()),
+        nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
     }
 }

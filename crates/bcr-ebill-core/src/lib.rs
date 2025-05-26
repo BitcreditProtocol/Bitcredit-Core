@@ -3,7 +3,7 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use company::Company;
 use contact::Contact;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, pin::Pin};
 use thiserror::Error;
 use util::is_blank;
 
@@ -19,6 +19,14 @@ pub mod notification;
 #[cfg(test)]
 mod tests;
 pub mod util;
+
+/// Return type of an async function. Can be used to avoid async_trait
+pub type BoxedFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// Wraps a value in a boxed future, so it can be used in async tests
+pub fn as_boxed_future<T: Send + 'static>(v: T) -> BoxedFuture<'static, T> {
+    Box::pin(async { v })
+}
 
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
 /// multi-threaded (e.g. web) environment without issues.

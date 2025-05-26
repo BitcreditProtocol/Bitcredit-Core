@@ -7,7 +7,9 @@ use crate::persistence::nostr::NostrEventOffsetStoreApi;
 use crate::persistence::notification::NotificationStoreApi;
 use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::CompanyStoreApi;
-use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi};
+use bcr_ebill_persistence::nostr::{
+    NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessageStoreApi,
+};
 use bcr_ebill_transport::handler::{
     BillChainEventHandler, LoggingEventHandler, NotificationHandlerApi,
 };
@@ -88,6 +90,7 @@ pub async fn create_notification_service(
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     nostr_relays: Vec<String>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
     #[allow(clippy::arc_with_non_send_sync)]
@@ -99,6 +102,7 @@ pub async fn create_notification_service(
         notification_store,
         contact_service,
         queued_message_store,
+        chain_event_store,
         nostr_relays,
     )))
 }

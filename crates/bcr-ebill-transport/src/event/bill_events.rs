@@ -1,9 +1,164 @@
 use bcr_ebill_core::{
-    bill::BillKeys,
-    blockchain::bill::BillBlock,
+    bill::{BillKeys, BitcreditBill},
+    blockchain::{
+        Blockchain,
+        bill::{BillBlock, BillBlockchain},
+    },
     notification::{ActionType, BillEventType},
 };
+use log::error;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::{Error, Result};
+
+use super::{
+    Event, EventType,
+    bill_blockchain_event::{BillBlockEvent, ChainInvite},
+};
+
+pub struct BillChainEvent {
+    pub bill: BitcreditBill,
+    chain: BillBlockchain,
+    participants: HashMap<String, usize>,
+    pub bill_keys: BillKeys,
+    new_blocks: bool,
+    sender_node_id: String,
+}
+
+impl BillChainEvent {
+    /// Create a new BillChainEvent instance. New blocks indicate whether the given chain contains
+    /// new blocks for the bill. If new_blocks is false events will be populated without a block
+    /// and keys.
+    pub fn new(
+        bill: &BitcreditBill,
+        chain: &BillBlockchain,
+        bill_keys: &BillKeys,
+        new_blocks: bool,
+        sender_node_id: &str,
+    ) -> Result<Self> {
+        let participants = chain
+            .get_all_nodes_with_added_block_height(bill_keys)
+            .map_err(|e| {
+                error!("Failed to get participants from blockchain: {e}");
+                Error::Blockchain(
+                    "Failed to get participants from blockchain when creating a new chain event"
+                        .to_string(),
+                )
+            })?;
+        Ok(Self {
+            bill: bill.clone(),
+            chain: chain.clone(),
+            participants,
+            bill_keys: bill_keys.clone(),
+            new_blocks,
+            sender_node_id: sender_node_id.to_owned(),
+        })
+    }
+
+    pub fn sender(&self) -> String {
+        self.sender_node_id.clone()
+    }
+
+    // Returns the latest block in the chain.
+    fn latest_block(&self) -> BillBlock {
+        self.chain.get_latest_block().clone()
+    }
+
+    pub fn block_height(&self) -> usize {
+        self.chain.block_height()
+    }
+
+    fn new_participants(&self) -> HashMap<String, usize> {
+        let block_height = self.chain.block_height();
+        self.participants
+            .iter()
+            .filter(|(node_id, height)| {
+                // Filter out the sender node id and only include new participants.
+                node_id != &&self.sender_node_id && **height == block_height
+            })
+            .map(|(node_id, height)| (node_id.to_owned(), *height))
+            .collect()
+    }
+
+    // Returns all blocks for newly added participants, otherwise just the latest block or no
+    // blocks if the node is not a participant.
+    fn get_blocks_for_node(&self, node_id: &str) -> Vec<BillBlock> {
+        if !self.new_blocks {
+            return Vec::new();
+        }
+        match self.participants.get(node_id) {
+            Some(height) if *height == self.chain.block_height() => self.chain.blocks().clone(),
+            Some(_) => vec![self.latest_block()],
+            _ => Vec::new(),
+        }
+    }
+
+    fn get_keys_for_node(&self, node_id: &str) -> Option<BillKeys> {
+        if !self.new_blocks {
+            return None;
+        }
+        match self.participants.get(node_id) {
+            Some(height) if *height == self.chain.block_height() => Some(self.bill_keys.clone()),
+            _ => None,
+        }
+    }
+
+    /// Generates bill block events for all participants in the chain. Individual node_ids can be
+    /// assigned a specific event and action type by providing an override. If include_blocks is
+    /// false, the blocks list will be empty in the generated events. The recipient node_id is the
+    /// key in the map.
+    pub fn generate_action_messages(
+        &self,
+        event_overrides: HashMap<String, (BillEventType, ActionType)>,
+        event_type: Option<BillEventType>,
+        action: Option<ActionType>,
+    ) -> HashMap<String, Event<BillChainEventPayload>> {
+        let base_event = event_type.unwrap_or(BillEventType::BillBlock);
+        self.participants
+            .keys()
+            .map(|node_id| {
+                let (event_type, override_action) = event_overrides
+                    .get(node_id)
+                    .map(|(event_type, action)| (event_type.clone(), Some(action.clone())))
+                    .unwrap_or((base_event.clone(), None));
+                (
+                    node_id.to_owned(),
+                    Event::new(
+                        EventType::Bill,
+                        BillChainEventPayload {
+                            event_type,
+                            bill_id: self.bill.id.to_owned(),
+                            action_type: override_action.or(action.clone()),
+                            sum: Some(self.bill.sum),
+                            blocks: self.get_blocks_for_node(node_id),
+                            keys: self.get_keys_for_node(node_id),
+                        },
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    /// generates the latest block event for the bill.
+    pub fn generate_blockchain_message(&self) -> Option<Event<BillBlockEvent>> {
+        if !self.new_blocks {
+            return None;
+        }
+        Some(Event::new_chain(BillBlockEvent {
+            bill_id: self.bill.id.to_owned(),
+            block: self.latest_block(),
+        }))
+    }
+
+    pub fn generate_bill_invite_events(&self) -> HashMap<String, Event<ChainInvite>> {
+        let invite = ChainInvite::bill(self.bill.id.to_owned(), self.bill_keys.clone());
+        self.new_participants()
+            .keys()
+            .map(|node_id| (node_id.to_owned(), Event::new_chain(invite.clone())))
+            .collect()
+    }
+}
 
 /// Used to signal a change in the blockchain of a bill and an optional
 /// action event. Given some bill_id, this can signal an action to be

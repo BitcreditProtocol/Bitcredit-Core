@@ -1,3 +1,4 @@
+use bcr_ebill_core::util::{self, crypto};
 use thiserror::Error;
 
 pub mod email;
@@ -41,10 +42,20 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<crypto::Error> for Error {
+    fn from(e: crypto::Error) -> Self {
+        Error::Crypto(format!("Failed crypto operation: {e}"))
+    }
+}
+
+impl From<util::Error> for Error {
+    fn from(e: util::Error) -> Self {
+        Error::Crypto(format!("Failed base58 operation: {e}"))
+    }
+}
 pub use async_broadcast::Receiver;
-pub use event::bill_events::BillChainEventPayload;
-pub use event::chain_event::BillChainEvent;
+pub use event::bill_events::{BillChainEvent, BillChainEventPayload};
 pub use event::{Event, EventEnvelope, EventType};
 pub use notification_service::NotificationServiceApi;
 pub use push_notification::{PushApi, PushService};
-pub use transport::NotificationJsonTransportApi;
+pub use transport::{NotificationJsonTransportApi, bcr_nostr_tag};
