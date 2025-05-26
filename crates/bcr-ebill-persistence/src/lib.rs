@@ -49,6 +49,9 @@ pub enum Error {
     #[error("no bill block found")]
     NoBillBlock,
 
+    #[error("There is already an offer for the given request to mint")]
+    MintOfferAlreadyExists,
+
     #[error("Identity Block could not be added: {0}")]
     AddIdentityBlock(String),
 

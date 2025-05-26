@@ -289,10 +289,10 @@ impl BillService {
         // if it doesn't have a 'finished' state, we check the quote at the mint
         if !matches!(
             mint_request.status,
-            MintRequestStatus::Cancelled
-                | MintRequestStatus::Rejected
-                | MintRequestStatus::Expired
-                | MintRequestStatus::Denied
+            MintRequestStatus::Cancelled { .. }
+                | MintRequestStatus::Rejected { .. }
+                | MintRequestStatus::Expired { .. }
+                | MintRequestStatus::Denied { .. }
                 | MintRequestStatus::Accepted
         ) {
             let mint_cfg = &get_config().mint_config;
@@ -307,51 +307,94 @@ impl BillService {
                     .await?;
                 // only update, if changed
                 match updated_status {
-                        QuoteStatusReply::Pending => {
-                            if !matches!(mint_request.status, MintRequestStatus::Pending) {
-                                self.mint_store
-                                    .update_request(
-                                        &mint_request.mint_request_id,
-                                        &MintRequestStatus::Pending,
-                                    )
-                                    .await?;
-                            }
-                        }
-                        QuoteStatusReply::Denied => {
-                            // checked above, that it's not denied
+                    QuoteStatusReply::Pending => {
+                        if !matches!(mint_request.status, MintRequestStatus::Pending) {
                             self.mint_store
-                                .update_request(&mint_request.mint_request_id, &MintRequestStatus::Denied)
+                                .update_request(
+                                    &mint_request.mint_request_id,
+                                    &MintRequestStatus::Pending,
+                                )
                                 .await?;
                         }
-                        QuoteStatusReply::Offered {
-                            ..
-                            // keyset_id,
-                            // expiration_date,
-                            // discounted,
-                        } => {
-                            if !matches!(mint_request.status, MintRequestStatus::Offered) {
-                                // TODO next task: if not offered yet, persist offer
-                                self.mint_store
-                                    .update_request(
-                                        &mint_request.mint_request_id,
-                                        &MintRequestStatus::Offered,
-                                    )
-                                    .await?;
-                            }
-                        }
-                        QuoteStatusReply::Accepted { .. } => {
-                            // checked above, that it's not accepted
+                    }
+                    QuoteStatusReply::Denied { tstamp } => {
+                        // checked above, that it's not denied
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Denied {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
+                            )
+                            .await?;
+                    }
+                    QuoteStatusReply::Expired { tstamp } => {
+                        // checked above, that it's not expired
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Expired {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
+                            )
+                            .await?;
+                    }
+                    QuoteStatusReply::Cancelled { tstamp } => {
+                        // checked above, that it's not cancelled
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Cancelled {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
+                            )
+                            .await?;
+                    }
+                    QuoteStatusReply::Offered {
+                        keyset_id,
+                        expiration_date,
+                        discounted,
+                    } => {
+                        if !matches!(mint_request.status, MintRequestStatus::Offered) {
+                            // Update the request
                             self.mint_store
-                                .update_request(&mint_request.mint_request_id, &MintRequestStatus::Accepted)
+                                .update_request(
+                                    &mint_request.mint_request_id,
+                                    &MintRequestStatus::Offered,
+                                )
+                                .await?;
+                            // Store the offer
+                            self.mint_store
+                                .add_offer(
+                                    &mint_request.mint_request_id,
+                                    &keyset_id.to_string(),
+                                    expiration_date.timestamp() as u64,
+                                    discounted.to_sat(),
+                                )
                                 .await?;
                         }
-                        QuoteStatusReply::Rejected { .. } => {
-                            // checked above, that it's not rejected
-                            self.mint_store
-                                .update_request(&mint_request.mint_request_id, &MintRequestStatus::Rejected)
-                                .await?;
-                        }
-                    };
+                    }
+                    QuoteStatusReply::Accepted { .. } => {
+                        // checked above, that it's not accepted
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Accepted,
+                            )
+                            .await?;
+                    }
+                    QuoteStatusReply::Rejected { tstamp } => {
+                        // checked above, that it's not rejected
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Rejected {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
+                            )
+                            .await?;
+                    }
+                };
             }
         }
         Ok(())
@@ -746,10 +789,25 @@ impl BillServiceApi for BillService {
             .await?;
         let is_paid = self.store.is_paid(bill_id).await?;
 
+        let relays = match self
+            .notification_service
+            .resolve_contact(mint_node_id)
+            .await
+        {
+            Ok(Some(nostr_contact_data)) => nostr_contact_data
+                .relays
+                .iter()
+                .map(|url| url.to_string())
+                .collect::<Vec<String>>(),
+            _ => {
+                // fallback to own relays
+                identity.identity.nostr_relays.clone()
+            }
+        };
         let mint_anon_participant = BillParticipant::Anon(BillAnonParticipant {
             node_id: mint_node_id.to_owned(),
             email: None,
-            nostr_relays: identity.identity.nostr_relays.clone(), // TODO next task: take from network, or config, or default to own relays
+            nostr_relays: relays,
         });
 
         // validate using mint bill action - no point doing a mint request, if it can't be minted
@@ -762,7 +820,11 @@ impl BillServiceApi for BillService {
             bill_keys: bill_keys.clone(),
             timestamp,
             signer_node_id: signer_public_data.node_id().clone(),
-            bill_action: BillAction::Mint(mint_anon_participant, bill.sum, bill.currency.clone()),
+            bill_action: BillAction::Mint(
+                mint_anon_participant.clone(),
+                bill.sum,
+                bill.currency.clone(),
+            ),
             is_paid,
         }
         .validate()?;
@@ -814,7 +876,18 @@ impl BillServiceApi for BillService {
         )
         .await?;
 
-        // TODO next task: send notifications
+        // Send notifications
+        if let Err(e) = self
+            .notification_service
+            .send_request_to_mint_event(
+                &signer_public_data.node_id(),
+                &mint_anon_participant,
+                &bill,
+            )
+            .await
+        {
+            error!("Couldn't send notifications for request to mint: {e}");
+        }
 
         debug!("Executed request to mint with mint {mint_node_id} for bill {bill_id}");
 
@@ -1189,13 +1262,30 @@ impl BillServiceApi for BillService {
             .mint_store
             .get_requests_for_bill(current_identity_node_id, bill_id)
             .await?;
-        Ok(requests
+
+        let mut req_states: Vec<MintRequestState> = requests
             .into_iter()
             .map(|req| MintRequestState {
                 request: req,
                 offer: None,
             })
-            .collect())
+            .collect();
+
+        for req in req_states.iter_mut() {
+            // if it's offered, or accepted, we also fetch the offer
+            if matches!(
+                req.request.status,
+                MintRequestStatus::Offered | MintRequestStatus::Accepted
+            ) {
+                let offer = self
+                    .mint_store
+                    .get_offer(&req.request.mint_request_id)
+                    .await?;
+                req.offer = offer;
+            }
+        }
+
+        Ok(req_states)
     }
 
     async fn cancel_request_to_mint(
@@ -1207,14 +1297,30 @@ impl BillServiceApi for BillService {
         match self.mint_store.get_request(mint_request_id).await {
             Ok(Some(req)) => {
                 if req.requester_node_id == current_identity_node_id {
-                    if matches!(req.status, MintRequestStatus::Pending) {
-                        // TODO next task: call endpoint on mint to cancel
-                        self.mint_store
-                            .update_request(mint_request_id, &MintRequestStatus::Cancelled)
-                            .await?;
-                        Ok(())
+                    let mint_cfg = &get_config().mint_config;
+                    if req.mint_node_id == mint_cfg.default_mint_node_id {
+                        if matches!(req.status, MintRequestStatus::Pending) {
+                            self.mint_client
+                                .cancel_quote_for_mint(
+                                    &mint_cfg.default_mint_url,
+                                    &req.mint_request_id,
+                                )
+                                .await?;
+                            self.mint_store
+                                .update_request(
+                                    mint_request_id,
+                                    &MintRequestStatus::Cancelled {
+                                        timestamp: util::date::now().timestamp() as u64,
+                                    },
+                                )
+                                .await?;
+                            Ok(())
+                        } else {
+                            Err(Error::CancelMintRequestNotPending)
+                        }
                     } else {
-                        Err(Error::CancelMintRequestNotPending)
+                        // not on the default mint - we ignore it
+                        Ok(())
                     }
                 } else {
                     Err(Error::NotFound)

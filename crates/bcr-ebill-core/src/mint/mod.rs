@@ -20,22 +20,33 @@ pub enum MintRequestStatus {
     /// Waiting for an answer from the mint
     Pending,
     /// Denied by the mint
-    Denied,
+    Denied { timestamp: u64 },
     /// Offer was made
     Offered,
     /// Offer was accepted
     Accepted,
     /// The offer was rejected by the requester
-    Rejected,
+    Rejected { timestamp: u64 },
     /// The request was cancelled by the requester
-    Cancelled,
+    Cancelled { timestamp: u64 },
     /// The offer expired
-    Expired,
+    Expired { timestamp: u64 },
 }
 
 /// An offer from a mint as a response to a request to mint
 #[derive(Debug, Clone)]
-pub struct MintOffer {}
+pub struct MintOffer {
+    /// The request id on the mint side
+    pub mint_request_id: String,
+    /// The keyset id returned from the mint
+    pub keyset_id: String,
+    /// The expiration of the offer
+    pub expiration_timestamp: u64,
+    /// The discounted sum the mint offers us
+    pub discounted_sum: u64,
+    /// The proofs
+    pub proofs: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct MintRequestState {

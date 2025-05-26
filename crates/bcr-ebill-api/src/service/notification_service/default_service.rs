@@ -8,6 +8,7 @@ use bcr_ebill_core::contact::{BillParticipant, ContactType};
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
 };
+use bcr_ebill_transport::transport::NostrContactData;
 use bcr_ebill_transport::{BillChainEvent, BillChainEventPayload, Error, Event, EventEnvelope};
 use log::{error, warn};
 
@@ -380,6 +381,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_request_to_mint_event(
         &self,
         sender_node_id: &str,
+        mint: &BillParticipant,
         bill: &BitcreditBill,
     ) -> Result<()> {
         let event = Event::new_bill(BillChainEventPayload {
@@ -390,8 +392,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             ..Default::default()
         });
         if let Some(node) = self.notification_transport.get(sender_node_id) {
-            node.send_private_event(bill.endorsee.as_ref().unwrap(), event.try_into()?)
-                .await?;
+            node.send_private_event(mint, event.try_into()?).await?;
         }
         Ok(())
     }
@@ -588,6 +589,16 @@ impl NotificationServiceApi for DefaultNotificationService {
             }
         }
         Ok(())
+    }
+
+    async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>> {
+        // take any transport - doesn't matter
+        if let Some((_node, transport)) = self.notification_transport.iter().next() {
+            let res = transport.resolve_contact(node_id).await?;
+            Ok(res)
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1747,6 +1758,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_mint_event() {
         let bill = get_test_bill();
+        let endorsee = bill.endorsee.clone().unwrap();
 
         // should send minting requested to endorsee (mint)
         let service = setup_service_expectation(
@@ -1756,7 +1768,7 @@ mod tests {
         );
 
         service
-            .send_request_to_mint_event("node_id", &bill)
+            .send_request_to_mint_event("node_id", &endorsee, &bill)
             .await
             .expect("failed to send event");
     }

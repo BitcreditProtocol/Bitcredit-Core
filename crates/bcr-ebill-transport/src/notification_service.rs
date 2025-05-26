@@ -1,4 +1,4 @@
-use crate::{Result, event::bill_events::BillChainEvent};
+use crate::{Result, event::bill_events::BillChainEvent, transport::NostrContactData};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::{
@@ -118,6 +118,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn send_request_to_mint_event(
         &self,
         sender_node_id: &str,
+        mint: &BillParticipant,
         bill: &BitcreditBill,
     ) -> Result<()>;
 
@@ -164,4 +165,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
 
     /// Retry sending a queued message to the given node id
     async fn send_retry_messages(&self) -> Result<()>;
+
+    /// Attempts to resolve the nostr contact for the given Node Id
+    async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>>;
 }

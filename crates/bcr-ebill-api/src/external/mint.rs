@@ -64,12 +64,15 @@ pub trait MintClientApi: ServiceTraitBounds {
         mint_url: &str,
         quote_id: &str,
     ) -> Result<QuoteStatusReply>;
+    /// Resolve quote from mint
     async fn resolve_quote_for_mint(
         &self,
         mint_url: &str,
         quote_id: &str,
         resolve: ResolveMintOffer,
     ) -> Result<()>;
+    /// Cancel request to mint
+    async fn cancel_quote_for_mint(&self, mint_url: &str, quote_id: &str) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -165,6 +168,17 @@ impl MintClientApi for MintClient {
             })?;
         Ok(())
     }
+
+    async fn cancel_quote_for_mint(&self, mint_url: &str, quote_id: &str) -> Result<()> {
+        self.quote_client(mint_url)?
+            .cancel(uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?)
+            .await
+            .map_err(|e| {
+                log::error!("Error cancelling request on mint {mint_url}: {e}");
+                Error::QuoteClient
+            })?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -185,7 +199,9 @@ impl From<ResolveMintOffer> for ResolveOffer {
 #[derive(Debug, Clone)]
 pub enum QuoteStatusReply {
     Pending,
-    Denied,
+    Denied {
+        tstamp: DateTimeUtc,
+    },
     Offered {
         keyset_id: cdk02::Id,
         expiration_date: DateTimeUtc,
@@ -197,13 +213,19 @@ pub enum QuoteStatusReply {
     Rejected {
         tstamp: DateTimeUtc,
     },
+    Cancelled {
+        tstamp: DateTimeUtc,
+    },
+    Expired {
+        tstamp: DateTimeUtc,
+    },
 }
 
 impl From<StatusReply> for QuoteStatusReply {
     fn from(value: StatusReply) -> Self {
         match value {
             StatusReply::Pending => QuoteStatusReply::Pending,
-            StatusReply::Denied => QuoteStatusReply::Denied,
+            StatusReply::Denied { tstamp } => QuoteStatusReply::Denied { tstamp },
             StatusReply::Offered {
                 keyset_id,
                 expiration_date,
@@ -215,6 +237,8 @@ impl From<StatusReply> for QuoteStatusReply {
             },
             StatusReply::Accepted { keyset_id } => QuoteStatusReply::Accepted { keyset_id },
             StatusReply::Rejected { tstamp } => QuoteStatusReply::Rejected { tstamp },
+            StatusReply::Canceled { tstamp } => QuoteStatusReply::Cancelled { tstamp },
+            StatusReply::OfferExpired { tstamp } => QuoteStatusReply::Expired { tstamp },
         }
     }
 }

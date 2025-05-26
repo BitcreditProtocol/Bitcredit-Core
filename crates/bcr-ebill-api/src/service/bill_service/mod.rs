@@ -2635,8 +2635,8 @@ pub mod tests {
             });
         // Asset request to mint event is sent
         ctx.notification_service
-            .expect_send_request_to_mint_event()
-            .returning(|_, _| Ok(()));
+            .expect_send_bill_is_endorsed_event()
+            .returning(|_| Ok(()));
 
         let service = get_service(ctx);
 
@@ -2682,8 +2682,8 @@ pub mod tests {
             });
         // Asset request to mint event is sent
         ctx.notification_service
-            .expect_send_request_to_mint_event()
-            .returning(|_, _| Ok(()));
+            .expect_send_bill_is_endorsed_event()
+            .returning(|_| Ok(()));
 
         let service = get_service(ctx);
 
@@ -2722,8 +2722,8 @@ pub mod tests {
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         // Asset request to mint event is sent
         ctx.notification_service
-            .expect_send_request_to_mint_event()
-            .returning(|_, _| Ok(()));
+            .expect_send_bill_is_endorsed_event()
+            .returning(|_| Ok(()));
 
         let service = get_service(ctx);
 
