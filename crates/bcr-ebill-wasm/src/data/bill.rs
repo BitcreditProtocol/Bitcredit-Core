@@ -56,15 +56,6 @@ pub struct EndorseBitcreditBillPayload {
     pub bill_id: String,
 }
 
-#[derive(Tsify, Debug, Clone, Deserialize)]
-#[tsify(from_wasm_abi)]
-pub struct MintBitcreditBillPayload {
-    pub mint_node: String,
-    pub bill_id: String,
-    pub sum: String,
-    pub currency: String,
-}
-
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
 pub struct RequestToMintBitcreditBillPayload {

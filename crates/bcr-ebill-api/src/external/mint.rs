@@ -149,7 +149,6 @@ impl MintClientApi for MintClient {
         Ok(reply.into())
     }
 
-    #[allow(dead_code)]
     async fn resolve_quote_for_mint(
         &self,
         mint_url: &str,
