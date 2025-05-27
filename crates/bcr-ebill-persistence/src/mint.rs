@@ -3,7 +3,7 @@ use async_trait::async_trait;
 
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    mint::{MintRequest, MintRequestStatus},
+    mint::{MintOffer, MintRequest, MintRequestStatus},
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -43,4 +43,14 @@ pub trait MintStoreApi: ServiceTraitBounds {
         mint_request_id: &str,
         new_status: &MintRequestStatus,
     ) -> Result<()>;
+    /// Adds an offer for a request to mint
+    async fn add_offer(
+        &self,
+        mint_request_id: &str,
+        keyset_id: &str,
+        expiration_timestamp: u64,
+        discounted_sum: u64,
+    ) -> Result<()>;
+    /// Gets an offer by the mint request id
+    async fn get_offer(&self, mint_request_id: &str) -> Result<Option<MintOffer>>;
 }

@@ -1,3 +1,11 @@
+# 0.3.14
+
+* Minting
+    * Added notifications and offers
+    * Added timestamps for status
+    * Call mint endpoint for cancelling
+    * Use mint nostr relays from network and fall back to identity ones
+
 # 0.3.13
 
 * Minting

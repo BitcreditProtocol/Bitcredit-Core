@@ -30,34 +30,50 @@ impl From<MintRequest> for MintRequestWeb {
 #[tsify(into_wasm_abi)]
 pub enum MintRequestStatusWeb {
     Pending,
-    Denied,
+    Denied { timestamp: u64 },
     Offered,
     Accepted,
-    Rejected,
-    Cancelled,
-    Expired,
+    Rejected { timestamp: u64 },
+    Cancelled { timestamp: u64 },
+    Expired { timestamp: u64 },
 }
 impl From<MintRequestStatus> for MintRequestStatusWeb {
     fn from(val: MintRequestStatus) -> Self {
         match val {
             MintRequestStatus::Pending => MintRequestStatusWeb::Pending,
-            MintRequestStatus::Denied => MintRequestStatusWeb::Denied,
+            MintRequestStatus::Denied { timestamp } => MintRequestStatusWeb::Denied { timestamp },
             MintRequestStatus::Offered => MintRequestStatusWeb::Offered,
             MintRequestStatus::Accepted => MintRequestStatusWeb::Accepted,
-            MintRequestStatus::Rejected => MintRequestStatusWeb::Rejected,
-            MintRequestStatus::Cancelled => MintRequestStatusWeb::Cancelled,
-            MintRequestStatus::Expired => MintRequestStatusWeb::Expired,
+            MintRequestStatus::Rejected { timestamp } => {
+                MintRequestStatusWeb::Rejected { timestamp }
+            }
+            MintRequestStatus::Cancelled { timestamp } => {
+                MintRequestStatusWeb::Cancelled { timestamp }
+            }
+            MintRequestStatus::Expired { timestamp } => MintRequestStatusWeb::Expired { timestamp },
         }
     }
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct MintOfferWeb {}
+pub struct MintOfferWeb {
+    pub mint_request_id: String,
+    pub keyset_id: String,
+    pub expiration_timestamp: u64,
+    pub discounted_sum: u64,
+    pub proofs: Option<String>,
+}
 
 impl From<MintOffer> for MintOfferWeb {
-    fn from(_val: MintOffer) -> Self {
-        MintOfferWeb {}
+    fn from(val: MintOffer) -> Self {
+        MintOfferWeb {
+            mint_request_id: val.mint_request_id.to_owned(),
+            keyset_id: val.keyset_id.to_owned(),
+            expiration_timestamp: val.expiration_timestamp,
+            discounted_sum: val.discounted_sum,
+            proofs: val.proofs.to_owned(),
+        }
     }
 }
 

@@ -63,7 +63,7 @@ impl BillService {
             }
             BillAction::Mint(_, _, _) => {
                 self.notification_service
-                    .send_request_to_mint_event(&identity.node_id, &last_version_bill)
+                    .send_bill_is_endorsed_event(&chain_event)
                     .await?;
             }
             BillAction::OfferToSell(buyer, _, _) => {

@@ -2,11 +2,12 @@ use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    mint::{MintRequest, MintRequestStatus},
+    mint::{MintOffer, MintRequest, MintRequestStatus},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Error,
     constants::{
         DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_STATUS,
         DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
@@ -23,6 +24,7 @@ pub struct SurrealMintStore {
 
 impl SurrealMintStore {
     const REQUESTS_TABLE: &'static str = "requests";
+    const OFFERS_TABLE: &'static str = "offers";
 
     pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
@@ -154,6 +156,75 @@ impl MintStoreApi for SurrealMintStore {
             .await?;
         Ok(())
     }
+
+    async fn add_offer(
+        &self,
+        mint_request_id: &str,
+        keyset_id: &str,
+        expiration_timestamp: u64,
+        discounted_sum: u64,
+    ) -> Result<()> {
+        // we only add an offer, if there isn't already an offer for this request
+        if let Ok(Some(_)) = self.get_offer(mint_request_id).await {
+            return Err(Error::MintOfferAlreadyExists);
+        }
+        let entity = MintOfferDb {
+            mint_request_id: mint_request_id.to_owned(),
+            keyset_id: keyset_id.to_owned(),
+            expiration_timestamp,
+            discounted_sum,
+            proofs: None,
+        };
+        let _: Option<MintOfferDb> = self.db.create(Self::OFFERS_TABLE, None, entity).await?;
+        Ok(())
+    }
+
+    async fn get_offer(&self, mint_request_id: &str) -> Result<Option<MintOffer>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        let results: Vec<MintOfferDb> = self
+            .db
+            .query(
+                "SELECT * from type::table($table) WHERE mint_request_id = $mint_request_id",
+                bindings,
+            )
+            .await?;
+        Ok(results.first().map(|r| r.clone().into()))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MintOfferDb {
+    pub mint_request_id: String,
+    pub keyset_id: String,
+    pub expiration_timestamp: u64,
+    pub discounted_sum: u64,
+    pub proofs: Option<String>,
+}
+
+impl From<MintOfferDb> for MintOffer {
+    fn from(value: MintOfferDb) -> Self {
+        Self {
+            mint_request_id: value.mint_request_id,
+            keyset_id: value.keyset_id,
+            expiration_timestamp: value.expiration_timestamp,
+            discounted_sum: value.discounted_sum,
+            proofs: None,
+        }
+    }
+}
+
+impl From<MintOffer> for MintOfferDb {
+    fn from(value: MintOffer) -> Self {
+        Self {
+            mint_request_id: value.mint_request_id,
+            keyset_id: value.keyset_id,
+            expiration_timestamp: value.expiration_timestamp,
+            discounted_sum: value.discounted_sum,
+            proofs: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,24 +266,28 @@ impl From<MintRequest> for MintRequestDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MintRequestStatusDb {
     Pending,
-    Denied,
+    Denied { timestamp: u64 },
     Offered,
     Accepted,
-    Rejected,
-    Cancelled,
-    Expired,
+    Rejected { timestamp: u64 },
+    Cancelled { timestamp: u64 },
+    Expired { timestamp: u64 },
 }
 
 impl From<MintRequestStatusDb> for MintRequestStatus {
     fn from(value: MintRequestStatusDb) -> Self {
         match value {
             MintRequestStatusDb::Pending => MintRequestStatus::Pending,
-            MintRequestStatusDb::Denied => MintRequestStatus::Denied,
+            MintRequestStatusDb::Denied { timestamp } => MintRequestStatus::Denied { timestamp },
             MintRequestStatusDb::Offered => MintRequestStatus::Offered,
             MintRequestStatusDb::Accepted => MintRequestStatus::Accepted,
-            MintRequestStatusDb::Rejected => MintRequestStatus::Rejected,
-            MintRequestStatusDb::Cancelled => MintRequestStatus::Cancelled,
-            MintRequestStatusDb::Expired => MintRequestStatus::Expired,
+            MintRequestStatusDb::Rejected { timestamp } => {
+                MintRequestStatus::Rejected { timestamp }
+            }
+            MintRequestStatusDb::Cancelled { timestamp } => {
+                MintRequestStatus::Cancelled { timestamp }
+            }
+            MintRequestStatusDb::Expired { timestamp } => MintRequestStatus::Expired { timestamp },
         }
     }
 }
@@ -221,12 +296,16 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
     fn from(value: MintRequestStatus) -> Self {
         match value {
             MintRequestStatus::Pending => MintRequestStatusDb::Pending,
-            MintRequestStatus::Denied => MintRequestStatusDb::Denied,
+            MintRequestStatus::Denied { timestamp } => MintRequestStatusDb::Denied { timestamp },
             MintRequestStatus::Offered => MintRequestStatusDb::Offered,
             MintRequestStatus::Accepted => MintRequestStatusDb::Accepted,
-            MintRequestStatus::Rejected => MintRequestStatusDb::Rejected,
-            MintRequestStatus::Cancelled => MintRequestStatusDb::Cancelled,
-            MintRequestStatus::Expired => MintRequestStatusDb::Expired,
+            MintRequestStatus::Rejected { timestamp } => {
+                MintRequestStatusDb::Rejected { timestamp }
+            }
+            MintRequestStatus::Cancelled { timestamp } => {
+                MintRequestStatusDb::Cancelled { timestamp }
+            }
+            MintRequestStatus::Expired { timestamp } => MintRequestStatusDb::Expired { timestamp },
         }
     }
 }

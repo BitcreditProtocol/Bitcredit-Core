@@ -15,7 +15,7 @@ pub mod tests {
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
-        mint::{MintRequest, MintRequestStatus},
+        mint::{MintOffer, MintRequest, MintRequestStatus},
         nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
@@ -34,7 +34,9 @@ pub mod tests {
         },
         notification::NotificationFilter,
     };
-    use bcr_ebill_transport::{BillChainEvent, NotificationServiceApi};
+    use bcr_ebill_transport::{
+        BillChainEvent, NotificationServiceApi, transport::NostrContactData,
+    };
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
 
@@ -89,6 +91,14 @@ pub mod tests {
                 mint_request_id: &str,
                 new_status: &MintRequestStatus,
             ) -> Result<()>;
+            async fn add_offer(
+                &self,
+                mint_request_id: &str,
+                keyset_id: &str,
+                expiration_timestamp: u64,
+                discounted_sum: u64,
+            ) -> Result<()>;
+            async fn get_offer(&self, mint_request_id: &str) -> Result<Option<MintOffer>>;
         }
     }
 
@@ -384,7 +394,7 @@ pub mod tests {
                 action: ActionType,
                 recoursee: &BillIdentParticipant,
             ) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_mint_event(&self, sender_node_id: &str, bill: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
+            async fn send_request_to_mint_event(&self, sender_node_id: &str, mint: &BillParticipant, bill: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn send_new_quote_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn get_client_notifications(
@@ -407,6 +417,7 @@ pub mod tests {
                 action: ActionType,
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_retry_messages(&self) -> bcr_ebill_transport::Result<()>;
+            async fn resolve_contact(&self, node_id: &str) -> bcr_ebill_transport::Result<Option<NostrContactData>>;
         }
     }
 
