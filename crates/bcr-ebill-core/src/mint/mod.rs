@@ -44,8 +44,6 @@ pub struct MintOffer {
     pub expiration_timestamp: u64,
     /// The discounted sum the mint offers us
     pub discounted_sum: u64,
-    /// The blind signatures returned from minting, encoded as base64'd json
-    pub blind_signatures: Option<String>,
     /// The proofs, encoded as a custom Tokenv3
     pub proofs: Option<String>,
 }

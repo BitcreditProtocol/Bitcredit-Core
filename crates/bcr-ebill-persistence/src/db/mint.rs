@@ -173,7 +173,6 @@ impl MintStoreApi for SurrealMintStore {
             keyset_id: keyset_id.to_owned(),
             expiration_timestamp,
             discounted_sum,
-            blind_signatures: None,
             proofs: None,
         };
         let _: Option<MintOfferDb> = self.db.create(Self::OFFERS_TABLE, None, entity).await?;
@@ -201,7 +200,6 @@ pub struct MintOfferDb {
     pub keyset_id: String,
     pub expiration_timestamp: u64,
     pub discounted_sum: u64,
-    pub blind_signatures: Option<String>,
     pub proofs: Option<String>,
 }
 
@@ -212,7 +210,6 @@ impl From<MintOfferDb> for MintOffer {
             keyset_id: value.keyset_id,
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
-            blind_signatures: value.blind_signatures,
             proofs: value.proofs,
         }
     }
@@ -225,7 +222,6 @@ impl From<MintOffer> for MintOfferDb {
             keyset_id: value.keyset_id,
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
-            blind_signatures: value.blind_signatures,
             proofs: value.proofs,
         }
     }
