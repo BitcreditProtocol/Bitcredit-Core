@@ -116,6 +116,7 @@ pub mod tests {
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
+            async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<nostr::key::PublicKey>>;
         }
     }
 

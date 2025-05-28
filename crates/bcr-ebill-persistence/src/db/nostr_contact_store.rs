@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
     nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+    util::crypto::get_nostr_npub_as_hex_from_node_id,
 };
 use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -84,6 +85,23 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
             .query_check(&update_field_query(DB_TRUST_LEVEL), bindings)
             .await?;
         Ok(())
+    }
+
+    // returns all npubs that have a trust level higher than or equal to the given level.
+    async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<PublicKey>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_TRUST_LEVEL, levels)?;
+        let query = format!(
+            "SELECT * from type::table(${DB_TABLE}) where {DB_TRUST_LEVEL} IN ${DB_TRUST_LEVEL}"
+        );
+        let result: Vec<NostrContactDb> = self.db.query(&query, bindings).await?;
+        let keys = result
+            .into_iter()
+            .filter_map(|c| get_nostr_npub_as_hex_from_node_id(c.id.id.to_raw().as_str()).ok())
+            .filter_map(|npub| PublicKey::from_hex(&npub).ok())
+            .collect::<Vec<PublicKey>>();
+        Ok(keys)
     }
 }
 
@@ -267,6 +285,34 @@ mod tests {
             .expect("Contact not found");
 
         assert_eq!(retrieved.trust_level, TrustLevel::Participant);
+    }
+
+    #[tokio::test]
+    async fn test_get_npubs() {
+        let keys = BcrKeys::new();
+        let store = get_store().await;
+        let npub = keys.get_public_key();
+        let contact = get_test_message(&npub);
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Update trust level
+        store
+            .set_trust_level(&npub, TrustLevel::Participant)
+            .await
+            .expect("Failed to set trust level");
+
+        // Retrieve the contact and verify the trust level
+        let retrieved = store
+            .get_npubs(vec![TrustLevel::Participant])
+            .await
+            .expect("Failed to retrieve contact");
+
+        assert!(!retrieved.is_empty());
     }
 
     async fn get_store() -> SurrealNostrContactStore {

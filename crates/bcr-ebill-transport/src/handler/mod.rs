@@ -274,6 +274,8 @@ mod test_utils {
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn set_handshake_status(&self, node_id: &str, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &str, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
+            async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<nostr::key::PublicKey>>;
+
         }
     }
 }

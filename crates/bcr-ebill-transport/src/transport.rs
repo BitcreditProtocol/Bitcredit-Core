@@ -3,14 +3,17 @@ use bcr_ebill_core::{
     ServiceTraitBounds, blockchain::BlockchainType, contact::BillParticipant, util::BcrKeys,
 };
 
+use log::{error, info};
 #[cfg(test)]
 use mockall::automock;
 
 use nostr::{
     Event,
-    event::{Tag, TagStandard},
-    nips::{nip01::Metadata, nip73::ExternalContentId},
-    types::RelayUrl,
+    event::{EventId, Kind, Tag, TagStandard, UnsignedEvent},
+    key::PublicKey,
+    nips::{nip01::Metadata, nip59::UnwrappedGift, nip73::ExternalContentId},
+    signer::NostrSigner,
+    types::{RelayUrl, Timestamp},
 };
 
 use crate::{Result, event::EventEnvelope};
@@ -63,4 +66,90 @@ pub fn bcr_nostr_tag(id: &str, blockchain: BlockchainType) -> Tag {
         uppercase: false,
     }
     .into()
+}
+
+pub async fn unwrap_direct_message<T: NostrSigner>(
+    event: Box<Event>,
+    signer: &T,
+) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+    match event.kind {
+        Kind::EncryptedDirectMessage => unwrap_nip04_envelope(event, signer).await,
+        Kind::GiftWrap => unwrap_nip17_envelope(event, signer).await,
+        _ => {
+            error!(
+                "Received event with kind {} but expected EncryptedDirectMessage or GiftWrap",
+                event.kind
+            );
+            None
+        }
+    }
+}
+
+/// Unwrap envelope from private direct message
+async fn unwrap_nip04_envelope<T: NostrSigner>(
+    event: Box<Event>,
+    signer: &T,
+) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+    let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
+    if event.kind == Kind::EncryptedDirectMessage {
+        match signer.nip04_decrypt(&event.pubkey, &event.content).await {
+            Ok(decrypted) => {
+                result = extract_text_envelope(&decrypted)
+                    .map(|e| (e, event.pubkey, event.id, event.created_at));
+            }
+            Err(e) => {
+                error!("Decrypting event failed: {e}");
+            }
+        }
+    } else {
+        info!(
+            "Received event with kind {} but expected EncryptedDirectMessage",
+            event.kind
+        );
+    }
+    result
+}
+
+/// Unwrap envelope from private direct message
+async fn unwrap_nip17_envelope<T: NostrSigner>(
+    event: Box<Event>,
+    signer: &T,
+) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+    let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
+    if event.kind == Kind::GiftWrap {
+        result = match UnwrappedGift::from_gift_wrap(signer, &event).await {
+            Ok(UnwrappedGift { rumor, sender }) => {
+                extract_event_envelope(rumor).map(|e| (e, sender, event.id, event.created_at))
+            }
+            Err(e) => {
+                error!("Unwrapping gift wrap failed: {e}");
+                None
+            }
+        }
+    }
+    result
+}
+
+fn extract_text_envelope(message: &str) -> Option<EventEnvelope> {
+    match serde_json::from_str::<EventEnvelope>(message) {
+        Ok(envelope) => Some(envelope),
+        Err(e) => {
+            error!("Json deserializing event envelope failed: {e}");
+            None
+        }
+    }
+}
+
+fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
+    if rumor.kind == Kind::PrivateDirectMessage {
+        match serde_json::from_str::<EventEnvelope>(rumor.content.as_str()) {
+            Ok(envelope) => Some(envelope),
+            Err(e) => {
+                error!("Json deserializing event envelope failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    }
 }
