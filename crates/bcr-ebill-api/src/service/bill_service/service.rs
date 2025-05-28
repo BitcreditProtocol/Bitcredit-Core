@@ -3,6 +3,7 @@ use super::{BillAction, BillServiceApi, Result};
 use crate::blockchain::Blockchain;
 use crate::blockchain::bill::block::BillIdentParticipantBlockData;
 use crate::blockchain::bill::{BillBlockchain, BillOpCode};
+use crate::constants::CURRENCY_SAT;
 use crate::data::{
     File,
     bill::{
@@ -31,6 +32,7 @@ use bcr_ebill_core::bill::{
     PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
 };
 use bcr_ebill_core::blockchain::bill::block::{BillParticipantBlockData, NodeId};
+use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
@@ -286,18 +288,93 @@ impl BillService {
             "Checking mint request for quote {}",
             &mint_request.mint_request_id
         );
-        // if it doesn't have a 'finished' state, we check the quote at the mint
-        if !matches!(
-            mint_request.status,
-            MintRequestStatus::Cancelled { .. }
-                | MintRequestStatus::Rejected { .. }
-                | MintRequestStatus::Expired { .. }
-                | MintRequestStatus::Denied { .. }
-                | MintRequestStatus::Accepted
-        ) {
-            let mint_cfg = &get_config().mint_config;
-            // for now, we only support the default mint
-            if mint_request.mint_node_id == mint_cfg.default_mint_node_id {
+        let mint_cfg = &get_config().mint_config;
+        // for now, we only support the default mint
+        if mint_request.mint_node_id != mint_cfg.default_mint_node_id {
+            return Ok(());
+        }
+
+        match mint_request.status {
+            // If it's accepted, get the offer and, if it's not finished (i.e. has no proofs), attempt to get keyset and mint
+            MintRequestStatus::Accepted => {
+                if let Ok(Some(offer)) = self
+                    .mint_store
+                    .get_offer(&mint_request.mint_request_id)
+                    .await
+                {
+                    if offer.proofs.is_none() {
+                        debug!(
+                            "Checking for keyset info for {}",
+                            &mint_request.mint_request_id
+                        );
+                        // not finished - check keyset and try to mint and create tokens and persist
+                        match self
+                            .mint_client
+                            .get_keyset_info(&mint_cfg.default_mint_url, &offer.keyset_id)
+                            .await
+                        {
+                            // keyset info is available
+                            Ok(keyset_info) => {
+                                // fetch private key for requester
+                                let private_key = match self.identity_store.get_full().await {
+                                    Ok(identity) => {
+                                        // check if requester is identity
+                                        if identity.identity.node_id
+                                            == mint_request.requester_node_id
+                                        {
+                                            identity.key_pair.get_private_key_string()
+                                        } else {
+                                            // check if requester is a company
+                                            let local_companies: HashMap<
+                                                String,
+                                                (Company, CompanyKeys),
+                                            > = self.company_store.get_all().await?;
+                                            if let Some(requester_company) =
+                                                local_companies.get(&mint_request.requester_node_id)
+                                            {
+                                                requester_company.1.private_key.clone()
+                                            } else {
+                                                // requester is neither identity, nor company
+                                                log::warn!(
+                                                    "Requester for {} is not a local identity, or company",
+                                                    &mint_request.mint_request_id
+                                                );
+                                                return Ok(());
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        return Err(e.into());
+                                    }
+                                };
+                                debug!(
+                                    "Keyset found and minting for {}",
+                                    &mint_request.mint_request_id
+                                );
+                                // mint and generate proofs
+                                let proofs = self
+                                    .mint_client
+                                    .mint(
+                                        &mint_cfg.default_mint_url,
+                                        keyset_info,
+                                        offer.discounted_sum,
+                                        &mint_request.mint_request_id,
+                                        &private_key,
+                                    )
+                                    .await?;
+                                // store proofs on the offer
+                                self.mint_store
+                                    .add_proofs_to_offer(&mint_request.mint_request_id, &proofs)
+                                    .await?;
+                            }
+                            Err(_) => {
+                                info!("No keyset available for {}", mint_request.mint_request_id);
+                            }
+                        };
+                    }
+                }
+            }
+            MintRequestStatus::Pending | MintRequestStatus::Offered => {
                 let updated_status = self
                     .mint_client
                     .lookup_quote_for_mint(
@@ -308,53 +385,14 @@ impl BillService {
                 // only update, if changed
                 match updated_status {
                     QuoteStatusReply::Pending => {
-                        if !matches!(mint_request.status, MintRequestStatus::Pending) {
-                            self.mint_store
-                                .update_request(
-                                    &mint_request.mint_request_id,
-                                    &MintRequestStatus::Pending,
-                                )
-                                .await?;
-                        }
-                    }
-                    QuoteStatusReply::Denied { tstamp } => {
-                        // checked above, that it's not denied
-                        self.mint_store
-                            .update_request(
-                                &mint_request.mint_request_id,
-                                &MintRequestStatus::Denied {
-                                    timestamp: tstamp.timestamp() as u64,
-                                },
-                            )
-                            .await?;
-                    }
-                    QuoteStatusReply::Expired { tstamp } => {
-                        // checked above, that it's not expired
-                        self.mint_store
-                            .update_request(
-                                &mint_request.mint_request_id,
-                                &MintRequestStatus::Expired {
-                                    timestamp: tstamp.timestamp() as u64,
-                                },
-                            )
-                            .await?;
-                    }
-                    QuoteStatusReply::Cancelled { tstamp } => {
-                        // checked above, that it's not cancelled
-                        self.mint_store
-                            .update_request(
-                                &mint_request.mint_request_id,
-                                &MintRequestStatus::Cancelled {
-                                    timestamp: tstamp.timestamp() as u64,
-                                },
-                            )
-                            .await?;
+                        // it's already pending, or offered and can't go from Offered to Pending - nothing to do
                     }
                     QuoteStatusReply::Offered {
                         keyset_id,
                         expiration_date,
                         discounted,
                     } => {
+                        // if it's not already offered, set to offered
                         if !matches!(mint_request.status, MintRequestStatus::Offered) {
                             // Update the request
                             self.mint_store
@@ -374,17 +412,41 @@ impl BillService {
                                 .await?;
                         }
                     }
-                    QuoteStatusReply::Accepted { .. } => {
-                        // checked above, that it's not accepted
+                    QuoteStatusReply::Denied { tstamp } => {
+                        // checked below, that it's not denied
                         self.mint_store
                             .update_request(
                                 &mint_request.mint_request_id,
-                                &MintRequestStatus::Accepted,
+                                &MintRequestStatus::Denied {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
+                            )
+                            .await?;
+                    }
+                    QuoteStatusReply::Expired { tstamp } => {
+                        // checked below, that it's not expired
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Expired {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
+                            )
+                            .await?;
+                    }
+                    QuoteStatusReply::Cancelled { tstamp } => {
+                        // checked below, that it's not cancelled
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Cancelled {
+                                    timestamp: tstamp.timestamp() as u64,
+                                },
                             )
                             .await?;
                     }
                     QuoteStatusReply::Rejected { tstamp } => {
-                        // checked above, that it's not rejected
+                        // checked below, that it's not rejected
                         self.mint_store
                             .update_request(
                                 &mint_request.mint_request_id,
@@ -394,9 +456,22 @@ impl BillService {
                             )
                             .await?;
                     }
+                    QuoteStatusReply::Accepted { .. } => {
+                        // checked above, that it's not accepted
+                        self.mint_store
+                            .update_request(
+                                &mint_request.mint_request_id,
+                                &MintRequestStatus::Accepted,
+                            )
+                            .await?;
+                    }
                 };
             }
-        }
+            // Cancelled, Rejected, Expired, Denied
+            _ => {
+                // Req to mint is finished - nothing to do
+            }
+        };
         Ok(())
     }
 
@@ -1408,10 +1483,13 @@ impl BillServiceApi for BillService {
     }
 
     async fn check_mint_state_for_all_bills(&self) -> Result<()> {
-        debug!("checking all active mint requests");
-        // get all active (offered, pending) requests
+        debug!("checking all not-finished mint requests");
+        // get all not-finished (offered, pending, accepted) requests
         let requests = self.mint_store.get_all_active_requests().await?;
-        debug!("checking all active mint requests ({})", requests.len());
+        debug!(
+            "checking all not-finished mint requests ({})",
+            requests.len()
+        );
         for req in requests {
             if let Err(e) = self.check_mint_quote_and_update_bill_mint_state(&req).await {
                 error!(
@@ -1430,7 +1508,7 @@ impl BillServiceApi for BillService {
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<()> {
-        let currency = "sat".to_string(); // default to sat for now
+        let currency = CURRENCY_SAT.to_string(); // default to sat for now
         let identity = self.identity_store.get().await?;
         debug!("trying to accept offer from request to mint {mint_request_id}");
         let req = self

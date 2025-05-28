@@ -52,6 +52,12 @@ pub enum Error {
     #[error("There is already an offer for the given request to mint")]
     MintOfferAlreadyExists,
 
+    #[error("The offer for the given request to mint already has proofs set")]
+    MintOfferAlreadyHasProofs,
+
+    #[error("There is no offer for the given request to mint")]
+    MintOfferDoesNotExist,
+
     #[error("Identity Block could not be added: {0}")]
     AddIdentityBlock(String),
 

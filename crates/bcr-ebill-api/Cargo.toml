@@ -31,9 +31,11 @@ bcr-ebill-transport = { path = "../bcr-ebill-transport" }
 tokio.workspace = true
 tokio_with_wasm.workspace = true
 secp256k1.workspace = true
-bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "8a07e1d5012255282acde35982762f18e80322fb" }
-bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "8a07e1d5012255282acde35982762f18e80322fb" }
+bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
+bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
+bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
 cashu = { version = "0.9", default-features = false }
+rand = { version = "0.8" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

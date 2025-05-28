@@ -91,6 +91,7 @@ pub mod tests {
                 mint_request_id: &str,
                 new_status: &MintRequestStatus,
             ) -> Result<()>;
+            async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()>;
             async fn add_offer(
                 &self,
                 mint_request_id: &str,
