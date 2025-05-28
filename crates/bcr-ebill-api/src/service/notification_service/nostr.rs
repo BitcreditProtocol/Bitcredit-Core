@@ -443,7 +443,7 @@ impl NostrConsumer {
                 // continue where we left off
                 let offset_ts = get_offset(&offset_store, &client_id).await;
 
-                // subscribe to messages we are interested in
+                // subscribe to private events
                 current_client
                     .subscribe(
                         Filter::new()
@@ -497,7 +497,7 @@ impl NostrConsumer {
                                     let success = match event.kind {
                                         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
                                             info!("Received encrypted direct message: {event:?}");
-                                            if let Err(e) = handle_direct_message(
+                                            match handle_direct_message(
                                                 event.clone(),
                                                 &signer,
                                                 &client_id,
@@ -505,10 +505,11 @@ impl NostrConsumer {
                                             )
                                             .await
                                             {
-                                                error!("Failed to handle direct message: {e}");
-                                                false
-                                            } else {
-                                                true
+                                                Err(e) => {
+                                                    error!("Failed to handle direct message: {e}");
+                                                    false
+                                                }
+                                                Ok(_) => true,
                                             }
                                         }
                                         Kind::TextNote => {
