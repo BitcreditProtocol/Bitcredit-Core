@@ -110,16 +110,6 @@ pub trait BillServiceApi: ServiceTraitBounds {
         timestamp: u64,
     ) -> Result<BillBlockchain>;
 
-    /// request to mint a bill
-    async fn request_to_mint(
-        &self,
-        bill_id: &str,
-        mint_node_id: &str,
-        signer_public_data: &BillParticipant,
-        signer_keys: &BcrKeys,
-        timestamp: u64,
-    ) -> Result<()>;
-
     /// Check payment status of bills that are requested to pay and not expired and not paid yet, updating their
     /// paid status if they were paid
     async fn check_bills_payment(&self) -> Result<()>;
@@ -180,6 +170,19 @@ pub trait BillServiceApi: ServiceTraitBounds {
         current_identity_node_id: &str,
     ) -> Result<Vec<Endorsement>>;
 
+    /// Clear the bill cache
+    async fn clear_bill_cache(&self) -> Result<()>;
+
+    /// request to mint a bill
+    async fn request_to_mint(
+        &self,
+        bill_id: &str,
+        mint_node_id: &str,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<()>;
+
     /// Returns the mint state for a given bill
     async fn get_mint_state(
         &self,
@@ -194,14 +197,27 @@ pub trait BillServiceApi: ServiceTraitBounds {
         current_identity_node_id: &str,
     ) -> Result<()>;
 
+    /// Accept a mint offer for a given request to mint
+    async fn accept_mint_offer(
+        &self,
+        mint_request_id: &str,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<()>;
+
+    /// Reject a mint offer for a given request to mint
+    async fn reject_mint_offer(
+        &self,
+        mint_request_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<()>;
+
     /// Check mint state for a given bill
     async fn check_mint_state(&self, bill_id: &str, current_identity_node_id: &str) -> Result<()>;
 
     /// Check mint state for all bills
     async fn check_mint_state_for_all_bills(&self) -> Result<()>;
-
-    /// Clear the bill cache
-    async fn clear_bill_cache(&self) -> Result<()>;
 }
 
 #[cfg(test)]

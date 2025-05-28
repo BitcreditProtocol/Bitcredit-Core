@@ -14,7 +14,7 @@ use bcr_ebill_api::{
         file::{UploadFileHandler, detect_content_type_for_bytes},
     },
 };
-use log::{error, info};
+use log::error;
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -26,11 +26,11 @@ use crate::{
             AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillId,
             BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
             BitcreditBillPayload, BitcreditBillWeb, EndorseBitcreditBillPayload,
-            EndorsementsResponse, LightBillsResponse, MintBitcreditBillPayload,
-            OfferToSellBitcreditBillPayload, PastEndorseesResponse, PastPaymentsResponse,
-            RejectActionBillPayload, RequestRecourseForAcceptancePayload,
-            RequestRecourseForPaymentPayload, RequestToAcceptBitcreditBillPayload,
-            RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload,
+            EndorsementsResponse, LightBillsResponse, OfferToSellBitcreditBillPayload,
+            PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
+            RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
+            RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
+            RequestToPayBitcreditBillPayload,
         },
         mint::MintRequestStateResponse,
     },
@@ -633,82 +633,29 @@ impl Bill {
         Ok(())
     }
 
-    async fn mint(
-        &self,
-        payload: MintBitcreditBillPayload,
-        mint: BillParticipant,
-        timestamp: u64,
-        sum: u64,
-    ) -> Result<()> {
+    #[wasm_bindgen]
+    pub async fn accept_mint_offer(&self, mint_request_id: &str) -> Result<()> {
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
         let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
         get_ctx()
             .bill_service
-            .execute_bill_action(
-                &payload.bill_id,
-                BillAction::Mint(mint, sum, payload.currency.clone()),
+            .accept_mint_offer(
+                mint_request_id,
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
             )
             .await?;
-
         Ok(())
     }
 
     #[wasm_bindgen]
-    pub async fn mint_bill(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "MintBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let mint_bill_payload: MintBitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
-        info!("mint bill called with payload {mint_bill_payload:?} - not implemented");
-
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let sum = currency::parse_sum(&mint_bill_payload.sum)?;
-
-        let public_mint_node = match get_ctx()
-            .contact_service
-            .get_identity_by_node_id(&mint_bill_payload.mint_node)
-            .await
-        {
-            Ok(Some(drawee)) => drawee,
-            Ok(None) | Err(_) => {
-                return Err(BillServiceError::MintNotInContacts.into());
-            }
-        };
-        self.mint(mint_bill_payload, public_mint_node, timestamp, sum)
-            .await
-    }
-
-    /// Blank mint - the contact doesn't have to be an anonymous contact
-    #[wasm_bindgen]
-    pub async fn mint_bill_blank(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "MintBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let mint_bill_payload: MintBitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
-        info!("mint bill blank called with payload {mint_bill_payload:?} - not implemented");
-
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let sum = currency::parse_sum(&mint_bill_payload.sum)?;
-
-        let public_mint_node: BillAnonParticipant = match get_ctx()
-            .contact_service
-            .get_identity_by_node_id(&mint_bill_payload.mint_node)
-            .await
-        {
-            Ok(Some(drawee)) => drawee.into(), // turn contact into anonymous participant
-            Ok(None) | Err(_) => {
-                return Err(BillServiceError::MintNotInContacts.into());
-            }
-        };
-        self.mint(
-            mint_bill_payload,
-            BillParticipant::Anon(public_mint_node),
-            timestamp,
-            sum,
-        )
-        .await
+    pub async fn reject_mint_offer(&self, mint_request_id: &str) -> Result<()> {
+        get_ctx()
+            .bill_service
+            .reject_mint_offer(mint_request_id, &get_current_identity_node_id().await?)
+            .await?;
+        Ok(())
     }
 
     #[wasm_bindgen]

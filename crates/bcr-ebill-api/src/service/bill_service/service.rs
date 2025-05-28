@@ -14,7 +14,7 @@ use crate::data::{
     identity::Identity,
 };
 use crate::external::bitcoin::BitcoinClientApi;
-use crate::external::mint::{MintClientApi, QuoteStatusReply};
+use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::persistence::bill::BillChainStoreApi;
 use crate::persistence::bill::BillStoreApi;
@@ -399,6 +399,92 @@ impl BillService {
         }
         Ok(())
     }
+
+    async fn get_req_to_mint_for_node_id(
+        &self,
+        mint_request_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<MintRequest> {
+        match self.mint_store.get_request(mint_request_id).await {
+            Ok(Some(req)) => {
+                // only if we're the requester
+                if req.requester_node_id == current_identity_node_id {
+                    let mint_cfg = &get_config().mint_config;
+                    // only for the default mint for now
+                    if req.mint_node_id == mint_cfg.default_mint_node_id {
+                        Ok(req.to_owned())
+                    } else {
+                        Err(Error::NotFound)
+                    }
+                } else {
+                    Err(Error::NotFound)
+                }
+            }
+            Ok(None) => Err(Error::NotFound),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn reject_mint_offers_except_accepted_one_for_bill(
+        &self,
+        accepted_mint_request_id: &str,
+        bill_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<()> {
+        let requests = self
+            .mint_store
+            .get_requests_for_bill(current_identity_node_id, bill_id)
+            .await?;
+        for req in requests {
+            // don't reject the accepted one and only reject offered ones
+            if req.mint_request_id != accepted_mint_request_id
+                && matches!(req.status, MintRequestStatus::Offered)
+            {
+                if let Err(e) = self
+                    .mint_client
+                    .resolve_quote_for_mint(
+                        &get_config().mint_config.default_mint_url,
+                        &req.mint_request_id,
+                        ResolveMintOffer::Reject,
+                    )
+                    .await
+                {
+                    error!(
+                        "Could not reject quote for mint {}: {e}",
+                        req.mint_request_id
+                    )
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_participant_for_mint(
+        &self,
+        mint_node_id: &str,
+        identity: &Identity,
+    ) -> BillParticipant {
+        let relays = match self
+            .notification_service
+            .resolve_contact(mint_node_id)
+            .await
+        {
+            Ok(Some(nostr_contact_data)) => nostr_contact_data
+                .relays
+                .iter()
+                .map(|url| url.to_string())
+                .collect::<Vec<String>>(),
+            _ => {
+                // fallback to own relays
+                identity.nostr_relays.clone()
+            }
+        };
+        BillParticipant::Anon(BillAnonParticipant {
+            node_id: mint_node_id.to_owned(),
+            email: None,
+            nostr_relays: relays,
+        })
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -763,137 +849,6 @@ impl BillServiceApi for BillService {
         Ok(blockchain)
     }
 
-    async fn request_to_mint(
-        &self,
-        bill_id: &str,
-        mint_node_id: &str,
-        signer_public_data: &BillParticipant,
-        signer_keys: &BcrKeys,
-        timestamp: u64,
-    ) -> Result<()> {
-        debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
-        let mint_cfg = &get_config().mint_config;
-        // make sure the mint is a valid one - currently just checks it against the default mint
-        if mint_cfg.default_mint_node_id != mint_node_id {
-            return Err(Error::Validation(ValidationError::InvalidMint(
-                mint_node_id.to_owned(),
-            )));
-        }
-        // fetch data
-        let identity = self.identity_store.get_full().await?;
-        let contacts = self.contact_store.get_map().await?;
-        let blockchain = self.blockchain_store.get_chain(bill_id).await?;
-        let bill_keys = self.store.get_keys(bill_id).await?;
-        let bill = self
-            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity, &contacts)
-            .await?;
-        let is_paid = self.store.is_paid(bill_id).await?;
-
-        let relays = match self
-            .notification_service
-            .resolve_contact(mint_node_id)
-            .await
-        {
-            Ok(Some(nostr_contact_data)) => nostr_contact_data
-                .relays
-                .iter()
-                .map(|url| url.to_string())
-                .collect::<Vec<String>>(),
-            _ => {
-                // fallback to own relays
-                identity.identity.nostr_relays.clone()
-            }
-        };
-        let mint_anon_participant = BillParticipant::Anon(BillAnonParticipant {
-            node_id: mint_node_id.to_owned(),
-            email: None,
-            nostr_relays: relays,
-        });
-
-        // validate using mint bill action - no point doing a mint request, if it can't be minted
-        BillValidateActionData {
-            blockchain: blockchain.clone(),
-            drawee_node_id: bill.drawee.node_id.clone(),
-            payee_node_id: bill.payee.node_id().clone(),
-            endorsee_node_id: bill.endorsee.clone().map(|e| e.node_id()),
-            maturity_date: bill.maturity_date.clone(),
-            bill_keys: bill_keys.clone(),
-            timestamp,
-            signer_node_id: signer_public_data.node_id().clone(),
-            bill_action: BillAction::Mint(
-                mint_anon_participant.clone(),
-                bill.sum,
-                bill.currency.clone(),
-            ),
-            is_paid,
-        }
-        .validate()?;
-
-        let requests_to_mint_for_bill_and_mint = self
-            .mint_store
-            .get_requests(&signer_public_data.node_id(), bill_id, mint_node_id)
-            .await?;
-        // If there are any active, or accepted (i.e. pending, accepted or offered) requests, we can't make another one
-        if requests_to_mint_for_bill_and_mint.iter().any(|rtm| {
-            matches!(
-                rtm.status,
-                MintRequestStatus::Pending
-                    | MintRequestStatus::Offered
-                    | MintRequestStatus::Accepted
-            )
-        }) {
-            return Err(Error::Validation(
-                ValidationError::RequestToMintForBillAndMintAlreadyActive,
-            ));
-        }
-
-        // Send request to mint to mint
-        let endorsees = blockchain.get_endorsees_for_bill(&bill_keys);
-        let mint_request_id = self
-            .mint_client
-            .enquire_mint_quote(&mint_cfg.default_mint_url, signer_keys, &bill, &endorsees)
-            .await?;
-
-        // Store request to mint
-        self.mint_store
-            .add_request(
-                &signer_public_data.node_id(),
-                bill_id,
-                mint_node_id,
-                &mint_request_id,
-                timestamp,
-            )
-            .await?;
-
-        // Calculate bill and persist it to cache
-        self.recalculate_and_persist_bill(
-            bill_id,
-            &blockchain,
-            &bill_keys,
-            &identity.identity,
-            &signer_public_data.node_id(),
-            timestamp,
-        )
-        .await?;
-
-        // Send notifications
-        if let Err(e) = self
-            .notification_service
-            .send_request_to_mint_event(
-                &signer_public_data.node_id(),
-                &mint_anon_participant,
-                &bill,
-            )
-            .await
-        {
-            error!("Couldn't send notifications for request to mint: {e}");
-        }
-
-        debug!("Executed request to mint with mint {mint_node_id} for bill {bill_id}");
-
-        Ok(())
-    }
-
     async fn check_bills_payment(&self) -> Result<()> {
         let identity = self.identity_store.get().await?;
         let bill_ids_waiting_for_payment = self.store.get_bill_ids_waiting_for_payment().await?;
@@ -1253,6 +1208,122 @@ impl BillServiceApi for BillService {
         Ok(result)
     }
 
+    async fn clear_bill_cache(&self) -> Result<()> {
+        self.store.clear_bill_cache().await?;
+        Ok(())
+    }
+
+    async fn request_to_mint(
+        &self,
+        bill_id: &str,
+        mint_node_id: &str,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<()> {
+        debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
+        let mint_cfg = &get_config().mint_config;
+        // make sure the mint is a valid one - currently just checks it against the default mint
+        if mint_cfg.default_mint_node_id != mint_node_id {
+            return Err(Error::Validation(ValidationError::InvalidMint(
+                mint_node_id.to_owned(),
+            )));
+        }
+        // fetch data
+        let identity = self.identity_store.get().await?;
+        let contacts = self.contact_store.get_map().await?;
+        let blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity, &contacts)
+            .await?;
+        let is_paid = self.store.is_paid(bill_id).await?;
+
+        let mint_anon_participant = self.get_participant_for_mint(mint_node_id, &identity).await;
+        // validate using mint bill action - no point doing a mint request, if it can't be minted
+        BillValidateActionData {
+            blockchain: blockchain.clone(),
+            drawee_node_id: bill.drawee.node_id.clone(),
+            payee_node_id: bill.payee.node_id().clone(),
+            endorsee_node_id: bill.endorsee.clone().map(|e| e.node_id()),
+            maturity_date: bill.maturity_date.clone(),
+            bill_keys: bill_keys.clone(),
+            timestamp,
+            signer_node_id: signer_public_data.node_id().clone(),
+            bill_action: BillAction::Mint(
+                mint_anon_participant.clone(),
+                bill.sum,
+                bill.currency.clone(),
+            ),
+            is_paid,
+        }
+        .validate()?;
+
+        let requests_to_mint_for_bill_and_mint = self
+            .mint_store
+            .get_requests(&signer_public_data.node_id(), bill_id, mint_node_id)
+            .await?;
+        // If there are any active, or accepted (i.e. pending, accepted or offered) requests, we can't make another one
+        if requests_to_mint_for_bill_and_mint.iter().any(|rtm| {
+            matches!(
+                rtm.status,
+                MintRequestStatus::Pending
+                    | MintRequestStatus::Offered
+                    | MintRequestStatus::Accepted
+            )
+        }) {
+            return Err(Error::Validation(
+                ValidationError::RequestToMintForBillAndMintAlreadyActive,
+            ));
+        }
+
+        // Send request to mint to mint
+        let endorsees = blockchain.get_endorsees_for_bill(&bill_keys);
+        let mint_request_id = self
+            .mint_client
+            .enquire_mint_quote(&mint_cfg.default_mint_url, signer_keys, &bill, &endorsees)
+            .await?;
+
+        // Store request to mint
+        self.mint_store
+            .add_request(
+                &signer_public_data.node_id(),
+                bill_id,
+                mint_node_id,
+                &mint_request_id,
+                timestamp,
+            )
+            .await?;
+
+        // Calculate bill and persist it to cache
+        self.recalculate_and_persist_bill(
+            bill_id,
+            &blockchain,
+            &bill_keys,
+            &identity,
+            &signer_public_data.node_id(),
+            timestamp,
+        )
+        .await?;
+
+        // Send notifications
+        if let Err(e) = self
+            .notification_service
+            .send_request_to_mint_event(
+                &signer_public_data.node_id(),
+                &mint_anon_participant,
+                &bill,
+            )
+            .await
+        {
+            error!("Couldn't send notifications for request to mint: {e}");
+        }
+
+        debug!("Executed request to mint with mint {mint_node_id} for bill {bill_id}");
+
+        Ok(())
+    }
+
     async fn get_mint_state(
         &self,
         bill_id: &str,
@@ -1294,40 +1365,28 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &str,
     ) -> Result<()> {
         debug!("trying to cancel request to mint {mint_request_id}");
-        match self.mint_store.get_request(mint_request_id).await {
-            Ok(Some(req)) => {
-                if req.requester_node_id == current_identity_node_id {
-                    let mint_cfg = &get_config().mint_config;
-                    if req.mint_node_id == mint_cfg.default_mint_node_id {
-                        if matches!(req.status, MintRequestStatus::Pending) {
-                            self.mint_client
-                                .cancel_quote_for_mint(
-                                    &mint_cfg.default_mint_url,
-                                    &req.mint_request_id,
-                                )
-                                .await?;
-                            self.mint_store
-                                .update_request(
-                                    mint_request_id,
-                                    &MintRequestStatus::Cancelled {
-                                        timestamp: util::date::now().timestamp() as u64,
-                                    },
-                                )
-                                .await?;
-                            Ok(())
-                        } else {
-                            Err(Error::CancelMintRequestNotPending)
-                        }
-                    } else {
-                        // not on the default mint - we ignore it
-                        Ok(())
-                    }
-                } else {
-                    Err(Error::NotFound)
-                }
-            }
-            Ok(None) => Err(Error::NotFound),
-            Err(e) => Err(e.into()),
+        let req = self
+            .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
+            .await?;
+        // only if it's pending
+        if matches!(req.status, MintRequestStatus::Pending) {
+            self.mint_client
+                .cancel_quote_for_mint(
+                    &get_config().mint_config.default_mint_url,
+                    &req.mint_request_id,
+                )
+                .await?;
+            self.mint_store
+                .update_request(
+                    mint_request_id,
+                    &MintRequestStatus::Cancelled {
+                        timestamp: util::date::now().timestamp() as u64,
+                    },
+                )
+                .await?;
+            Ok(())
+        } else {
+            Err(Error::CancelMintRequestNotPending)
         }
     }
 
@@ -1364,8 +1423,105 @@ impl BillServiceApi for BillService {
         Ok(())
     }
 
-    async fn clear_bill_cache(&self) -> Result<()> {
-        self.store.clear_bill_cache().await?;
-        Ok(())
+    async fn accept_mint_offer(
+        &self,
+        mint_request_id: &str,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<()> {
+        let currency = "sat".to_string(); // default to sat for now
+        let identity = self.identity_store.get().await?;
+        debug!("trying to accept offer from request to mint {mint_request_id}");
+        let req = self
+            .get_req_to_mint_for_node_id(mint_request_id, &signer_public_data.node_id())
+            .await?;
+        // only if it's offered
+        if matches!(req.status, MintRequestStatus::Offered) {
+            // and not expired
+            if let Ok(Some(offer)) = self.mint_store.get_offer(&req.mint_request_id).await {
+                if offer.expiration_timestamp < timestamp {
+                    return Err(Error::AcceptMintOfferExpired);
+                }
+                // accept the offer
+                self.mint_client
+                    .resolve_quote_for_mint(
+                        &get_config().mint_config.default_mint_url,
+                        &req.mint_request_id,
+                        ResolveMintOffer::Accept,
+                    )
+                    .await?;
+
+                // endorse the bill to the mint
+                let mint_anon_participant = self
+                    .get_participant_for_mint(&req.mint_node_id, &identity)
+                    .await;
+                self.execute_bill_action(
+                    &req.bill_id,
+                    BillAction::Mint(mint_anon_participant, offer.discounted_sum, currency),
+                    signer_public_data,
+                    signer_keys,
+                    timestamp,
+                )
+                .await?;
+
+                // update the state
+                self.mint_store
+                    .update_request(mint_request_id, &MintRequestStatus::Accepted)
+                    .await?;
+
+                // reject all other offers - but don't fail on errors
+                if let Err(e) = self
+                    .reject_mint_offers_except_accepted_one_for_bill(
+                        &req.mint_request_id,
+                        &req.bill_id,
+                        &signer_public_data.node_id(),
+                    )
+                    .await
+                {
+                    error!(
+                        "Error rejecting other mint offers for bill {}: {e}",
+                        req.bill_id
+                    );
+                }
+                Ok(())
+            } else {
+                Err(Error::NotFound)
+            }
+        } else {
+            Err(Error::AcceptMintRequestNotOffered)
+        }
+    }
+
+    async fn reject_mint_offer(
+        &self,
+        mint_request_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<()> {
+        debug!("trying to reject offer from request to mint {mint_request_id}");
+        let req = self
+            .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
+            .await?;
+        // only if it's offered
+        if matches!(req.status, MintRequestStatus::Offered) {
+            self.mint_client
+                .resolve_quote_for_mint(
+                    &get_config().mint_config.default_mint_url,
+                    &req.mint_request_id,
+                    ResolveMintOffer::Reject,
+                )
+                .await?;
+            self.mint_store
+                .update_request(
+                    mint_request_id,
+                    &MintRequestStatus::Rejected {
+                        timestamp: util::date::now().timestamp() as u64,
+                    },
+                )
+                .await?;
+            Ok(())
+        } else {
+            Err(Error::RejectMintRequestNotOffered)
+        }
     }
 }

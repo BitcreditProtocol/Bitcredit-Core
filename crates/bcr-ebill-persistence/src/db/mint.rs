@@ -210,7 +210,7 @@ impl From<MintOfferDb> for MintOffer {
             keyset_id: value.keyset_id,
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
-            proofs: None,
+            proofs: value.proofs,
         }
     }
 }
@@ -222,7 +222,7 @@ impl From<MintOffer> for MintOfferDb {
             keyset_id: value.keyset_id,
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
-            proofs: None,
+            proofs: value.proofs,
         }
     }
 }

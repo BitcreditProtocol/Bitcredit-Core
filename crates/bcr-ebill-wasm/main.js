@@ -34,6 +34,8 @@ document.getElementById("request_to_mint").addEventListener("click", requestToMi
 document.getElementById("get_mint_state").addEventListener("click", getMintState);
 document.getElementById("check_mint_state").addEventListener("click", checkMintState);
 document.getElementById("cancel_req_to_mint").addEventListener("click", cancelRegToMint);
+document.getElementById("accept_mint_offer").addEventListener("click", acceptMintOffer);
+document.getElementById("reject_mint_offer").addEventListener("click", rejectMintOffer);
 document.getElementById("bill_test_self_drafted").addEventListener("click", triggerBill.bind(null, 1, false));
 document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
@@ -458,6 +460,7 @@ async function checkMintState() {
   });
   await measured();
 }
+
 async function cancelRegToMint() {
   let mint_request_id = document.getElementById("mint_req_id").value;
   let measured = measure(async () => {
@@ -466,6 +469,21 @@ async function cancelRegToMint() {
   await measured();
 }
 
+async function acceptMintOffer() {
+  let mint_request_id = document.getElementById("mint_req_id").value;
+  let measured = measure(async () => {
+    return await billApi.accept_mint_offer(mint_request_id);
+  });
+  await measured();
+}
+
+async function rejectMintOffer() {
+  let mint_request_id = document.getElementById("mint_req_id").value;
+  let measured = measure(async () => {
+    return await billApi.reject_mint_offer(mint_request_id);
+  });
+  await measured();
+}
 
 async function fetchBillDetail() {
   let measured = measure(async () => {

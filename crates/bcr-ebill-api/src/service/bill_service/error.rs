@@ -66,6 +66,18 @@ pub enum Error {
     #[error("Mint request can only be cancelled if it's pending.")]
     CancelMintRequestNotPending,
 
+    /// errors that stem from trying to reject a mint request that's not offered
+    #[error("Mint request can only be rejected if it's offered.")]
+    RejectMintRequestNotOffered,
+
+    /// errors that stem from trying to accept a mint request that's not offered
+    #[error("Mint request can only be accepted if it's offered.")]
+    AcceptMintRequestNotOffered,
+
+    /// errors that stem from trying to accept a mint request that's expired
+    #[error("Mint request can only be accepted if it's not expired.")]
+    AcceptMintOfferExpired,
+
     /// errors that stem from bill validation errors
     #[error("bill validation error {0}")]
     Validation(#[from] bcr_ebill_core::ValidationError),
