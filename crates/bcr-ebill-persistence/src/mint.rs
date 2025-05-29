@@ -45,6 +45,15 @@ pub trait MintStoreApi: ServiceTraitBounds {
     ) -> Result<()>;
     /// Adds proofs for a given offer
     async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()>;
+    /// Adds recovery data to offer
+    async fn add_recovery_data_to_offer(
+        &self,
+        mint_request_id: &str,
+        secrets: &[String],
+        rs: &[String],
+    ) -> Result<()>;
+    /// Set proofs to spent for offer
+    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &str) -> Result<()>;
     /// Adds an offer for a request to mint
     async fn add_offer(
         &self,

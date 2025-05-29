@@ -2,7 +2,7 @@ use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    mint::{MintOffer, MintRequest, MintRequestStatus},
+    mint::{MintOffer, MintOfferRecoveryData, MintRequest, MintRequestStatus},
 };
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,8 @@ use crate::{
     Error,
     constants::{
         DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_PROOFS,
-        DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
+        DB_PROOFS_SPENT, DB_RECOVERY_DATA, DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_OFFERED,
+        DB_STATUS_PENDING, DB_TABLE,
     },
     mint::MintStoreApi,
 };
@@ -162,7 +163,7 @@ impl MintStoreApi for SurrealMintStore {
         // we only add proofs, if there is an offer and it has no proofs yet
         if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
             if offer.proofs.is_some() {
-                return Err(Error::MintOfferAlreadyExists);
+                return Err(Error::MintOfferAlreadyHasProofs);
             }
         } else {
             return Err(Error::MintOfferDoesNotExist);
@@ -173,6 +174,57 @@ impl MintStoreApi for SurrealMintStore {
         bindings.add(DB_PROOFS, Some(proofs.to_owned()))?;
         self.db
             .query_check("UPDATE type::table($table) SET proofs = $proofs WHERE mint_request_id = $mint_request_id", bindings)
+            .await?;
+        Ok(())
+    }
+
+    async fn add_recovery_data_to_offer(
+        &self,
+        mint_request_id: &str,
+        secrets: &[String],
+        rs: &[String],
+    ) -> Result<()> {
+        // we only add recovery data, if there is an offer and it has no proofs and no recovery data yet
+        if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
+            if offer.proofs.is_some() {
+                return Err(Error::MintOfferAlreadyHasProofs);
+            }
+
+            if offer.recovery_data.is_some() {
+                return Err(Error::MintOfferAlreadyHasRecoveryData);
+            }
+        } else {
+            return Err(Error::MintOfferDoesNotExist);
+        }
+        let recovery_data = MintOfferRecoveryDataDb {
+            secrets: secrets.to_owned(),
+            rs: rs.to_owned(),
+        };
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        bindings.add(DB_RECOVERY_DATA, Some(recovery_data))?;
+        self.db
+            .query_check("UPDATE type::table($table) SET recovery_data = $recovery_data WHERE mint_request_id = $mint_request_id", bindings)
+            .await?;
+        Ok(())
+    }
+
+    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &str) -> Result<()> {
+        // we only set to spent, if there is an offer and it has proofs
+        if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
+            if offer.proofs.is_none() {
+                return Err(Error::MintOfferHasNoProofs);
+            }
+        } else {
+            return Err(Error::MintOfferDoesNotExist);
+        }
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        bindings.add(DB_PROOFS_SPENT, true)?;
+        self.db
+            .query_check("UPDATE type::table($table) SET proofs_spent = $proofs_spent WHERE mint_request_id = $mint_request_id", bindings)
             .await?;
         Ok(())
     }
@@ -194,6 +246,8 @@ impl MintStoreApi for SurrealMintStore {
             expiration_timestamp,
             discounted_sum,
             proofs: None,
+            proofs_spent: false,
+            recovery_data: None,
         };
         let _: Option<MintOfferDb> = self.db.create(Self::OFFERS_TABLE, None, entity).await?;
         Ok(())
@@ -221,6 +275,8 @@ pub struct MintOfferDb {
     pub expiration_timestamp: u64,
     pub discounted_sum: u64,
     pub proofs: Option<String>,
+    pub proofs_spent: bool,
+    pub recovery_data: Option<MintOfferRecoveryDataDb>,
 }
 
 impl From<MintOfferDb> for MintOffer {
@@ -231,18 +287,23 @@ impl From<MintOfferDb> for MintOffer {
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
             proofs: value.proofs,
+            proofs_spent: value.proofs_spent,
+            recovery_data: value.recovery_data.map(|rd| rd.into()),
         }
     }
 }
 
-impl From<MintOffer> for MintOfferDb {
-    fn from(value: MintOffer) -> Self {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MintOfferRecoveryDataDb {
+    pub secrets: Vec<String>,
+    pub rs: Vec<String>,
+}
+
+impl From<MintOfferRecoveryDataDb> for MintOfferRecoveryData {
+    fn from(value: MintOfferRecoveryDataDb) -> Self {
         Self {
-            mint_request_id: value.mint_request_id,
-            keyset_id: value.keyset_id,
-            expiration_timestamp: value.expiration_timestamp,
-            discounted_sum: value.discounted_sum,
-            proofs: value.proofs,
+            secrets: value.secrets,
+            rs: value.rs,
         }
     }
 }
@@ -259,19 +320,6 @@ pub struct MintRequestDb {
 
 impl From<MintRequestDb> for MintRequest {
     fn from(value: MintRequestDb) -> Self {
-        Self {
-            requester_node_id: value.requester_node_id,
-            bill_id: value.bill_id,
-            mint_node_id: value.mint_node_id,
-            mint_request_id: value.mint_request_id,
-            timestamp: value.timestamp,
-            status: value.status.into(),
-        }
-    }
-}
-
-impl From<MintRequest> for MintRequestDb {
-    fn from(value: MintRequest) -> Self {
         Self {
             requester_node_id: value.requester_node_id,
             bill_id: value.bill_id,

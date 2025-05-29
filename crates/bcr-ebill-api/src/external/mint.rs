@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use crate::{constants::CURRENCY_CRSAT, util};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     PostalAddress, ServiceTraitBounds,
@@ -9,8 +10,9 @@ use bcr_ebill_core::{
 };
 use bcr_wdc_key_client::KeyClient;
 use bcr_wdc_quote_client::QuoteClient;
+use bcr_wdc_swap_client::SwapClient;
 use bcr_wdc_webapi::quotes::{BillInfo, ResolveOffer, StatusReply};
-use cashu::{nut00 as cdk00, nut01 as cdk01, nut02 as cdk02};
+use cashu::{ProofsMethods, State, nut00 as cdk00, nut01 as cdk01, nut02 as cdk02};
 use thiserror::Error;
 
 /// Generic result type
@@ -43,34 +45,51 @@ pub enum Error {
     /// all errors originating from invalid keyset ids
     #[error("External Mint Invalid KeySet Id Error")]
     InvalidKeySetId,
+    /// all errors originating from invalid tokens
+    #[error("External Mint Invalid Token Error")]
+    InvalidToken,
+    /// all errors originating from tokens and mints not matching
+    #[error("External Mint Token and Mint don't match Error")]
+    TokenAndMintDontMatch,
     /// all errors originating from blind message generation
     #[error("External Mint BlindMessage Error")]
     BlindMessage,
+    /// an error constructing proofs from minting
+    #[error("External Mint ProofConstruction Error")]
+    ProofConstruction,
+    /// an error minting
+    #[error("External Mint Minting Error")]
+    Minting,
     /// all errors originating from the quote client
     #[error("External Mint Quote Client Error")]
     QuoteClient,
     /// all errors originating from the key client
     #[error("External Mint Key Client Error")]
     KeyClient,
+    /// all errors originating from the swap client
+    #[error("External Mint Swap Client Error")]
+    SwapClient,
 }
 
 #[cfg(test)]
 use mockall::automock;
 
-use crate::{constants::CURRENCY_CRSAT, util};
-
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait MintClientApi: ServiceTraitBounds {
+    /// Check if the given proofs were already spent
+    async fn check_if_proofs_are_spent(&self, mint_url: &str, proofs: &str) -> Result<bool>;
     /// Mint and return encoded token
     async fn mint(
         &self,
         mint_url: &str,
         keyset: cdk02::KeySet,
-        discounted_amount: u64,
         quote_id: &str,
         private_key: &str,
+        blinded_messages: Vec<cashu::BlindedMessage>,
+        secrets: Vec<cashu::secret::Secret>,
+        rs: Vec<cashu::SecretKey>,
     ) -> Result<String>;
     /// Check keyset info for a given keyset id with a given mint
     async fn get_keyset_info(&self, mint_url: &str, keyset_id: &str) -> Result<cdk02::KeySet>;
@@ -125,26 +144,65 @@ impl MintClient {
         );
         Ok(key_client)
     }
+
+    pub fn swap_client(&self, mint_url: &str) -> Result<SwapClient> {
+        let swap_client = bcr_wdc_swap_client::SwapClient::new(
+            reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?,
+        );
+        Ok(swap_client)
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl MintClientApi for MintClient {
+    async fn check_if_proofs_are_spent(&self, mint_url: &str, proofs: &str) -> Result<bool> {
+        let token_mint_url =
+            cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
+        let token = cashu::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
+
+        if let cashu::Token::TokenV3(token_v3) = token {
+            if let Some(token_for_mint) = token_v3
+                .token
+                .into_iter()
+                .find(|t| t.mint == token_mint_url)
+            {
+                let ys = token_for_mint.proofs.ys().map_err(|_| Error::PubKey)?;
+                let proof_states =
+                    self.swap_client(mint_url)?
+                        .check_state(ys)
+                        .await
+                        .map_err(|e| {
+                            log::error!("Error checking if proofs are spent at {mint_url}: {e}");
+                            Error::SwapClient
+                        })?;
+                // all proofs have to be spent
+                let proofs_spent = proof_states
+                    .iter()
+                    .all(|ps| matches!(ps.state, State::Spent));
+                Ok(proofs_spent)
+            } else {
+                Err(Error::InvalidToken.into())
+            }
+        } else {
+            Err(Error::InvalidToken.into())
+        }
+    }
+
     async fn mint(
         &self,
         mint_url: &str,
         keyset: cdk02::KeySet,
-        discounted_amount: u64,
         quote_id: &str,
         private_key: &str,
+        blinded_messages: Vec<cashu::BlindedMessage>,
+        secrets: Vec<cashu::secret::Secret>,
+        rs: Vec<cashu::SecretKey>,
     ) -> Result<String> {
+        let token_mint_url =
+            cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
         let secret_key = cdk01::SecretKey::from_hex(private_key).map_err(|_| Error::PrivateKey)?;
         let qid = uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?;
-
-        // create blinded messages
-        let amounts: Vec<cashu::Amount> = cashu::Amount::from(discounted_amount).split();
-        let blinds = generate_blinds(keyset.id, &amounts)?;
-        let blinded_messages = blinds.iter().map(|b| b.0.clone()).collect::<Vec<_>>();
 
         // mint
         let blinded_signatures = self
@@ -153,19 +211,19 @@ impl MintClientApi for MintClient {
             .await
             .map_err(|e| {
                 log::error!("Error minting at mint {mint_url}: {e}");
-                Error::KeyClient
+                Error::Minting
             })?;
 
         // create proofs
-        let secrets = blinds.iter().map(|b| b.1.clone()).collect::<Vec<_>>();
-        let rs = blinds.iter().map(|b| b.2.clone()).collect::<Vec<_>>();
-        let proofs =
-            cashu::dhke::construct_proofs(blinded_signatures, rs, secrets, &keyset.keys).unwrap();
+        let proofs = cashu::dhke::construct_proofs(blinded_signatures, rs, secrets, &keyset.keys)
+            .map_err(|e| {
+            log::error!("Couldn't construct proofs for {quote_id}: {e}");
+            Error::ProofConstruction
+        })?;
 
         // generate token from proofs
-        let mint_url = cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
         let token = cdk00::Token::new(
-            mint_url,
+            token_mint_url,
             proofs,
             None,
             cashu::CurrencyUnit::Custom(CURRENCY_CRSAT.into()),
@@ -276,20 +334,25 @@ impl MintClientApi for MintClient {
 
 pub fn generate_blinds(
     keyset_id: cashu::Id,
-    amounts: &[cashu::Amount],
-) -> Result<
-    Vec<(
-        cashu::BlindedMessage,
-        cashu::secret::Secret,
-        cashu::SecretKey,
-    )>,
-> {
-    let mut blinds = Vec::new();
+    discounted_amount: u64,
+) -> Result<(
+    Vec<cashu::BlindedMessage>,
+    Vec<cashu::secret::Secret>,
+    Vec<cashu::SecretKey>,
+)> {
+    let amounts: Vec<cashu::Amount> = cashu::Amount::from(discounted_amount).split();
+    let mut blinded_messages = Vec::with_capacity(amounts.len());
+    let mut secrets = Vec::with_capacity(amounts.len());
+    let mut rs = Vec::with_capacity(amounts.len());
+
     for amount in amounts {
-        let blind = generate_blind(keyset_id, *amount)?;
-        blinds.push(blind);
+        let blind = generate_blind(keyset_id, amount)?;
+        blinded_messages.push(blind.0);
+        secrets.push(blind.1);
+        rs.push(blind.2);
     }
-    Ok(blinds)
+
+    Ok((blinded_messages, secrets, rs))
 }
 
 pub fn generate_blind(
@@ -300,7 +363,7 @@ pub fn generate_blind(
     cashu::secret::Secret,
     cashu::SecretKey,
 )> {
-    let secret = cashu::secret::Secret::new(rand::random::<u64>().to_string());
+    let secret = cashu::secret::Secret::new(hex::encode(rand::random::<[u8; 32]>()));
     let (b_, r) =
         cashu::dhke::blind_message(secret.as_bytes(), None).map_err(|_| Error::BlindMessage)?;
     Ok((cashu::BlindedMessage::new(amount, kid, b_), secret, r))

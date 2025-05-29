@@ -34,8 +34,11 @@ secp256k1.workspace = true
 bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
 bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
 bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
+bcr-wdc-swap-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "4437c3b809105df69ed459a9698cac8deb8d9210" }
 cashu = { version = "0.9", default-features = false }
 rand = { version = "0.8" }
+hex = { version = "0.4" }
+
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

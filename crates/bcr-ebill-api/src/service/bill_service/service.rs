@@ -302,7 +302,8 @@ impl BillService {
                     .get_offer(&mint_request.mint_request_id)
                     .await
                 {
-                    if offer.proofs.is_none() {
+                    // only if there are no proofs yet and proofs are not spent
+                    if offer.proofs.is_none() && !offer.proofs_spent {
                         debug!(
                             "Checking for keyset info for {}",
                             &mint_request.mint_request_id
@@ -351,15 +352,39 @@ impl BillService {
                                     "Keyset found and minting for {}",
                                     &mint_request.mint_request_id
                                 );
+                                // generate blinds
+                                let (blinded_messages, secrets, rs) =
+                                    external::mint::generate_blinds(
+                                        keyset_info.id,
+                                        offer.discounted_sum,
+                                    )?;
+                                // persist recovery data in case something goes wrong after minting
+                                // getting here a second time for this offer will fail, which is OK
+                                // since it means that either minting, or proof creation failed and we can't
+                                // detect which one reliably
+                                // with the secrets and rs, we can re-create the blinded messages and get
+                                // blinded signatures from the mint using the mint, OR the recovery endpoint
+                                self.mint_store
+                                    .add_recovery_data_to_offer(
+                                        &mint_request.mint_request_id,
+                                        &secrets
+                                            .iter()
+                                            .map(|s| s.to_string())
+                                            .collect::<Vec<String>>(),
+                                        &rs.iter().map(|r| r.to_string()).collect::<Vec<String>>(),
+                                    )
+                                    .await?;
                                 // mint and generate proofs
                                 let proofs = self
                                     .mint_client
                                     .mint(
                                         &mint_cfg.default_mint_url,
                                         keyset_info,
-                                        offer.discounted_sum,
                                         &mint_request.mint_request_id,
                                         &private_key,
+                                        blinded_messages,
+                                        secrets,
+                                        rs,
                                     )
                                     .await?;
                                 // store proofs on the offer
@@ -371,6 +396,40 @@ impl BillService {
                                 info!("No keyset available for {}", mint_request.mint_request_id);
                             }
                         };
+                    } else if offer.proofs.is_some() && !offer.proofs_spent {
+                        debug!(
+                            "Checking if proofs for {} are spent",
+                            &mint_request.mint_request_id
+                        );
+                        if let Some(proofs) = offer.proofs {
+                            match self
+                                .mint_client
+                                .check_if_proofs_are_spent(&mint_cfg.default_mint_url, &proofs)
+                                .await
+                            {
+                                Ok(spent) => {
+                                    if spent {
+                                        debug!(
+                                            "Proofs for {} are spent - updating",
+                                            &mint_request.mint_request_id
+                                        );
+                                        self.mint_store
+                                            .set_proofs_to_spent_for_offer(
+                                                &mint_request.mint_request_id,
+                                            )
+                                            .await?;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Could not check if proofs are spent for {}: {e}",
+                                        &mint_request.mint_request_id
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        // proofs spent - nothing to do
                     }
                 }
             }
