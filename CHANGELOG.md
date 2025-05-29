@@ -7,6 +7,8 @@
     * Use mint nostr relays from network and fall back to identity ones
     * Add endpoints to accept, or reject an offer from a mint
     * Add logic to check keyset info, mint and create proofs
+    * Add logic to recover proofs if something goes wrong
+    * Add logic to check if proofs were spent
 
 # 0.3.13
 
