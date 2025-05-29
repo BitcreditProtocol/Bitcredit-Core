@@ -18,7 +18,7 @@ pub trait MintStoreApi: ServiceTraitBounds {
         bill_id: &str,
         mint_node_id: &str,
     ) -> Result<Vec<MintRequest>>;
-    /// Returns all mint requests, which are not finished (i.e. offered, or pending)
+    /// Returns all mint requests, which are not finished (i.e. offered, accepted or pending)
     async fn get_all_active_requests(&self) -> Result<Vec<MintRequest>>;
     /// Checks if there is an active request to mint for the given bill
     async fn get_requests_for_bill(
@@ -43,6 +43,8 @@ pub trait MintStoreApi: ServiceTraitBounds {
         mint_request_id: &str,
         new_status: &MintRequestStatus,
     ) -> Result<()>;
+    /// Adds proofs for a given offer
+    async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()>;
     /// Adds an offer for a request to mint
     async fn add_offer(
         &self,

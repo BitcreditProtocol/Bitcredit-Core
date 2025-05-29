@@ -6,6 +6,7 @@
     * Call mint endpoint for cancelling
     * Use mint nostr relays from network and fall back to identity ones
     * Add endpoints to accept, or reject an offer from a mint
+    * Add logic to check keyset info, mint and create proofs
 
 # 0.3.13
 

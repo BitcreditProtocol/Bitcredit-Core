@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error,
     constants::{
-        DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_STATUS,
-        DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
+        DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_PROOFS,
+        DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
     },
     mint::MintStoreApi,
 };
@@ -72,8 +72,9 @@ impl MintStoreApi for SurrealMintStore {
         bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
         bindings.add(DB_STATUS_OFFERED, MintRequestStatusDb::Offered)?;
         bindings.add(DB_STATUS_PENDING, MintRequestStatusDb::Pending)?;
+        bindings.add(DB_STATUS_ACCEPTED, MintRequestStatusDb::Accepted)?;
         let results: Vec<MintRequestDb> = self.db
-            .query("SELECT * from type::table($table) WHERE status = $status_offered OR status = $status_pending", bindings).await?;
+            .query("SELECT * from type::table($table) WHERE status = $status_offered OR status = $status_pending OR status = $status_accepted", bindings).await?;
         Ok(results.into_iter().map(|c| c.into()).collect())
     }
 
@@ -153,6 +154,25 @@ impl MintStoreApi for SurrealMintStore {
         bindings.add(DB_STATUS, status)?;
         self.db
             .query_check("UPDATE type::table($table) SET status = $status WHERE mint_request_id = $mint_request_id", bindings)
+            .await?;
+        Ok(())
+    }
+
+    async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()> {
+        // we only add proofs, if there is an offer and it has no proofs yet
+        if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
+            if offer.proofs.is_some() {
+                return Err(Error::MintOfferAlreadyExists);
+            }
+        } else {
+            return Err(Error::MintOfferDoesNotExist);
+        }
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        bindings.add(DB_PROOFS, Some(proofs.to_owned()))?;
+        self.db
+            .query_check("UPDATE type::table($table) SET proofs = $proofs WHERE mint_request_id = $mint_request_id", bindings)
             .await?;
         Ok(())
     }
