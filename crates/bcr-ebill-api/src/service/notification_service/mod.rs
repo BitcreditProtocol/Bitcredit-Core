@@ -10,6 +10,7 @@ use bcr_ebill_persistence::company::CompanyStoreApi;
 use bcr_ebill_persistence::nostr::{
     NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessageStoreApi,
 };
+use bcr_ebill_transport::chain_keys::ChainKeyServiceApi;
 use bcr_ebill_transport::handler::{
     BillChainEventHandler, LoggingEventHandler, NotificationHandlerApi,
 };
@@ -119,6 +120,7 @@ pub async fn create_nostr_consumer(
     bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     bill_store: Arc<dyn BillStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    chain_key_service: Arc<dyn ChainKeyServiceApi>,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
     let transport = match clients.first() {
@@ -141,6 +143,12 @@ pub async fn create_nostr_consumer(
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());
-    let consumer = NostrConsumer::new(clients, contact_service, handlers, nostr_event_offset_store);
+    let consumer = NostrConsumer::new(
+        clients,
+        contact_service,
+        handlers,
+        nostr_event_offset_store,
+        chain_key_service,
+    );
     Ok(consumer)
 }

@@ -5,6 +5,7 @@ use bcr_ebill_core::{
     util::crypto,
 };
 use bcr_ebill_transport::{
+    chain_keys::ChainKeyServiceApi,
     event::EventEnvelope,
     handler::NotificationHandlerApi,
     transport::{
@@ -397,6 +398,7 @@ pub struct NostrConsumer {
     event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+    chain_key_service: Arc<dyn ChainKeyServiceApi>,
 }
 
 impl NostrConsumer {
@@ -406,6 +408,7 @@ impl NostrConsumer {
         contact_service: Arc<dyn ContactServiceApi>,
         event_handlers: Vec<Box<dyn NotificationHandlerApi>>,
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+        chain_key_service: Arc<dyn ChainKeyServiceApi>,
     ) -> Self {
         let clients = clients
             .into_iter()
@@ -417,6 +420,7 @@ impl NostrConsumer {
             event_handlers: Arc::new(event_handlers),
             contact_service,
             offset_store,
+            chain_key_service,
         }
     }
 
@@ -426,6 +430,7 @@ impl NostrConsumer {
         let event_handlers = self.event_handlers.clone();
         let contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
+        let chain_key_store = self.chain_key_service.clone();
 
         let mut tasks = Vec::new();
         let local_node_ids = clients.keys().cloned().collect::<Vec<PublicKey>>();
@@ -434,6 +439,7 @@ impl NostrConsumer {
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
+            let chain_key_store = chain_key_store.clone();
             let client_id = node_id.to_hex();
             let contact_service = contact_service.clone();
             let local_node_ids = local_node_ids.clone();
@@ -479,6 +485,7 @@ impl NostrConsumer {
                     .handle_notifications(move |note| {
                         let event_handlers = event_handlers.clone();
                         let offset_store = offset_store.clone();
+                        let chain_key_store = chain_key_store.clone();
                         let client_id = client_id.clone();
                         let contact_service = contact_service.clone();
                         let local_node_ids = local_node_ids.clone();
@@ -514,7 +521,22 @@ impl NostrConsumer {
                                         }
                                         Kind::TextNote => {
                                             info!("Received text note: {event:?}");
-                                            true
+                                            match handle_public_event(
+                                                event.clone(),
+                                                &client_id,
+                                                &chain_key_store,
+                                                &event_handlers,
+                                            )
+                                            .await
+                                            {
+                                                Err(e) => {
+                                                    error!(
+                                                        "Failed to handle public chain event: {e}"
+                                                    );
+                                                    false
+                                                }
+                                                Ok(_) => true,
+                                            }
                                         }
                                         Kind::RelayList => {
                                             // we have not subscribed to relaylist events yet
@@ -590,14 +612,21 @@ async fn handle_direct_message<T: NostrSigner>(
     Ok(())
 }
 
-#[allow(dead_code)]
 async fn handle_public_event(
     event: Box<Event>,
-    _handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    node_id: &str,
+    chain_key_store: &Arc<dyn ChainKeyServiceApi>,
+    handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
     if let Some(encrypted_data) = unwrap_public_chain_event(event)? {
-        let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &BcrKeys::new())?;
-        info!("{:?}", decrypted);
+        if let Ok(Some(chain_keys)) = chain_key_store
+            .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
+            .await
+        {
+            let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
+            info!("Handling public chain event: {:?}", decrypted);
+            handle_event(decrypted, node_id, handlers).await?
+        }
     }
     Ok(())
 }
@@ -693,7 +722,7 @@ mod tests {
         contact_service::MockContactServiceApi,
         notification_service::{NotificationJsonTransportApi, test_utils::*},
     };
-    use crate::tests::tests::MockNostrEventOffsetStoreApiMock;
+    use crate::tests::tests::{MockChainKeyService, MockNostrEventOffsetStoreApiMock};
     use crate::util::BcrKeys;
     use mockall::mock;
 
@@ -793,12 +822,15 @@ mod tests {
             .returning(|_| Ok(()))
             .once();
 
+        let chain_key_store = MockChainKeyService::new();
+
         // we start the consumer
         let consumer = NostrConsumer::new(
             vec![Arc::new(client2)],
             Arc::new(contact_service),
             vec![Box::new(handler)],
             Arc::new(offset_store),
+            Arc::new(chain_key_store),
         );
 
         // run in a local set

@@ -17,6 +17,7 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_transport::{
     NotificationServiceApi,
+    chain_keys::ChainKeyService,
     push_notification::{PushApi, PushService},
 };
 use std::sync::Arc;
@@ -90,6 +91,7 @@ impl Context {
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 
         let push_service = Arc::new(PushService::new());
+        let chain_key_service = Arc::new(ChainKeyService::new(db.bill_store.clone()));
 
         let nostr_consumer = create_nostr_consumer(
             nostr_clients.clone(),
@@ -100,6 +102,7 @@ impl Context {
             db.bill_blockchain_store.clone(),
             db.bill_store.clone(),
             db.nostr_contact_store.clone(),
+            chain_key_service.clone(),
         )
         .await?;
 

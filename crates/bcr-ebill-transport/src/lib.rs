@@ -1,6 +1,7 @@
 use bcr_ebill_core::util::{self, crypto};
 use thiserror::Error;
 
+pub mod chain_keys;
 pub mod email;
 pub mod event;
 pub mod handler;
