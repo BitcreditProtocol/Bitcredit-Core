@@ -377,3 +377,233 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::get_memory_db;
+
+    async fn get_requests_store() -> SurrealMintStore {
+        let mem_db = get_memory_db("test", "requests")
+            .await
+            .expect("could not create memory db");
+        SurrealMintStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
+    }
+
+    async fn get_offers_store() -> SurrealMintStore {
+        let mem_db = get_memory_db("test", "offers")
+            .await
+            .expect("could not create memory db");
+        SurrealMintStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
+    }
+
+    #[tokio::test]
+    async fn test_exists_for_bill() {
+        let store = get_requests_store().await;
+        assert!(!store.exists_for_bill("requester", "bill_id").await.unwrap());
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        assert!(store.exists_for_bill("requester", "bill_id").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_get_requests() {
+        let store = get_requests_store().await;
+        let reqs = store
+            .get_requests("requester", "bill_id", "mint_node_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 0);
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let reqs = store
+            .get_requests("requester", "bill_id", "mint_node_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_requests_for_bill() {
+        let store = get_requests_store().await;
+        let reqs = store
+            .get_requests_for_bill("requester", "bill_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 0);
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let reqs = store
+            .get_requests_for_bill("requester", "bill_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_active_requests() {
+        let store = get_requests_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let reqs = store.get_all_active_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_request() {
+        let store = get_requests_store().await;
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(req.is_none());
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(req.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_update_request() {
+        let store = get_requests_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(matches!(
+            req.as_ref().unwrap().status,
+            MintRequestStatus::Pending
+        ));
+        store
+            .update_request("mint_req_id", &MintRequestStatus::Offered)
+            .await
+            .unwrap();
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(matches!(
+            req.as_ref().unwrap().status,
+            MintRequestStatus::Offered
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_get_offer() {
+        let store = get_requests_store().await;
+        let offer_store = get_offers_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        offer_store
+            .add_offer("mint_req_id", "keyset_id", 1731593928, 1500)
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_update_offer() {
+        let store = get_requests_store().await;
+        let offer_store = get_offers_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        offer_store
+            .add_offer("mint_req_id", "keyset_id", 1731593928, 1500)
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.is_some());
+        assert!(offer.as_ref().unwrap().recovery_data.is_none());
+
+        // recovery data
+        offer_store
+            .add_recovery_data_to_offer("mint_req_id", &["secret".to_owned()], &["r".to_owned()])
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.as_ref().unwrap().recovery_data.is_some());
+        assert!(offer.as_ref().unwrap().proofs.is_none());
+
+        // proofs
+        offer_store
+            .add_proofs_to_offer("mint_req_id", "proofs")
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.as_ref().unwrap().proofs.is_some());
+        assert_eq!(offer.as_ref().unwrap().proofs.as_ref().unwrap(), "proofs");
+        assert!(!offer.as_ref().unwrap().proofs_spent);
+
+        // proofs spent
+        offer_store
+            .set_proofs_to_spent_for_offer("mint_req_id")
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.as_ref().unwrap().proofs_spent);
+    }
+}
