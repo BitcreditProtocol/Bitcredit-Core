@@ -51,6 +51,7 @@ pub async fn create_nostr_clients(
         keys,
         config.nostr_config.relays.clone(),
         nostr_name,
+        true,
     )];
 
     // optionally collect all company accounts
@@ -68,6 +69,7 @@ pub async fn create_nostr_clients(
                 keys,
                 config.nostr_config.relays.clone(),
                 company.name.clone(),
+                false,
             ));
         }
     }

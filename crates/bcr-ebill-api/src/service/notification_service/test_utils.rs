@@ -129,7 +129,7 @@ pub async fn get_mock_nostr_client() -> NostrClient {
     let url = relay.url();
     let keys = BcrKeys::new();
 
-    let config = NostrConfig::new(keys, vec![url], "Test relay user".to_owned());
+    let config = NostrConfig::new(keys, vec![url], "Test relay user".to_owned(), true);
     NostrClient::new(&config)
         .await
         .expect("could not create mock nostr client")

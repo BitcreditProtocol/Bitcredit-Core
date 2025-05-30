@@ -39,16 +39,18 @@ pub struct NostrConfig {
     pub relays: Vec<String>,
     pub name: String,
     pub default_timeout: Duration,
+    pub is_primary: bool,
 }
 
 impl NostrConfig {
-    pub fn new(keys: BcrKeys, relays: Vec<String>, name: String) -> Self {
+    pub fn new(keys: BcrKeys, relays: Vec<String>, name: String, is_primary: bool) -> Self {
         assert!(!relays.is_empty());
         Self {
             keys,
             relays,
             name,
             default_timeout: Duration::from_secs(20),
+            is_primary,
         }
     }
 
@@ -136,6 +138,10 @@ impl NostrClient {
 
     pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
         self.keys.get_nostr_keys()
+    }
+
+    pub fn is_primary(&self) -> bool {
+        self.config.is_primary
     }
 
     fn use_nip04(&self) -> bool {
@@ -402,7 +408,6 @@ pub struct NostrConsumer {
 }
 
 impl NostrConsumer {
-    #[allow(dead_code)]
     pub fn new(
         clients: Vec<Arc<NostrClient>>,
         contact_service: Arc<dyn ContactServiceApi>,
@@ -435,7 +440,7 @@ impl NostrConsumer {
         let mut tasks = Vec::new();
         let local_node_ids = clients.keys().cloned().collect::<Vec<PublicKey>>();
 
-        for (idx, (node_id, node_client)) in clients.into_iter().enumerate() {
+        for (node_id, node_client) in clients.into_iter() {
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
@@ -461,7 +466,7 @@ impl NostrConsumer {
                     .expect("Failed to subscribe to Nostr dm events");
 
                 // we only need one client to subscribe to public events
-                if idx == 0 {
+                if current_client.is_primary() {
                     let contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
                     info!("Found {} contacts to subscribe to", contacts.len());
                     if !contacts.is_empty() {
@@ -752,6 +757,7 @@ mod tests {
             keys1.clone(),
             vec![url.to_string()],
             "BcrDamus1".to_string(),
+            true,
         );
         let client1 = NostrClient::new(&config1)
             .await
@@ -761,6 +767,7 @@ mod tests {
             keys2.clone(),
             vec![url.to_string()],
             "BcrDamus2".to_string(),
+            true,
         );
         let client2 = NostrClient::new(&config2)
             .await

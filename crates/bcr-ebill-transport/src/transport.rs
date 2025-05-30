@@ -152,11 +152,14 @@ pub fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPu
                         address, chain_id, ..
                     },
                 ..
-            } => chain_id.as_ref().map(|id| EncryptedPublicEventData {
-                id: address.to_owned(),
-                chain_type: BlockchainType::try_from(id.as_ref()).unwrap(),
-                payload: event.content.clone(),
-            }),
+            } => chain_id
+                .as_ref()
+                .and_then(|id| BlockchainType::try_from(id.as_ref()).ok())
+                .map(|chain_type| EncryptedPublicEventData {
+                    id: address.to_owned(),
+                    chain_type,
+                    payload: event.content.clone(),
+                }),
             _ => None,
         })
         .collect();
