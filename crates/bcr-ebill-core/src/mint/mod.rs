@@ -46,8 +46,22 @@ pub struct MintOffer {
     pub discounted_sum: u64,
     /// The proofs, encoded as a custom Tokenv3
     pub proofs: Option<String>,
+    /// Whether the proofs were spent according to the mint
+    pub proofs_spent: bool,
+    /// The recovery data, if something goes wrong between minting and token generation
+    pub recovery_data: Option<MintOfferRecoveryData>,
 }
 
+/// Mint offer recovery data
+#[derive(Debug, Clone)]
+pub struct MintOfferRecoveryData {
+    /// The secrets of the blinds we used
+    pub secrets: Vec<String>,
+    /// The rs of the blinds we used
+    pub rs: Vec<String>,
+}
+
+/// The state of a mint request
 #[derive(Debug, Clone)]
 pub struct MintRequestState {
     /// There always is a request
