@@ -6,7 +6,7 @@ use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType, util::BcrKe
 use bcr_ebill_persistence::bill::BillStoreApi;
 use log::warn;
 
-/// Resolver for generic chain keys that are needed to decypt
+/// Resolver for generic chain keys that are needed to decrypt
 /// public chain events.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
