@@ -93,6 +93,13 @@ pub mod tests {
                 new_status: &MintRequestStatus,
             ) -> Result<()>;
             async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()>;
+            async fn add_recovery_data_to_offer(
+                &self,
+                mint_request_id: &str,
+                secrets: &[String],
+                rs: &[String],
+            ) -> Result<()>;
+            async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &str) -> Result<()>;
             async fn add_offer(
                 &self,
                 mint_request_id: &str,

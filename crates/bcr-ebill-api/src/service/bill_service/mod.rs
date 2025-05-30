@@ -224,6 +224,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
 pub mod tests {
     use super::*;
     use crate::{
+        external::mint::QuoteStatusReply,
         persistence,
         service::company_service::tests::get_baseline_company_data,
         tests::tests::{
@@ -253,8 +254,11 @@ pub mod tests {
         },
         constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+        mint::{MintOffer, MintRequest, MintRequestStatus},
         notification::ActionType,
+        util::date::DateTimeUtc,
     };
+    use cashu::nut02 as cdk02;
     use core::str;
     use mockall::predicate::{always, eq, function};
     use std::collections::{HashMap, HashSet};
@@ -5824,5 +5828,512 @@ pub mod tests {
                 .unwrap()
         );
         bill_recourse.status.recourse.recoursed = false;
+    }
+
+    #[tokio::test]
+    async fn req_to_mint_baseline() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+                chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
+                Ok(chain)
+            });
+        ctx.mint_store
+            .expect_get_requests()
+            .returning(|_, _, _| Ok(vec![]));
+        ctx.mint_client
+            .expect_enquire_mint_quote()
+            .returning(|_, _, _, _| Ok("quote_id".to_owned()));
+        ctx.mint_store
+            .expect_add_request()
+            .returning(|_, _, _, _, _| Ok(()));
+        // Asset request to mint event is sent
+        ctx.notification_service
+            .expect_send_request_to_mint_event()
+            .returning(|_, _, _| Ok(()));
+        ctx.notification_service
+            .expect_resolve_contact()
+            .returning(|_| Ok(None));
+
+        let service = get_service(ctx);
+
+        let res = service
+            .request_to_mint(
+                TEST_BILL_ID,
+                "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_mint_state_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_store.expect_get_offer().returning(|_| {
+            Ok(Some(MintOffer {
+                mint_request_id: "mint_req_id".to_owned(),
+                keyset_id: "keyset_id".to_owned(),
+                expiration_timestamp: 1731593928,
+                discounted_sum: 1500,
+                proofs: None,
+                proofs_spent: false,
+                recovery_data: None,
+            }))
+        });
+
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(|_, _| {
+                Ok(vec![
+                    MintRequest {
+                        requester_node_id: "req_id".to_owned(),
+                        bill_id: TEST_BILL_ID.to_owned(),
+                        mint_node_id: "mint_node_id".to_owned(),
+                        mint_request_id: "mint_req_id".to_owned(),
+                        timestamp: 1731593928,
+                        status: MintRequestStatus::Pending,
+                    },
+                    MintRequest {
+                        requester_node_id: "req_id".to_owned(),
+                        bill_id: TEST_BILL_ID.to_owned(),
+                        mint_node_id: "mint_node_id".to_owned(),
+                        mint_request_id: "mint_req_id".to_owned(),
+                        timestamp: 1731593928,
+                        status: MintRequestStatus::Offered,
+                    },
+                ])
+            });
+
+        let service = get_service(ctx);
+        let res = service
+            .get_mint_state(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cancel_mint_state_baseline() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_client
+            .expect_cancel_quote_for_mint()
+            .returning(|_, _| Ok(()));
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store.expect_get_request().returning(move |_| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: TEST_BILL_ID.to_owned(),
+                mint_node_id: "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                    .to_owned(),
+                mint_request_id: "mint_req_id".to_owned(),
+                timestamp: 1731593928,
+                status: MintRequestStatus::Pending,
+            }))
+        });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .cancel_request_to_mint("mint_req_id", &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn accept_mint_offer_baseline() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(TEST_BILL_ID);
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+        ctx.bill_store
+            .expect_save_bill_to_cache()
+            .returning(|_, _| Ok(()));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| {
+                let mut chain = get_genesis_chain(Some(bill.clone()));
+                chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        ctx.mint_client
+            .expect_resolve_quote_for_mint()
+            .returning(|_, _, _| Ok(()));
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store.expect_get_request().returning(move |_| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: TEST_BILL_ID.to_owned(),
+                mint_node_id: "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                    .to_owned(),
+                mint_request_id: "mint_req_id".to_owned(),
+                timestamp: 1731593938,
+                status: MintRequestStatus::Offered,
+            }))
+        });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(|_, _| Ok(vec![]));
+        ctx.mint_store.expect_get_offer().returning(|_| {
+            Ok(Some(MintOffer {
+                mint_request_id: "mint_req_id".to_owned(),
+                keyset_id: "keyset_id".to_owned(),
+                expiration_timestamp: 1731593938,
+                discounted_sum: 1500,
+                proofs: None,
+                proofs_spent: false,
+                recovery_data: None,
+            }))
+        });
+        // Asset request to mint event is sent
+        ctx.notification_service
+            .expect_send_bill_is_endorsed_event()
+            .returning(|_| Ok(()));
+        ctx.notification_service
+            .expect_resolve_contact()
+            .returning(|_| Ok(None));
+
+        let service = get_service(ctx);
+        let res = service
+            .accept_mint_offer(
+                "mint_req_id",
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                1731593930,
+            )
+            .await;
+        println!("{res:?}");
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn reject_mint_offer_baseline() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_client
+            .expect_resolve_quote_for_mint()
+            .returning(|_, _, _| Ok(()));
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store.expect_get_request().returning(move |_| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: TEST_BILL_ID.to_owned(),
+                mint_node_id: "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                    .to_owned(),
+                mint_request_id: "mint_req_id".to_owned(),
+                timestamp: 1731593928,
+                status: MintRequestStatus::Offered,
+            }))
+        });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .reject_mint_offer("mint_req_id", &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_mint_state_for_all_bills_baseline() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_client
+            .expect_lookup_quote_for_mint()
+            .returning(|_, _| {
+                Ok(QuoteStatusReply::Denied {
+                    tstamp: DateTimeUtc::default(),
+                })
+            });
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store
+            .expect_get_all_active_requests()
+            .returning(move || {
+                Ok(vec![MintRequest {
+                    requester_node_id: req_node_id.clone(),
+                    bill_id: TEST_BILL_ID.to_owned(),
+                    mint_node_id:
+                        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                            .to_owned(),
+                    mint_request_id: "mint_req_id".to_owned(),
+                    timestamp: 1731593928,
+                    status: MintRequestStatus::Offered,
+                }])
+            });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service.check_mint_state_for_all_bills().await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_mint_state_baseline() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_client
+            .expect_lookup_quote_for_mint()
+            .returning(|_, _| {
+                Ok(QuoteStatusReply::Denied {
+                    tstamp: DateTimeUtc::default(),
+                })
+            });
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(move |_, _| {
+                Ok(vec![MintRequest {
+                    requester_node_id: req_node_id.clone(),
+                    bill_id: TEST_BILL_ID.to_owned(),
+                    mint_node_id:
+                        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                            .to_owned(),
+                    mint_request_id: "mint_req_id".to_owned(),
+                    timestamp: 1731593928,
+                    status: MintRequestStatus::Offered,
+                }])
+            });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .check_mint_state(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_mint_state_pending_accepted() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_client
+            .expect_lookup_quote_for_mint()
+            .returning(|_, _| {
+                Ok(QuoteStatusReply::Accepted {
+                    keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+                })
+            });
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(move |_, _| {
+                Ok(vec![MintRequest {
+                    requester_node_id: req_node_id.clone(),
+                    bill_id: TEST_BILL_ID.to_owned(),
+                    mint_node_id:
+                        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                            .to_owned(),
+                    mint_request_id: "mint_req_id".to_owned(),
+                    timestamp: 1731593928,
+                    status: MintRequestStatus::Pending,
+                }])
+            });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .check_mint_state(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_mint_state_pending_offered() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        ctx.mint_client
+            .expect_lookup_quote_for_mint()
+            .returning(|_, _| {
+                Ok(QuoteStatusReply::Offered {
+                    keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+                    expiration_date: DateTimeUtc::default(),
+                    discounted: bitcoin::Amount::default(),
+                })
+            });
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(move |_, _| {
+                Ok(vec![MintRequest {
+                    requester_node_id: req_node_id.clone(),
+                    bill_id: TEST_BILL_ID.to_owned(),
+                    mint_node_id:
+                        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                            .to_owned(),
+                    mint_request_id: "mint_req_id".to_owned(),
+                    timestamp: 1731593928,
+                    status: MintRequestStatus::Pending,
+                }])
+            });
+        ctx.mint_store
+            .expect_update_request()
+            .returning(|_, _| Ok(()));
+        ctx.mint_store
+            .expect_add_offer()
+            .returning(|_, _, _, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .check_mint_state(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_mint_state_accepted_proofs() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
+            Ok(cdk02::KeySet {
+                id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+                unit: cashu::CurrencyUnit::Sat,
+                keys: cashu::Keys::new(std::collections::BTreeMap::default()),
+            })
+        });
+        ctx.mint_client
+            .expect_mint()
+            .returning(|_, _, _, _, _, _, _| Ok("proofs".into()));
+        ctx.mint_store
+            .expect_add_recovery_data_to_offer()
+            .returning(|_, _, _| Ok(()));
+        ctx.mint_store
+            .expect_add_proofs_to_offer()
+            .returning(|_, _| Ok(()));
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(move |_, _| {
+                Ok(vec![MintRequest {
+                    requester_node_id: req_node_id.clone(),
+                    bill_id: TEST_BILL_ID.to_owned(),
+                    mint_node_id:
+                        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                            .to_owned(),
+                    mint_request_id: "mint_req_id".to_owned(),
+                    timestamp: 1731593928,
+                    status: MintRequestStatus::Accepted,
+                }])
+            });
+        ctx.mint_store.expect_get_offer().returning(|_| {
+            Ok(Some(MintOffer {
+                mint_request_id: "mint_req_id".to_owned(),
+                keyset_id: "keyset_id".to_owned(),
+                expiration_timestamp: 1731593938,
+                discounted_sum: 1500,
+                proofs: None,
+                proofs_spent: false,
+                recovery_data: None,
+            }))
+        });
+
+        let service = get_service(ctx);
+        let res = service
+            .check_mint_state(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_mint_state_accepted_check_spent() {
+        init_test_cfg();
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+
+        let req_node_id = identity.identity.node_id.clone();
+        ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
+            Ok(cdk02::KeySet {
+                id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+                unit: cashu::CurrencyUnit::Sat,
+                keys: cashu::Keys::new(std::collections::BTreeMap::default()),
+            })
+        });
+        ctx.mint_client
+            .expect_check_if_proofs_are_spent()
+            .returning(|_, _| Ok(true));
+        ctx.mint_store
+            .expect_set_proofs_to_spent_for_offer()
+            .returning(|_| Ok(()));
+        ctx.mint_store
+            .expect_get_requests_for_bill()
+            .returning(move |_, _| {
+                Ok(vec![MintRequest {
+                    requester_node_id: req_node_id.clone(),
+                    bill_id: TEST_BILL_ID.to_owned(),
+                    mint_node_id:
+                        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
+                            .to_owned(),
+                    mint_request_id: "mint_req_id".to_owned(),
+                    timestamp: 1731593928,
+                    status: MintRequestStatus::Accepted,
+                }])
+            });
+        ctx.mint_store.expect_get_offer().returning(|_| {
+            Ok(Some(MintOffer {
+                mint_request_id: "mint_req_id".to_owned(),
+                keyset_id: "keyset_id".to_owned(),
+                expiration_timestamp: 1731593938,
+                discounted_sum: 1500,
+                proofs: Some("proofs".into()),
+                proofs_spent: false,
+                recovery_data: None,
+            }))
+        });
+
+        let service = get_service(ctx);
+        let res = service
+            .check_mint_state(TEST_BILL_ID, &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
     }
 }

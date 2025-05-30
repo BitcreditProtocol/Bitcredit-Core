@@ -20,7 +20,7 @@ pub use persistence::db::SurrealDbConfig;
 pub use persistence::get_db_context;
 pub use persistence::notification::NotificationFilter;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: String,

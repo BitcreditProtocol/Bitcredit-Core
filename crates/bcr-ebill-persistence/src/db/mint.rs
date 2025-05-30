@@ -2,7 +2,7 @@ use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    mint::{MintOffer, MintRequest, MintRequestStatus},
+    mint::{MintOffer, MintOfferRecoveryData, MintRequest, MintRequestStatus},
 };
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,8 @@ use crate::{
     Error,
     constants::{
         DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_PROOFS,
-        DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
+        DB_PROOFS_SPENT, DB_RECOVERY_DATA, DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_OFFERED,
+        DB_STATUS_PENDING, DB_TABLE,
     },
     mint::MintStoreApi,
 };
@@ -162,7 +163,7 @@ impl MintStoreApi for SurrealMintStore {
         // we only add proofs, if there is an offer and it has no proofs yet
         if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
             if offer.proofs.is_some() {
-                return Err(Error::MintOfferAlreadyExists);
+                return Err(Error::MintOfferAlreadyHasProofs);
             }
         } else {
             return Err(Error::MintOfferDoesNotExist);
@@ -173,6 +174,57 @@ impl MintStoreApi for SurrealMintStore {
         bindings.add(DB_PROOFS, Some(proofs.to_owned()))?;
         self.db
             .query_check("UPDATE type::table($table) SET proofs = $proofs WHERE mint_request_id = $mint_request_id", bindings)
+            .await?;
+        Ok(())
+    }
+
+    async fn add_recovery_data_to_offer(
+        &self,
+        mint_request_id: &str,
+        secrets: &[String],
+        rs: &[String],
+    ) -> Result<()> {
+        // we only add recovery data, if there is an offer and it has no proofs and no recovery data yet
+        if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
+            if offer.proofs.is_some() {
+                return Err(Error::MintOfferAlreadyHasProofs);
+            }
+
+            if offer.recovery_data.is_some() {
+                return Err(Error::MintOfferAlreadyHasRecoveryData);
+            }
+        } else {
+            return Err(Error::MintOfferDoesNotExist);
+        }
+        let recovery_data = MintOfferRecoveryDataDb {
+            secrets: secrets.to_owned(),
+            rs: rs.to_owned(),
+        };
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        bindings.add(DB_RECOVERY_DATA, Some(recovery_data))?;
+        self.db
+            .query_check("UPDATE type::table($table) SET recovery_data = $recovery_data WHERE mint_request_id = $mint_request_id", bindings)
+            .await?;
+        Ok(())
+    }
+
+    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &str) -> Result<()> {
+        // we only set to spent, if there is an offer and it has proofs
+        if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
+            if offer.proofs.is_none() {
+                return Err(Error::MintOfferHasNoProofs);
+            }
+        } else {
+            return Err(Error::MintOfferDoesNotExist);
+        }
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
+        bindings.add(DB_MINT_REQUEST_ID, mint_request_id.to_owned())?;
+        bindings.add(DB_PROOFS_SPENT, true)?;
+        self.db
+            .query_check("UPDATE type::table($table) SET proofs_spent = $proofs_spent WHERE mint_request_id = $mint_request_id", bindings)
             .await?;
         Ok(())
     }
@@ -194,6 +246,8 @@ impl MintStoreApi for SurrealMintStore {
             expiration_timestamp,
             discounted_sum,
             proofs: None,
+            proofs_spent: false,
+            recovery_data: None,
         };
         let _: Option<MintOfferDb> = self.db.create(Self::OFFERS_TABLE, None, entity).await?;
         Ok(())
@@ -221,6 +275,8 @@ pub struct MintOfferDb {
     pub expiration_timestamp: u64,
     pub discounted_sum: u64,
     pub proofs: Option<String>,
+    pub proofs_spent: bool,
+    pub recovery_data: Option<MintOfferRecoveryDataDb>,
 }
 
 impl From<MintOfferDb> for MintOffer {
@@ -231,18 +287,23 @@ impl From<MintOfferDb> for MintOffer {
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
             proofs: value.proofs,
+            proofs_spent: value.proofs_spent,
+            recovery_data: value.recovery_data.map(|rd| rd.into()),
         }
     }
 }
 
-impl From<MintOffer> for MintOfferDb {
-    fn from(value: MintOffer) -> Self {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MintOfferRecoveryDataDb {
+    pub secrets: Vec<String>,
+    pub rs: Vec<String>,
+}
+
+impl From<MintOfferRecoveryDataDb> for MintOfferRecoveryData {
+    fn from(value: MintOfferRecoveryDataDb) -> Self {
         Self {
-            mint_request_id: value.mint_request_id,
-            keyset_id: value.keyset_id,
-            expiration_timestamp: value.expiration_timestamp,
-            discounted_sum: value.discounted_sum,
-            proofs: value.proofs,
+            secrets: value.secrets,
+            rs: value.rs,
         }
     }
 }
@@ -259,19 +320,6 @@ pub struct MintRequestDb {
 
 impl From<MintRequestDb> for MintRequest {
     fn from(value: MintRequestDb) -> Self {
-        Self {
-            requester_node_id: value.requester_node_id,
-            bill_id: value.bill_id,
-            mint_node_id: value.mint_node_id,
-            mint_request_id: value.mint_request_id,
-            timestamp: value.timestamp,
-            status: value.status.into(),
-        }
-    }
-}
-
-impl From<MintRequest> for MintRequestDb {
-    fn from(value: MintRequest) -> Self {
         Self {
             requester_node_id: value.requester_node_id,
             bill_id: value.bill_id,
@@ -327,5 +375,235 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
             }
             MintRequestStatus::Expired { timestamp } => MintRequestStatusDb::Expired { timestamp },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::get_memory_db;
+
+    async fn get_requests_store() -> SurrealMintStore {
+        let mem_db = get_memory_db("test", "requests")
+            .await
+            .expect("could not create memory db");
+        SurrealMintStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
+    }
+
+    async fn get_offers_store() -> SurrealMintStore {
+        let mem_db = get_memory_db("test", "offers")
+            .await
+            .expect("could not create memory db");
+        SurrealMintStore::new(SurrealWrapper {
+            db: mem_db,
+            files: false,
+        })
+    }
+
+    #[tokio::test]
+    async fn test_exists_for_bill() {
+        let store = get_requests_store().await;
+        assert!(!store.exists_for_bill("requester", "bill_id").await.unwrap());
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        assert!(store.exists_for_bill("requester", "bill_id").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_get_requests() {
+        let store = get_requests_store().await;
+        let reqs = store
+            .get_requests("requester", "bill_id", "mint_node_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 0);
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let reqs = store
+            .get_requests("requester", "bill_id", "mint_node_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_requests_for_bill() {
+        let store = get_requests_store().await;
+        let reqs = store
+            .get_requests_for_bill("requester", "bill_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 0);
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let reqs = store
+            .get_requests_for_bill("requester", "bill_id")
+            .await
+            .unwrap();
+        assert_eq!(reqs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_active_requests() {
+        let store = get_requests_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let reqs = store.get_all_active_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_request() {
+        let store = get_requests_store().await;
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(req.is_none());
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(req.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_update_request() {
+        let store = get_requests_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(matches!(
+            req.as_ref().unwrap().status,
+            MintRequestStatus::Pending
+        ));
+        store
+            .update_request("mint_req_id", &MintRequestStatus::Offered)
+            .await
+            .unwrap();
+        let req = store.get_request("mint_req_id").await.unwrap();
+        assert!(matches!(
+            req.as_ref().unwrap().status,
+            MintRequestStatus::Offered
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_get_offer() {
+        let store = get_requests_store().await;
+        let offer_store = get_offers_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        offer_store
+            .add_offer("mint_req_id", "keyset_id", 1731593928, 1500)
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_update_offer() {
+        let store = get_requests_store().await;
+        let offer_store = get_offers_store().await;
+        store
+            .add_request(
+                "requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        offer_store
+            .add_offer("mint_req_id", "keyset_id", 1731593928, 1500)
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.is_some());
+        assert!(offer.as_ref().unwrap().recovery_data.is_none());
+
+        // recovery data
+        offer_store
+            .add_recovery_data_to_offer("mint_req_id", &["secret".to_owned()], &["r".to_owned()])
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.as_ref().unwrap().recovery_data.is_some());
+        assert!(offer.as_ref().unwrap().proofs.is_none());
+
+        // proofs
+        offer_store
+            .add_proofs_to_offer("mint_req_id", "proofs")
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.as_ref().unwrap().proofs.is_some());
+        assert_eq!(offer.as_ref().unwrap().proofs.as_ref().unwrap(), "proofs");
+        assert!(!offer.as_ref().unwrap().proofs_spent);
+
+        // proofs spent
+        offer_store
+            .set_proofs_to_spent_for_offer("mint_req_id")
+            .await
+            .unwrap();
+        let offer = offer_store.get_offer("mint_req_id").await.unwrap();
+        assert!(offer.as_ref().unwrap().proofs_spent);
     }
 }

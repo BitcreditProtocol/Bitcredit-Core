@@ -54,6 +54,7 @@ pub struct MockBillContext {
     pub file_upload_store: MockFileUploadStoreApiMock,
     pub notification_service: MockNotificationService,
     pub mint_store: MockMintStore,
+    pub mint_client: MockMintClientApi,
 }
 
 pub fn get_baseline_identity() -> IdentityWithAll {
@@ -168,7 +169,6 @@ pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
 }
 
 pub fn get_service(mut ctx: MockBillContext) -> BillService {
-    let mint_client = MockMintClientApi::new();
     let mut bitcoin_client = MockBitcoinClientApi::new();
     bitcoin_client
         .expect_check_if_paid()
@@ -265,7 +265,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         Arc::new(ctx.contact_store),
         Arc::new(ctx.company_store),
         Arc::new(ctx.mint_store),
-        Arc::new(mint_client),
+        Arc::new(ctx.mint_client),
     )
 }
 
@@ -281,6 +281,7 @@ pub fn get_ctx() -> MockBillContext {
         company_store: MockCompanyStoreApiMock::new(),
         notification_service: MockNotificationService::new(),
         mint_store: MockMintStore::new(),
+        mint_client: MockMintClientApi::new(),
     }
 }
 

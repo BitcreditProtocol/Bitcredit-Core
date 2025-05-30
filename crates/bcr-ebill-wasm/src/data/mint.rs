@@ -63,6 +63,7 @@ pub struct MintOfferWeb {
     pub expiration_timestamp: u64,
     pub discounted_sum: u64,
     pub proofs: Option<String>,
+    pub proofs_spent: bool,
 }
 
 impl From<MintOffer> for MintOfferWeb {
@@ -73,6 +74,7 @@ impl From<MintOffer> for MintOfferWeb {
             expiration_timestamp: val.expiration_timestamp,
             discounted_sum: val.discounted_sum,
             proofs: val.proofs.to_owned(),
+            proofs_spent: val.proofs_spent,
         }
     }
 }

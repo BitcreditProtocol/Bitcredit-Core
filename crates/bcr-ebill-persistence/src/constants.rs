@@ -28,6 +28,8 @@ pub const DB_STATUS_ACCEPTED: &str = "status_accepted";
 pub const DB_MINT_NODE_ID: &str = "mint_node_id";
 pub const DB_MINT_REQUEST_ID: &str = "mint_request_id";
 pub const DB_PROOFS: &str = "proofs";
+pub const DB_RECOVERY_DATA: &str = "recovery_data";
+pub const DB_PROOFS_SPENT: &str = "proofs_spent";
 pub const DB_MINT_REQUESTER_NODE_ID: &str = "requester_node_id";
 pub const DB_SEARCH_TERM: &str = "search_term";
 

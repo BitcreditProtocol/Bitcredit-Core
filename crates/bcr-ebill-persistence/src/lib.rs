@@ -55,6 +55,12 @@ pub enum Error {
     #[error("The offer for the given request to mint already has proofs set")]
     MintOfferAlreadyHasProofs,
 
+    #[error("The offer for the given request to mint has no proofs set")]
+    MintOfferHasNoProofs,
+
+    #[error("The offer for the given request to mint already has recovery data set")]
+    MintOfferAlreadyHasRecoveryData,
+
     #[error("There is no offer for the given request to mint")]
     MintOfferDoesNotExist,
 
