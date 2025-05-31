@@ -603,7 +603,7 @@ impl Bill {
         Ok(())
     }
 
-    #[wasm_bindgen(unchecked_return_type = "MintRequestStateWeb")]
+    #[wasm_bindgen(unchecked_return_type = "MintRequestStateResponse")]
     pub async fn mint_state(&self, id: &str) -> Result<JsValue> {
         let result = get_ctx()
             .bill_service
