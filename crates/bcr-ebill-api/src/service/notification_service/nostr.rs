@@ -2,22 +2,22 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::block::NodeId},
     contact::BillParticipant,
-    util::{
-        base58_decode, base58_encode,
-        crypto::{self, decrypt_ecies, encrypt_ecies},
-    },
+    util::crypto,
 };
 use bcr_ebill_transport::{
-    bcr_nostr_tag, event::EventEnvelope, handler::NotificationHandlerApi,
-    transport::NostrContactData,
+    chain_keys::ChainKeyServiceApi,
+    event::EventEnvelope,
+    handler::NotificationHandlerApi,
+    transport::{
+        NostrContactData, create_nip04_event, create_public_chain_event,
+        decrypt_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
+    },
 };
 use log::{error, info, trace, warn};
-use nostr::nips::nip73::ExternalContentId;
+use nostr::signer::NostrSigner;
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
-    RelayPoolNotification, RelayUrl, SecretKey, SingleLetterTag, Tag, TagKind, TagStandard,
-    Timestamp, ToBech32, UnsignedEvent,
-    nips::{nip04, nip59::UnwrappedGift},
+    RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp, ToBech32,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -39,16 +39,18 @@ pub struct NostrConfig {
     pub relays: Vec<String>,
     pub name: String,
     pub default_timeout: Duration,
+    pub is_primary: bool,
 }
 
 impl NostrConfig {
-    pub fn new(keys: BcrKeys, relays: Vec<String>, name: String) -> Self {
+    pub fn new(keys: BcrKeys, relays: Vec<String>, name: String, is_primary: bool) -> Self {
         assert!(!relays.is_empty());
         Self {
             keys,
             relays,
             name,
             default_timeout: Duration::from_secs(20),
+            is_primary,
         }
     }
 
@@ -138,8 +140,20 @@ impl NostrClient {
         self.keys.get_nostr_keys()
     }
 
+    pub fn is_primary(&self) -> bool {
+        self.config.is_primary
+    }
+
     fn use_nip04(&self) -> bool {
         true
+    }
+
+    // We create the client with a private key so this should never fail.
+    async fn get_signer(&self) -> Arc<dyn NostrSigner> {
+        self.client
+            .signer()
+            .await
+            .expect("Unable to get Nostr signer for active client")
     }
 
     /// Subscribe to some nostr events with a filter
@@ -238,69 +252,6 @@ impl NostrClient {
         Ok(events)
     }
 
-    pub async fn unwrap_envelope(
-        &self,
-        note: RelayPoolNotification,
-    ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
-        if self.use_nip04() {
-            self.unwrap_nip04_envelope(note).await
-        } else {
-            self.unwrap_nip17_envelope(note).await
-        }
-    }
-
-    /// Unwrap envelope from private direct message
-    async fn unwrap_nip17_envelope(
-        &self,
-        note: RelayPoolNotification,
-    ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
-        let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
-        if let RelayPoolNotification::Event { event, .. } = note {
-            if event.kind == Kind::GiftWrap {
-                result = match self.client.unwrap_gift_wrap(&event).await {
-                    Ok(UnwrappedGift { rumor, sender }) => extract_event_envelope(rumor)
-                        .map(|e| (e, sender, event.id, event.created_at)),
-                    Err(e) => {
-                        error!("Unwrapping gift wrap failed: {e}");
-                        None
-                    }
-                }
-            }
-        }
-        result
-    }
-
-    /// Unwrap envelope from private direct message
-    async fn unwrap_nip04_envelope(
-        &self,
-        note: RelayPoolNotification,
-    ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
-        let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
-        if let RelayPoolNotification::Event { event, .. } = note {
-            if event.kind == Kind::EncryptedDirectMessage {
-                match nip04::decrypt(
-                    self.keys.get_nostr_keys().secret_key(),
-                    &event.pubkey,
-                    &event.content,
-                ) {
-                    Ok(decrypted) => {
-                        result = extract_text_envelope(&decrypted)
-                            .map(|e| (e, event.pubkey, event.id, event.created_at));
-                    }
-                    Err(e) => {
-                        error!("Decrypting event failed: {e}");
-                    }
-                }
-            } else {
-                info!(
-                    "Received event with kind {} but expected EncryptedDirectMessage",
-                    event.kind
-                );
-            }
-        }
-        result
-    }
-
     pub async fn send_nip04_message(
         &self,
         recipient: &BillParticipant,
@@ -312,8 +263,7 @@ impl NostrClient {
                 Error::Crypto("Failed to parse Nostr npub".to_string())
             })?;
             let message = serde_json::to_string(&event)?;
-            let event =
-                create_nip04_event(self.get_nostr_keys().secret_key(), &public_key, &message)?;
+            let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
             let relays = recipient.nostr_relays();
             if !relays.is_empty() {
                 if let Err(e) = self.client.send_event_builder_to(&relays, event).await {
@@ -454,15 +404,16 @@ pub struct NostrConsumer {
     event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+    chain_key_service: Arc<dyn ChainKeyServiceApi>,
 }
 
 impl NostrConsumer {
-    #[allow(dead_code)]
     pub fn new(
         clients: Vec<Arc<NostrClient>>,
         contact_service: Arc<dyn ContactServiceApi>,
         event_handlers: Vec<Box<dyn NotificationHandlerApi>>,
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+        chain_key_service: Arc<dyn ChainKeyServiceApi>,
     ) -> Self {
         let clients = clients
             .into_iter()
@@ -474,16 +425,17 @@ impl NostrConsumer {
             event_handlers: Arc::new(event_handlers),
             contact_service,
             offset_store,
+            chain_key_service,
         }
     }
 
-    #[allow(dead_code)]
     pub async fn start(&self) -> Result<()> {
         // move dependencies into thread scope
         let clients = self.clients.clone();
         let event_handlers = self.event_handlers.clone();
         let contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
+        let chain_key_store = self.chain_key_service.clone();
 
         let mut tasks = Vec::new();
         let local_node_ids = clients.keys().cloned().collect::<Vec<PublicKey>>();
@@ -492,6 +444,7 @@ impl NostrConsumer {
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
+            let chain_key_store = chain_key_store.clone();
             let client_id = node_id.to_hex();
             let contact_service = contact_service.clone();
             let local_node_ids = local_node_ids.clone();
@@ -500,47 +453,119 @@ impl NostrConsumer {
             let task = spawn(async move {
                 // continue where we left off
                 let offset_ts = get_offset(&offset_store, &client_id).await;
-                let public_key = current_client.keys.get_nostr_keys().public_key();
-                let filter = Filter::new()
-                    .pubkey(public_key)
-                    .kind(Kind::EncryptedDirectMessage)
-                    .since(offset_ts);
 
-                // subscribe only to private messages sent to our pubkey
+                // subscribe to private events
                 current_client
-                    .subscribe(filter)
+                    .subscribe(
+                        Filter::new()
+                            .pubkey(current_client.keys.get_nostr_keys().public_key())
+                            .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
+                            .since(offset_ts),
+                    )
                     .await
-                    .expect("Failed to subscribe to Nostr events");
+                    .expect("Failed to subscribe to Nostr dm events");
 
-                let inner = current_client.clone();
+                // we only need one client to subscribe to public events
+                if current_client.is_primary() {
+                    let contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
+                    info!("Found {} contacts to subscribe to", contacts.len());
+                    if !contacts.is_empty() {
+                        info!("Subscribing to public Nostr events for client {client_id}");
+                        current_client
+                            .subscribe(
+                                Filter::new()
+                                    .authors(contacts)
+                                    .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
+                                    .since(offset_ts),
+                            )
+                            .await
+                            .expect("Failed to subscribe to Nostr public events");
+                    }
+                }
+
+                let signer = current_client.get_signer().await;
+
                 current_client
                     .client
                     .handle_notifications(move |note| {
-                        let client = inner.clone();
                         let event_handlers = event_handlers.clone();
                         let offset_store = offset_store.clone();
+                        let chain_key_store = chain_key_store.clone();
                         let client_id = client_id.clone();
                         let contact_service = contact_service.clone();
                         let local_node_ids = local_node_ids.clone();
+                        let signer = signer.clone();
 
                         async move {
-                            if let Some((envelope, sender, event_id, time)) =
-                                client.unwrap_envelope(note).await
-                            {
-                                if !offset_store.is_processed(&event_id.to_hex()).await? {
-                                    let sender_npub = sender.to_bech32();
-                                    let sender_node_id = sender.to_hex();
-                                    trace!("Received event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}");
-                                    // We use hex here, so we can compare it with our node_ids
-                                    if valid_sender(&sender, &local_node_ids, &contact_service).await {
-                                        trace!("Processing event: {envelope:?}");
-                                        handle_event(envelope, &client_id, &event_handlers).await?;
-                                    }
-
+                            if let RelayPoolNotification::Event { event, .. } = note {
+                                if should_process(
+                                    event.clone(),
+                                    &local_node_ids,
+                                    &contact_service,
+                                    &offset_store,
+                                )
+                                .await
+                                {
+                                    let success = match event.kind {
+                                        Kind::EncryptedDirectMessage | Kind::GiftWrap => {
+                                            info!("Received encrypted direct message: {event:?}");
+                                            match handle_direct_message(
+                                                event.clone(),
+                                                &signer,
+                                                &client_id,
+                                                &event_handlers,
+                                            )
+                                            .await
+                                            {
+                                                Err(e) => {
+                                                    error!("Failed to handle direct message: {e}");
+                                                    false
+                                                }
+                                                Ok(_) => true,
+                                            }
+                                        }
+                                        Kind::TextNote => {
+                                            info!("Received text note: {event:?}");
+                                            match handle_public_event(
+                                                event.clone(),
+                                                &client_id,
+                                                &chain_key_store,
+                                                &event_handlers,
+                                            )
+                                            .await
+                                            {
+                                                Err(e) => {
+                                                    error!(
+                                                        "Failed to handle public chain event: {e}"
+                                                    );
+                                                    false
+                                                }
+                                                Ok(_) => true,
+                                            }
+                                        }
+                                        Kind::RelayList => {
+                                            // we have not subscribed to relaylist events yet
+                                            info!("Received relay list: {event:?}");
+                                            true
+                                        }
+                                        Kind::Metadata => {
+                                            // we have not subscribed to metadata events yet
+                                            info!("Received metadata: {event:?}");
+                                            true
+                                        }
+                                        _ => true,
+                                    };
                                     // store the new event offset
-                                    add_offset(&offset_store, event_id, time, true, &client_id).await;
+                                    add_offset(
+                                        &offset_store,
+                                        event.id,
+                                        event.created_at,
+                                        success,
+                                        &client_id,
+                                    )
+                                    .await;
                                 }
-                            };
+                            }
                             Ok(false)
                         }
                     })
@@ -562,15 +587,64 @@ impl NostrConsumer {
     }
 }
 
+async fn should_process(
+    event: Box<Event>,
+    local_node_ids: &[PublicKey],
+    contact_service: &Arc<dyn ContactServiceApi>,
+    offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
+) -> bool {
+    valid_sender(&event.pubkey, local_node_ids, contact_service).await
+        && !offset_store
+            .is_processed(&event.id.to_hex())
+            .await
+            .unwrap_or(false)
+}
+
+async fn handle_direct_message<T: NostrSigner>(
+    event: Box<Event>,
+    signer: &T,
+    client_id: &str,
+    event_handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+) -> Result<()> {
+    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event, signer).await {
+        let sender_npub = sender.to_bech32();
+        let sender_node_id = sender.to_hex();
+        trace!(
+            "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}"
+        );
+        handle_event(envelope, client_id, event_handlers).await?;
+    }
+    Ok(())
+}
+
+async fn handle_public_event(
+    event: Box<Event>,
+    node_id: &str,
+    chain_key_store: &Arc<dyn ChainKeyServiceApi>,
+    handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+) -> Result<()> {
+    if let Some(encrypted_data) = unwrap_public_chain_event(event)? {
+        if let Ok(Some(chain_keys)) = chain_key_store
+            .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
+            .await
+        {
+            let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
+            info!("Handling public chain event: {:?}", decrypted);
+            handle_event(decrypted, node_id, handlers).await?
+        }
+    }
+    Ok(())
+}
+
 async fn valid_sender(
-    node_id: &PublicKey,
+    npub: &PublicKey,
     local_node_ids: &[PublicKey],
     contact_service: &Arc<dyn ContactServiceApi>,
 ) -> bool {
-    if local_node_ids.contains(node_id) {
+    if local_node_ids.contains(npub) {
         return true;
     }
-    if let Ok(res) = contact_service.is_known_npub(node_id).await {
+    if let Ok(res) = contact_service.is_known_npub(npub).await {
         res
     } else {
         error!("Could not check if sender is a known contact");
@@ -609,110 +683,6 @@ async fn add_offset(
     .await
     .map_err(|e| error!("Could not store event offset: {e}"))
     .ok();
-}
-
-fn extract_text_envelope(message: &str) -> Option<EventEnvelope> {
-    match serde_json::from_str::<EventEnvelope>(message) {
-        Ok(envelope) => Some(envelope),
-        Err(e) => {
-            error!("Json deserializing event envelope failed: {e}");
-            None
-        }
-    }
-}
-
-fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
-    if rumor.kind == Kind::PrivateDirectMessage {
-        match serde_json::from_str::<EventEnvelope>(rumor.content.as_str()) {
-            Ok(envelope) => Some(envelope),
-            Err(e) => {
-                error!("Json deserializing event envelope failed: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    }
-}
-
-fn create_nip04_event(
-    secret_key: &SecretKey,
-    public_key: &PublicKey,
-    message: &str,
-) -> Result<EventBuilder> {
-    Ok(EventBuilder::new(
-        Kind::EncryptedDirectMessage,
-        nip04::encrypt(secret_key, public_key, message).map_err(|e| {
-            error!("Failed to encrypt direct private message: {e}");
-            Error::Crypto("Failed to encrypt direct private message".to_string())
-        })?,
-    )
-    .tag(Tag::public_key(*public_key)))
-}
-
-/// Takes an event envelope and creates a public chain event with appropriate tags and encrypted
-/// base58 encoded payload.
-fn create_public_chain_event(
-    id: &str,
-    event: EventEnvelope,
-    blockchain: BlockchainType,
-    keys: BcrKeys,
-    previous_event: Option<Event>,
-    root_event: Option<Event>,
-) -> Result<EventBuilder> {
-    let payload = base58_encode(&encrypt_ecies(
-        &serde_json::to_vec(&event)?,
-        &keys.get_public_key(),
-    )?);
-    let event = match previous_event {
-        Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None),
-        None => EventBuilder::new(Kind::TextNote, payload).tag(bcr_nostr_tag(id, blockchain)),
-    };
-    Ok(event)
-}
-
-#[allow(dead_code)]
-/// Unwraps a Nostr chain event with its metadata. Will return the encrypted payload and
-/// the metadata if the event matches a public chain event. Otherwise it returns None.
-fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPublicEventData>> {
-    let data: Vec<EncryptedPublicEventData> = event
-        .tags
-        .filter_standardized(TagKind::SingleLetter(SingleLetterTag::lowercase(
-            Alphabet::I,
-        )))
-        .filter_map(|t| match t {
-            TagStandard::ExternalContent {
-                content:
-                    ExternalContentId::BlockchainAddress {
-                        address, chain_id, ..
-                    },
-                ..
-            } => chain_id.as_ref().map(|id| EncryptedPublicEventData {
-                id: address.to_owned(),
-                chain_type: BlockchainType::try_from(id.as_ref()).unwrap(),
-                payload: event.content.clone(),
-            }),
-            _ => None,
-        })
-        .collect();
-    Ok(data.first().cloned())
-}
-
-#[allow(dead_code)]
-/// Given an encrypted payload and a private key, decrypts the payload and returns
-/// its content as an EventEnvelope.
-fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
-    let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key_string())?;
-    let payload = serde_json::from_slice::<EventEnvelope>(&decrypted)?;
-    Ok(payload)
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-struct EncryptedPublicEventData {
-    pub id: String,
-    pub chain_type: BlockchainType,
-    pub payload: String,
 }
 
 /// Handle extracted event with given handlers.
@@ -757,7 +727,7 @@ mod tests {
         contact_service::MockContactServiceApi,
         notification_service::{NotificationJsonTransportApi, test_utils::*},
     };
-    use crate::tests::tests::MockNostrEventOffsetStoreApiMock;
+    use crate::tests::tests::{MockChainKeyService, MockNostrEventOffsetStoreApiMock};
     use crate::util::BcrKeys;
     use mockall::mock;
 
@@ -787,6 +757,7 @@ mod tests {
             keys1.clone(),
             vec![url.to_string()],
             "BcrDamus1".to_string(),
+            true,
         );
         let client1 = NostrClient::new(&config1)
             .await
@@ -796,6 +767,7 @@ mod tests {
             keys2.clone(),
             vec![url.to_string()],
             "BcrDamus2".to_string(),
+            true,
         );
         let client2 = NostrClient::new(&config2)
             .await
@@ -857,12 +829,15 @@ mod tests {
             .returning(|_| Ok(()))
             .once();
 
+        let chain_key_store = MockChainKeyService::new();
+
         // we start the consumer
         let consumer = NostrConsumer::new(
             vec![Arc::new(client2)],
             Arc::new(contact_service),
             vec![Box::new(handler)],
             Arc::new(offset_store),
+            Arc::new(chain_key_store),
         );
 
         // run in a local set

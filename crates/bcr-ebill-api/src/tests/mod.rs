@@ -35,7 +35,8 @@ pub mod tests {
         notification::NotificationFilter,
     };
     use bcr_ebill_transport::{
-        BillChainEvent, NotificationServiceApi, transport::NostrContactData,
+        BillChainEvent, NotificationServiceApi, chain_keys::ChainKeyServiceApi,
+        transport::NostrContactData,
     };
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
@@ -123,6 +124,7 @@ pub mod tests {
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
+            async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<nostr::key::PublicKey>>;
         }
     }
 
@@ -178,6 +180,17 @@ pub mod tests {
             async fn get_latest_block(&self, id: &str) -> Result<BillBlock>;
             async fn add_block(&self, id: &str, block: &BillBlock) -> Result<()>;
             async fn get_chain(&self, id: &str) -> Result<BillBlockchain>;
+        }
+    }
+
+    mockall::mock! {
+        pub ChainKeyService {}
+
+        impl ServiceTraitBounds for ChainKeyService {}
+
+        #[async_trait]
+        impl ChainKeyServiceApi for ChainKeyService {
+            async fn get_chain_keys(&self, chain_id: &str, chain_type: BlockchainType) -> bcr_ebill_transport::Result<Option<BcrKeys>>;
         }
     }
 

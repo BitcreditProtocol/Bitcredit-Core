@@ -99,8 +99,10 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     ) -> Result<Contact>;
 
     /// Returns whether a given npub (as hex) is in our contact list.
-    #[allow(dead_code)]
     async fn is_known_npub(&self, npub: &PublicKey) -> Result<bool>;
+
+    /// Returns the Npubs we want to subscribe to on Nostr.
+    async fn get_nostr_npubs(&self) -> Result<Vec<PublicKey>>;
 
     /// opens and decrypts the attached file from the given contact
     async fn open_and_decrypt_file(
@@ -531,6 +533,14 @@ impl ContactServiceApi for ContactService {
                 .await?
                 .map(|c| c.trust_level != TrustLevel::None)
                 .unwrap_or(false))
+    }
+
+    /// Returns the Npubs we want to subscribe to on Nostr.
+    async fn get_nostr_npubs(&self) -> Result<Vec<PublicKey>> {
+        Ok(self
+            .nostr_contact_store
+            .get_npubs(vec![TrustLevel::Trusted, TrustLevel::Participant])
+            .await?)
     }
 
     async fn open_and_decrypt_file(
