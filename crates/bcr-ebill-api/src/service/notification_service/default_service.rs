@@ -642,6 +642,7 @@ mod tests {
                 previous_event: Option<nostr::event::Event>,
                 root_event: Option<nostr::event::Event>) -> bcr_ebill_transport::Result<nostr::event::Event>;
             async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
+            async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         }
     }
 

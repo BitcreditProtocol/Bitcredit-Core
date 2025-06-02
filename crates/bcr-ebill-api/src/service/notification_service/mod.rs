@@ -12,7 +12,8 @@ use bcr_ebill_persistence::nostr::{
 };
 use bcr_ebill_transport::chain_keys::ChainKeyServiceApi;
 use bcr_ebill_transport::handler::{
-    BillChainEventHandler, LoggingEventHandler, NotificationHandlerApi,
+    BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler, LoggingEventHandler,
+    NotificationHandlerApi,
 };
 use bcr_ebill_transport::{Error, EventType, Result};
 use bcr_ebill_transport::{NotificationServiceApi, PushApi};
@@ -125,10 +126,18 @@ pub async fn create_nostr_consumer(
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
-    let transport = match clients.first() {
+    let transport = match clients.iter().find(|c| c.is_primary()) {
         Some(client) => client.clone(),
         None => panic!("Cant create Nostr consumer as there is no nostr client available"),
     };
+
+    let processor = Arc::new(BillChainEventProcessor::new(
+        bill_blockchain_store,
+        bill_store,
+        transport.clone(),
+        nostr_contact_store,
+    ));
+
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
     let handlers: Vec<Box<dyn NotificationHandlerApi>> = vec![
@@ -138,11 +147,9 @@ pub async fn create_nostr_consumer(
         Box::new(BillChainEventHandler::new(
             notification_store,
             push_service,
-            bill_blockchain_store,
-            bill_store,
-            transport,
-            nostr_contact_store,
+            processor.clone(),
         )),
+        Box::new(BillInviteEventHandler::new(transport.clone())),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());
     let consumer = NostrConsumer::new(

@@ -9,7 +9,7 @@ use bcr_ebill_transport::{
     event::EventEnvelope,
     handler::NotificationHandlerApi,
     transport::{
-        NostrContactData, create_nip04_event, create_public_chain_event,
+        NostrContactData, chain_filter, create_nip04_event, create_public_chain_event,
         decrypt_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
     },
 };
@@ -396,6 +396,16 @@ impl NotificationJsonTransportApi for NostrClient {
             Ok(None)
         }
     }
+
+    async fn resolve_public_chain(
+        &self,
+        id: &str,
+        chain_type: BlockchainType,
+    ) -> Result<Vec<nostr::event::Event>> {
+        Ok(self
+            .fetch_events(chain_filter(id, chain_type), Some(SortOrder::Asc), None)
+            .await?)
+    }
 }
 
 #[derive(Clone)]
@@ -508,7 +518,7 @@ impl NostrConsumer {
                                 {
                                     let success = match event.kind {
                                         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
-                                            info!("Received encrypted direct message: {event:?}");
+                                            trace!("Received encrypted direct message: {event:?}");
                                             match handle_direct_message(
                                                 event.clone(),
                                                 &signer,

@@ -16,7 +16,7 @@ use mockall::automock;
 use nostr::{
     Event,
     event::{EventBuilder, EventId, Kind, Tag, TagKind, TagStandard, UnsignedEvent},
-    filter::{Alphabet, SingleLetterTag},
+    filter::{Alphabet, Filter, SingleLetterTag},
     key::PublicKey,
     nips::{nip01::Metadata, nip59::UnwrappedGift, nip73::ExternalContentId},
     signer::NostrSigner,
@@ -54,25 +54,18 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
     ) -> Result<Event>;
     /// Resolves a nostr contact by node id.
     async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>>;
+    /// Given an id and chain type, tries to resolve the public chain events.
+    async fn resolve_public_chain(
+        &self,
+        id: &str,
+        chain_type: BlockchainType,
+    ) -> Result<Vec<Event>>;
 }
 
 #[derive(Debug, Clone)]
 pub struct NostrContactData {
     pub metadata: Metadata,
     pub relays: Vec<RelayUrl>,
-}
-
-pub fn bcr_nostr_tag(id: &str, blockchain: BlockchainType) -> Tag {
-    TagStandard::ExternalContent {
-        content: ExternalContentId::BlockchainAddress {
-            chain: "bitcredit".to_string(),
-            address: id.to_string(),
-            chain_id: Some(blockchain.to_string()),
-        },
-        hint: None,
-        uppercase: false,
-    }
-    .into()
 }
 
 pub async fn unwrap_direct_message<T: NostrSigner>(
@@ -164,6 +157,34 @@ pub fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPu
         })
         .collect();
     Ok(data.first().cloned())
+}
+
+pub fn chain_filter(id: &str, chain_type: BlockchainType) -> Filter {
+    Filter::new()
+        .kind(Kind::TextNote)
+        .custom_tag(chain_tag(), tag_content(id, chain_type).to_string())
+        .limit(1000)
+}
+
+pub fn chain_tag() -> SingleLetterTag {
+    SingleLetterTag::lowercase(Alphabet::I)
+}
+
+pub fn tag_content(id: &str, blockchain: BlockchainType) -> ExternalContentId {
+    ExternalContentId::BlockchainAddress {
+        chain: "bitcredit".to_string(),
+        address: id.to_string(),
+        chain_id: Some(blockchain.to_string()),
+    }
+}
+
+pub fn bcr_nostr_tag(id: &str, blockchain: BlockchainType) -> Tag {
+    TagStandard::ExternalContent {
+        content: tag_content(id, blockchain),
+        hint: None,
+        uppercase: false,
+    }
+    .into()
 }
 
 /// Given an encrypted payload and a private key, decrypts the payload and returns

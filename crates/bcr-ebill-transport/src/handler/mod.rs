@@ -1,6 +1,6 @@
 use crate::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{ServiceTraitBounds, bill::BillKeys, blockchain::bill::BillBlock};
 use log::trace;
 #[cfg(test)]
 use mockall::automock;
@@ -8,8 +8,12 @@ use mockall::automock;
 use super::{EventEnvelope, EventType};
 
 mod bill_chain_event_handler;
+mod bill_chain_event_processor;
+mod bill_invite_handler;
 
 pub use bill_chain_event_handler::BillChainEventHandler;
+pub use bill_chain_event_processor::BillChainEventProcessor;
+pub use bill_invite_handler::BillInviteEventHandler;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -30,6 +34,25 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// the event.
     async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()>;
 }
+
+/// Generalizes the actual handling and validation of a bill block event.
+#[allow(dead_code)]
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait BillChainEventProcessorApi: ServiceTraitBounds {
+    /// Processes the chain data for given bill id, some blocks and an otptional key that will be
+    /// present when we are joining a new chain.
+    async fn process_chain_data(
+        &self,
+        bill_id: &str,
+        blocks: Vec<BillBlock>,
+        keys: Option<BillKeys>,
+    ) -> Result<()>;
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockBillChainEventProcessorApi {}
 
 /// Logs all events that are received and registered in the event_types.
 pub struct LoggingEventHandler {
