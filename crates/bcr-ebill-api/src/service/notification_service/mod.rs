@@ -149,7 +149,10 @@ pub async fn create_nostr_consumer(
             push_service,
             processor.clone(),
         )),
-        Box::new(BillInviteEventHandler::new(transport.clone())),
+        Box::new(BillInviteEventHandler::new(
+            transport.clone(),
+            processor.clone(),
+        )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());
     let consumer = NostrConsumer::new(

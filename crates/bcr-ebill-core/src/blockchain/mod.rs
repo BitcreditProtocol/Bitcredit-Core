@@ -70,7 +70,7 @@ pub enum Error {
     InvalidBlockchainType(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockchainType {
     #[serde(rename = "bill")]
     Bill,
