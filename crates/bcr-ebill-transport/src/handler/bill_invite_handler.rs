@@ -7,7 +7,7 @@ use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock},
     util::BcrKeys,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 
 use crate::{
     Event, EventEnvelope, EventType, NotificationJsonTransportApi, Result,
@@ -41,13 +41,12 @@ impl ServiceTraitBounds for BillInviteEventHandler {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationHandlerApi for BillInviteEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
-        event_type == &EventType::BillChain
+        event_type == &EventType::BillChainInvite
     }
 
     async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()> {
-        debug!("incoming bill chain event for {node_id}");
+        debug!("incoming bill chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
-            debug!("Received chain invite {:?}", decoded.data);
             if let Ok(keys) = BcrKeys::from_private_key(&decoded.data.keys.private_key) {
                 let data = self
                     .transport
@@ -60,7 +59,6 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                     decoded.data.chain_type,
                 ) {
                     if !blocks.is_empty() {
-                        info!("extracted blocks {blocks:?}");
                         self.processor
                             .process_chain_data(
                                 &decoded.data.chain_id,
@@ -73,7 +71,6 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                             .await?;
                     }
                 }
-                debug!("Resolved chain data for bill chain {data:?}");
             } else {
                 error!(
                     "Received invalid chain keys for chain {} {}",
