@@ -48,6 +48,7 @@ let config = {
   bitcoin_network: "testnet",
   esplora_base_url: "https://esplora.minibill.tech",
   nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
+  // nostr_relays: ["ws://localhost:8080"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 1,
