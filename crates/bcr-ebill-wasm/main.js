@@ -16,6 +16,7 @@ document.getElementById("bill_fetch_detail").addEventListener("click", fetchBill
 document.getElementById("bill_fetch_endorsements").addEventListener("click", fetchBillEndorsements);
 document.getElementById("bill_fetch_past_endorsees").addEventListener("click", fetchBillPastEndorsees);
 document.getElementById("bill_fetch_past_payments").addEventListener("click", fetchBillPastPayments);
+document.getElementById("bill_fetch_bill_file").addEventListener("click", fetchBillFile);
 document.getElementById("bill_fetch_bills").addEventListener("click", fetchBillBills);
 document.getElementById("bill_balances").addEventListener("click", fetchBillBalances);
 document.getElementById("bill_search").addEventListener("click", fetchBillSearch);
@@ -47,8 +48,8 @@ let config = {
   // esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
   bitcoin_network: "testnet",
   esplora_base_url: "https://esplora.minibill.tech",
-  nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
-  // nostr_relays: ["ws://localhost:8080"],
+  // nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
+  nostr_relays: ["ws://localhost:8080"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 1,
@@ -513,6 +514,21 @@ async function fetchBillPastPayments() {
     return await billApi.past_payments(document.getElementById("bill_id").value);
   });
   await measured();
+}
+
+async function fetchBillFile() {
+  let bill_id = document.getElementById("bill_id").value;
+  let detail = await billApi.detail(bill_id);
+
+  if (detail.data.files.length > 0) {
+    let file = await billApi.attachment(bill_id, detail.data.files[0].name);
+    let file_bytes = file.data;
+    let arr = new Uint8Array(file_bytes);
+    let blob = new Blob([arr], { type: file.content_type });
+    document.getElementById("bill_attached_file").src = URL.createObjectURL(blob);
+  } else {
+      console.log("Bill has no file");
+  }
 }
 
 async function fetchBillBills() {

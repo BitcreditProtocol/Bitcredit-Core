@@ -1,6 +1,5 @@
 use crate::blockchain::bill::BillBlockchain;
 use crate::data::{
-    File,
     bill::{
         BillCombinedBitcoinKey, BillKeys, BillsBalanceOverview, BillsFilterRole, BitcreditBill,
         BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastEndorsee,
@@ -83,19 +82,9 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn open_and_decrypt_attached_file(
         &self,
         bill_id: &str,
-        file_name: &str,
+        file: &bcr_ebill_core::File,
         bill_private_key: &str,
     ) -> Result<Vec<u8>>;
-
-    /// encrypts and saves the given uploaded file, returning the file name, as well as the hash of
-    /// the unencrypted file
-    async fn encrypt_and_save_uploaded_file(
-        &self,
-        file_name: &str,
-        file_bytes: &[u8],
-        bill_id: &str,
-        bill_public_key: &str,
-    ) -> Result<File>;
 
     /// issues a new bill
     async fn issue_new_bill(&self, data: BillIssueData) -> Result<BitcreditBill>;
@@ -235,7 +224,7 @@ pub mod tests {
         util,
     };
     use bcr_ebill_core::{
-        ValidationError,
+        File, ValidationError,
         bill::{
             BillAcceptanceStatus, BillCurrentWaitingState, BillPaymentStatus, BillRecourseStatus,
             BillSellStatus, BillWaitingForPaymentState, PastPaymentStatus, RecourseReason,
@@ -259,9 +248,11 @@ pub mod tests {
         util::date::DateTimeUtc,
     };
     use cashu::nut02 as cdk02;
-    use core::str;
     use mockall::predicate::{always, eq, function};
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        str::FromStr,
+    };
     use test_utils::{
         accept_block, get_baseline_bill, get_baseline_cached_bill, get_baseline_identity, get_ctx,
         get_genesis_chain, get_service, offer_to_sell_block, recourse_block, reject_accept_block,
@@ -480,9 +471,12 @@ pub mod tests {
         ctx.file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
-        ctx.file_upload_store
-            .expect_save_attached_file()
-            .returning(move |_, _, _| Ok(()));
+        ctx.file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
         ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -543,9 +537,12 @@ pub mod tests {
         ctx.file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
-        ctx.file_upload_store
-            .expect_save_attached_file()
-            .returning(move |_, _, _| Ok(()));
+        ctx.file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
         ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -686,9 +683,12 @@ pub mod tests {
         ctx.file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
-        ctx.file_upload_store
-            .expect_save_attached_file()
-            .returning(move |_, _, _| Ok(()));
+        ctx.file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
         ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -734,71 +734,26 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn save_encrypt_open_decrypt_compare_hashes() {
+    async fn open_decrypt_propagates_download_error() {
         let mut ctx = get_ctx();
-        let bill_id = "test_bill_id";
-        let file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
-        let file_bytes = String::from("hello world").as_bytes().to_vec();
-        let expected_encrypted =
-            util::crypto::encrypt_ecies(&file_bytes, TEST_PUB_KEY_SECP).unwrap();
-
-        ctx.file_upload_store
-            .expect_save_attached_file()
-            .with(always(), eq(bill_id), eq(file_name))
-            .times(1)
-            .returning(|_, _, _| Ok(()));
-
-        ctx.file_upload_store
-            .expect_open_attached_file()
-            .with(eq(bill_id), eq(file_name))
-            .times(1)
-            .returning(move |_, _| Ok(expected_encrypted.clone()));
-        let service = get_service(ctx);
-
-        let bill_file = service
-            .encrypt_and_save_uploaded_file(file_name, &file_bytes, bill_id, TEST_PUB_KEY_SECP)
-            .await
-            .unwrap();
-        assert_eq!(
-            bill_file.hash,
-            String::from("DULfJyE3WQqNxy3ymuhAChyNR3yufT88pmqvAazKFMG4")
-        );
-        assert_eq!(bill_file.name, String::from(file_name));
-
-        let decrypted = service
-            .open_and_decrypt_attached_file(bill_id, file_name, TEST_PRIVATE_KEY_SECP)
-            .await
-            .unwrap();
-        assert_eq!(str::from_utf8(&decrypted).unwrap(), "hello world");
-    }
-
-    #[tokio::test]
-    async fn save_encrypt_propagates_write_file_error() {
-        let mut ctx = get_ctx();
-        ctx.file_upload_store
-            .expect_save_attached_file()
-            .returning(|_, _, _| Err(persistence::Error::Io(std::io::Error::other("test error"))));
+        ctx.file_upload_client.expect_download().returning(|_, _| {
+            Err(crate::external::Error::ExternalFileStorageApi(
+                crate::external::file_storage::Error::InvalidRelayUrl,
+            ))
+        });
         let service = get_service(ctx);
 
         assert!(
             service
-                .encrypt_and_save_uploaded_file("file_name", &[], "test", TEST_PUB_KEY_SECP)
-                .await
-                .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn open_decrypt_propagates_read_file_error() {
-        let mut ctx = get_ctx();
-        ctx.file_upload_store
-            .expect_open_attached_file()
-            .returning(|_, _| Err(persistence::Error::Io(std::io::Error::other("test error"))));
-        let service = get_service(ctx);
-
-        assert!(
-            service
-                .open_and_decrypt_attached_file("test", "test", TEST_PRIVATE_KEY_SECP)
+                .open_and_decrypt_attached_file(
+                    "test",
+                    &File {
+                        name: "some_file".into(),
+                        hash: "".into(),
+                        nostr_hash: "".into()
+                    },
+                    TEST_PRIVATE_KEY_SECP
+                )
                 .await
                 .is_err()
         );
@@ -6033,7 +5988,6 @@ pub mod tests {
                 1731593930,
             )
             .await;
-        println!("{res:?}");
         assert!(res.is_ok());
     }
 

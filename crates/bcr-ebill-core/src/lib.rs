@@ -171,6 +171,7 @@ pub enum GeneralSearchFilterItemType {
 pub struct File {
     pub name: String,
     pub hash: String,
+    pub nostr_hash: String,
 }
 
 #[derive(Debug)]

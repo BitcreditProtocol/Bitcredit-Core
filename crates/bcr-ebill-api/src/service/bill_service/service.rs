@@ -5,7 +5,6 @@ use crate::blockchain::bill::block::BillIdentParticipantBlockData;
 use crate::blockchain::bill::{BillBlockchain, BillOpCode};
 use crate::constants::CURRENCY_SAT;
 use crate::data::{
-    File,
     bill::{
         BillCombinedBitcoinKey, BillKeys, BillRole, BillsBalance, BillsBalanceOverview,
         BillsFilterRole, BitcreditBill, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
@@ -15,6 +14,7 @@ use crate::data::{
     identity::Identity,
 };
 use crate::external::bitcoin::BitcoinClientApi;
+use crate::external::file_storage::FileStorageClientApi;
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::persistence::bill::BillChainStoreApi;
@@ -41,7 +41,7 @@ use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
-use bcr_ebill_core::{ServiceTraitBounds, Validate, ValidationError};
+use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_transport::NotificationServiceApi;
 use log::{debug, error, info};
@@ -56,6 +56,7 @@ pub struct BillService {
     pub blockchain_store: Arc<dyn BillChainStoreApi>,
     pub identity_store: Arc<dyn IdentityStoreApi>,
     pub file_upload_store: Arc<dyn FileUploadStoreApi>,
+    pub file_upload_client: Arc<dyn FileStorageClientApi>,
     pub bitcoin_client: Arc<dyn BitcoinClientApi>,
     pub notification_service: Arc<dyn NotificationServiceApi>,
     pub identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
@@ -73,6 +74,7 @@ impl BillService {
         blockchain_store: Arc<dyn BillChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
+        file_upload_client: Arc<dyn FileStorageClientApi>,
         bitcoin_client: Arc<dyn BitcoinClientApi>,
         notification_service: Arc<dyn NotificationServiceApi>,
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
@@ -87,6 +89,7 @@ impl BillService {
             blockchain_store,
             identity_store,
             file_upload_store,
+            file_upload_client,
             bitcoin_client,
             notification_service,
             identity_blockchain_store,
@@ -872,35 +875,29 @@ impl BillServiceApi for BillService {
     async fn open_and_decrypt_attached_file(
         &self,
         bill_id: &str,
-        file_name: &str,
+        file: &File,
         bill_private_key: &str,
     ) -> Result<Vec<u8>> {
-        debug!("getting file {file_name} for bill with id: {bill_id}");
-        let read_file = self
-            .file_upload_store
-            .open_attached_file(bill_id, file_name)
-            .await?;
-        let decrypted = util::crypto::decrypt_ecies(&read_file, bill_private_key)?;
-        Ok(decrypted)
-    }
-
-    async fn encrypt_and_save_uploaded_file(
-        &self,
-        file_name: &str,
-        file_bytes: &[u8],
-        bill_id: &str,
-        bill_public_key: &str,
-    ) -> Result<File> {
-        let file_hash = util::sha256_hash(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, bill_public_key)?;
-        self.file_upload_store
-            .save_attached_file(&encrypted, bill_id, file_name)
-            .await?;
-        info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
-        Ok(File {
-            name: file_name.to_owned(),
-            hash: file_hash,
-        })
+        debug!("getting file {} for bill with id: {bill_id}", file.name);
+        let nostr_relays = get_config().nostr_config.relays.clone();
+        if let Some(nostr_relay) = nostr_relays.first() {
+            let file_bytes = self
+                .file_upload_client
+                .download(nostr_relay, &file.nostr_hash)
+                .await?;
+            let decrypted = util::crypto::decrypt_ecies(&file_bytes, bill_private_key)?;
+            let file_hash = util::sha256_hash(&decrypted);
+            if file_hash != file.hash {
+                error!(
+                    "Hash for bill file {} did not match uploaded file",
+                    file.name
+                );
+                return Err(super::Error::NotFound);
+            }
+            Ok(decrypted)
+        } else {
+            return Err(super::Error::NotFound);
+        }
     }
 
     async fn issue_new_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {

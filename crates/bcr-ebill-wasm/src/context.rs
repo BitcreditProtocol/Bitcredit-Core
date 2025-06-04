@@ -2,7 +2,7 @@
 use super::{CONTEXT, Result};
 use bcr_ebill_api::{
     Config, DbContext,
-    external::{bitcoin::BitcoinClient, mint::MintClient},
+    external::{bitcoin::BitcoinClient, file_storage::FileStorageClient, mint::MintClient},
     service::{
         bill_service::{BillServiceApi, service::BillService},
         company_service::{CompanyService, CompanyServiceApi},
@@ -38,9 +38,11 @@ pub struct Context {
 
 impl Context {
     pub async fn new(cfg: Config, db: DbContext) -> Result<Self> {
+        let file_upload_client = Arc::new(FileStorageClient::new());
         let contact_service = Arc::new(ContactService::new(
             db.contact_store.clone(),
             db.file_upload_store.clone(),
+            file_upload_client.clone(),
             db.identity_store.clone(),
             db.nostr_contact_store.clone(),
             &cfg,
@@ -65,6 +67,7 @@ impl Context {
             db.bill_blockchain_store.clone(),
             db.identity_store.clone(),
             db.file_upload_store.clone(),
+            file_upload_client.clone(),
             bitcoin_client,
             notification_service.clone(),
             db.identity_chain_store.clone(),
@@ -77,12 +80,14 @@ impl Context {
         let identity_service = IdentityService::new(
             db.identity_store.clone(),
             db.file_upload_store.clone(),
+            file_upload_client.clone(),
             db.identity_chain_store.clone(),
         );
 
         let company_service = CompanyService::new(
             db.company_store,
             db.file_upload_store.clone(),
+            file_upload_client.clone(),
             db.identity_store.clone(),
             db.contact_store,
             db.identity_chain_store,

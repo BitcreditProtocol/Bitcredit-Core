@@ -13,6 +13,8 @@ use crate::data::{
     company::{Company, CompanyKeys},
     contact::{Contact, ContactType},
 };
+use crate::external::file_storage::FileStorageClientApi;
+use crate::get_config;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
 use crate::util::BcrKeys;
@@ -92,19 +94,10 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         timestamp: u64,
     ) -> Result<()>;
 
-    /// Encrypts and saves the given uploaded file, returning the file name, as well as the hash of
-    /// the unencrypted file
-    async fn encrypt_and_save_uploaded_file(
-        &self,
-        file_name: &str,
-        file_bytes: &[u8],
-        id: &str,
-        public_key: &str,
-    ) -> Result<File>;
-
     /// opens and decrypts the attached file from the given company
     async fn open_and_decrypt_file(
         &self,
+        company: Company,
         id: &str,
         file_name: &str,
         private_key: &str,
@@ -116,6 +109,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
 pub struct CompanyService {
     store: Arc<dyn CompanyStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
+    file_upload_client: Arc<dyn FileStorageClientApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     contact_store: Arc<dyn ContactStoreApi>,
     identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
@@ -126,6 +120,7 @@ impl CompanyService {
     pub fn new(
         store: Arc<dyn CompanyStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
+        file_upload_client: Arc<dyn FileStorageClientApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
@@ -134,6 +129,7 @@ impl CompanyService {
         Self {
             store,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_blockchain_store,
@@ -146,6 +142,7 @@ impl CompanyService {
         upload_id: &Option<String>,
         id: &str,
         public_key: &str,
+        relay_url: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for company {id}: {upload_id:?}");
@@ -155,11 +152,30 @@ impl CompanyService {
                 .await
                 .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key)
+                .encrypt_and_upload_file(file_name, file_bytes, id, public_key, relay_url)
                 .await?;
             return Ok(Some(file));
         }
         Ok(None)
+    }
+
+    async fn encrypt_and_upload_file(
+        &self,
+        file_name: &str,
+        file_bytes: &[u8],
+        id: &str,
+        public_key: &str,
+        relay_url: &str,
+    ) -> Result<File> {
+        let file_hash = util::sha256_hash(file_bytes);
+        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
+        info!("Saved company file {file_name} with hash {file_hash} for company {id}");
+        Ok(File {
+            name: file_name.to_owned(),
+            hash: file_hash,
+            nostr_hash: nostr_hash.to_string(),
+        })
     }
 }
 
@@ -238,6 +254,7 @@ impl CompanyServiceApi for CompanyService {
         };
 
         let full_identity = self.identity_store.get_full().await?;
+        let nostr_relays = full_identity.identity.nostr_relays.clone();
         // company can only be created by identified identity
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
@@ -245,22 +262,30 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
 
-        // Save the files locally with the identity public key
-        let proof_of_registration_file = self
-            .process_upload_file(
-                &proof_of_registration_file_upload_id,
-                &id,
-                &full_identity.key_pair.get_public_key(),
-            )
-            .await?;
+        let (proof_of_registration_file, logo_file) = match nostr_relays.first() {
+            Some(nostr_relay) => {
+                // Save the files locally with the identity public key
+                let proof_of_registration_file = self
+                    .process_upload_file(
+                        &proof_of_registration_file_upload_id,
+                        &id,
+                        &full_identity.key_pair.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
 
-        let logo_file = self
-            .process_upload_file(
-                &logo_file_upload_id,
-                &id,
-                &full_identity.key_pair.get_public_key(),
-            )
-            .await?;
+                let logo_file = self
+                    .process_upload_file(
+                        &logo_file_upload_id,
+                        &id,
+                        &full_identity.key_pair.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
+                (proof_of_registration_file, logo_file)
+            }
+            None => (None, None),
+        };
 
         self.store.save_key_pair(&id, &company_keys).await?;
         let company = Company {
@@ -343,6 +368,7 @@ impl CompanyServiceApi for CompanyService {
             return Err(super::Error::NotFound);
         }
         let full_identity = self.identity_store.get_full().await?;
+        let nostr_relays = full_identity.identity.nostr_relays.clone();
         // company can only be edited by identified identity
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
@@ -422,28 +448,36 @@ impl CompanyServiceApi for CompanyService {
             return Ok(());
         }
 
-        let logo_file = self
-            .process_upload_file(
-                &logo_file_upload_id,
-                id,
-                &full_identity.key_pair.get_public_key(),
-            )
-            .await?;
-        // only override the picture, if there is a new one
-        if logo_file.is_some() {
-            company.logo_file = logo_file.clone();
-        }
-        let proof_of_registration_file = self
-            .process_upload_file(
-                &proof_of_registration_file_upload_id,
-                id,
-                &full_identity.key_pair.get_public_key(),
-            )
-            .await?;
-        // only override the document, if there is a new one
-        if proof_of_registration_file.is_some() {
-            company.proof_of_registration_file = proof_of_registration_file.clone();
-        }
+        let (logo_file, proof_of_registration_file) = match nostr_relays.first() {
+            Some(nostr_relay) => {
+                let logo_file = self
+                    .process_upload_file(
+                        &logo_file_upload_id,
+                        id,
+                        &full_identity.key_pair.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
+                // only override the picture, if there is a new one
+                if logo_file.is_some() {
+                    company.logo_file = logo_file.clone();
+                }
+                let proof_of_registration_file = self
+                    .process_upload_file(
+                        &proof_of_registration_file_upload_id,
+                        id,
+                        &full_identity.key_pair.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
+                // only override the document, if there is a new one
+                if proof_of_registration_file.is_some() {
+                    company.proof_of_registration_file = proof_of_registration_file.clone();
+                }
+                (logo_file, proof_of_registration_file)
+            }
+            None => (None, None),
+        };
 
         self.store.update(id, &company).await?;
 
@@ -606,7 +640,6 @@ impl CompanyServiceApi for CompanyService {
 
         if full_identity.identity.node_id == signatory_node_id {
             info!("Removing self from company {id}");
-            let _ = self.file_upload_store.delete_attached_files(id).await;
             self.store.remove(id).await?;
         }
 
@@ -659,38 +692,47 @@ impl CompanyServiceApi for CompanyService {
         Ok(())
     }
 
-    async fn encrypt_and_save_uploaded_file(
-        &self,
-        file_name: &str,
-        file_bytes: &[u8],
-        id: &str,
-        public_key: &str,
-    ) -> Result<File> {
-        let file_hash = util::sha256_hash(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
-        self.file_upload_store
-            .save_attached_file(&encrypted, id, file_name)
-            .await?;
-        info!("Saved company file {file_name} with hash {file_hash} for company {id}");
-        Ok(File {
-            name: file_name.to_owned(),
-            hash: file_hash,
-        })
-    }
-
     async fn open_and_decrypt_file(
         &self,
+        company: Company,
         id: &str,
         file_name: &str,
         private_key: &str,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for company with id: {id}",);
-        let read_file = self
-            .file_upload_store
-            .open_attached_file(id, file_name)
-            .await?;
-        let decrypted = util::crypto::decrypt_ecies(&read_file, private_key)?;
-        Ok(decrypted)
+        let nostr_relays = get_config().nostr_config.relays.clone();
+        if let Some(nostr_relay) = nostr_relays.first() {
+            let mut file = None;
+            if let Some(logo_file) = company.logo_file {
+                if logo_file.name == file_name {
+                    file = Some(logo_file);
+                }
+            }
+
+            if let Some(proof_of_registration_file) = company.proof_of_registration_file {
+                if proof_of_registration_file.name == file_name {
+                    file = Some(proof_of_registration_file);
+                }
+            }
+
+            if let Some(file) = file {
+                let file_bytes = self
+                    .file_upload_client
+                    .download(nostr_relay, &file.nostr_hash)
+                    .await?;
+                let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
+                let file_hash = util::sha256_hash(&decrypted);
+                if file_hash != file.hash {
+                    error!("Hash for company file {file_name} did not match uploaded file");
+                    return Err(super::Error::NotFound);
+                }
+                Ok(decrypted)
+            } else {
+                return Err(super::Error::NotFound);
+            }
+        } else {
+            return Err(super::Error::NotFound);
+        }
     }
 }
 
@@ -700,6 +742,7 @@ pub mod tests {
     use crate::{
         blockchain::{Blockchain, identity::IdentityBlockchain},
         data::identity::IdentityWithAll,
+        external::file_storage::MockFileStorageClientApi,
         service::contact_service::tests::get_baseline_contact,
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
@@ -708,13 +751,13 @@ pub mod tests {
             empty_identity, empty_optional_address,
         },
     };
-    use mockall::predicate::{always, eq};
-    use std::collections::HashMap;
+    use std::{collections::HashMap, str::FromStr};
     use util::BcrKeys;
 
     fn get_service(
         mock_storage: MockCompanyStoreApiMock,
         mock_file_upload_storage: MockFileUploadStoreApiMock,
+        mock_file_upload_client: MockFileStorageClientApi,
         mock_identity_storage: MockIdentityStoreApiMock,
         mock_contacts_storage: MockContactStoreApiMock,
         mock_identity_chain_storage: MockIdentityChainStoreApiMock,
@@ -723,6 +766,7 @@ pub mod tests {
         CompanyService::new(
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),
+            Arc::new(mock_file_upload_client),
             Arc::new(mock_identity_storage),
             Arc::new(mock_contacts_storage),
             Arc::new(mock_identity_chain_storage),
@@ -733,6 +777,7 @@ pub mod tests {
     fn get_storages() -> (
         MockCompanyStoreApiMock,
         MockFileUploadStoreApiMock,
+        MockFileStorageClientApi,
         MockIdentityStoreApiMock,
         MockContactStoreApiMock,
         MockIdentityChainStoreApiMock,
@@ -741,6 +786,7 @@ pub mod tests {
         (
             MockCompanyStoreApiMock::new(),
             MockFileUploadStoreApiMock::new(),
+            MockFileStorageClientApi::new(),
             MockIdentityStoreApiMock::new(),
             MockContactStoreApiMock::new(),
             MockIdentityChainStoreApiMock::new(),
@@ -792,6 +838,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -806,6 +853,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -823,6 +871,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -836,6 +885,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -850,6 +900,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -865,6 +916,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -881,6 +933,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -890,6 +943,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -904,6 +958,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -918,6 +973,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -932,6 +988,7 @@ pub mod tests {
         let (
             mut storage,
             mut file_upload_store,
+            mut file_upload_client,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -940,13 +997,17 @@ pub mod tests {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
-        file_upload_store
-            .expect_save_attached_file()
-            .returning(|_, _, _| Ok(()));
+        file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
         storage.expect_save_key_pair().returning(|_, _| Ok(()));
         storage.expect_insert().returning(|_| Ok(()));
         identity_store.expect_get_full().returning(|| {
-            let identity = empty_identity();
+            let mut identity = empty_identity();
+            identity.nostr_relays = vec!["ws://localhost:8080".into()];
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
@@ -976,6 +1037,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1019,6 +1081,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1040,6 +1103,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1069,6 +1133,7 @@ pub mod tests {
         let (
             mut storage,
             mut file_upload_store,
+            mut file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1091,9 +1156,12 @@ pub mod tests {
             .returning(|_| Ok(get_baseline_company_data().1.1));
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
-        file_upload_store
-            .expect_save_attached_file()
-            .returning(|_, _, _| Ok(()));
+        file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
         identity_store.expect_get_full().returning(move || {
             let mut identity = empty_identity();
             identity.node_id = node_id.clone();
@@ -1111,6 +1179,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1139,6 +1208,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1148,6 +1218,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1176,6 +1247,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1197,6 +1269,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1225,6 +1298,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1258,6 +1332,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1286,6 +1361,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             mut contact_store,
             mut identity_chain_store,
@@ -1340,6 +1416,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1356,6 +1433,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -1382,6 +1460,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1398,6 +1477,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -1417,6 +1497,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1437,6 +1518,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1453,6 +1535,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1473,6 +1556,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -1503,6 +1587,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1519,6 +1604,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -1552,6 +1638,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1568,6 +1655,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -1615,6 +1703,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1635,6 +1724,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1651,6 +1741,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1671,7 +1762,8 @@ pub mod tests {
         let keys = BcrKeys::new();
         let (
             mut storage,
-            mut file_upload_store,
+            file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -1684,9 +1776,6 @@ pub mod tests {
             .expect_add_block()
             .returning(|_, _| Ok(()));
         company_chain_store.expect_remove().returning(|_| Ok(()));
-        file_upload_store
-            .expect_delete_attached_files()
-            .returning(|_| Ok(()));
         storage.expect_exists().returning(|_| true);
         let keys_clone = keys.clone();
         storage.expect_get().returning(move |_| {
@@ -1727,6 +1816,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1743,6 +1833,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1769,6 +1860,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1789,6 +1881,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1813,6 +1906,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1833,6 +1927,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -1864,6 +1959,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1884,31 +1980,38 @@ pub mod tests {
         let company_id = "00000000-0000-0000-0000-000000000000";
         let file_name = "file_00000000-0000-0000-0000-000000000000.pdf";
         let file_bytes = String::from("hello world").as_bytes().to_vec();
+
         let expected_encrypted =
             util::crypto::encrypt_ecies(&file_bytes, TEST_PUB_KEY_SECP).unwrap();
 
         let (
             storage,
-            mut file_upload_store,
+            file_upload_store,
+            mut file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
         ) = get_storages();
-        file_upload_store
-            .expect_save_attached_file()
-            .with(always(), eq(company_id), eq(file_name))
-            .times(1)
-            .returning(|_, _, _| Ok(()));
 
-        file_upload_store
-            .expect_open_attached_file()
-            .with(eq(company_id), eq(file_name))
+        file_upload_client
+            .expect_upload()
+            .times(1)
+            .returning(|_, _| {
+                Ok(nostr::hashes::sha256::Hash::from_str(
+                    "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+                )
+                .unwrap())
+            });
+
+        file_upload_client
+            .expect_download()
             .times(1)
             .returning(move |_, _| Ok(expected_encrypted.clone()));
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1916,7 +2019,13 @@ pub mod tests {
         );
 
         let file = service
-            .encrypt_and_save_uploaded_file(file_name, &file_bytes, company_id, TEST_PUB_KEY_SECP)
+            .encrypt_and_upload_file(
+                file_name,
+                &file_bytes,
+                company_id,
+                TEST_PUB_KEY_SECP,
+                "nostr_relay",
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -1925,33 +2034,40 @@ pub mod tests {
         );
         assert_eq!(file.name, String::from(file_name));
 
+        let mut company = get_baseline_company_data().1.0;
+        company.proof_of_registration_file = Some(File {
+            name: file_name.to_owned(),
+            hash: file.hash.clone(),
+            nostr_hash: "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa".into(),
+        });
+
         let decrypted = service
-            .open_and_decrypt_file(company_id, file_name, TEST_PRIVATE_KEY_SECP)
+            .open_and_decrypt_file(company, company_id, file_name, TEST_PRIVATE_KEY_SECP)
             .await
             .unwrap();
         assert_eq!(std::str::from_utf8(&decrypted).unwrap(), "hello world");
     }
 
     #[tokio::test]
-    async fn save_encrypt_propagates_write_file_error() {
+    async fn save_encrypt_propagates_upload_error() {
         let (
             storage,
-            mut file_upload_store,
+            file_upload_store,
+            mut file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
         ) = get_storages();
-        file_upload_store
-            .expect_save_attached_file()
-            .returning(|_, _, _| {
-                Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                    "test error",
-                )))
-            });
+        file_upload_client.expect_upload().returning(|_, _| {
+            Err(crate::external::Error::ExternalFileStorageApi(
+                crate::external::file_storage::Error::InvalidRelayUrl,
+            ))
+        });
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1960,7 +2076,7 @@ pub mod tests {
 
         assert!(
             service
-                .encrypt_and_save_uploaded_file("file_name", &[], "test", TEST_PUB_KEY_SECP)
+                .encrypt_and_upload_file("file_name", &[], "test", TEST_PUB_KEY_SECP, "nostr_relay")
                 .await
                 .is_err()
         );
@@ -1970,22 +2086,22 @@ pub mod tests {
     async fn open_decrypt_propagates_read_file_error() {
         let (
             storage,
-            mut file_upload_store,
+            file_upload_store,
+            mut file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
         ) = get_storages();
-        file_upload_store
-            .expect_open_attached_file()
-            .returning(|_, _| {
-                Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                    "test error",
-                )))
-            });
+        file_upload_client.expect_upload().returning(|_, _| {
+            Err(crate::external::Error::ExternalFileStorageApi(
+                crate::external::file_storage::Error::InvalidRelayUrl,
+            ))
+        });
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -1994,7 +2110,12 @@ pub mod tests {
 
         assert!(
             service
-                .open_and_decrypt_file(TEST_PUB_KEY_SECP, "test", TEST_PRIVATE_KEY_SECP)
+                .open_and_decrypt_file(
+                    get_baseline_company_data().1.0,
+                    TEST_PUB_KEY_SECP,
+                    "test",
+                    TEST_PRIVATE_KEY_SECP
+                )
                 .await
                 .is_err()
         );
@@ -2005,6 +2126,7 @@ pub mod tests {
         let (
             mut storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             mut contact_store,
             identity_chain_store,
@@ -2030,6 +2152,7 @@ pub mod tests {
         let service = get_service(
             storage,
             file_upload_store,
+            file_upload_client,
             identity_store,
             contact_store,
             identity_chain_store,

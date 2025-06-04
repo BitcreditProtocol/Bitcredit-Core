@@ -34,7 +34,7 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, id: &str, file_name: &str) -> Result<JsValue> {
-        get_ctx().company_service.get_company_by_id(id).await?; // check if company exists
+        let company = get_ctx().company_service.get_company_by_id(id).await?; // check if company exists
         let private_key = get_ctx()
             .identity_service
             .get_full_identity()
@@ -44,7 +44,7 @@ impl Company {
 
         let file_bytes = get_ctx()
             .company_service
-            .open_and_decrypt_file(id, file_name, &private_key)
+            .open_and_decrypt_file(company, id, file_name, &private_key)
             .await?;
 
         let content_type = detect_content_type_for_bytes(&file_bytes)

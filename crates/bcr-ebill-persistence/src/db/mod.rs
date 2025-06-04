@@ -84,6 +84,7 @@ pub async fn get_memory_db(namespace: &str, database: &str) -> Result<Surreal<An
 pub struct FileDb {
     pub name: String,
     pub hash: String,
+    pub nostr_hash: String,
 }
 
 impl From<FileDb> for File {
@@ -91,6 +92,7 @@ impl From<FileDb> for File {
         Self {
             name: value.name,
             hash: value.hash,
+            nostr_hash: value.nostr_hash,
         }
     }
 }
@@ -100,6 +102,7 @@ impl From<File> for FileDb {
         Self {
             name: value.name,
             hash: value.hash,
+            nostr_hash: value.nostr_hash,
         }
     }
 }
@@ -109,6 +112,7 @@ impl From<&File> for FileDb {
         Self {
             name: value.name.clone(),
             hash: value.hash.clone(),
+            nostr_hash: value.nostr_hash.clone(),
         }
     }
 }
