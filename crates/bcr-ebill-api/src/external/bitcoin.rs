@@ -64,7 +64,9 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
 }
 
 #[derive(Clone)]
-pub struct BitcoinClient;
+pub struct BitcoinClient {
+    cl: reqwest::Client,
+}
 
 impl ServiceTraitBounds for BitcoinClient {}
 
@@ -73,7 +75,9 @@ impl ServiceTraitBounds for MockBitcoinClientApi {}
 
 impl BitcoinClient {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            cl: reqwest::Client::new(),
+        }
     }
 
     pub fn request_url(&self, path: &str) -> String {
@@ -117,7 +121,10 @@ impl Default for BitcoinClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl BitcoinClientApi for BitcoinClient {
     async fn get_address_info(&self, address: &str) -> Result<AddressInfo> {
-        let address: AddressInfo = reqwest::get(&self.request_url(&format!("/address/{address}")))
+        let address: AddressInfo = self
+            .cl
+            .get(self.request_url(&format!("/address/{address}")))
+            .send()
             .await
             .map_err(Error::from)?
             .json()
@@ -128,19 +135,24 @@ impl BitcoinClientApi for BitcoinClient {
     }
 
     async fn get_transactions(&self, address: &str) -> Result<Transactions> {
-        let transactions: Transactions =
-            reqwest::get(&self.request_url(&format!("/address/{address}/txs")))
-                .await
-                .map_err(Error::from)?
-                .json()
-                .await
-                .map_err(Error::from)?;
+        let transactions: Transactions = self
+            .cl
+            .get(self.request_url(&format!("/address/{address}/txs")))
+            .send()
+            .await
+            .map_err(Error::from)?
+            .json()
+            .await
+            .map_err(Error::from)?;
 
         Ok(transactions)
     }
 
     async fn get_last_block_height(&self) -> Result<u64> {
-        let height: u64 = reqwest::get(&self.request_url("/blocks/tip/height"))
+        let height: u64 = self
+            .cl
+            .get(self.request_url("/blocks/tip/height"))
+            .send()
             .await?
             .json()
             .await?;
