@@ -10,10 +10,12 @@ use super::{EventEnvelope, EventType};
 mod bill_chain_event_handler;
 mod bill_chain_event_processor;
 mod bill_invite_handler;
+mod public_bill_chain_event_handler;
 
 pub use bill_chain_event_handler::BillChainEventHandler;
 pub use bill_chain_event_processor::BillChainEventProcessor;
 pub use bill_invite_handler::BillInviteEventHandler;
+pub use public_bill_chain_event_handler::PublicBillChainEventHandler;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}

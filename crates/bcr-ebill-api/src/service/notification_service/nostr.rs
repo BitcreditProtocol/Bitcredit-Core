@@ -357,12 +357,10 @@ impl NotificationJsonTransportApi for NostrClient {
             previous_event,
             root_event,
         )?;
-        info!("Sending public {} chain event: {:?}", blockchain, event);
         let send_event = self.client.sign_event_builder(event).await.map_err(|e| {
             error!("Failed to sign Nostr event: {e}");
             Error::Crypto("Failed to sign Nostr event".to_string())
         })?;
-        trace!("sending event {send_event:?}");
         self.client.send_event(&send_event).await.map_err(|e| {
             error!("Failed to send Nostr event: {e}");
             Error::Network("Failed to send Nostr event".to_string())
