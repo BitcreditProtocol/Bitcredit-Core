@@ -124,6 +124,7 @@ pub async fn create_nostr_consumer(
     bill_store: Arc<dyn BillStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
     let transport = match clients.iter().find(|c| c.is_primary()) {
@@ -152,6 +153,7 @@ pub async fn create_nostr_consumer(
         Box::new(BillInviteEventHandler::new(
             transport.clone(),
             processor.clone(),
+            chain_event_store.clone(),
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());

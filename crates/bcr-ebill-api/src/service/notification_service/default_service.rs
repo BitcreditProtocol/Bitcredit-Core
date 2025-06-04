@@ -1896,6 +1896,7 @@ mod tests {
         let bill_blockchain_store = Arc::new(MockBillChainStoreApiMock::new());
         let nostr_contact_store = Arc::new(MockNostrContactStore::new());
         let chain_key_store = Arc::new(MockChainKeyService::new());
+        let chain_event_store = Arc::new(MockNostrChainEventStore::new());
         let _ = create_nostr_consumer(
             clients,
             contact_service,
@@ -1906,6 +1907,7 @@ mod tests {
             bill_store,
             nostr_contact_store,
             chain_key_store,
+            chain_event_store,
         )
         .await;
     }

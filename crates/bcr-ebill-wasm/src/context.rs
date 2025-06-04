@@ -103,6 +103,7 @@ impl Context {
             db.bill_store.clone(),
             db.nostr_contact_store.clone(),
             chain_key_service.clone(),
+            db.nostr_chain_event_store.clone(),
         )
         .await?;
 
