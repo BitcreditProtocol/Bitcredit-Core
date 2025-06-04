@@ -236,8 +236,9 @@ pub fn create_public_chain_event(
         &keys.get_public_key(),
     )?);
     let event = match previous_event {
-        Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None),
-        None => EventBuilder::new(Kind::TextNote, payload).tag(bcr_nostr_tag(id, blockchain)),
+        Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None)
+            .tag(bcr_nostr_tag(id, blockchain)),
+        None => EventBuilder::text_note(payload).tag(bcr_nostr_tag(id, blockchain)),
     };
     Ok(event)
 }

@@ -8,6 +8,10 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use log::{debug, error, warn};
+use nostr::{
+    event::{EventId, TagKind, TagStandard},
+    nips::nip10::Marker,
+};
 
 use crate::{
     Event, EventEnvelope, EventType, NotificationJsonTransportApi, Result,
@@ -101,5 +105,119 @@ fn extract_blocks(
             }
         }
     }
+    result.sort_by_key(|v| v.timestamp);
     Ok(result)
+}
+
+#[allow(dead_code)]
+// assumes that events are sorted by timestamp already. Will build up as many chains as needed
+// for the Nostr chain structure. This does not look into the actual blockchain, but will
+// the chain just from Nostr metadata.
+fn collect_event_chains(events: &[nostr_sdk::Event]) -> Vec<Vec<nostr_sdk::Event>> {
+    let mut result = Vec::new();
+    let markers: Vec<EventIdMarkers> = events.iter().map(ids_and_markers).collect();
+    if let Some((mut root, children)) = split_root(&markers) {
+        let chains = root.resolve_children(&children);
+        result = chains.resolve_events();
+    }
+    result
+}
+
+fn split_root(markers: &[EventIdMarkers]) -> Option<(EventIdMarkers, Vec<EventIdMarkers>)> {
+    if let Some(root) = markers.iter().find(|v| v.is_root()) {
+        let remainder = markers.iter().filter(|v| !v.is_root()).cloned().collect();
+        return Some((root.clone(), remainder));
+    }
+    None
+}
+
+// find root and reply note ids of given event
+fn ids_and_markers(event: &nostr_sdk::Event) -> EventIdMarkers {
+    let mut result = EventIdMarkers::new(event.clone(), None, None);
+    event.tags.filter_standardized(TagKind::e()).for_each(|t| {
+        if let TagStandard::Event {
+            event_id, marker, ..
+        } = t
+        {
+            match marker {
+                Some(Marker::Root) => result.root_id = Some(event_id.to_owned()),
+                Some(Marker::Reply) => result.reply_id = Some(event_id.to_owned()),
+                _ => {}
+            }
+        }
+    });
+    result
+}
+
+#[derive(Clone, Debug)]
+struct EventIdMarkers {
+    pub event: nostr_sdk::Event,
+    pub root_id: Option<EventId>,
+    pub reply_id: Option<EventId>,
+    pub children: Vec<EventIdMarkers>,
+}
+
+impl EventIdMarkers {
+    fn new(event: nostr_sdk::Event, root_id: Option<EventId>, reply_id: Option<EventId>) -> Self {
+        Self {
+            event,
+            root_id,
+            reply_id,
+            children: Vec::new(),
+        }
+    }
+
+    fn is_root(&self) -> bool {
+        self.root_id.is_none() && self.reply_id.is_none()
+    }
+
+    fn is_child_of(&self, event_id: &EventId) -> bool {
+        let compare = Some(event_id.to_owned());
+        self.root_id == compare || self.reply_id == compare
+    }
+
+    fn with_children(&self, children: Vec<EventIdMarkers>) -> Self {
+        Self {
+            event: self.event.clone(),
+            root_id: self.root_id,
+            reply_id: self.reply_id,
+            children,
+        }
+    }
+
+    // given all markers rcursively resolves all children
+    fn resolve_children(&mut self, markers: &[EventIdMarkers]) -> Self {
+        let mut children = Vec::new();
+        markers
+            .iter()
+            .filter(|m| m.is_child_of(&self.event.id) && m.event.id != self.event.id)
+            .for_each(|m| {
+                let mut marker = m.clone();
+                if m.children.is_empty() {
+                    marker = m.clone().resolve_children(markers);
+                }
+                children.push(marker);
+            });
+        self.with_children(children)
+    }
+
+    // given all children are resolved, resolve all events and
+    // creates one or multiple event chains
+    fn resolve_events(&self) -> Vec<Vec<nostr_sdk::Event>> {
+        if self.children.is_empty() {
+            return vec![vec![self.event.clone()]];
+        }
+
+        let mut result = Vec::new();
+        for child in self.children.iter() {
+            let local_chain = vec![self.event.clone()];
+            let chains = child.resolve_events();
+            for mut chain in chains {
+                let mut current = local_chain.clone();
+                current.append(&mut chain);
+                result.push(current);
+            }
+        }
+        result
+    }
 }
