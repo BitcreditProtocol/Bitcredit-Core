@@ -6,6 +6,7 @@ use nostr::hashes::{
     Hash,
     sha256::{self, Hash as Sha256Hash},
 };
+use reqwest::Url;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -60,6 +61,23 @@ impl FileStorageClient {
     }
 }
 
+fn to_url(relay_url: &str, to_join: &str) -> Result<Url> {
+    let mut url = reqwest::Url::parse(relay_url)
+        .and_then(|url| url.join(to_join))
+        .map_err(|_| Error::InvalidRelayUrl)?;
+    match url.scheme() {
+        "ws" => {
+            url.set_scheme("http").map_err(|_| Error::InvalidRelayUrl)?;
+        }
+        "wss" => {
+            url.set_scheme("https")
+                .map_err(|_| Error::InvalidRelayUrl)?;
+        }
+        _ => (),
+    };
+    Ok(url)
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileStorageClientApi for FileStorageClient {
@@ -71,12 +89,15 @@ impl FileStorageClientApi for FileStorageClient {
         }
         let hash = sha256::Hash::from_engine(hash_engine);
 
-        // PUT {relay_url}/upload
-        let url = reqwest::Url::parse(relay_url)
-            .and_then(|url| url.join("upload"))
-            .map_err(|_| Error::InvalidRelayUrl)?;
         // Make upload request
-        let resp: BlobDescriptorReply = self.cl.put(url).body(bytes).send().await?.json().await?;
+        let resp: BlobDescriptorReply = self
+            .cl
+            .put(to_url(relay_url, "upload")?)
+            .body(bytes)
+            .send()
+            .await?
+            .json()
+            .await?;
         let nostr_hash = resp.sha256;
 
         // Check hash
@@ -88,12 +109,15 @@ impl FileStorageClientApi for FileStorageClient {
     }
 
     async fn download(&self, relay_url: &str, nostr_hash: &str) -> Result<Vec<u8>> {
-        // GET {relay_url}/{hash}
-        let url = reqwest::Url::parse(relay_url)
-            .and_then(|url| url.join(nostr_hash))
-            .map_err(|_| Error::InvalidRelayUrl)?;
         // Make download request
-        let resp: Vec<u8> = self.cl.get(url).send().await?.bytes().await?.into();
+        let resp: Vec<u8> = self
+            .cl
+            .get(to_url(relay_url, nostr_hash)?)
+            .send()
+            .await?
+            .bytes()
+            .await?
+            .into();
 
         // Calculate hash to compare with the hash we sent
         let mut hash_engine = sha256::HashEngine::default();

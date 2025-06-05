@@ -6,8 +6,6 @@ use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::io::AsyncReadExt;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -29,21 +27,6 @@ pub trait FileUploadStoreApi: ServiceTraitBounds {
     /// Reads the temporary files from the given file_upload_id and returns their file name and
     /// bytes
     async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)>;
-
-    /// Writes the given encrypted bytes of an attached file to disk, in a folder named id within
-    /// the files folder
-    async fn save_attached_file(
-        &self,
-        encrypted_bytes: &[u8],
-        id: &str,
-        file_name: &str,
-    ) -> Result<()>;
-
-    /// Opens the given attached file from disk
-    async fn open_attached_file(&self, id: &str, file_name: &str) -> Result<Vec<u8>>;
-
-    /// Deletes the attached files for the given id
-    async fn delete_attached_files(&self, id: &str) -> Result<()>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -151,40 +134,5 @@ impl FileUploadStoreApi for FileUploadStore {
             ));
         }
         Ok(files[0].clone())
-    }
-
-    async fn save_attached_file(
-        &self,
-        encrypted_bytes: &[u8],
-        id: &str,
-        file_name: &str,
-    ) -> Result<()> {
-        let dest_dir = self.get_path_for_files(id);
-        if !dest_dir.exists() {
-            tokio::fs::create_dir_all(&dest_dir).await?;
-        }
-        let dest_file = dest_dir.join(file_name);
-        tokio::fs::write(dest_file, encrypted_bytes).await?;
-        Ok(())
-    }
-
-    async fn open_attached_file(&self, id: &str, file_name: &str) -> Result<Vec<u8>> {
-        let path = self.get_path_for_files(id).join(file_name);
-
-        let mut file = tokio::fs::File::open(&path).await?;
-        let mut buf = Vec::new();
-
-        file.read_to_end(&mut buf).await?;
-        Ok(buf)
-    }
-
-    async fn delete_attached_files(&self, id: &str) -> Result<()> {
-        let path = self.get_path_for_files(id);
-
-        if path.is_dir() {
-            log::info!("deleting attached files at {path:?}");
-            tokio::fs::remove_dir_all(path).await?;
-        }
-        Ok(())
     }
 }

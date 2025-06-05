@@ -211,6 +211,7 @@ impl From<NotificationFilters> for NotificationFilter {
 pub struct FileWeb {
     pub name: String,
     pub hash: String,
+    pub nostr_hash: String,
 }
 
 impl From<FileWeb> for File {
@@ -218,6 +219,7 @@ impl From<FileWeb> for File {
         Self {
             name: value.name,
             hash: value.hash,
+            nostr_hash: value.nostr_hash,
         }
     }
 }
@@ -227,6 +229,7 @@ impl From<File> for FileWeb {
         FileWeb {
             name: val.name,
             hash: val.hash,
+            nostr_hash: val.nostr_hash,
         }
     }
 }

@@ -103,10 +103,32 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn attachment(&self, bill_id: &str, file_name: &str) -> Result<JsValue> {
+        let current_timestamp = util::date::now().timestamp() as u64;
+        let identity = get_ctx().identity_service.get_identity().await?;
+        // get bill
+        let bill = get_ctx()
+            .bill_service
+            .get_detail(
+                bill_id,
+                &identity,
+                &get_current_identity_node_id().await?,
+                current_timestamp,
+            )
+            .await?;
+
+        // check if this file even exists on the bill
+        let file = match bill.data.files.iter().find(|f| f.name == file_name) {
+            Some(f) => f,
+            None => {
+                return Err(bcr_ebill_api::service::bill_service::Error::NotFound.into());
+            }
+        };
+
+        // fetch the attachment
         let keys = get_ctx().bill_service.get_bill_keys(bill_id).await?;
         let file_bytes = get_ctx()
             .bill_service
-            .open_and_decrypt_attached_file(bill_id, file_name, &keys.private_key)
+            .open_and_decrypt_attached_file(bill_id, file, &keys.private_key)
             .await?;
 
         let content_type = detect_content_type_for_bytes(&file_bytes)
