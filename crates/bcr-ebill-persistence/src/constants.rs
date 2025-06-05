@@ -2,6 +2,7 @@
 pub const DB_TABLE: &str = "table";
 pub const DB_ID: &str = "id";
 pub const DB_IDS: &str = "ids";
+pub const DB_IDENTITY_NODE_ID: &str = "identity_node_id";
 pub const DB_LIMIT: &str = "limit";
 pub const DB_NOTIFICATION_TYPE: &str = "notification_type";
 pub const DB_ACTIVE: &str = "active";

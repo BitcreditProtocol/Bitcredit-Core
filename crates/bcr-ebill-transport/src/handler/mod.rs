@@ -239,9 +239,9 @@ mod test_utils {
 
         #[async_trait]
         impl BillStoreApi for BillStore {
-            async fn get_bills_from_cache(&self, ids: &[String]) -> Result<Vec<BitcreditBillResult>>;
-            async fn get_bill_from_cache(&self, id: &str) -> Result<Option<BitcreditBillResult>>;
-            async fn save_bill_to_cache(&self, id: &str, bill: &BitcreditBillResult) -> Result<()>;
+            async fn get_bills_from_cache(&self, ids: &[String], identity_node_id: &str) -> Result<Vec<BitcreditBillResult>>;
+            async fn get_bill_from_cache(&self, id: &str, identity_node_id: &str) -> Result<Option<BitcreditBillResult>>;
+            async fn save_bill_to_cache(&self, id: &str, identity_node_id: &str, bill: &BitcreditBillResult) -> Result<()>;
             async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()>;
             async fn clear_bill_cache(&self) -> Result<()>;
             async fn exists(&self, id: &str) -> Result<bool>;

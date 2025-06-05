@@ -232,10 +232,10 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     });
     ctx.bill_store
         .expect_get_bill_from_cache()
-        .returning(|_| Ok(None));
+        .returning(|_, _| Ok(None));
     ctx.bill_store
         .expect_get_bills_from_cache()
-        .returning(|_| Ok(vec![]));
+        .returning(|_, _| Ok(vec![]));
     ctx.bill_store
         .expect_invalidate_bill_in_cache()
         .returning(|_| Ok(()));
@@ -244,7 +244,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .returning(|_| HashMap::new());
     ctx.bill_store
         .expect_save_bill_to_cache()
-        .returning(|_, _| Ok(()));
+        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.identity_store
         .expect_get()

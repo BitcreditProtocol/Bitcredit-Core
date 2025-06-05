@@ -730,7 +730,7 @@ impl BillService {
             .await?;
         if let Err(e) = self
             .store
-            .save_bill_to_cache(bill_id, &calculated_bill)
+            .save_bill_to_cache(bill_id, current_identity_node_id, &calculated_bill)
             .await
         {
             error!("Error saving calculated bill {bill_id} to cache: {e}");
@@ -757,7 +757,10 @@ impl BillService {
         let contacts = self.contact_store.get_map().await?;
 
         // check if the bill is in the cache
-        let bill_cache_result = self.store.get_bill_from_cache(bill_id).await;
+        let bill_cache_result = self
+            .store
+            .get_bill_from_cache(bill_id, current_identity_node_id)
+            .await;
         let mut bill = match bill_cache_result {
             Ok(Some(mut bill)) => {
                 // update contact data from contact store

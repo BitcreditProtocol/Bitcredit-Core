@@ -480,7 +480,7 @@ pub mod tests {
         ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         // should send a bill is signed event
         ctx.notification_service
             .expect_send_bill_is_signed_event()
@@ -546,7 +546,7 @@ pub mod tests {
         ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         // should send a bill is signed event
         ctx.notification_service
             .expect_send_bill_is_signed_event()
@@ -692,7 +692,7 @@ pub mod tests {
         ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         // should send a bill is signed event
         ctx.notification_service
             .expect_send_bill_is_signed_event()
@@ -847,7 +847,7 @@ pub mod tests {
             .times(1);
         ctx.bill_store
             .expect_get_bills_from_cache()
-            .returning(move |_| Ok(vec![bill.clone()]));
+            .returning(move |_, _| Ok(vec![bill.clone()]));
         ctx.bill_store
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string(), "4321".to_string()]));
@@ -899,7 +899,7 @@ pub mod tests {
             .times(2);
         ctx.bill_store
             .expect_get_bills_from_cache()
-            .returning(move |_| Ok(vec![bill.clone()]));
+            .returning(move |_, _| Ok(vec![bill.clone()]));
         ctx.bill_store
             .expect_get_ids()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string(), "4321".to_string()]));
@@ -1072,7 +1072,7 @@ pub mod tests {
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_bill_from_cache()
-            .returning(move |_| Ok(Some(bill.clone())));
+            .returning(move |_, _| Ok(Some(bill.clone())));
         ctx.bill_blockchain_store.expect_get_chain().never();
         ctx.notification_service
             .expect_get_active_bill_notification()
@@ -1122,7 +1122,7 @@ pub mod tests {
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_bill_from_cache()
-            .returning(move |_| Ok(Some(bill.clone())));
+            .returning(move |_, _| Ok(Some(bill.clone())));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(chain_bill.clone()))))
@@ -1160,7 +1160,9 @@ pub mod tests {
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
             .expect_get_bill_from_cache()
-            .returning(move |_| Err(persistence::Error::Io(std::io::Error::other("test error"))));
+            .returning(move |_, _| {
+                Err(persistence::Error::Io(std::io::Error::other("test error")))
+            });
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2218,7 +2220,7 @@ pub mod tests {
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2254,7 +2256,7 @@ pub mod tests {
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2289,7 +2291,7 @@ pub mod tests {
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
 
         // Should send bill accepted event
         ctx.notification_service
@@ -2399,7 +2401,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2438,7 +2440,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -2501,7 +2503,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2538,7 +2540,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2600,7 +2602,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -2647,7 +2649,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -2763,7 +2765,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2805,7 +2807,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2882,7 +2884,7 @@ pub mod tests {
         let buyer_clone = buyer.clone();
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -2952,7 +2954,7 @@ pub mod tests {
         let buyer_clone = buyer.clone();
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -3151,7 +3153,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3189,7 +3191,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -4558,7 +4560,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -4616,7 +4618,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -4673,7 +4675,7 @@ pub mod tests {
         let identity_clone = identity.identity.clone();
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -4723,7 +4725,7 @@ pub mod tests {
         let identity_clone = identity.identity.clone();
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -4773,7 +4775,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -4833,7 +4835,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -4892,7 +4894,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -4957,7 +4959,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -5022,7 +5024,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_recourse_payment()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
@@ -5080,7 +5082,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_recourse_payment()
             .returning(|| Ok(vec![TEST_BILL_ID.to_string()]));
@@ -5148,7 +5150,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -5239,7 +5241,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -5335,7 +5337,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -5432,7 +5434,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -5504,7 +5506,7 @@ pub mod tests {
 
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -5796,7 +5798,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -5928,7 +5930,7 @@ pub mod tests {
         ));
         ctx.bill_store
             .expect_save_bill_to_cache()
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
