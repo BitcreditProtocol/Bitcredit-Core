@@ -20,6 +20,7 @@ use crate::{
         File, OptionalPostalAddress, PostalAddress,
         contact::{Contact, ContactType},
     },
+    external::file_storage::FileStorageClientApi,
     get_config,
     persistence::{
         contact::ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
@@ -28,7 +29,7 @@ use crate::{
 };
 
 use super::Result;
-use log::{debug, info};
+use log::{debug, error, info};
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockContactServiceApi {}
@@ -107,6 +108,7 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     /// opens and decrypts the attached file from the given contact
     async fn open_and_decrypt_file(
         &self,
+        contact: Contact,
         id: &str,
         file_name: &str,
         private_key: &str,
@@ -118,6 +120,7 @@ pub trait ContactServiceApi: ServiceTraitBounds {
 pub struct ContactService {
     store: Arc<dyn ContactStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
+    file_upload_client: Arc<dyn FileStorageClientApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     config: Config,
@@ -127,6 +130,7 @@ impl ContactService {
     pub fn new(
         store: Arc<dyn ContactStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
+        file_upload_client: Arc<dyn FileStorageClientApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         config: &Config,
@@ -134,6 +138,7 @@ impl ContactService {
         Self {
             store,
             file_upload_store,
+            file_upload_client,
             identity_store,
             nostr_contact_store,
             config: config.clone(),
@@ -145,6 +150,7 @@ impl ContactService {
         upload_id: &Option<String>,
         id: &str,
         public_key: &str,
+        relay_url: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for contact {id}: {upload_id:?}");
@@ -154,7 +160,7 @@ impl ContactService {
                 .await
                 .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key)
+                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, relay_url)
                 .await?;
             return Ok(Some(file));
         }
@@ -167,16 +173,16 @@ impl ContactService {
         file_bytes: &[u8],
         node_id: &str,
         public_key: &str,
+        relay_url: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
-        self.file_upload_store
-            .save_attached_file(&encrypted, node_id, file_name)
-            .await?;
+        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
         Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
+            nostr_hash: nostr_hash.to_string(),
         })
     }
 
@@ -251,6 +257,9 @@ impl ContactServiceApi for ContactService {
                 return Err(super::Error::NotFound);
             }
         };
+
+        let nostr_relays = contact.nostr_relays.clone();
+
         validate_update_contact(
             contact.t.clone(),
             &name,
@@ -336,24 +345,32 @@ impl ContactServiceApi for ContactService {
                 return Ok(());
             }
 
-            let avatar_file = self
-                .process_upload_file(&avatar_file_upload_id, node_id, &identity_public_key)
-                .await?;
-            // only override the picture, if there is a new one
-            if avatar_file.is_some() {
-                contact.avatar_file = avatar_file;
-            }
-            let proof_document_file = self
-                .process_upload_file(
-                    &proof_document_file_upload_id,
-                    node_id,
-                    &identity_public_key,
-                )
-                .await?;
-            // only override the document, if there is a new one
-            if proof_document_file.is_some() {
-                contact.proof_document_file = proof_document_file;
-            }
+            if let Some(nostr_relay) = nostr_relays.first() {
+                let avatar_file = self
+                    .process_upload_file(
+                        &avatar_file_upload_id,
+                        node_id,
+                        &identity_public_key,
+                        nostr_relay,
+                    )
+                    .await?;
+                // only override the picture, if there is a new one
+                if avatar_file.is_some() {
+                    contact.avatar_file = avatar_file;
+                }
+                let proof_document_file = self
+                    .process_upload_file(
+                        &proof_document_file_upload_id,
+                        node_id,
+                        &identity_public_key,
+                        nostr_relay,
+                    )
+                    .await?;
+                // only override the document, if there is a new one
+                if proof_document_file.is_some() {
+                    contact.proof_document_file = proof_document_file;
+                }
+            };
         }
 
         self.store.update(node_id, contact.clone()).await?;
@@ -389,21 +406,34 @@ impl ContactServiceApi for ContactService {
             &proof_document_file_upload_id,
         )?;
 
+        let nostr_relays = get_config().nostr_config.relays.clone();
         let identity_public_key = self.identity_store.get_key_pair().await?.get_public_key();
 
         let contact = match t {
             ContactType::Company | ContactType::Person => {
-                let avatar_file = self
-                    .process_upload_file(&avatar_file_upload_id, node_id, &identity_public_key)
-                    .await?;
+                let (avatar_file, proof_document_file) = match nostr_relays.first() {
+                    Some(nostr_relay) => {
+                        let avatar_file = self
+                            .process_upload_file(
+                                &avatar_file_upload_id,
+                                node_id,
+                                &identity_public_key,
+                                nostr_relay,
+                            )
+                            .await?;
 
-                let proof_document_file = self
-                    .process_upload_file(
-                        &proof_document_file_upload_id,
-                        node_id,
-                        &identity_public_key,
-                    )
-                    .await?;
+                        let proof_document_file = self
+                            .process_upload_file(
+                                &proof_document_file_upload_id,
+                                node_id,
+                                &identity_public_key,
+                                nostr_relay,
+                            )
+                            .await?;
+                        (avatar_file, proof_document_file)
+                    }
+                    None => (None, None),
+                };
 
                 Contact {
                     node_id: node_id.to_owned(),
@@ -417,7 +447,7 @@ impl ContactServiceApi for ContactService {
                     identification_number,
                     avatar_file,
                     proof_document_file,
-                    nostr_relays: get_config().nostr_config.relays.clone(),
+                    nostr_relays,
                 }
             }
             ContactType::Anon => {
@@ -483,6 +513,8 @@ impl ContactServiceApi for ContactService {
             }
         };
 
+        let nostr_relays = existing_anon_contact.nostr_relays.clone();
+
         // if the existing contact is not anonymous, the action is not valid
         if existing_anon_contact.t != ContactType::Anon {
             return Err(super::Error::Validation(ValidationError::InvalidContact(
@@ -491,17 +523,30 @@ impl ContactServiceApi for ContactService {
         }
 
         let identity_public_key = self.identity_store.get_key_pair().await?.get_public_key();
-        let avatar_file = self
-            .process_upload_file(&avatar_file_upload_id, node_id, &identity_public_key)
-            .await?;
 
-        let proof_document_file = self
-            .process_upload_file(
-                &proof_document_file_upload_id,
-                node_id,
-                &identity_public_key,
-            )
-            .await?;
+        let (avatar_file, proof_document_file) = match nostr_relays.first() {
+            Some(nostr_relay) => {
+                let avatar_file = self
+                    .process_upload_file(
+                        &avatar_file_upload_id,
+                        node_id,
+                        &identity_public_key,
+                        nostr_relay,
+                    )
+                    .await?;
+
+                let proof_document_file = self
+                    .process_upload_file(
+                        &proof_document_file_upload_id,
+                        node_id,
+                        &identity_public_key,
+                        nostr_relay,
+                    )
+                    .await?;
+                (avatar_file, proof_document_file)
+            }
+            None => (None, None),
+        };
 
         let contact = Contact {
             node_id: node_id.to_owned(),
@@ -545,17 +590,45 @@ impl ContactServiceApi for ContactService {
 
     async fn open_and_decrypt_file(
         &self,
+        contact: Contact,
         id: &str,
         file_name: &str,
         private_key: &str,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for contact with id: {id}",);
-        let read_file = self
-            .file_upload_store
-            .open_attached_file(id, file_name)
-            .await?;
-        let decrypted = util::crypto::decrypt_ecies(&read_file, private_key)?;
-        Ok(decrypted)
+        let nostr_relays = contact.nostr_relays.clone();
+        if let Some(nostr_relay) = nostr_relays.first() {
+            let mut file = None;
+            if let Some(avatar_file) = contact.avatar_file {
+                if avatar_file.name == file_name {
+                    file = Some(avatar_file);
+                }
+            }
+
+            if let Some(proof_document_file) = contact.proof_document_file {
+                if proof_document_file.name == file_name {
+                    file = Some(proof_document_file);
+                }
+            }
+
+            if let Some(file) = file {
+                let file_bytes = self
+                    .file_upload_client
+                    .download(nostr_relay, &file.nostr_hash)
+                    .await?;
+                let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
+                let file_hash = util::sha256_hash(&decrypted);
+                if file_hash != file.hash {
+                    error!("Hash for contact file {file_name} did not match uploaded file");
+                    return Err(super::Error::NotFound);
+                }
+                Ok(decrypted)
+            } else {
+                return Err(super::Error::NotFound);
+            }
+        } else {
+            return Err(super::Error::NotFound);
+        }
     }
 }
 
@@ -563,6 +636,7 @@ impl ContactServiceApi for ContactService {
 pub mod tests {
     use super::*;
     use crate::{
+        external::file_storage::MockFileStorageClientApi,
         get_config,
         service::Error,
         tests::tests::{
@@ -595,12 +669,14 @@ pub mod tests {
     fn get_service(
         mock_storage: MockContactStoreApiMock,
         mock_file_upload_storage: MockFileUploadStoreApiMock,
+        mock_file_upload_client: MockFileStorageClientApi,
         mock_identity_storage: MockIdentityStoreApiMock,
         mock_nostr_contact_store: MockNostrContactStore,
     ) -> ContactService {
         ContactService::new(
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),
+            Arc::new(mock_file_upload_client),
             Arc::new(mock_identity_storage),
             Arc::new(mock_nostr_contact_store),
             get_config(),
@@ -610,12 +686,14 @@ pub mod tests {
     fn get_storages() -> (
         MockContactStoreApiMock,
         MockFileUploadStoreApiMock,
+        MockFileStorageClientApi,
         MockIdentityStoreApiMock,
         MockNostrContactStore,
     ) {
         (
             MockContactStoreApiMock::new(),
             MockFileUploadStoreApiMock::new(),
+            MockFileStorageClientApi::new(),
             MockIdentityStoreApiMock::new(),
             MockNostrContactStore::new(),
         )
@@ -623,7 +701,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn get_contacts_baseline() {
-        let (mut store, file_upload_store, identity_store, nostr_contact) = get_storages();
+        let (mut store, file_upload_store, file_upload_client, identity_store, nostr_contact) =
+            get_storages();
         store.expect_get_map().returning(|| {
             let mut contact = get_baseline_contact();
             contact.name = "Minka".to_string();
@@ -631,9 +710,15 @@ pub mod tests {
             map.insert(TEST_NODE_ID_SECP.to_string(), contact);
             Ok(map)
         });
-        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
-            .get_contacts()
-            .await;
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        )
+        .get_contacts()
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.as_ref().unwrap().first().unwrap().name, *"Minka");
         assert_eq!(
@@ -644,15 +729,22 @@ pub mod tests {
 
     #[tokio::test]
     async fn get_identity_by_node_id_baseline() {
-        let (mut store, file_upload_store, identity_store, nostr_contact) = get_storages();
+        let (mut store, file_upload_store, file_upload_client, identity_store, nostr_contact) =
+            get_storages();
         store.expect_get().returning(|_| {
             let mut contact = get_baseline_contact();
             contact.name = "Minka".to_string();
             Ok(Some(contact))
         });
-        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
-            .get_identity_by_node_id(TEST_NODE_ID_SECP)
-            .await;
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        )
+        .get_identity_by_node_id(TEST_NODE_ID_SECP)
+        .await;
         assert!(result.is_ok());
         assert_eq!(
             result.as_ref().unwrap().as_ref().unwrap().name(),
@@ -662,18 +754,31 @@ pub mod tests {
 
     #[tokio::test]
     async fn delete_contact() {
-        let (mut store, file_upload_store, identity_store, mut nostr_contact) = get_storages();
+        let (mut store, file_upload_store, file_upload_client, identity_store, mut nostr_contact) =
+            get_storages();
         store.expect_delete().returning(|_| Ok(()));
         nostr_contact.expect_delete().returning(|_| Ok(()));
-        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
-            .delete("some_name")
-            .await;
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        )
+        .delete("some_name")
+        .await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn update_contact_calls_store() {
-        let (mut store, file_upload_store, mut identity_store, mut nostr_contact) = get_storages();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            mut nostr_contact,
+        ) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -684,56 +789,79 @@ pub mod tests {
         store.expect_update().returning(|_, _| Ok(()));
         nostr_contact.expect_by_node_id().returning(|_| Ok(None));
         nostr_contact.expect_upsert().returning(|_| Ok(()));
-        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
-            .update_contact(
-                TEST_NODE_ID_SECP,
-                Some("new_name".to_string()),
-                None,
-                empty_optional_address(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await;
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        )
+        .update_contact(
+            TEST_NODE_ID_SECP,
+            Some("new_name".to_string()),
+            None,
+            empty_optional_address(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn add_contact_calls_store() {
         init_test_cfg();
-        let (mut store, file_upload_store, mut identity_store, mut nostr_contact) = get_storages();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            mut nostr_contact,
+        ) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
         nostr_contact.expect_by_node_id().returning(|_| Ok(None));
         store.expect_insert().returning(|_, _| Ok(()));
         nostr_contact.expect_upsert().returning(|_| Ok(()));
-        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
-            .add_contact(
-                TEST_NODE_ID_SECP,
-                ContactType::Person,
-                "some_name".to_string(),
-                Some("some_email@example.com".to_string()),
-                Some(empty_address()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await;
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        )
+        .add_contact(
+            TEST_NODE_ID_SECP,
+            ContactType::Person,
+            "some_name".to_string(),
+            Some("some_email@example.com".to_string()),
+            Some(empty_address()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn add_anon_contact_calls_store() {
         init_test_cfg();
-        let (mut store, file_upload_store, mut identity_store, mut nostr_contact_store) =
-            get_storages();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            mut nostr_contact_store,
+        ) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -745,6 +873,7 @@ pub mod tests {
         let result = get_service(
             store,
             file_upload_store,
+            file_upload_client,
             identity_store,
             nostr_contact_store,
         )
@@ -768,8 +897,13 @@ pub mod tests {
     #[tokio::test]
     async fn deanonymize_contact_calls_store() {
         init_test_cfg();
-        let (mut store, file_upload_store, mut identity_store, mut nostr_contact_store) =
-            get_storages();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            mut nostr_contact_store,
+        ) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -786,6 +920,7 @@ pub mod tests {
         let result = get_service(
             store,
             file_upload_store,
+            file_upload_client,
             identity_store,
             nostr_contact_store,
         )
@@ -809,8 +944,13 @@ pub mod tests {
     #[tokio::test]
     async fn deanonymize_contact_of_non_anon_fails() {
         init_test_cfg();
-        let (mut store, file_upload_store, mut identity_store, nostr_contact_store) =
-            get_storages();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            nostr_contact_store,
+        ) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -822,6 +962,7 @@ pub mod tests {
         let result = get_service(
             store,
             file_upload_store,
+            file_upload_client,
             identity_store,
             nostr_contact_store,
         )
@@ -850,8 +991,13 @@ pub mod tests {
     #[tokio::test]
     async fn deanonymize_contact_with_new_anon_fails() {
         init_test_cfg();
-        let (mut store, file_upload_store, mut identity_store, nostr_contact_store) =
-            get_storages();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            nostr_contact_store,
+        ) = get_storages();
         identity_store
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -864,6 +1010,7 @@ pub mod tests {
         let result = get_service(
             store,
             file_upload_store,
+            file_upload_client,
             identity_store,
             nostr_contact_store,
         )
@@ -891,7 +1038,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn is_known_npub_calls_store() {
-        let (store, file_upload_store, identity_store, mut nostr_contact) = get_storages();
+        let (store, file_upload_store, file_upload_client, identity_store, mut nostr_contact) =
+            get_storages();
         let pub_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
         nostr_contact.expect_by_npub().returning(|_| {
             Ok(Some(NostrContact {
@@ -902,9 +1050,15 @@ pub mod tests {
                 handshake_status: HandshakeStatus::None,
             }))
         });
-        let result = get_service(store, file_upload_store, identity_store, nostr_contact)
-            .is_known_npub(&pub_key)
-            .await;
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        )
+        .is_known_npub(&pub_key)
+        .await;
         assert!(result.is_ok());
         assert!(result.as_ref().unwrap());
     }

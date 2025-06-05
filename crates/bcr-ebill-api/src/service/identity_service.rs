@@ -1,4 +1,5 @@
 use super::Result;
+use crate::external::file_storage::FileStorageClientApi;
 use crate::{get_config, util};
 use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
 
@@ -14,7 +15,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
-use log::{debug, info};
+use log::{debug, error, info};
 use std::sync::Arc;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -77,6 +78,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     /// opens and decrypts the attached file from the identity
     async fn open_and_decrypt_file(
         &self,
+        identity: Identity,
         id: &str,
         file_name: &str,
         private_key: &str,
@@ -97,6 +99,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
 pub struct IdentityService {
     store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
+    file_upload_client: Arc<dyn FileStorageClientApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
 }
 
@@ -104,11 +107,13 @@ impl IdentityService {
     pub fn new(
         store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
+        file_upload_client: Arc<dyn FileStorageClientApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
     ) -> Self {
         Self {
             store,
             file_upload_store,
+            file_upload_client,
             blockchain_store,
         }
     }
@@ -118,6 +123,7 @@ impl IdentityService {
         upload_id: &Option<String>,
         id: &str,
         public_key: &str,
+        relay_url: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for identity {id}: {upload_id:?}");
@@ -127,7 +133,7 @@ impl IdentityService {
                 .await
                 .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key)
+                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, relay_url)
                 .await?;
             return Ok(Some(file));
         }
@@ -140,16 +146,16 @@ impl IdentityService {
         file_bytes: &[u8],
         node_id: &str,
         public_key: &str,
+        relay_url: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
-        self.file_upload_store
-            .save_attached_file(&encrypted, node_id, file_name)
-            .await?;
+        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
         Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
+            nostr_hash: nostr_hash.to_string(),
         })
     }
 }
@@ -183,6 +189,9 @@ impl IdentityServiceApi for IdentityService {
 
         let mut profile_picture_file = None;
         let mut identity_document_file = None;
+
+        let nostr_relays = identity.nostr_relays.clone();
+
         let keys = self.store.get_key_pair().await?;
 
         validate_update_identity(
@@ -259,28 +268,32 @@ impl IdentityServiceApi for IdentityService {
                 return Ok(());
             }
 
-            profile_picture_file = self
-                .process_upload_file(
-                    &profile_picture_file_upload_id,
-                    &identity.node_id,
-                    &keys.get_public_key(),
-                )
-                .await?;
-            // only override the picture, if there is a new one
-            if profile_picture_file.is_some() {
-                identity.profile_picture_file = profile_picture_file.clone();
-            }
-            identity_document_file = self
-                .process_upload_file(
-                    &identity_document_file_upload_id,
-                    &identity.node_id,
-                    &keys.get_public_key(),
-                )
-                .await?;
-            // only override the document, if there is a new one
-            if identity_document_file.is_some() {
-                identity.identity_document_file = identity_document_file.clone();
-            }
+            if let Some(nostr_relay) = nostr_relays.first() {
+                profile_picture_file = self
+                    .process_upload_file(
+                        &profile_picture_file_upload_id,
+                        &identity.node_id,
+                        &keys.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
+                // only override the picture, if there is a new one
+                if profile_picture_file.is_some() {
+                    identity.profile_picture_file = profile_picture_file.clone();
+                }
+                identity_document_file = self
+                    .process_upload_file(
+                        &identity_document_file_upload_id,
+                        &identity.node_id,
+                        &keys.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
+                // only override the document, if there is a new one
+                if identity_document_file.is_some() {
+                    identity.identity_document_file = identity_document_file.clone();
+                }
+            };
         }
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
@@ -342,24 +355,33 @@ impl IdentityServiceApi for IdentityService {
             &profile_picture_file_upload_id,
             &identity_document_file_upload_id,
         )?;
+        let nostr_relays = get_config().nostr_config.relays.clone();
 
         let identity = match t {
             IdentityType::Ident => {
-                let profile_picture_file = self
-                    .process_upload_file(
-                        &profile_picture_file_upload_id,
-                        &node_id,
-                        &keys.get_public_key(),
-                    )
-                    .await?;
+                let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
+                    Some(nostr_relay) => {
+                        let profile_picture_file = self
+                            .process_upload_file(
+                                &profile_picture_file_upload_id,
+                                &node_id,
+                                &keys.get_public_key(),
+                                nostr_relay,
+                            )
+                            .await?;
 
-                let identity_document_file = self
-                    .process_upload_file(
-                        &identity_document_file_upload_id,
-                        &node_id,
-                        &keys.get_public_key(),
-                    )
-                    .await?;
+                        let identity_document_file = self
+                            .process_upload_file(
+                                &identity_document_file_upload_id,
+                                &node_id,
+                                &keys.get_public_key(),
+                                nostr_relay,
+                            )
+                            .await?;
+                        (profile_picture_file, identity_document_file)
+                    }
+                    None => (None, None),
+                };
 
                 Identity {
                     t: t.clone(),
@@ -420,6 +442,7 @@ impl IdentityServiceApi for IdentityService {
         debug!("deanonymizing identity");
         let existing_identity = self.store.get().await?;
         let keys = self.store.get_key_pair().await?;
+        let nostr_relays = existing_identity.nostr_relays.clone();
 
         // can't de-anonymize to an anonymous identity
         if t == IdentityType::Anon {
@@ -445,21 +468,29 @@ impl IdentityServiceApi for IdentityService {
             &identity_document_file_upload_id,
         )?;
 
-        let profile_picture_file = self
-            .process_upload_file(
-                &profile_picture_file_upload_id,
-                &existing_identity.node_id,
-                &keys.get_public_key(),
-            )
-            .await?;
+        let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
+            Some(nostr_relay) => {
+                let profile_picture_file = self
+                    .process_upload_file(
+                        &profile_picture_file_upload_id,
+                        &existing_identity.node_id,
+                        &keys.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
 
-        let identity_document_file = self
-            .process_upload_file(
-                &identity_document_file_upload_id,
-                &existing_identity.node_id,
-                &keys.get_public_key(),
-            )
-            .await?;
+                let identity_document_file = self
+                    .process_upload_file(
+                        &identity_document_file_upload_id,
+                        &existing_identity.node_id,
+                        &keys.get_public_key(),
+                        nostr_relay,
+                    )
+                    .await?;
+                (profile_picture_file, identity_document_file)
+            }
+            None => (None, None),
+        };
 
         let identity = Identity {
             t: t.clone(),
@@ -514,17 +545,46 @@ impl IdentityServiceApi for IdentityService {
 
     async fn open_and_decrypt_file(
         &self,
+        identity: Identity,
         id: &str,
         file_name: &str,
         private_key: &str,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for identity with id: {id}");
-        let read_file = self
-            .file_upload_store
-            .open_attached_file(id, file_name)
-            .await?;
-        let decrypted = util::crypto::decrypt_ecies(&read_file, private_key)?;
-        Ok(decrypted)
+        let nostr_relays = identity.nostr_relays.clone();
+        if let Some(nostr_relay) = nostr_relays.first() {
+            let mut file = None;
+
+            if let Some(profile_picture_file) = identity.profile_picture_file {
+                if profile_picture_file.name == file_name {
+                    file = Some(profile_picture_file);
+                }
+            }
+
+            if let Some(identity_document_file) = identity.identity_document_file {
+                if identity_document_file.name == file_name {
+                    file = Some(identity_document_file);
+                }
+            }
+
+            if let Some(file) = file {
+                let file_bytes = self
+                    .file_upload_client
+                    .download(nostr_relay, &file.nostr_hash)
+                    .await?;
+                let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
+                let file_hash = util::sha256_hash(&decrypted);
+                if file_hash != file.hash {
+                    error!("Hash for identity file {file_name} did not match uploaded file");
+                    return Err(super::Error::NotFound);
+                }
+                Ok(decrypted)
+            } else {
+                return Err(super::Error::NotFound);
+            }
+        } else {
+            return Err(super::Error::NotFound);
+        }
     }
 
     async fn get_current_identity(&self) -> Result<ActiveIdentityState> {
@@ -559,9 +619,12 @@ impl IdentityServiceApi for IdentityService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::tests::{
-        MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-        empty_identity, empty_optional_address, init_test_cfg,
+    use crate::{
+        external::file_storage::MockFileStorageClientApi,
+        tests::tests::{
+            MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
+            empty_identity, empty_optional_address, init_test_cfg,
+        },
     };
     use mockall::predicate::eq;
 
@@ -569,6 +632,7 @@ mod tests {
         IdentityService::new(
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
+            Arc::new(MockFileStorageClientApi::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
         )
     }
@@ -580,6 +644,7 @@ mod tests {
         IdentityService::new(
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
+            Arc::new(MockFileStorageClientApi::new()),
             Arc::new(mock_chain_storage),
         )
     }

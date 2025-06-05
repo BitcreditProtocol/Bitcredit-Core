@@ -22,7 +22,7 @@ impl Contact {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, id: &str, file_name: &str) -> Result<JsValue> {
-        get_ctx().contact_service.get_contact(id).await?; // check if contact exists
+        let contact = get_ctx().contact_service.get_contact(id).await?; // check if contact exists
 
         let private_key = get_ctx()
             .identity_service
@@ -33,7 +33,7 @@ impl Contact {
 
         let file_bytes = get_ctx()
             .contact_service
-            .open_and_decrypt_file(id, file_name, &private_key)
+            .open_and_decrypt_file(contact, id, file_name, &private_key)
             .await?;
 
         let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(

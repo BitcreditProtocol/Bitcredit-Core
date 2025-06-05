@@ -1,6 +1,7 @@
 # 0.3.15
 
 * Upload and download files to and from Nostr using Blossom
+    * Add `nostr_hash` to `File` (breaking DB change)
 
 # 0.3.14
 

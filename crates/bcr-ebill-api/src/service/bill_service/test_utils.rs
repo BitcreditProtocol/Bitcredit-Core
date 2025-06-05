@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     data::identity::IdentityWithAll,
-    external,
+    external::{self, file_storage::MockFileStorageClientApi},
     service::{
         company_service::tests::get_valid_company_block,
         contact_service::tests::get_baseline_contact,
@@ -52,6 +52,7 @@ pub struct MockBillContext {
     pub company_chain_store: MockCompanyChainStoreApiMock,
     pub company_store: MockCompanyStoreApiMock,
     pub file_upload_store: MockFileUploadStoreApiMock,
+    pub file_upload_client: MockFileStorageClientApi,
     pub notification_service: MockNotificationService,
     pub mint_store: MockMintStore,
     pub mint_client: MockMintClientApi,
@@ -65,6 +66,7 @@ pub fn get_baseline_identity() -> IdentityWithAll {
     identity.postal_address.country = Some("AT".to_owned());
     identity.postal_address.city = Some("Vienna".to_owned());
     identity.postal_address.address = Some("Hayekweg 5".to_owned());
+    identity.nostr_relays = vec!["ws://localhost:8080".into()];
     IdentityWithAll {
         identity,
         key_pair: keys,
@@ -258,6 +260,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         Arc::new(ctx.bill_blockchain_store),
         Arc::new(ctx.identity_store),
         Arc::new(ctx.file_upload_store),
+        Arc::new(ctx.file_upload_client),
         Arc::new(bitcoin_client),
         Arc::new(ctx.notification_service),
         Arc::new(ctx.identity_chain_store),
@@ -275,6 +278,7 @@ pub fn get_ctx() -> MockBillContext {
         bill_blockchain_store: MockBillChainStoreApiMock::new(),
         identity_store: MockIdentityStoreApiMock::new(),
         file_upload_store: MockFileUploadStoreApiMock::new(),
+        file_upload_client: MockFileStorageClientApi::new(),
         identity_chain_store: MockIdentityChainStoreApiMock::new(),
         company_chain_store: MockCompanyChainStoreApiMock::new(),
         contact_store: MockContactStoreApiMock::new(),

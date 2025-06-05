@@ -46,11 +46,11 @@ impl Identity {
     pub async fn file(&self, file_name: &str) -> Result<JsValue> {
         let identity = get_ctx().identity_service.get_full_identity().await?;
         let private_key = identity.key_pair.get_private_key_string();
-        let id = identity.identity.node_id;
+        let id = identity.identity.node_id.clone();
 
         let file_bytes = get_ctx()
             .identity_service
-            .open_and_decrypt_file(&id, file_name, &private_key)
+            .open_and_decrypt_file(identity.identity, &id, file_name, &private_key)
             .await?;
 
         let content_type = detect_content_type_for_bytes(&file_bytes)

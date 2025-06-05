@@ -357,14 +357,6 @@ pub mod tests {
                 file_bytes: &[u8],
             ) -> Result<()>;
             async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)>;
-            async fn save_attached_file(
-                &self,
-                encrypted_bytes: &[u8],
-                id: &str,
-                file_name: &str,
-            ) -> Result<()>;
-            async fn open_attached_file(&self, id: &str, file_name: &str) -> Result<Vec<u8>>;
-            async fn delete_attached_files(&self, id: &str) -> Result<()>;
         }
     }
 

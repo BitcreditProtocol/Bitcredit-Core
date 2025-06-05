@@ -14,9 +14,28 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use bcr_ebill_transport::BillChainEvent;
-use log::{debug, error};
+use log::{debug, error, info};
 
 impl BillService {
+    async fn encrypt_and_save_uploaded_file(
+        &self,
+        file_name: &str,
+        file_bytes: &[u8],
+        bill_id: &str,
+        bill_public_key: &str,
+        relay_url: &str,
+    ) -> Result<File> {
+        let file_hash = util::sha256_hash(file_bytes);
+        let encrypted = util::crypto::encrypt_ecies(file_bytes, bill_public_key)?;
+        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
+        info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
+        Ok(File {
+            name: file_name.to_owned(),
+            hash: file_hash,
+            nostr_hash: nostr_hash.to_string(),
+        })
+    }
+
     pub(super) async fn issue_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {
         debug!(
             "issuing bill with type {}, blank: {}",
@@ -108,6 +127,7 @@ impl BillService {
         debug!("issuing bill with drawee {public_data_drawee:?} and payee {public_data_payee:?}");
 
         let identity = self.identity_store.get_full().await?;
+        let nostr_relays = identity.identity.nostr_relays.clone();
         let keys = BcrKeys::new();
         let public_key = keys.get_public_key();
 
@@ -118,16 +138,24 @@ impl BillService {
         };
 
         let mut bill_files: Vec<File> = vec![];
-        for file_upload_id in data.file_upload_ids.iter() {
-            let (file_name, file_bytes) = &self
-                .file_upload_store
-                .read_temp_upload_file(file_upload_id)
-                .await
-                .map_err(|_| Error::NoFileForFileUploadId)?;
-            bill_files.push(
-                self.encrypt_and_save_uploaded_file(file_name, file_bytes, &bill_id, &public_key)
+        if let Some(nostr_relay) = nostr_relays.first() {
+            for file_upload_id in data.file_upload_ids.iter() {
+                let (file_name, file_bytes) = &self
+                    .file_upload_store
+                    .read_temp_upload_file(file_upload_id)
+                    .await
+                    .map_err(|_| Error::NoFileForFileUploadId)?;
+                bill_files.push(
+                    self.encrypt_and_save_uploaded_file(
+                        file_name,
+                        file_bytes,
+                        &bill_id,
+                        &public_key,
+                        nostr_relay,
+                    )
                     .await?,
-            );
+                );
+            }
         }
 
         let bill = BitcreditBill {
