@@ -5811,7 +5811,7 @@ pub mod tests {
             .returning(|_, _, _| Ok(vec![]));
         ctx.mint_client
             .expect_enquire_mint_quote()
-            .returning(|_, _, _, _| Ok("quote_id".to_owned()));
+            .returning(|_, _, _, _, _| Ok("quote_id".to_owned()));
         ctx.mint_store
             .expect_add_request()
             .returning(|_, _, _, _, _| Ok(()));

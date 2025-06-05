@@ -17,16 +17,16 @@ use bcr_ebill_transport::BillChainEvent;
 use log::{debug, error, info};
 
 impl BillService {
-    async fn encrypt_and_save_uploaded_file(
+    pub(super) async fn encrypt_and_save_uploaded_file(
         &self,
         file_name: &str,
         file_bytes: &[u8],
         bill_id: &str,
-        bill_public_key: &str,
+        public_key: &str,
         relay_url: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, bill_public_key)?;
+        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
         Ok(File {

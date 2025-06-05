@@ -13,6 +13,7 @@ use bcr_wdc_quote_client::QuoteClient;
 use bcr_wdc_swap_client::SwapClient;
 use bcr_wdc_webapi::quotes::{BillInfo, ResolveOffer, StatusReply};
 use cashu::{ProofsMethods, State, nut00 as cdk00, nut01 as cdk01, nut02 as cdk02};
+use reqwest::Url;
 use thiserror::Error;
 
 /// Generic result type
@@ -100,6 +101,7 @@ pub trait MintClientApi: ServiceTraitBounds {
         requester_keys: &BcrKeys,
         bill: &BitcreditBill,
         endorsees: &[BillParticipant],
+        files: &[Url],
     ) -> Result<String>;
     /// Look up a quote for a mint
     async fn lookup_quote_for_mint(
@@ -257,6 +259,7 @@ impl MintClientApi for MintClient {
         requester_keys: &BcrKeys,
         bill: &BitcreditBill,
         endorsees: &[BillParticipant],
+        files: &[Url],
     ) -> Result<String> {
         let bill_info = BillInfo {
             id: bill.id.clone(),
@@ -270,6 +273,7 @@ impl MintClientApi for MintClient {
             sum: bill.sum,
             maturity_date: util::date::date_string_to_rfc3339(&bill.maturity_date)
                 .map_err(|_| Error::InvalidDate)?,
+            file_urls: files.to_owned(),
         };
         let public_key = cdk01::PublicKey::from_hex(requester_keys.get_public_key())
             .map_err(|_| Error::PubKey)?;
@@ -423,10 +427,10 @@ impl From<StatusReply> for QuoteStatusReply {
                 expiration_date,
                 discounted,
             },
-            StatusReply::Accepted { keyset_id } => QuoteStatusReply::Accepted { keyset_id },
-            StatusReply::Rejected { tstamp } => QuoteStatusReply::Rejected { tstamp },
+            StatusReply::Accepted { keyset_id, .. } => QuoteStatusReply::Accepted { keyset_id },
+            StatusReply::Rejected { tstamp, .. } => QuoteStatusReply::Rejected { tstamp },
             StatusReply::Canceled { tstamp } => QuoteStatusReply::Cancelled { tstamp },
-            StatusReply::OfferExpired { tstamp } => QuoteStatusReply::Expired { tstamp },
+            StatusReply::OfferExpired { tstamp, .. } => QuoteStatusReply::Expired { tstamp },
         }
     }
 }

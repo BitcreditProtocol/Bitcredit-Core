@@ -61,7 +61,7 @@ impl FileStorageClient {
     }
 }
 
-fn to_url(relay_url: &str, to_join: &str) -> Result<Url> {
+pub fn to_url(relay_url: &str, to_join: &str) -> Result<Url> {
     let mut url = reqwest::Url::parse(relay_url)
         .and_then(|url| url.join(to_join))
         .map_err(|_| Error::InvalidRelayUrl)?;

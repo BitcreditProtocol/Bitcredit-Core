@@ -14,7 +14,7 @@ use crate::data::{
     identity::Identity,
 };
 use crate::external::bitcoin::BitcoinClientApi;
-use crate::external::file_storage::FileStorageClientApi;
+use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::persistence::bill::BillChainStoreApi;
@@ -44,7 +44,7 @@ use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_transport::NotificationServiceApi;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -621,6 +621,38 @@ impl BillService {
             email: None,
             nostr_relays: relays,
         })
+    }
+
+    /// Download the files, decrypt them, encrypt and upload them for the given node id
+    /// and relay url and return a list of urls to the uploaded files
+    async fn upload_bill_files_for_node_id(
+        &self,
+        bill_id: &str,
+        bill_private_key: &str,
+        node_id: &str,
+        relay_url: &str,
+        files: &[File],
+    ) -> Result<Vec<url::Url>> {
+        if files.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut result = Vec::with_capacity(files.len());
+        for file in files {
+            let decrypted_file = self
+                .open_and_decrypt_attached_file(bill_id, file, bill_private_key)
+                .await?;
+            let uploaded_file = self
+                .encrypt_and_save_uploaded_file(
+                    &file.name,
+                    &decrypted_file,
+                    bill_id,
+                    node_id,
+                    relay_url,
+                )
+                .await?;
+            result.push(file_storage::to_url(relay_url, &uploaded_file.nostr_hash)?);
+        }
+        Ok(result)
     }
 }
 
@@ -1411,11 +1443,38 @@ impl BillServiceApi for BillService {
             ));
         }
 
+        // Upload existing files for the mint
+        let file_urls_for_mint = match mint_anon_participant.nostr_relays().first() {
+            Some(relay_url) => {
+                self.upload_bill_files_for_node_id(
+                    bill_id,
+                    &bill_keys.private_key,
+                    &mint_anon_participant.node_id(),
+                    relay_url,
+                    &bill.files,
+                )
+                .await?
+            }
+            None => {
+                warn!(
+                    "mint {} does not have a nostr relay",
+                    &mint_anon_participant.node_id()
+                );
+                vec![]
+            }
+        };
+
         // Send request to mint to mint
         let endorsees = blockchain.get_endorsees_for_bill(&bill_keys);
         let mint_request_id = self
             .mint_client
-            .enquire_mint_quote(&mint_cfg.default_mint_url, signer_keys, &bill, &endorsees)
+            .enquire_mint_quote(
+                &mint_cfg.default_mint_url,
+                signer_keys,
+                &bill,
+                &endorsees,
+                &file_urls_for_mint,
+            )
             .await?;
 
         // Store request to mint
