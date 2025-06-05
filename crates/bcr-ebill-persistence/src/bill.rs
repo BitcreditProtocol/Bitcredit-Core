@@ -14,11 +14,24 @@ use borsh::{from_slice, to_vec};
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BillStoreApi: ServiceTraitBounds {
     /// Gets the bills from cache
-    async fn get_bills_from_cache(&self, ids: &[String]) -> Result<Vec<BitcreditBillResult>>;
+    async fn get_bills_from_cache(
+        &self,
+        ids: &[String],
+        identity_node_id: &str,
+    ) -> Result<Vec<BitcreditBillResult>>;
     /// Gets the bill from cache
-    async fn get_bill_from_cache(&self, id: &str) -> Result<Option<BitcreditBillResult>>;
+    async fn get_bill_from_cache(
+        &self,
+        id: &str,
+        identity_node_id: &str,
+    ) -> Result<Option<BitcreditBillResult>>;
     /// Saves the bill to cache
-    async fn save_bill_to_cache(&self, id: &str, bill: &BitcreditBillResult) -> Result<()>;
+    async fn save_bill_to_cache(
+        &self,
+        id: &str,
+        identity_node_id: &str,
+        bill: &BitcreditBillResult,
+    ) -> Result<()>;
     /// Invalidates the cached bill
     async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()>;
     /// clear the bill cache

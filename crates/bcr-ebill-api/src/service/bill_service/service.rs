@@ -121,7 +121,7 @@ impl BillService {
             )
             .await?;
         self.store
-            .save_bill_to_cache(bill_id, &calculated_bill)
+            .save_bill_to_cache(bill_id, current_identity_node_id, &calculated_bill)
             .await?;
         Ok(())
     }
@@ -745,7 +745,10 @@ impl BillServiceApi for BillService {
         // fetch contacts to get current contact data for participants
         let contacts = self.contact_store.get_map().await?;
 
-        let mut bills = self.store.get_bills_from_cache(&bill_ids).await?;
+        let mut bills = self
+            .store
+            .get_bills_from_cache(&bill_ids, current_identity_node_id)
+            .await?;
         // extend identities for cached bills
         for bill in bills.iter_mut() {
             self.extend_bill_identities_from_contacts_or_identity(bill, &identity, &contacts)
