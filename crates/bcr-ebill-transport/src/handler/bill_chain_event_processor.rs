@@ -315,10 +315,7 @@ impl BillChainEventProcessor {
                         Ok((bill.id.clone(), bill, chain))
                     }
                     Err(e) => {
-                        error!(
-                            "Failed to get first version bill from newly received chain: {}",
-                            e
-                        );
+                        error!("Failed to get first version bill from newly received chain: {e}");
                         Err(Error::Crypto(format!(
                             "Failed to decrypt new bill chain with given keys: {e}"
                         )))
@@ -336,7 +333,7 @@ impl BillChainEventProcessor {
 
     async fn save_block(&self, bill_id: &str, block: &BillBlock) -> Result<()> {
         if let Err(e) = self.bill_blockchain_store.add_block(bill_id, block).await {
-            error!("Failed to add block to blockchain store: {}", e);
+            error!("Failed to add block to blockchain store: {e}");
             return Err(Error::Persistence(
                 "Failed to add block to blockchain store".to_string(),
             ));
@@ -346,7 +343,7 @@ impl BillChainEventProcessor {
 
     async fn invalidate_cache_for_bill(&self, bill_id: &str) -> Result<()> {
         if let Err(e) = self.bill_store.invalidate_bill_in_cache(bill_id).await {
-            error!("Failed to invalidate cache for bill {bill_id}: {}", e);
+            error!("Failed to invalidate cache for bill {bill_id}: {e}");
             return Err(Error::Persistence(
                 "Failed to invalidate cache for bill".to_string(),
             ));
@@ -356,7 +353,7 @@ impl BillChainEventProcessor {
 
     async fn save_keys(&self, bill_id: &str, keys: &BillKeys) -> Result<()> {
         if let Err(e) = self.bill_store.save_keys(bill_id, keys).await {
-            error!("Failed to save keys to bill store: {}", e);
+            error!("Failed to save keys to bill store: {e}");
             return Err(Error::Persistence(
                 "Failed to save keys to bill store".to_string(),
             ));

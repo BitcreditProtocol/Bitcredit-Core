@@ -50,7 +50,7 @@ impl NotificationHandlerApi for PublicBillChainEventHandler {
                     )
                     .await
                 {
-                    error!("Failed to process chain data: {}", e);
+                    error!("Failed to process chain data: {e}");
                 }
             } else {
                 trace!("no keys for incoming bill block");

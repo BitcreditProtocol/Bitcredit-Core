@@ -637,7 +637,7 @@ async fn handle_public_event(
             .await
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
-            trace!("Handling public chain event: {:?}", decrypted);
+            trace!("Handling public chain event: {decrypted:?}");
             handle_event(decrypted, node_id, handlers).await?
         }
     }
