@@ -162,9 +162,8 @@ impl BillInviteEventHandler {
 }
 
 #[allow(dead_code)]
-// assumes that events are sorted by timestamp already. Will build up as many chains as needed
-// for the Nostr chain structure. This does not look into the actual blockchain, but will
-// the chain just from Nostr metadata.
+// Will build up as many chains as needed for the Nostr chain structure. This does not look into
+// the actual blockchain, but will build the chains just from Nostr metadata.
 fn collect_event_chains(
     events: &[nostr_sdk::Event],
     chain_id: &str,

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
     blockchain::BlockchainType,
+    constants::BCR_NOSTR_CHAIN_PREFIX,
     contact::BillParticipant,
     util::{
         BcrKeys, base58_decode, base58_encode,
@@ -24,6 +25,10 @@ use nostr::{
 };
 
 use crate::{Error, Result, event::EventEnvelope};
+
+// A bit abitrary. This is to protect our client from beeing overwhelmed by spam. The downside is
+// that we will not be able to extract a chain even if there are valid blocks on the relay.
+const CHAIN_EVENT_LIMIT: usize = 1000;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
@@ -163,7 +168,7 @@ pub fn chain_filter(id: &str, chain_type: BlockchainType) -> Filter {
     Filter::new()
         .kind(Kind::TextNote)
         .custom_tag(chain_tag(), tag_content(id, chain_type).to_string())
-        .limit(1000)
+        .limit(CHAIN_EVENT_LIMIT)
 }
 
 pub fn chain_tag() -> SingleLetterTag {
@@ -172,7 +177,7 @@ pub fn chain_tag() -> SingleLetterTag {
 
 pub fn tag_content(id: &str, blockchain: BlockchainType) -> ExternalContentId {
     ExternalContentId::BlockchainAddress {
-        chain: "bitcredit".to_string(),
+        chain: BCR_NOSTR_CHAIN_PREFIX.to_string(),
         address: id.to_string(),
         chain_id: Some(blockchain.to_string()),
     }
