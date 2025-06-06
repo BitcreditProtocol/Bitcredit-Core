@@ -9,7 +9,7 @@ use bcr_ebill_transport::{
     event::EventEnvelope,
     handler::NotificationHandlerApi,
     transport::{
-        NostrContactData, create_nip04_event, create_public_chain_event,
+        NostrContactData, chain_filter, create_nip04_event, create_public_chain_event,
         decrypt_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
     },
 };
@@ -357,12 +357,10 @@ impl NotificationJsonTransportApi for NostrClient {
             previous_event,
             root_event,
         )?;
-        info!("Sending public {} chain event: {:?}", blockchain, event);
         let send_event = self.client.sign_event_builder(event).await.map_err(|e| {
             error!("Failed to sign Nostr event: {e}");
             Error::Crypto("Failed to sign Nostr event".to_string())
         })?;
-        trace!("sending event {send_event:?}");
         self.client.send_event(&send_event).await.map_err(|e| {
             error!("Failed to send Nostr event: {e}");
             Error::Network("Failed to send Nostr event".to_string())
@@ -395,6 +393,16 @@ impl NotificationJsonTransportApi for NostrClient {
             error!("Try to resolve Nostr contact but node_id {node_id} was invalid");
             Ok(None)
         }
+    }
+
+    async fn resolve_public_chain(
+        &self,
+        id: &str,
+        chain_type: BlockchainType,
+    ) -> Result<Vec<nostr::event::Event>> {
+        Ok(self
+            .fetch_events(chain_filter(id, chain_type), Some(SortOrder::Asc), None)
+            .await?)
     }
 }
 
@@ -508,7 +516,7 @@ impl NostrConsumer {
                                 {
                                     let success = match event.kind {
                                         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
-                                            info!("Received encrypted direct message: {event:?}");
+                                            trace!("Received encrypted direct message: {event:?}");
                                             match handle_direct_message(
                                                 event.clone(),
                                                 &signer,
@@ -525,7 +533,7 @@ impl NostrConsumer {
                                             }
                                         }
                                         Kind::TextNote => {
-                                            info!("Received text note: {event:?}");
+                                            trace!("Received text note: {event:?}");
                                             match handle_public_event(
                                                 event.clone(),
                                                 &client_id,
@@ -629,7 +637,7 @@ async fn handle_public_event(
             .await
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
-            info!("Handling public chain event: {:?}", decrypted);
+            trace!("Handling public chain event: {decrypted:?}");
             handle_event(decrypted, node_id, handlers).await?
         }
     }

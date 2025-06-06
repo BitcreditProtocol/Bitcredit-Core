@@ -642,6 +642,7 @@ mod tests {
                 previous_event: Option<nostr::event::Event>,
                 root_event: Option<nostr::event::Event>) -> bcr_ebill_transport::Result<nostr::event::Event>;
             async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
+            async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         }
     }
 
@@ -1895,6 +1896,7 @@ mod tests {
         let bill_blockchain_store = Arc::new(MockBillChainStoreApiMock::new());
         let nostr_contact_store = Arc::new(MockNostrContactStore::new());
         let chain_key_store = Arc::new(MockChainKeyService::new());
+        let chain_event_store = Arc::new(MockNostrChainEventStore::new());
         let _ = create_nostr_consumer(
             clients,
             contact_service,
@@ -1905,6 +1907,7 @@ mod tests {
             bill_store,
             nostr_contact_store,
             chain_key_store,
+            chain_event_store,
         )
         .await;
     }

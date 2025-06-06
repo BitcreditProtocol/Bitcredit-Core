@@ -12,11 +12,17 @@ pub enum EventType {
     Bill,
     /// Public Bill chain events
     BillChain,
+    /// Private Bill invites with keys
+    BillChainInvite,
 }
 
 impl EventType {
     pub fn all() -> Vec<EventType> {
-        vec![EventType::Bill, EventType::BillChain]
+        vec![
+            EventType::Bill,
+            EventType::BillChain,
+            EventType::BillChainInvite,
+        ]
     }
 }
 
@@ -46,6 +52,10 @@ impl<T: Serialize> Event<T> {
 
     pub fn new_chain(data: T) -> Self {
         Self::new(EventType::BillChain, data)
+    }
+
+    pub fn new_invite(data: T) -> Self {
+        Self::new(EventType::BillChainInvite, data)
     }
 }
 
