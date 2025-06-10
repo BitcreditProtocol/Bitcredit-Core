@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
     nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
-    util::crypto::{get_nostr_npub_as_hex_from_node_id, get_npub_from_node_id},
+    util::crypto::get_npub_from_node_id,
 };
 use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
     }
     /// Delete an Nostr contact. This will remove the contact from the store.
     async fn delete(&self, node_id: &str) -> Result<()> {
-        let npub = get_nostr_npub_as_hex_from_node_id(node_id)?;
+        let npub = get_npub_from_node_id(node_id)?.to_hex();
         let _: Option<NostrContactDb> = self.db.delete(Self::TABLE, npub.to_owned()).await?;
         Ok(())
     }
@@ -71,7 +71,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         bindings.add(DB_HANDSHAKE_STATUS, status)?;
         bindings.add(
             DB_ID,
-            Self::thing_id(&get_nostr_npub_as_hex_from_node_id(node_id)?),
+            Self::thing_id(&get_npub_from_node_id(node_id)?.to_hex()),
         )?;
         self.db
             .query_check(&update_field_query(DB_HANDSHAKE_STATUS), bindings)
@@ -86,7 +86,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         bindings.add(DB_TRUST_LEVEL, trust_level)?;
         bindings.add(
             DB_ID,
-            Self::thing_id(&get_nostr_npub_as_hex_from_node_id(node_id)?),
+            Self::thing_id(&get_npub_from_node_id(node_id)?.to_hex()),
         )?;
         self.db
             .query_check(&update_field_query(DB_TRUST_LEVEL), bindings)
