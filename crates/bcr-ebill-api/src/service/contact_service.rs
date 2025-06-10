@@ -105,6 +105,9 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     /// Returns the Npubs we want to subscribe to on Nostr.
     async fn get_nostr_npubs(&self) -> Result<Vec<PublicKey>>;
 
+    /// Returns a Nostr contact by node id if we have a trusted one.
+    async fn get_nostr_contact_by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+
     /// opens and decrypts the attached file from the given contact
     async fn open_and_decrypt_file(
         &self,
@@ -193,7 +196,7 @@ impl ContactService {
             .await?
         {
             Some(nostr_contact) => nostr_contact.merge_contact(contact),
-            None => NostrContact::from_contact(contact),
+            None => NostrContact::from_contact(contact)?,
         };
         self.nostr_contact_store.upsert(&nostr_contact).await?;
         Ok(())
@@ -586,6 +589,14 @@ impl ContactServiceApi for ContactService {
             .nostr_contact_store
             .get_npubs(vec![TrustLevel::Trusted, TrustLevel::Participant])
             .await?)
+    }
+
+    /// Returns a Nostr contact by node id if we have a trusted or participant one.
+    async fn get_nostr_contact_by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>> {
+        match self.nostr_contact_store.by_node_id(node_id).await {
+            Ok(Some(c)) if c.trust_level != TrustLevel::None => Ok(Some(c)),
+            _ => Ok(None),
+        }
     }
 
     async fn open_and_decrypt_file(
@@ -1043,7 +1054,7 @@ pub mod tests {
         let pub_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
         nostr_contact.expect_by_npub().returning(|_| {
             Ok(Some(NostrContact {
-                node_id: TEST_NODE_ID_SECP.to_string(),
+                npub: nostr::key::PublicKey::parse(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap(),
                 name: None,
                 relays: vec![],
                 trust_level: TrustLevel::Participant,

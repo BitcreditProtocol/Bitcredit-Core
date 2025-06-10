@@ -171,6 +171,10 @@ pub fn get_nostr_npub_as_hex_from_node_id(node_id: &str) -> Result<String> {
         .to_string())
 }
 
+pub fn get_npub_from_node_id(node_id: &str) -> Result<nostr::key::PublicKey> {
+    Ok(PublicKey::from_str(node_id)?.x_only_public_key().0.into())
+}
+
 /// Checks if the given node_id and the given npub (as hex) are the same public key.
 /// This converts the node_id to an XOnlyPublicKey (which is the way nostr saves it's public key)
 /// and compares it to the given npub

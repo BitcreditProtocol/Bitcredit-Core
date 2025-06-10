@@ -13,6 +13,7 @@ use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::nostr_contact::HandshakeStatus;
 use bcr_ebill_core::nostr_contact::NostrContact;
 use bcr_ebill_core::nostr_contact::TrustLevel;
+use bcr_ebill_core::util::crypto::get_npub_from_node_id;
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
@@ -83,18 +84,20 @@ impl BillChainEventProcessor {
                 .iter()
                 .map(|r| r.as_str().to_owned())
                 .collect();
-            if let Err(e) = self
-                .nostr_contact_store
-                .upsert(&NostrContact {
-                    node_id: node_id.to_string(),
-                    name: contact.metadata.name,
-                    relays,
-                    trust_level: TrustLevel::Participant,
-                    handshake_status: HandshakeStatus::None,
-                })
-                .await
-            {
-                error!("Failed to save nostr contact information for node_id {node_id}: {e}");
+            if let Ok(npub) = get_npub_from_node_id(node_id) {
+                if let Err(e) = self
+                    .nostr_contact_store
+                    .upsert(&NostrContact {
+                        npub,
+                        name: contact.metadata.name,
+                        relays,
+                        trust_level: TrustLevel::Participant,
+                        handshake_status: HandshakeStatus::None,
+                    })
+                    .await
+                {
+                    error!("Failed to save nostr contact information for node_id {node_id}: {e}");
+                }
             }
         } else {
             info!("Could not resolve nostr contact information for node_id {node_id}");
@@ -615,7 +618,7 @@ mod tests {
 
         contact_store.expect_by_node_id().returning(move |_| {
             Ok(Some(NostrContact {
-                node_id: "node_id".to_string(),
+                npub: get_npub_from_node_id(TEST_PUB_KEY_SECP).unwrap(),
                 name: Some("name".to_string()),
                 relays: vec!["wws://some.example.com".to_string()],
                 trust_level: TrustLevel::Participant,

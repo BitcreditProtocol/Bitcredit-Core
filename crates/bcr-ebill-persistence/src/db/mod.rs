@@ -1,4 +1,4 @@
-use super::Result;
+use super::{Error, Result};
 #[cfg(target_arch = "wasm32")]
 use crate::constants::{
     SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
