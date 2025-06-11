@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.3.15"
+version = "0.3.15-hotfix1"
 edition = "2024"
 license = "MIT"
 
