@@ -86,17 +86,8 @@ impl BillStoreApi for SurrealBillStore {
         identity_node_id: &str,
         bill: &BitcreditBillResult,
     ) -> Result<()> {
-        // first, delete existing cache entry
-        let mut bindings = Bindings::default();
-        bindings.add(DB_TABLE, Self::CACHE_TABLE)?;
-        bindings.add(DB_BILL_ID, id.to_owned())?;
-        bindings.add(DB_IDENTITY_NODE_ID, identity_node_id.to_owned())?;
-        self.db
-            .query_check(
-                "DELETE FROM type::table($table) WHERE bill_id = $bill_id AND identity_node_id = $identity_node_id",
-                bindings,
-            )
-            .await?;
+        // first, delete existing cache entries for bill
+        self.invalidate_bill_in_cache(id).await?;
 
         // then, put in the new one
         let entity: BitcreditBillResultDb = (bill, identity_node_id).into();
@@ -1547,23 +1538,18 @@ pub mod tests {
 
         // get bill from cache
         let cached_bill = store
-            .get_bill_from_cache("1234", "1234")
-            .await
-            .expect("could not fetch from cache");
-        assert_eq!(cached_bill.as_ref().unwrap().id, "1234".to_string());
-        // get bill from cache for other identity
-        let cached_bill = store
             .get_bill_from_cache("1234", "4321")
             .await
             .expect("could not fetch from cache");
         assert_eq!(cached_bill.as_ref().unwrap().id, "1234".to_string());
 
+        // removed for other identity now
         // get bills from cache
         let cached_bills = store
             .get_bills_from_cache(&["1234".to_string(), "4321".to_string()], "1234")
             .await
             .expect("could not fetch from cache");
-        assert_eq!(cached_bills.len(), 2);
+        assert_eq!(cached_bills.len(), 1);
 
         // get bills from cache for other identity
         let cached_bills = store
