@@ -7,12 +7,11 @@ use bcr_ebill_core::{
         BillParticipant,
         validation::{validate_create_contact, validate_update_contact},
     },
-    nostr_contact::{NostrContact, TrustLevel},
+    nostr_contact::{NostrContact, NostrPublicKey, TrustLevel},
 };
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 #[cfg(test)]
 use mockall::automock;
-pub use nostr::key::PublicKey;
 
 use crate::{
     Config,
@@ -100,10 +99,10 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     ) -> Result<Contact>;
 
     /// Returns whether a given npub (as hex) is in our contact list.
-    async fn is_known_npub(&self, npub: &PublicKey) -> Result<bool>;
+    async fn is_known_npub(&self, npub: &NostrPublicKey) -> Result<bool>;
 
     /// Returns the Npubs we want to subscribe to on Nostr.
-    async fn get_nostr_npubs(&self) -> Result<Vec<PublicKey>>;
+    async fn get_nostr_npubs(&self) -> Result<Vec<NostrPublicKey>>;
 
     /// Returns a Nostr contact by node id if we have a trusted one.
     async fn get_nostr_contact_by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
@@ -573,7 +572,7 @@ impl ContactServiceApi for ContactService {
         Ok(contact)
     }
 
-    async fn is_known_npub(&self, npub: &PublicKey) -> Result<bool> {
+    async fn is_known_npub(&self, npub: &NostrPublicKey) -> Result<bool> {
         Ok(!self.config.nostr_config.only_known_contacts
             || self
                 .nostr_contact_store
@@ -584,7 +583,7 @@ impl ContactServiceApi for ContactService {
     }
 
     /// Returns the Npubs we want to subscribe to on Nostr.
-    async fn get_nostr_npubs(&self) -> Result<Vec<PublicKey>> {
+    async fn get_nostr_npubs(&self) -> Result<Vec<NostrPublicKey>> {
         Ok(self
             .nostr_contact_store
             .get_npubs(vec![TrustLevel::Trusted, TrustLevel::Participant])
@@ -656,7 +655,7 @@ pub mod tests {
             empty_optional_address, init_test_cfg,
         },
     };
-    use bcr_ebill_core::nostr_contact::HandshakeStatus;
+    use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrPublicKey};
     use std::collections::HashMap;
     use util::BcrKeys;
 
@@ -1051,10 +1050,10 @@ pub mod tests {
     async fn is_known_npub_calls_store() {
         let (store, file_upload_store, file_upload_client, identity_store, mut nostr_contact) =
             get_storages();
-        let pub_key = PublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
+        let pub_key = NostrPublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
         nostr_contact.expect_by_npub().returning(|_| {
             Ok(Some(NostrContact {
-                npub: nostr::key::PublicKey::parse(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap(),
+                npub: NostrPublicKey::parse(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap(),
                 name: None,
                 relays: vec![],
                 trust_level: TrustLevel::Participant,

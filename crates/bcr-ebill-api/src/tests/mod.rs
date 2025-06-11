@@ -16,7 +16,7 @@ pub mod tests {
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
         mint::{MintOffer, MintRequest, MintRequestStatus},
-        nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+        nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
     };
@@ -119,12 +119,12 @@ pub mod tests {
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
             async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
-            async fn by_npub(&self, npub: &nostr::key::PublicKey) -> Result<Option<NostrContact>>;
+            async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
             async fn upsert(&self, data: &NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &str) -> Result<()>;
             async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
-            async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<nostr::key::PublicKey>>;
+            async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
         }
     }
 

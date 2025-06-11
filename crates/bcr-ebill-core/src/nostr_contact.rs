@@ -1,15 +1,17 @@
 use std::collections::BTreeSet;
 
-use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use crate::{contact::Contact, util::crypto::get_npub_from_node_id};
+
+/// Make key type clear
+pub type NostrPublicKey = nostr::key::PublicKey;
 
 /// Data we need to communicate with a Nostr contact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NostrContact {
     /// Our node id. This is the node id and acts as the primary key.
-    pub npub: PublicKey,
+    pub npub: NostrPublicKey,
     /// The Nostr name of the contact as retreived via Nostr metadata.
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list

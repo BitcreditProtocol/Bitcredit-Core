@@ -9,10 +9,9 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+    nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
     util::crypto::get_npub_from_node_id,
 };
-use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
@@ -44,7 +43,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         self.by_npub(&npub).await
     }
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
-    async fn by_npub(&self, npub: &PublicKey) -> Result<Option<NostrContact>> {
+    async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>> {
         let result: Option<NostrContactDb> = self.db.select_one(Self::TABLE, npub.to_hex()).await?;
         let value = result.and_then(|v| v.to_owned().try_into().ok());
         Ok(value)
@@ -95,7 +94,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
     }
 
     // returns all npubs that have a trust level higher than or equal to the given level.
-    async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<PublicKey>> {
+    async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_TRUST_LEVEL, levels)?;
@@ -105,8 +104,8 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         let result: Vec<NostrContactDb> = self.db.query(&query, bindings).await?;
         let keys = result
             .into_iter()
-            .filter_map(|c| nostr::key::PublicKey::parse(&c.id.id.to_raw()).ok())
-            .collect::<Vec<PublicKey>>();
+            .filter_map(|c| NostrPublicKey::parse(&c.id.id.to_raw()).ok())
+            .collect::<Vec<NostrPublicKey>>();
         Ok(keys)
     }
 }
@@ -152,8 +151,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
     type Error = Error;
     fn try_from(db: NostrContactDb) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
-            npub: nostr::key::PublicKey::parse(&db.id.id.to_raw())
-                .map_err(|_| Error::EncodingError)?,
+            npub: NostrPublicKey::parse(&db.id.id.to_raw()).map_err(|_| Error::EncodingError)?,
             name: db.name,
             relays: db.relays,
             trust_level: db.trust_level,
@@ -349,7 +347,7 @@ mod tests {
 
     fn get_test_message(node_id: &str) -> NostrContact {
         NostrContact {
-            npub: nostr::key::PublicKey::from_hex(node_id).unwrap(),
+            npub: NostrPublicKey::from_hex(node_id).unwrap(),
             name: Some("contact_name".to_string()),
             relays: vec!["test_relay".to_string()],
             trust_level: TrustLevel::None,

@@ -3,9 +3,9 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     ServiceTraitBounds,
     blockchain::BlockchainType,
-    nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+    nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
 };
-use nostr::{event::Event, key::PublicKey};
+use nostr::event::Event;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -79,7 +79,7 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
-    async fn by_npub(&self, npub: &PublicKey) -> Result<Option<NostrContact>>;
+    async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
     /// Creates a new or updates an existing Nostr contact.
     async fn upsert(&self, data: &NostrContact) -> Result<()>;
     /// Delete an Nostr contact. This will remove the contact from the store.
@@ -90,7 +90,7 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// contact.
     async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
     // returns all npubs that have a trust level higher than or equal to the given level.
-    async fn get_npubs(&self, min_trust_level: Vec<TrustLevel>) -> Result<Vec<PublicKey>>;
+    async fn get_npubs(&self, min_trust_level: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 }
 
 /// Allows us to keep track of Nostr chain events and have an archive of signed events that
