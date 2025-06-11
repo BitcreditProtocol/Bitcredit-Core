@@ -21,6 +21,7 @@ nostr.workspace = true
 bcr-ebill-core = { path = "../bcr-ebill-core" }
 tokio.workspace = true
 tokio_with_wasm.workspace = true
+bitcoin.workspace = true
 arc-swap = "1.7"
 
 # Enable "kv-indxdb" only for WebAssembly (wasm32)

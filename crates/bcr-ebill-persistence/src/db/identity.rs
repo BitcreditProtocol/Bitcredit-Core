@@ -16,6 +16,7 @@ impl SurrealIdentityStore {
     const IDENTITY_TABLE: &'static str = "identity";
     const ACTIVE_IDENTITY_TABLE: &'static str = "active_identity";
     const KEY_TABLE: &'static str = "identity_key";
+    const NETWORK_TABLE: &'static str = "identity_network";
     const UNIQUE_ID: &'static str = "unique_record";
 
     pub fn new(db: SurrealWrapper) -> Self {
@@ -28,6 +29,14 @@ impl SurrealIdentityStore {
         self.db
             .select_one(Self::KEY_TABLE, Self::UNIQUE_ID.to_owned())
             .await
+    }
+
+    async fn get_db_network(&self) -> Result<Option<bitcoin::Network>> {
+        let result: Option<NetworkDb> = self
+            .db
+            .select_one(Self::NETWORK_TABLE, Self::UNIQUE_ID.to_owned())
+            .await?;
+        Ok(result.map(|nw| nw.network))
     }
 }
 
@@ -84,6 +93,31 @@ impl IdentityStoreApi for SurrealIdentityStore {
         }
     }
 
+    async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()> {
+        let network = self.get_db_network().await?;
+        match network {
+            None => {
+                let _: Option<NetworkDb> = self
+                    .db
+                    .create(
+                        Self::NETWORK_TABLE,
+                        Some(Self::UNIQUE_ID.to_owned()),
+                        NetworkDb {
+                            network: configured_network,
+                        },
+                    )
+                    .await?;
+                Ok(())
+            }
+            Some(nw) => {
+                if configured_network != nw {
+                    return Err(Error::NetworkDoesNotMatch);
+                }
+                Ok(())
+            }
+        }
+    }
+
     async fn get_or_create_key_pair(&self) -> Result<BcrKeys> {
         let keys = match self.get_key_pair().await {
             Ok(keys) => keys,
@@ -134,6 +168,12 @@ impl IdentityStoreApi for SurrealIdentityStore {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkDb {
+    pub network: bitcoin::Network,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveIdentityDb {
     pub personal: String,

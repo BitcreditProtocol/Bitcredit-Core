@@ -1,3 +1,7 @@
+# 0.3.16
+
+* Set the BTC network in the identity and check, if the persisted network is the same as the one configured in the application, failing if it doesn't.
+
 # 0.3.15
 
 * Upload and download files to and from Nostr using Blossom

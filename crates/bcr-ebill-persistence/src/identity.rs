@@ -32,6 +32,8 @@ pub trait IdentityStoreApi: ServiceTraitBounds {
     async fn get_current_identity(&self) -> Result<ActiveIdentityState>;
     /// Sets the given current active identity state
     async fn set_current_identity(&self, identity_state: &ActiveIdentityState) -> Result<()>;
+    /// Sets the network for this identity, or, if it's set, checks if the set network is the same as the configured one
+    async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

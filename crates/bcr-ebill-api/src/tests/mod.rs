@@ -244,6 +244,7 @@ pub mod tests {
             async fn get_seedphrase(&self) -> Result<String>;
             async fn get_current_identity(&self) -> Result<ActiveIdentityState>;
             async fn set_current_identity(&self, identity_state: &ActiveIdentityState) -> Result<()>;
+            async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
         }
     }
 

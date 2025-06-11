@@ -82,6 +82,9 @@ pub enum Error {
     #[error("no identity key found")]
     NoIdentityKey,
 
+    #[error("Network does not match")]
+    NetworkDoesNotMatch,
+
     #[allow(dead_code)]
     #[error("Failed to convert integer {0}")]
     FromInt(#[from] std::num::TryFromIntError),

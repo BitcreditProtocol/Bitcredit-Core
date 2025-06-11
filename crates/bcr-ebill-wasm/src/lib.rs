@@ -87,6 +87,10 @@ pub async fn initialize_api(
 
     // init db
     let db = get_db_context(&api_config).await?;
+    // set the network and check if the configured network matches the persisted network and fail, if not
+    db.identity_store
+        .set_or_check_network(api_config.bitcoin_network())
+        .await?;
     let keys = db.identity_store.get_or_create_key_pair().await?;
 
     info!("Initialized WASM API {}", VERSION);
