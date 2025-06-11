@@ -2,9 +2,7 @@ use std::collections::HashSet;
 
 use super::surreal::{Bindings, SurrealWrapper};
 use super::{BillIdDb, FileDb, PostalAddressDb, Result};
-use crate::constants::{
-    DB_BILL_ID, DB_IDENTITY_NODE_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP,
-};
+use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
@@ -47,14 +45,23 @@ impl BillStoreApi for SurrealBillStore {
         ids: &[String],
         identity_node_id: &str,
     ) -> Result<Vec<BitcreditBillResult>> {
+        let db_ids: Vec<Thing> = ids
+            .iter()
+            .map(|id| {
+                (
+                    SurrealBillStore::CACHE_TABLE.to_owned(),
+                    format!("{}{}", id, identity_node_id),
+                )
+                    .into()
+            })
+            .collect();
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CACHE_TABLE)?;
-        bindings.add(DB_IDS, ids.to_owned())?;
-        bindings.add(DB_IDENTITY_NODE_ID, identity_node_id.to_owned())?;
+        bindings.add(DB_IDS, db_ids)?;
         let results: Vec<BitcreditBillResultDb> = self
             .db
             .query(
-                "SELECT * FROM type::table($table) WHERE bill_id IN $ids AND identity_node_id = $identity_node_id",
+                "SELECT * FROM type::table($table) WHERE id IN $ids",
                 bindings,
             )
             .await?;
@@ -66,18 +73,14 @@ impl BillStoreApi for SurrealBillStore {
         id: &str,
         identity_node_id: &str,
     ) -> Result<Option<BitcreditBillResult>> {
-        let mut bindings = Bindings::default();
-        bindings.add(DB_TABLE, Self::CACHE_TABLE)?;
-        bindings.add(DB_BILL_ID, id.to_owned())?;
-        bindings.add(DB_IDENTITY_NODE_ID, identity_node_id.to_owned())?;
-        let results: Vec<BitcreditBillResultDb> = self
+        let result: Option<BitcreditBillResultDb> = self
             .db
-            .query(
-                "SELECT * FROM type::table($table) WHERE bill_id = $bill_id AND identity_node_id = $identity_node_id",
-                bindings,
-            )
+            .select_one(Self::CACHE_TABLE, format!("{}{}", id, identity_node_id))
             .await?;
-        Ok(results.first().map(|bill| bill.to_owned().into()))
+        match result {
+            None => Ok(None),
+            Some(c) => Ok(Some(c.into())),
+        }
     }
 
     async fn save_bill_to_cache(
@@ -86,22 +89,18 @@ impl BillStoreApi for SurrealBillStore {
         identity_node_id: &str,
         bill: &BitcreditBillResult,
     ) -> Result<()> {
-        // first, delete existing cache entry
-        let mut bindings = Bindings::default();
-        bindings.add(DB_TABLE, Self::CACHE_TABLE)?;
-        bindings.add(DB_BILL_ID, id.to_owned())?;
-        bindings.add(DB_IDENTITY_NODE_ID, identity_node_id.to_owned())?;
-        self.db
-            .query_check(
-                "DELETE FROM type::table($table) WHERE bill_id = $bill_id AND identity_node_id = $identity_node_id",
-                bindings,
-            )
-            .await?;
-
+        // invalidate bill for all
+        self.invalidate_bill_in_cache(id).await?;
         // then, put in the new one
         let entity: BitcreditBillResultDb = (bill, identity_node_id).into();
-        let _: Option<BitcreditBillResultDb> =
-            self.db.create(Self::CACHE_TABLE, None, entity).await?;
+        let _: Option<BitcreditBillResultDb> = self
+            .db
+            .upsert(
+                Self::CACHE_TABLE,
+                format!("{}{}", id, identity_node_id),
+                entity,
+            )
+            .await?;
         Ok(())
     }
 
@@ -1547,23 +1546,18 @@ pub mod tests {
 
         // get bill from cache
         let cached_bill = store
-            .get_bill_from_cache("1234", "1234")
-            .await
-            .expect("could not fetch from cache");
-        assert_eq!(cached_bill.as_ref().unwrap().id, "1234".to_string());
-        // get bill from cache for other identity
-        let cached_bill = store
             .get_bill_from_cache("1234", "4321")
             .await
             .expect("could not fetch from cache");
         assert_eq!(cached_bill.as_ref().unwrap().id, "1234".to_string());
 
+        // removed for other identity now
         // get bills from cache
         let cached_bills = store
             .get_bills_from_cache(&["1234".to_string(), "4321".to_string()], "1234")
             .await
             .expect("could not fetch from cache");
-        assert_eq!(cached_bills.len(), 2);
+        assert_eq!(cached_bills.len(), 1);
 
         // get bills from cache for other identity
         let cached_bills = store

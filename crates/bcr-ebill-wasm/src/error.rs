@@ -57,6 +57,8 @@ enum JsErrorType {
     IssueDateAfterMaturityDate,
     MaturityDateInThePast,
     InvalidFileUploadId,
+    InvalidNodeId,
+    InvalidBillId,
     InvalidBillType,
     DraweeCantBePayee,
     EndorserCantBeEndorsee,
@@ -238,6 +240,8 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
             err_400(e, JsErrorType::IssueDateAfterMaturityDate)
         }
         ValidationError::InvalidFileUploadId => err_400(e, JsErrorType::InvalidFileUploadId),
+        ValidationError::InvalidNodeId => err_400(e, JsErrorType::InvalidNodeId),
+        ValidationError::InvalidBillId => err_400(e, JsErrorType::InvalidBillId),
         ValidationError::InvalidBillType => err_400(e, JsErrorType::InvalidBillType),
         ValidationError::DraweeCantBePayee => err_400(e, JsErrorType::DraweeCantBePayee),
         ValidationError::EndorserCantBeEndorsee => err_400(e, JsErrorType::EndorserCantBeEndorsee),

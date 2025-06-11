@@ -3,7 +3,7 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use company::Company;
 use contact::Contact;
 use serde::{Deserialize, Serialize};
-use std::{fmt, pin::Pin};
+use std::{fmt, pin::Pin, str::FromStr};
 use thiserror::Error;
 use util::is_blank;
 
@@ -19,6 +19,137 @@ pub mod notification;
 #[cfg(test)]
 mod tests;
 pub mod util;
+
+const ID_PREFIX: &str = "bitcr";
+const NETWORK_MAINNET: char = 'm';
+const NETWORK_TESTNET: char = 't';
+const NETWORK_TESTNET4: char = 'T';
+const NETWORK_REGTEST: char = 'r';
+
+fn network_char(network: &bitcoin::Network) -> char {
+    match network {
+        bitcoin::Network::Bitcoin => NETWORK_MAINNET,
+        bitcoin::Network::Testnet => NETWORK_TESTNET,
+        bitcoin::Network::Testnet4 => NETWORK_TESTNET4,
+        bitcoin::Network::Signet => unreachable!(),
+        bitcoin::Network::Regtest => NETWORK_REGTEST,
+        _ => unreachable!(),
+    }
+}
+
+/// A bitcr Node ID of the format <prefix><network><pub_key>
+/// Example: bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943
+/// The prefix is bitcr
+/// The pub key is a secp256k1 public key
+/// The network character can be parsed like this:
+/// * m => Mainnet
+/// * t => Testnet
+/// * T => Testnet4
+/// * r => Regtest
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+pub struct NodeId {
+    pub_key: bitcoin::secp256k1::PublicKey,
+    network: bitcoin::Network,
+}
+
+impl NodeId {
+    pub fn new(pub_key: bitcoin::secp256k1::PublicKey, network: bitcoin::Network) -> Self {
+        Self { pub_key, network }
+    }
+
+    pub fn network(&self) -> bitcoin::Network {
+        self.network
+    }
+
+    pub fn pub_key(&self) -> bitcoin::secp256k1::PublicKey {
+        self.pub_key
+    }
+
+    pub fn npub(&self) -> nostr::PublicKey {
+        nostr::PublicKey::from(self.pub_key.x_only_public_key().0)
+    }
+
+    pub fn equals_npub(&self, npub: &nostr::PublicKey) -> bool {
+        self.npub() == *npub
+    }
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}",
+            ID_PREFIX,
+            network_char(&self.network),
+            self.pub_key
+        )
+    }
+}
+
+impl FromStr for NodeId {
+    type Err = ValidationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with(ID_PREFIX) {
+            return Err(ValidationError::InvalidNodeId);
+        }
+
+        let network = match s.chars().nth(ID_PREFIX.len()) {
+            None => {
+                return Err(ValidationError::InvalidNodeId);
+            }
+            Some(network_str) => match network_str {
+                NETWORK_MAINNET => bitcoin::Network::Bitcoin,
+                NETWORK_TESTNET => bitcoin::Network::Testnet,
+                NETWORK_TESTNET4 => bitcoin::Network::Testnet4,
+                NETWORK_REGTEST => bitcoin::Network::Regtest,
+                _ => {
+                    return Err(ValidationError::InvalidNodeId);
+                }
+            },
+        };
+
+        let pub_key_str = &s[ID_PREFIX.len() + 1..];
+        let pub_key = bitcoin::secp256k1::PublicKey::from_str(pub_key_str)
+            .map_err(|_| ValidationError::InvalidNodeId)?;
+
+        Ok(Self { pub_key, network })
+    }
+}
+
+impl serde::Serialize for NodeId {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for NodeId {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(d)?;
+        NodeId::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl borsh::BorshSerialize for NodeId {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let node_id_str = self.to_string();
+        borsh::BorshSerialize::serialize(&node_id_str, writer)
+    }
+}
+
+impl borsh::BorshDeserialize for NodeId {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let node_id_str: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        NodeId::from_str(&node_id_str)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    }
+}
 
 /// Return type of an async function. Can be used to avoid async_trait
 pub type BoxedFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -258,6 +389,10 @@ pub enum ValidationError {
     #[error("invalid bill type")]
     InvalidBillType,
 
+    /// errors stemming from providing an invalid bill id
+    #[error("invalid bill id")]
+    InvalidBillId,
+
     /// errors stemming from when the drawee is the payee
     #[error("Drawee can't be Payee at the same time")]
     DraweeCantBePayee,
@@ -462,6 +597,10 @@ pub enum ValidationError {
     /// error returned if the contact type is not valid
     #[error("Invalid contact type")]
     InvalidContactType,
+
+    /// error returned if the node id is not valid
+    #[error("Invalid node id")]
+    InvalidNodeId,
 
     /// error returned if the identity type is not valid
     #[error("Invalid identity type")]

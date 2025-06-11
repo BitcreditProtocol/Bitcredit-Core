@@ -4,6 +4,10 @@
 * Nostr npub as primary key in Nostr contacts (breaking DB change)
 * Add default mint to nostr contacts as default, so it doesn't have to be added to contacts anymore
 
+# 0.3.15-hotfix1
+
+* Fix Bill Caching issue between multiple identities
+
 # 0.3.15
 
 * Upload and download files to and from Nostr using Blossom
