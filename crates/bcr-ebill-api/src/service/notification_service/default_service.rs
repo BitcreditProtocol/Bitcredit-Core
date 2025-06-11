@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::blockchain::bill::block::NodeId;
-use bcr_ebill_core::contact::{BillParticipant, ContactType};
+use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
 };
@@ -87,6 +87,17 @@ impl DefaultNotificationService {
                     self.contact_service.get_identity_by_node_id(node_id).await
                 {
                     Some(identity)
+                } else if let Ok(Some(nostr)) = self
+                    .contact_service
+                    .get_nostr_contact_by_node_id(node_id)
+                    .await
+                {
+                    // we have no contact but a nostr contact of a participant
+                    Some(BillParticipant::Anon(BillAnonParticipant {
+                        node_id: node_id.to_string(),
+                        email: None,
+                        nostr_relays: nostr.relays,
+                    }))
                 } else {
                     None
                 }

@@ -372,11 +372,7 @@ impl NotificationJsonTransportApi for NostrClient {
         &self,
         node_id: &str,
     ) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(node_id) {
-            let public_key = PublicKey::from_str(&npub).map_err(|e| {
-                error!("Failed to parse Nostr npub when sending a notification: {e}");
-                Error::Crypto("Failed to parse Nostr npub".to_string())
-            })?;
+        if let Ok(public_key) = crypto::get_npub_from_node_id(node_id) {
             match self.fetch_metadata(public_key).await? {
                 Some(meta) => {
                     let relays = self

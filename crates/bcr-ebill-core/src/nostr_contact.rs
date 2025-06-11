@@ -2,13 +2,16 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::contact::Contact;
+use crate::{contact::Contact, util::crypto::get_npub_from_node_id};
+
+/// Make key type clear
+pub type NostrPublicKey = nostr::key::PublicKey;
 
 /// Data we need to communicate with a Nostr contact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NostrContact {
     /// Our node id. This is the node id and acts as the primary key.
-    pub node_id: String,
+    pub npub: NostrPublicKey,
     /// The Nostr name of the contact as retreived via Nostr metadata.
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
@@ -23,14 +26,15 @@ pub struct NostrContact {
 impl NostrContact {
     /// Creates a new Nostr contact from a contact. This is used when we have a contact and want to
     /// create the Nostr contact from it. Handshake is set to complete and we trust the contact.
-    pub fn from_contact(contact: &Contact) -> Self {
-        Self {
-            node_id: contact.node_id.clone(),
+    pub fn from_contact(contact: &Contact) -> crate::util::crypto::Result<Self> {
+        let npub = get_npub_from_node_id(contact.node_id.as_str())?;
+        Ok(Self {
+            npub,
             name: Some(contact.name.clone()),
             relays: contact.nostr_relays.clone(),
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
-        }
+        })
     }
 
     /// Merges contact data into a nostr contact. This assumes at that point the handskake is
@@ -39,7 +43,7 @@ impl NostrContact {
         let mut relays: BTreeSet<String> = BTreeSet::from_iter(self.relays.clone());
         relays.extend(contact.nostr_relays.clone());
         Self {
-            node_id: self.node_id.clone(),
+            npub: self.npub,
             name: Some(contact.name.clone()),
             relays: relays.into_iter().collect(),
             trust_level: TrustLevel::Trusted,

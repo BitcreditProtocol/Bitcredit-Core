@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::{bill::BillKeys, company::CompanyKeys};
+use crate::{bill::BillKeys, company::CompanyKeys, nostr_contact::NostrPublicKey};
 
 use super::{base58_decode, base58_encode};
 use bip39::Mnemonic;
@@ -171,6 +171,10 @@ pub fn get_nostr_npub_as_hex_from_node_id(node_id: &str) -> Result<String> {
         .to_string())
 }
 
+pub fn get_npub_from_node_id(node_id: &str) -> Result<NostrPublicKey> {
+    Ok(PublicKey::from_str(node_id)?.x_only_public_key().0.into())
+}
+
 /// Checks if the given node_id and the given npub (as hex) are the same public key.
 /// This converts the node_id to an XOnlyPublicKey (which is the way nostr saves it's public key)
 /// and compares it to the given npub
@@ -179,7 +183,7 @@ pub fn is_node_id_nostr_hex_npub(node_id: &str, npub: &str) -> bool {
         Ok(pub_key) => pub_key,
         Err(_) => return false,
     };
-    match nostr::PublicKey::from_hex(&x_only_pub_key) {
+    match NostrPublicKey::from_hex(&x_only_pub_key) {
         Ok(npub_from_node_id) => npub == npub_from_node_id.to_hex(),
         Err(_) => false,
     }
