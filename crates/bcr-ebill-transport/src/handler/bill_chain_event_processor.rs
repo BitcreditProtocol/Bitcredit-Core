@@ -72,7 +72,7 @@ impl BillChainEventProcessor {
         }
     }
 
-    async fn ensure_nostr_contact(&self, node_id: &str) {
+    pub async fn ensure_nostr_contact(&self, node_id: &str) {
         // we already have the contact in the store, no need to resolve it
         if let Ok(Some(_)) = self.nostr_contact_store.by_node_id(node_id).await {
             return;

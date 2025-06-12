@@ -625,6 +625,9 @@ mod tests {
     };
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
+    use bcr_ebill_core::nostr_contact::{
+        HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel,
+    };
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
@@ -677,7 +680,7 @@ mod tests {
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockChainKeyService,
         MockNostrChainEventStore, MockNostrContactStore, MockNostrEventOffsetStoreApiMock,
         MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_BILL_ID,
-        TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
+        TEST_NODE_ID_SECP_AS_NPUB_HEX, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -1905,7 +1908,16 @@ mod tests {
         let push_service = Arc::new(MockPushService::new());
         let bill_store = Arc::new(MockBillStoreApiMock::new());
         let bill_blockchain_store = Arc::new(MockBillChainStoreApiMock::new());
-        let nostr_contact_store = Arc::new(MockNostrContactStore::new());
+        let mut nostr_contact_store = MockNostrContactStore::new();
+        nostr_contact_store.expect_by_node_id().returning(|_| {
+            Ok(Some(NostrContact {
+                npub: NostrPublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap(),
+                name: None,
+                relays: Vec::default(),
+                trust_level: TrustLevel::Participant,
+                handshake_status: HandshakeStatus::None,
+            }))
+        });
         let chain_key_store = Arc::new(MockChainKeyService::new());
         let chain_event_store = Arc::new(MockNostrChainEventStore::new());
         let _ = create_nostr_consumer(
@@ -1916,7 +1928,7 @@ mod tests {
             push_service,
             bill_blockchain_store,
             bill_store,
-            nostr_contact_store,
+            Arc::new(nostr_contact_store),
             chain_key_store,
             chain_event_store,
         )
