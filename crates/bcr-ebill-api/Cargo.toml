@@ -31,10 +31,10 @@ bcr-ebill-transport = { path = "../bcr-ebill-transport" }
 tokio.workspace = true
 tokio_with_wasm.workspace = true
 secp256k1.workspace = true
-bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "210ee9fccfb93e00247c46dbfcd4cc55287" }
-bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "210ee9fccfb93e00247c46dbfcd4cc55287" }
-bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "210ee9fccfb93e00247c46dbfcd4cc55287" }
-bcr-wdc-swap-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "210ee9fccfb93e00247c46dbfcd4cc55287" }
+bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
+bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
+bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
+bcr-wdc-swap-client = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
 cashu = { version = "0.9", default-features = false }
 rand = { version = "0.8" }
 hex = { version = "0.4" }

@@ -347,7 +347,7 @@ async function fetchContactFile() {
 async function switchIdentity() {
   let node_id = document.getElementById("node_id_identity").value;
   await identityApi.switch({ t: 1, node_id });
-  document.getElementById("current_identity").innerHTML = node_id;
+  document.getElementById("current_identity").textContent = node_id;
 }
 
 async function endorseBill() {

@@ -4,6 +4,10 @@ on:
   push:
     branches: [ "*" ]
 
+permissions:
+  contents: read
+  security-events: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -26,7 +30,7 @@ jobs:
           df -h
 
       - name: Switch rust version
-        run: rustup default nightly
+        run: rustup default stable
 
       - name: Update rust
         run: rustup update

@@ -4,6 +4,10 @@ on:
   push:
     branches: [ "*" ]
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -1,7 +1,9 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
-    use crate::Validate;
+    use std::str::FromStr;
+
+    use crate::bill::BillId;
     use crate::contact::BillParticipant;
     use crate::identity::IdentityType;
     use crate::{
@@ -10,7 +12,10 @@ pub mod tests {
         contact::{BillIdentParticipant, ContactType},
         identity::Identity,
     };
+    use crate::{NodeId, Validate};
+    use borsh::{BorshDeserialize, BorshSerialize};
     use rstest::rstest;
+    use serde::{Deserialize, Serialize};
 
     pub fn valid_address() -> PostalAddress {
         PostalAddress {
@@ -238,4 +243,199 @@ pub mod tests {
     pub const VALID_PAYMENT_ADDRESS_TESTNET: &str = "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0";
 
     pub const OTHER_VALID_PAYMENT_ADDRESS_TESTNET: &str = "msAPAcTqHqosWu3gaVwATTupxdHSY2wyQn";
+
+    #[derive(
+        Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+    )]
+    pub struct Test {
+        pub node_id: NodeId,
+    }
+
+    #[test]
+    fn test_node_id() {
+        // parsing
+        let valid_node_id =
+            "bitcrt03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
+        let parsed = NodeId::from_str(valid_node_id).unwrap();
+        assert_eq!(
+            parsed.pub_key(),
+            bitcoin::secp256k1::PublicKey::from_str(TEST_NODE_ID_SECP).unwrap()
+        );
+        assert_eq!(
+            parsed.npub(),
+            nostr::PublicKey::from_str(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap()
+        );
+        assert!(parsed.equals_npub(&parsed.npub()));
+        assert!(matches!(parsed.network(), bitcoin::Network::Testnet));
+        assert_eq!(parsed.to_string(), valid_node_id);
+
+        let valid_node_id_mainnet =
+            "bitcrm03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
+        assert!(matches!(
+            NodeId::from_str(valid_node_id_mainnet).unwrap().network(),
+            bitcoin::Network::Bitcoin
+        ));
+        let valid_node_id_regtest =
+            "bitcrr03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
+        assert!(matches!(
+            NodeId::from_str(valid_node_id_regtest).unwrap().network(),
+            bitcoin::Network::Regtest
+        ));
+        let valid_node_id_testnet4 =
+            "bitcrT03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
+        assert!(matches!(
+            NodeId::from_str(valid_node_id_testnet4).unwrap().network(),
+            bitcoin::Network::Testnet4
+        ));
+        // parsing errors
+        assert!(matches!(
+            NodeId::from_str("invalid_nonsense").unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+        assert!(matches!(
+            NodeId::from_str("bitcrinvalid_nonsense").unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+        assert!(matches!(
+            NodeId::from_str("bitcrtinvalid_nonsense").unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+        assert!(matches!(
+            NodeId::from_str(
+                "bitcrt205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef"
+            )
+            .unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+        assert!(matches!(
+            NodeId::from_str(
+                "bitcrk03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef"
+            )
+            .unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+        assert!(matches!(
+            NodeId::from_str("bitcrt").unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+        assert!(matches!(
+            NodeId::from_str("").unwrap_err(),
+            ValidationError::InvalidNodeId
+        ));
+
+        // serialization / deserialization
+        let test = Test {
+            node_id: parsed.clone(),
+        };
+
+        let json = serde_json::to_string(&test).unwrap();
+        assert_eq!(
+            "{\"node_id\":\"bitcrt03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef\"}",
+            json
+        );
+        let deserialized = serde_json::from_str(&json).unwrap();
+        assert_eq!(test, deserialized);
+        assert_eq!(parsed, deserialized.node_id);
+
+        let borsh = borsh::to_vec(&parsed).unwrap();
+        let borsh_de = NodeId::try_from_slice(&borsh).unwrap();
+        assert_eq!(parsed, borsh_de);
+
+        let borsh_test = borsh::to_vec(&test).unwrap();
+        let borsh_de_test = Test::try_from_slice(&borsh_test).unwrap();
+        assert_eq!(test, borsh_de_test);
+        assert_eq!(parsed, borsh_de_test.node_id);
+    }
+
+    #[derive(
+        Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+    )]
+    pub struct TestBill {
+        pub bill_id: BillId,
+    }
+
+    #[test]
+    fn test_bill_id() {
+        // parsing
+        let valid_bill_id = "bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3y";
+        let parsed = BillId::from_str(valid_bill_id).unwrap();
+        assert_eq!(parsed.id(), "BBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3y");
+        assert!(matches!(parsed.network(), bitcoin::Network::Testnet));
+        assert_eq!(parsed.to_string(), valid_bill_id);
+
+        let valid_bill_id_mainnet = "bitcrmCduj6HZ95qMWDaoDny26FMtyVycdGJRpn5wh6XCRFu14";
+        assert!(matches!(
+            BillId::from_str(valid_bill_id_mainnet).unwrap().network(),
+            bitcoin::Network::Bitcoin
+        ));
+        let valid_bill_id_regtest = "bitcrrCduj6HZ95qMWDaoDny26FMtyVycdGJRpn5wh6XCRFu14";
+        assert!(matches!(
+            BillId::from_str(valid_bill_id_regtest).unwrap().network(),
+            bitcoin::Network::Regtest
+        ));
+        let valid_bill_id_testnet4 = "bitcrTCduj6HZ95qMWDaoDny26FMtyVycdGJRpn5wh6XCRFu14";
+        assert!(matches!(
+            BillId::from_str(valid_bill_id_testnet4).unwrap().network(),
+            bitcoin::Network::Testnet4
+        ));
+        // parsing errors
+        assert!(matches!(
+            BillId::from_str("invalid_nonsense").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str("bitcrinvalid_nonsense").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str("bitcrtinvalid_nonsense").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str("bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str("bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3yy").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str(
+                "bitcrk03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef"
+            )
+            .unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str("bitcrt").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+        assert!(matches!(
+            BillId::from_str("").unwrap_err(),
+            ValidationError::InvalidBillId
+        ));
+
+        // serialization / deserialization
+        let test = TestBill {
+            bill_id: parsed.clone(),
+        };
+
+        let json = serde_json::to_string(&test).unwrap();
+        assert_eq!(
+            "{\"bill_id\":\"bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3y\"}",
+            json
+        );
+        let deserialized = serde_json::from_str(&json).unwrap();
+        assert_eq!(test, deserialized);
+        assert_eq!(parsed, deserialized.bill_id);
+
+        let borsh = borsh::to_vec(&parsed).unwrap();
+        let borsh_de = BillId::try_from_slice(&borsh).unwrap();
+        assert_eq!(parsed, borsh_de);
+
+        let borsh_test = borsh::to_vec(&test).unwrap();
+        let borsh_de_test = TestBill::try_from_slice(&borsh_test).unwrap();
+        assert_eq!(test, borsh_de_test);
+        assert_eq!(parsed, borsh_de_test.bill_id);
+    }
 }
