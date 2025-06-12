@@ -2,6 +2,7 @@
 
 * Set the BTC network in the identity and check, if the persisted network is the same as the one configured in the application, failing if it doesn't.
 * Nostr npub as primary key in Nostr contacts (breaking DB change)
+* Add default mint to nostr contacts as default, so it doesn't have to be added to contacts anymore
 
 # 0.3.15
 
