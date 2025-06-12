@@ -9,7 +9,7 @@ use bcr_ebill_core::{
                 BillAcceptBlockData, BillEndorseBlockData, BillMintBlockData,
                 BillOfferToSellBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
                 BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
-                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData, NodeId,
+                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
             },
         },
         company::{CompanyBlock, CompanySignCompanyBillBlockData},

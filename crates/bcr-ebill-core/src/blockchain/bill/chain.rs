@@ -3,7 +3,7 @@ use super::PaymentInfo;
 use super::block::{
     BillBlock, BillEndorseBlockData, BillIdentParticipantBlockData, BillIssueBlockData,
     BillMintBlockData, BillOfferToSellBlockData, BillParticipantBlockData, BillRecourseBlockData,
-    BillRequestRecourseBlockData, BillSellBlockData, NodeId,
+    BillRequestRecourseBlockData, BillSellBlockData,
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};

@@ -1,3 +1,8 @@
+# 0.3.17
+
+* Use NodeId and BillId types internally instead of strings
+* Removed `NodeId` trait and replaced it with method
+
 # 0.3.16
 
 * Set the BTC network in the identity and check, if the persisted network is the same as the one configured in the application, failing if it doesn't.

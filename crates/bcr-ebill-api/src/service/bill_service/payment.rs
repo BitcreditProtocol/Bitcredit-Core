@@ -7,7 +7,7 @@ use bcr_ebill_core::{
         Blockchain,
         bill::{
             BillOpCode, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
-            block::{BillRecourseReasonBlockData, NodeId},
+            block::BillRecourseReasonBlockData,
         },
     },
     company::{Company, CompanyKeys},

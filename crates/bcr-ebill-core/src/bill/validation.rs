@@ -4,7 +4,7 @@ use crate::{
         Block, Blockchain,
         bill::{
             BillOpCode, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
-            block::{BillRecourseReasonBlockData, NodeId},
+            block::BillRecourseReasonBlockData,
         },
     },
     constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
