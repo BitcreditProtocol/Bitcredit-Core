@@ -29,7 +29,7 @@ pub struct CompanyBlockDataToHash {
     data: String,
     timestamp: u64,
     public_key: String,
-    signatory_node_id: String,
+    signatory_node_id: NodeId,
     op_code: CompanyOpCode,
 }
 
@@ -57,7 +57,7 @@ pub struct CompanyBlock {
     pub timestamp: u64,
     pub data: String,
     pub public_key: String,
-    pub signatory_node_id: String,
+    pub signatory_node_id: NodeId,
     pub previous_hash: String,
     pub signature: String,
     pub op_code: CompanyOpCode,
@@ -200,7 +200,7 @@ impl CompanyBlock {
             identity_keys.get_private_key_string(),
             company_keys.private_key.to_owned(),
         ];
-        let signatory_node_id = identity_keys.get_public_key();
+        let signatory_node_id = NodeId::new(identity_keys.pub_key(), company_id.network());
         let aggregated_public_key = crypto::get_aggregated_public_key(&keys)?;
         let hash = Self::calculate_hash(CompanyBlockDataToHash {
             company_id: company_id.clone(),
