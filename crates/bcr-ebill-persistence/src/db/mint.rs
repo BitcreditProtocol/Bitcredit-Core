@@ -45,7 +45,7 @@ impl MintStoreApi for SurrealMintStore {
         match self
             .db
             .query::<Option<BillIdDb>>(
-                "SELECT bill_id FROM type::table($table) WHERE bill_id = $bill_id GROUP BY bill_id",
+                "SELECT bill_id FROM type::table($table) WHERE bill_id = $bill_id AND requester_node_id = $requester_node_id GROUP BY bill_id",
                 bindings,
             )
             .await
@@ -418,6 +418,28 @@ mod tests {
             .await
             .unwrap();
         assert!(store.exists_for_bill("requester", "bill_id").await.unwrap());
+        assert!(
+            !store
+                .exists_for_bill("other_requester", "bill_id")
+                .await
+                .unwrap()
+        );
+        store
+            .add_request(
+                "other_requester",
+                "bill_id",
+                "mint_node_id",
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .exists_for_bill("other_requester", "bill_id")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
