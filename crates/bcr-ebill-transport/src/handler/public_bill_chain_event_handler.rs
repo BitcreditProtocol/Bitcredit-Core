@@ -144,6 +144,7 @@ mod tests {
             EventType::Bill,
             BillBlockEvent {
                 bill_id: TEST_BILL_ID.to_string(),
+                block_height: 1,
                 block: block.clone(),
             },
         );
@@ -206,6 +207,7 @@ mod tests {
             EventType::Bill,
             BillBlockEvent {
                 bill_id: TEST_BILL_ID.to_string(),
+                block_height: 1,
                 block: block.clone(),
             },
         );

@@ -147,6 +147,7 @@ impl BillChainEvent {
         }
         Some(Event::new_chain(BillBlockEvent {
             bill_id: self.bill.id.to_owned(),
+            block_height: self.block_height(),
             block: self.latest_block(),
         }))
     }
