@@ -1,7 +1,17 @@
 # 0.3.17
 
-* Use NodeId and BillId types internally instead of strings
-* Removed `NodeId` trait and replaced it with method
+* Use NodeId, PublicKey, SecretKey and BillId types internally instead of strings (fully breaking)
+    * This breaks all existing databases, since the node ids and bill ids now have the format `prefix|network|pubkey`- example: `bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f`
+    * The `prefix` is `bitcr`
+    * The `network` character is as follows:
+        * m => Mainnet
+        * t => Testnet
+        * T => Testnet4
+        * r => Regtest
+    * The `pubkey` is a stringified secp256k1 public key
+    * Existing apps need to a.) delete their IndexedDB and b.) their localhost (because the mint ID might be in there)
+* Removed `NodeId` trait and replaced it with a concrete method on the corresponding types (breaking API change)
+* Rename `BillId` TS type to `BillIdResponse` (breaking TS type)
 
 # 0.3.16
 

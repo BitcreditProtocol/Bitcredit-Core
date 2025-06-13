@@ -1,3 +1,4 @@
+use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -115,7 +116,7 @@ pub trait Block {
     fn previous_hash(&self) -> &str;
     fn data(&self) -> &str;
     fn signature(&self) -> &str;
-    fn public_key(&self) -> &str;
+    fn public_key(&self) -> &PublicKey;
     fn validate(&self) -> bool;
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash;
 

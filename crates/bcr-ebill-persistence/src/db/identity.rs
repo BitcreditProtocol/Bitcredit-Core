@@ -1,8 +1,10 @@
+use std::str::FromStr;
+
 use super::{FileDb, OptionalPostalAddressDb, Result, surreal::SurrealWrapper};
 use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, SecretKey, ServiceTraitBounds,
     identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
 };
 use serde::{Deserialize, Serialize};
@@ -176,8 +178,8 @@ pub struct NetworkDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveIdentityDb {
-    pub personal: String,
-    pub company: Option<String>,
+    pub personal: NodeId,
+    pub company: Option<NodeId>,
 }
 
 impl From<ActiveIdentityDb> for ActiveIdentityState {
@@ -202,7 +204,7 @@ impl From<&ActiveIdentityState> for ActiveIdentityDb {
 pub struct IdentityDb {
     #[serde(rename = "type")]
     pub t: IdentityType,
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddressDb,
@@ -271,7 +273,9 @@ impl KeyDb {
 impl TryFrom<KeyDb> for BcrKeys {
     type Error = crate::Error;
     fn try_from(value: KeyDb) -> Result<Self> {
-        let key_pair = BcrKeys::from_private_key(&value.key)?;
+        let key_pair = BcrKeys::from_private_key(
+            &SecretKey::from_str(&value.key).map_err(|e| Error::CryptoUtil(e.into()))?,
+        )?;
         Ok(key_pair)
     }
 }

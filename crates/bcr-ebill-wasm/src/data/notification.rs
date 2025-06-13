@@ -1,4 +1,7 @@
-use bcr_ebill_api::data::notification::{Notification, NotificationType};
+use bcr_ebill_api::data::{
+    NodeId,
+    notification::{Notification, NotificationType},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tsify::Tsify;
@@ -8,7 +11,8 @@ use wasm_bindgen::prelude::*;
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct NotificationWeb {
     pub id: String,
-    pub node_id: Option<String>,
+    #[tsify(type = "string")]
+    pub node_id: Option<NodeId>,
     pub notification_type: NotificationTypeWeb,
     pub reference_id: Option<String>,
     pub description: String,

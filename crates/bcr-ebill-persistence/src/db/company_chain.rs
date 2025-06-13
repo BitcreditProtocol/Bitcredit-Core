@@ -11,7 +11,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, PublicKey, ServiceTraitBounds,
     blockchain::{
         Block,
         company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
@@ -67,7 +67,7 @@ impl ServiceTraitBounds for SurrealCompanyChainStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompanyChainStoreApi for SurrealCompanyChainStore {
-    async fn get_latest_block(&self, id: &str) -> Result<CompanyBlock> {
+    async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_COMPANY_ID, id.to_owned())?;
@@ -86,7 +86,7 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
         }
     }
 
-    async fn add_block(&self, id: &str, block: &CompanyBlock) -> Result<()> {
+    async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()> {
         let entity: CompanyBlockDb = block.into();
         match self.get_latest_block(id).await {
             Err(Error::NoCompanyBlock) => {
@@ -150,7 +150,7 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
         }
     }
 
-    async fn remove(&self, id: &str) -> Result<()> {
+    async fn remove(&self, id: &NodeId) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_COMPANY_ID, id.to_owned())?;
@@ -163,7 +163,7 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
         Ok(())
     }
 
-    async fn get_chain(&self, id: &str) -> Result<CompanyBlockchain> {
+    async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_COMPANY_ID, id.to_owned())?;
@@ -185,14 +185,14 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyBlockDb {
-    pub company_id: String,
+    pub company_id: NodeId,
     pub block_id: u64,
     pub hash: String,
     pub previous_hash: String,
     pub signature: String,
     pub timestamp: u64,
-    pub public_key: String,
-    pub signatory_node_id: String,
+    pub public_key: PublicKey,
+    pub signatory_node_id: NodeId,
     pub data: String,
     pub op_code: CompanyOpCode,
 }
@@ -223,7 +223,7 @@ impl From<&CompanyBlock> for CompanyBlockDb {
             previous_hash: value.previous_hash.clone(),
             signature: value.signature.clone(),
             timestamp: value.timestamp,
-            public_key: value.public_key.clone(),
+            public_key: value.public_key,
             signatory_node_id: value.signatory_node_id.clone(),
             data: value.data.clone(),
             op_code: value.op_code.clone(),
@@ -236,9 +236,7 @@ mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
-        tests::tests::{
-            TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, empty_address, empty_optional_address,
-        },
+        tests::tests::{empty_address, empty_optional_address, node_id_test, private_key_test},
         util::BcrKeys,
     };
     use bcr_ebill_core::{
@@ -258,8 +256,8 @@ mod tests {
 
     fn get_company_keys() -> CompanyKeys {
         CompanyKeys {
-            private_key: TEST_PRIVATE_KEY_SECP.to_string(),
-            public_key: TEST_PUB_KEY_SECP.to_string(),
+            private_key: private_key_test(),
+            public_key: node_id_test().pub_key(),
         }
     }
 
@@ -267,10 +265,10 @@ mod tests {
     async fn test_add_block() {
         let store = get_store().await;
         let block = CompanyBlock::create_block_for_create(
-            TEST_PUB_KEY_SECP.to_string(),
+            node_id_test(),
             "genesis hash".to_string(),
             &Company {
-                id: TEST_PUB_KEY_SECP.to_string(),
+                id: node_id_test(),
                 name: "Hayek Ltd".to_string(),
                 country_of_registration: Some("AT".to_string()),
                 city_of_registration: Some("Vienna".to_string()),
@@ -280,7 +278,7 @@ mod tests {
                 registration_date: Some("2024-01-01".to_string()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                signatories: vec!["self".to_string()],
+                signatories: vec![node_id_test()],
             }
             .into(),
             &BcrKeys::new(),
@@ -288,13 +286,13 @@ mod tests {
             1731593928,
         )
         .unwrap();
-        store.add_block(TEST_PUB_KEY_SECP, &block).await.unwrap();
-        let last_block = store.get_latest_block(TEST_PUB_KEY_SECP).await;
+        store.add_block(&node_id_test(), &block).await.unwrap();
+        let last_block = store.get_latest_block(&node_id_test()).await;
         assert!(last_block.is_ok());
         assert_eq!(last_block.as_ref().unwrap().id, 1);
 
         let block2 = CompanyBlock::create_block_for_update(
-            TEST_PUB_KEY_SECP.to_string(),
+            node_id_test(),
             &block,
             &CompanyUpdateBlockData {
                 name: None,
@@ -312,8 +310,8 @@ mod tests {
             1731593928,
         )
         .unwrap();
-        store.add_block(TEST_PUB_KEY_SECP, &block2).await.unwrap();
-        let last_block = store.get_latest_block(TEST_PUB_KEY_SECP).await;
+        store.add_block(&node_id_test(), &block2).await.unwrap();
+        let last_block = store.get_latest_block(&node_id_test()).await;
         assert!(last_block.is_ok());
         assert_eq!(last_block.as_ref().unwrap().id, 2);
     }
@@ -322,10 +320,10 @@ mod tests {
     async fn test_remove_blockchain() {
         let store = get_store().await;
         let block = CompanyBlock::create_block_for_create(
-            TEST_PUB_KEY_SECP.to_string(),
+            node_id_test(),
             "genesis hash".to_string(),
             &Company {
-                id: TEST_PUB_KEY_SECP.to_string(),
+                id: node_id_test(),
                 name: "Hayek Ltd".to_string(),
                 country_of_registration: Some("AT".to_string()),
                 city_of_registration: Some("Vienna".to_string()),
@@ -335,7 +333,7 @@ mod tests {
                 registration_date: Some("2024-01-01".to_string()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                signatories: vec!["self".to_string()],
+                signatories: vec![node_id_test()],
             }
             .into(),
             &BcrKeys::new(),
@@ -343,8 +341,8 @@ mod tests {
             1731593928,
         )
         .unwrap();
-        store.add_block(TEST_PUB_KEY_SECP, &block).await.unwrap();
-        let result = store.remove(TEST_PUB_KEY_SECP).await;
+        store.add_block(&node_id_test(), &block).await.unwrap();
+        let result = store.remove(&node_id_test()).await;
         assert!(result.is_ok());
     }
 }

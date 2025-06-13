@@ -12,7 +12,9 @@ use crate::{
     },
     util::BcrKeys,
 };
-use bcr_ebill_core::{ServiceTraitBounds, contact::BillParticipant, notification::BillEventType};
+use bcr_ebill_core::{
+    NodeId, ServiceTraitBounds, bill::BillId, contact::BillParticipant, notification::BillEventType,
+};
 use nostr_relay_builder::prelude::*;
 
 use super::{NostrConfig, nostr::NostrClient};
@@ -72,7 +74,7 @@ impl NotificationHandlerApi for TestEventHandler<TestEventPayload> {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        _: &str,
+        _: &NodeId,
         _: Box<nostr::Event>,
     ) -> bcr_ebill_transport::Result<()> {
         *self.called.lock().await = true;
@@ -95,7 +97,7 @@ pub fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> 
 }
 
 pub fn get_identity_public_data(
-    node_id: &str,
+    node_id: &NodeId,
     email: &str,
     nostr_relays: Vec<&str>,
 ) -> BillIdentParticipant {
@@ -109,7 +111,7 @@ pub fn get_identity_public_data(
 }
 
 pub fn get_test_bitcredit_bill(
-    id: &str,
+    id: &BillId,
     payer: &BillIdentParticipant,
     payee: &BillIdentParticipant,
     drawer: Option<&BillIdentParticipant>,
@@ -134,7 +136,13 @@ pub async fn get_mock_nostr_client() -> NostrClient {
     let url = relay.url();
     let keys = BcrKeys::new();
 
-    let config = NostrConfig::new(keys, vec![url], "Test relay user".to_owned(), true);
+    let config = NostrConfig::new(
+        keys.clone(),
+        vec![url],
+        "Test relay user".to_owned(),
+        true,
+        NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+    );
     NostrClient::new(&config)
         .await
         .expect("could not create mock nostr client")

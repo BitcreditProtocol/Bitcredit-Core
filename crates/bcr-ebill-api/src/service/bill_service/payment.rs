@@ -2,7 +2,8 @@ use super::Result;
 use super::service::BillService;
 use crate::service::bill_service::{BillAction, BillServiceApi};
 use bcr_ebill_core::{
-    bill::RecourseReason,
+    NodeId,
+    bill::{BillId, RecourseReason},
     blockchain::{
         Blockchain,
         bill::{
@@ -21,7 +22,7 @@ use std::collections::HashMap;
 impl BillService {
     pub(super) async fn check_bill_payment(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         identity: &Identity,
     ) -> Result<()> {
         info!("Checking bill payment for {bill_id}");
@@ -44,7 +45,7 @@ impl BillService {
         };
         let address_to_pay = self
             .bitcoin_client
-            .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
+            .get_address_to_pay(&bill_keys.public_key, &holder_public_key.pub_key())?;
         if let Ok((paid, sum)) = self
             .bitcoin_client
             .check_if_paid(&address_to_pay, bill.sum)
@@ -62,7 +63,7 @@ impl BillService {
 
     pub(super) async fn check_bill_in_recourse_payment(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         identity: &IdentityWithAll,
         now: u64,
     ) -> Result<()> {
@@ -74,9 +75,10 @@ impl BillService {
             chain.is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, now)
         {
             // calculate payment address
-            let payment_address = self
-                .bitcoin_client
-                .get_address_to_pay(&bill_keys.public_key, &payment_info.recourser.node_id)?;
+            let payment_address = self.bitcoin_client.get_address_to_pay(
+                &bill_keys.public_key,
+                &payment_info.recourser.node_id.pub_key(),
+            )?;
             // check if paid
             if let Ok((paid, sum)) = self
                 .bitcoin_client
@@ -123,7 +125,7 @@ impl BillService {
                         return Ok(()); // return early
                     }
 
-                    let local_companies: HashMap<String, (Company, CompanyKeys)> =
+                    let local_companies: HashMap<NodeId, (Company, CompanyKeys)> =
                         self.company_store.get_all().await?;
                     // If a local company is the recourser, create the recourse block as that company
                     if let Some(recourser_company) =
@@ -168,7 +170,7 @@ impl BillService {
 
     pub(super) async fn check_bill_offer_to_sell_payment(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         identity: &IdentityWithAll,
         now: u64,
     ) -> Result<()> {
@@ -228,7 +230,7 @@ impl BillService {
                         return Ok(()); // return early
                     }
 
-                    let local_companies: HashMap<String, (Company, CompanyKeys)> =
+                    let local_companies: HashMap<NodeId, (Company, CompanyKeys)> =
                         self.company_store.get_all().await?;
                     // If a local company is the seller, create the sell block as that company
                     if let Some(seller_company) =

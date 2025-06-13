@@ -11,7 +11,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    PublicKey, ServiceTraitBounds,
     blockchain::{
         Block,
         identity::{IdentityBlock, IdentityOpCode},
@@ -157,7 +157,7 @@ pub struct IdentityBlockDb {
     pub previous_hash: String,
     pub signature: String,
     pub timestamp: u64,
-    pub public_key: String,
+    pub public_key: PublicKey,
     pub data: String,
     pub op_code: IdentityOpCode,
 }
@@ -185,7 +185,7 @@ impl From<&IdentityBlock> for IdentityBlockDb {
             previous_hash: value.previous_hash.clone(),
             signature: value.signature.clone(),
             timestamp: value.timestamp,
-            public_key: value.public_key.clone(),
+            public_key: value.public_key,
             data: value.data.clone(),
             op_code: value.op_code.clone(),
         }

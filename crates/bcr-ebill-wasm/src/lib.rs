@@ -1,7 +1,8 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
 use bcr_ebill_api::{
-    Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, get_db_context, init,
+    Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
+    init,
 };
 use context::{Context, get_ctx};
 use futures::{StreamExt, future::ready};
@@ -9,8 +10,8 @@ use gloo_timers::future::{IntervalStream, TimeoutFuture};
 use job::run_jobs;
 use log::info;
 use serde::Deserialize;
-use std::cell::RefCell;
 use std::thread_local;
+use std::{cell::RefCell, str::FromStr};
 use tokio::spawn;
 use tokio_with_wasm::alias as tokio;
 use tsify::Tsify;
@@ -72,6 +73,7 @@ pub async fn initialize_api(
         .chain(fern::Output::call(console_log::log))
         .apply()
         .expect("can initialize logging");
+    let mint_node_id = NodeId::from_str(&config.default_mint_node_id)?;
     let api_config = ApiConfig {
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
@@ -81,7 +83,7 @@ pub async fn initialize_api(
             relays: config.nostr_relays.to_owned(),
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
         },
-        mint_config: MintConfig::new(config.default_mint_url, config.default_mint_node_id)?,
+        mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
     };
     init(api_config.clone())?;
 
@@ -93,10 +95,11 @@ pub async fn initialize_api(
         .await?;
     let keys = db.identity_store.get_or_create_key_pair().await?;
 
+    let node_id = NodeId::new(keys.pub_key(), api_config.bitcoin_network());
     info!("Initialized WASM API {}", VERSION);
-    info!("Local node id: {:?}", keys.get_public_key());
-    info!("Local npub: {:?}", keys.get_nostr_npub());
-    info!("Local npub as hex: {:?}", keys.get_nostr_npub_as_hex());
+    info!("Local node id: {node_id}");
+    info!("Local npub: {:?}", node_id.npub());
+    info!("Local npub as hex: {}", node_id.npub().to_hex());
     info!("Config: {api_config:?}");
 
     // init context as static reference

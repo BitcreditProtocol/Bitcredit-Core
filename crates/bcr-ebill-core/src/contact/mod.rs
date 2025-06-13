@@ -1,4 +1,4 @@
-use crate::{ValidationError, identity::IdentityType};
+use crate::{NodeId, ValidationError, identity::IdentityType};
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -43,7 +43,7 @@ impl TryFrom<u64> for ContactType {
 pub struct Contact {
     #[serde(rename = "type")]
     pub t: ContactType,
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>, // optional for anon only
     #[serde(flatten)]
@@ -63,14 +63,8 @@ pub enum BillParticipant {
     Ident(BillIdentParticipant),
 }
 
-impl Default for BillParticipant {
-    fn default() -> Self {
-        Self::Ident(BillIdentParticipant::default())
-    }
-}
-
 impl BillParticipant {
-    pub fn node_id(&self) -> String {
+    pub fn node_id(&self) -> NodeId {
         match self {
             BillParticipant::Ident(data) => data.node_id.clone(),
             BillParticipant::Anon(data) => data.node_id.clone(),
@@ -117,10 +111,10 @@ impl BillParticipant {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BillAnonParticipant {
     /// The node id of the participant
-    pub node_id: String,
+    pub node_id: NodeId,
     /// email address of the participant
     pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
@@ -146,13 +140,13 @@ impl From<BillParticipant> for BillAnonParticipant {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct BillIdentParticipant {
     /// The type of identity (0 = person, 1 = company)
     #[serde(rename = "type")]
     pub t: ContactType,
     /// The node id of the identity
-    pub node_id: String,
+    pub node_id: NodeId,
     /// The name of the identity
     pub name: String,
     /// Full postal address of the identity
@@ -170,17 +164,17 @@ pub enum LightBillParticipant {
     Ident(LightBillIdentParticipant),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LightBillAnonParticipant {
-    pub node_id: String,
+    pub node_id: NodeId,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LightBillIdentParticipant {
     #[serde(rename = "type")]
     pub t: ContactType,
     pub name: String,
-    pub node_id: String,
+    pub node_id: NodeId,
 }
 
 impl From<BillParticipant> for LightBillParticipant {
@@ -210,12 +204,12 @@ impl From<BillAnonParticipant> for LightBillAnonParticipant {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LightBillIdentParticipantWithAddress {
     #[serde(rename = "type")]
     pub t: ContactType,
     pub name: String,
-    pub node_id: String,
+    pub node_id: NodeId,
     #[serde(flatten)]
     pub postal_address: PostalAddress,
 }
@@ -241,12 +235,12 @@ impl TryFrom<Contact> for BillIdentParticipant {
                 name: value.name,
                 postal_address: value
                     .postal_address
-                    .ok_or(ValidationError::InvalidContact(value.node_id.to_owned()))?,
+                    .ok_or(ValidationError::InvalidContact(value.node_id.to_string()))?,
                 email: value.email,
                 nostr_relays: value.nostr_relays,
             }),
             ContactType::Anon => Err(ValidationError::ContactIsAnonymous(
-                value.node_id.to_owned(),
+                value.node_id.to_string(),
             )),
         }
     }
@@ -263,7 +257,7 @@ impl TryFrom<Contact> for BillParticipant {
                     name: value.name,
                     postal_address: value
                         .postal_address
-                        .ok_or(ValidationError::InvalidContact(value.node_id.to_owned()))?,
+                        .ok_or(ValidationError::InvalidContact(value.node_id.to_string()))?,
                     email: value.email,
                     nostr_relays: value.nostr_relays,
                 }))

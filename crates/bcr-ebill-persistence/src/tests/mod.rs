@@ -1,10 +1,12 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
+    use std::str::FromStr;
+
     use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress,
+        NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
         bill::{
-            BillAcceptanceStatus, BillData, BillKeys, BillMintStatus, BillParticipants,
+            BillAcceptanceStatus, BillData, BillId, BillKeys, BillMintStatus, BillParticipants,
             BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill,
             BitcreditBillResult,
         },
@@ -34,7 +36,7 @@ pub mod tests {
     pub fn empty_identity() -> Identity {
         Identity {
             t: IdentityType::Ident,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "".to_string(),
             email: Some("".to_string()),
             postal_address: empty_optional_address(),
@@ -51,7 +53,7 @@ pub mod tests {
     pub fn empty_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "".to_string(),
             postal_address: empty_address(),
             email: None,
@@ -59,7 +61,7 @@ pub mod tests {
         }
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+    pub fn bill_identified_participant_only_node_id(node_id: NodeId) -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id,
@@ -72,14 +74,15 @@ pub mod tests {
 
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
-            id: "".to_string(),
+            id: bill_id_test(),
             country_of_issuing: "".to_string(),
             city_of_issuing: "".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
-            payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
-                BcrKeys::new().get_public_key(),
-            )),
+            payee: BillParticipant::Ident(bill_identified_participant_only_node_id(NodeId::new(
+                BcrKeys::new().pub_key(),
+                bitcoin::Network::Testnet,
+            ))),
             endorsee: None,
             currency: "".to_string(),
             sum: 0,
@@ -92,14 +95,14 @@ pub mod tests {
         }
     }
 
-    pub fn cached_bill(id: String) -> BitcreditBillResult {
+    pub fn cached_bill(id: BillId) -> BitcreditBillResult {
         BitcreditBillResult {
             id,
             participants: BillParticipants {
-                drawee: bill_identified_participant_only_node_id("drawee".to_string()),
-                drawer: bill_identified_participant_only_node_id("drawer".to_string()),
+                drawee: bill_identified_participant_only_node_id(node_id_test()),
+                drawer: bill_identified_participant_only_node_id(node_id_test_other()),
                 payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
-                    "payee".to_string(),
+                    node_id_test_other2(),
                 )),
                 endorsee: None,
                 endorsements_count: 5,
@@ -161,17 +164,50 @@ pub mod tests {
 
     pub fn get_bill_keys() -> BillKeys {
         BillKeys {
-            private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-            public_key: TEST_PUB_KEY_SECP.to_owned(),
+            private_key: private_key_test(),
+            public_key: node_id_test().pub_key(),
         }
     }
 
-    pub const TEST_PUB_KEY_SECP: &str =
-        "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
+    pub fn private_key_test() -> SecretKey {
+        SecretKey::from_str("d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9")
+            .unwrap()
+    }
 
-    pub const TEST_PRIVATE_KEY_SECP: &str =
-        "d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9";
+    pub fn node_id_test() -> NodeId {
+        NodeId::from_str("bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
 
-    pub const TEST_NODE_ID_SECP: &str =
-        "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
+    pub fn node_id_test_other() -> NodeId {
+        NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
+            .unwrap()
+    }
+
+    pub fn node_id_test_other2() -> NodeId {
+        NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
+            .unwrap()
+    }
+
+    // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
+    pub fn bill_id_test() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    // bitcrt76LWp9iFregj9Lv1awLSfQAmjtDDinBR4GSCbNrEtqEe
+    pub fn bill_id_test_other() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "027a233c85a8f98e276e949ab94bba8bbc07b21946e50e388da767bcc6c95603ce",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
 }

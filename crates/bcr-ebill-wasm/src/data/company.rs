@@ -1,5 +1,6 @@
 use bcr_ebill_api::{
     data::{
+        NodeId,
         company::Company,
         contact::{Contact, ContactType},
     },
@@ -20,7 +21,8 @@ pub struct CompaniesResponse {
 #[derive(Tsify, Debug, Serialize, Deserialize, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct CompanyWeb {
-    pub id: String,
+    #[tsify(type = "string")]
+    pub id: NodeId,
     pub name: String,
     pub country_of_registration: Option<String>,
     pub city_of_registration: Option<String>,
@@ -30,7 +32,8 @@ pub struct CompanyWeb {
     pub registration_date: Option<String>,
     pub proof_of_registration_file: Option<FileWeb>,
     pub logo_file: Option<FileWeb>,
-    pub signatories: Vec<String>,
+    #[tsify(type = "string[]")]
+    pub signatories: Vec<NodeId>,
 }
 
 impl From<Company> for CompanyWeb {
@@ -68,7 +71,8 @@ pub struct CreateCompanyPayload {
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
 pub struct EditCompanyPayload {
-    pub id: String,
+    #[tsify(type = "string")]
+    pub id: NodeId,
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddressWeb,
@@ -83,15 +87,19 @@ pub struct EditCompanyPayload {
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
 pub struct AddSignatoryPayload {
-    pub id: String,
-    pub signatory_node_id: String,
+    #[tsify(type = "string")]
+    pub id: NodeId,
+    #[tsify(type = "string")]
+    pub signatory_node_id: NodeId,
 }
 
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
 pub struct RemoveSignatoryPayload {
-    pub id: String,
-    pub signatory_node_id: String,
+    #[tsify(type = "string")]
+    pub id: NodeId,
+    #[tsify(type = "string")]
+    pub signatory_node_id: NodeId,
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
@@ -104,7 +112,8 @@ pub struct ListSignatoriesResponse {
 #[tsify(into_wasm_abi)]
 pub struct SignatoryResponse {
     pub t: ContactTypeWeb,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub name: String,
     pub postal_address: PostalAddressWeb,
     pub avatar_file: Option<FileWeb>,
@@ -115,7 +124,7 @@ impl TryFrom<Contact> for SignatoryResponse {
 
     fn try_from(value: Contact) -> Result<Self, Self::Error> {
         if value.t == ContactType::Anon {
-            return Err(ValidationError::InvalidContact(value.node_id));
+            return Err(ValidationError::InvalidContact(value.node_id.to_string()));
         }
         Ok(Self {
             t: value.t.into(),
@@ -123,7 +132,7 @@ impl TryFrom<Contact> for SignatoryResponse {
             name: value.name,
             postal_address: value
                 .postal_address
-                .ok_or(ValidationError::InvalidContact(value.node_id))
+                .ok_or(ValidationError::InvalidContact(value.node_id.to_string()))
                 .map(|pa| pa.into())?,
             avatar_file: value.avatar_file.map(|f| f.into()),
         })

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{contact::Contact, util::crypto::get_npub_from_node_id};
+use crate::{ValidationError, contact::Contact};
 
 /// Make key type clear
 pub type NostrPublicKey = nostr::key::PublicKey;
@@ -26,8 +26,8 @@ pub struct NostrContact {
 impl NostrContact {
     /// Creates a new Nostr contact from a contact. This is used when we have a contact and want to
     /// create the Nostr contact from it. Handshake is set to complete and we trust the contact.
-    pub fn from_contact(contact: &Contact) -> crate::util::crypto::Result<Self> {
-        let npub = get_npub_from_node_id(contact.node_id.as_str())?;
+    pub fn from_contact(contact: &Contact) -> Result<Self, ValidationError> {
+        let npub = contact.node_id.npub();
         Ok(Self {
             npub,
             name: Some(contact.name.clone()),

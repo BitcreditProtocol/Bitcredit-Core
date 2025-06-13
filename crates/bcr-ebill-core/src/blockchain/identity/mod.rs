@@ -1,10 +1,13 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
+use crate::NodeId;
+use crate::bill::BillId;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
 #[derive(BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -34,7 +37,7 @@ pub struct IdentityBlock {
     pub hash: String,
     pub timestamp: u64,
     pub data: String,
-    pub public_key: String,
+    pub public_key: PublicKey,
     pub previous_hash: String,
     pub signature: String,
     pub op_code: IdentityOpCode,
@@ -42,7 +45,7 @@ pub struct IdentityBlock {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
@@ -88,7 +91,7 @@ pub struct IdentityUpdateBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentitySignPersonBillBlockData {
-    pub bill_id: String,
+    pub bill_id: BillId,
     pub block_id: u64,
     pub block_hash: String,
     pub operation: BillOpCode,
@@ -96,33 +99,33 @@ pub struct IdentitySignPersonBillBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentitySignCompanyBillBlockData {
-    pub bill_id: String,
+    pub bill_id: BillId,
     pub block_id: u64,
     pub block_hash: String,
-    pub company_id: String,
+    pub company_id: NodeId,
     pub operation: BillOpCode,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateCompanyBlockData {
-    pub company_id: String,
+    pub company_id: NodeId,
     pub block_hash: String,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityAddSignatoryBlockData {
-    pub company_id: String,
+    pub company_id: NodeId,
     pub block_id: u64,
     pub block_hash: String,
-    pub signatory: String,
+    pub signatory: NodeId,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityRemoveSignatoryBlockData {
-    pub company_id: String,
+    pub company_id: NodeId,
     pub block_id: u64,
     pub block_hash: String,
-    pub signatory: String,
+    pub signatory: NodeId,
 }
 
 impl Block for IdentityBlock {
@@ -157,7 +160,7 @@ impl Block for IdentityBlock {
         &self.signature
     }
 
-    fn public_key(&self) -> &str {
+    fn public_key(&self) -> &PublicKey {
         &self.public_key
     }
 
@@ -171,7 +174,7 @@ impl Block for IdentityBlock {
             previous_hash: self.previous_hash().to_owned(),
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
-            public_key: self.public_key().to_owned(),
+            public_key: self.public_key().to_string(),
             op_code: self.op_code().to_owned(),
         }
     }
@@ -194,7 +197,7 @@ impl IdentityBlock {
             public_key: keys.get_public_key(),
             op_code: op_code.clone(),
         })?;
-        let signature = crypto::signature(&hash, &keys.get_private_key_string())?;
+        let signature = crypto::signature(&hash, &keys.get_private_key())?;
 
         Ok(Self {
             id,
@@ -202,7 +205,7 @@ impl IdentityBlock {
             timestamp,
             previous_hash,
             signature,
-            public_key: keys.get_public_key(),
+            public_key: keys.pub_key(),
             data,
             op_code,
         })
@@ -218,7 +221,7 @@ impl IdentityBlock {
 
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &identity_bytes,
-            &keys.get_public_key(),
+            &keys.pub_key(),
         )?);
 
         Self::new(
@@ -336,10 +339,8 @@ impl IdentityBlock {
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
 
-        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
-            &bytes,
-            &keys.get_public_key(),
-        )?);
+        let encrypted_data =
+            util::base58_encode(&util::crypto::encrypt_ecies(&bytes, &keys.pub_key())?);
 
         let new_block = Self::new(
             previous_block.id + 1,
@@ -391,7 +392,7 @@ impl IdentityBlockchain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::tests::{empty_identity, valid_optional_address};
+    use crate::tests::tests::{bill_id_test, empty_identity, node_id_test, valid_optional_address};
 
     #[test]
     fn create_and_check_validity() {
@@ -434,7 +435,7 @@ mod tests {
         let sign_person_bill_block = IdentityBlock::create_block_for_sign_person_bill(
             chain.get_latest_block(),
             &IdentitySignPersonBillBlockData {
-                bill_id: "some_bill".to_string(),
+                bill_id: bill_id_test(),
                 block_id: 1,
                 block_hash: "some hash".to_string(),
                 operation: BillOpCode::Issue,
@@ -448,10 +449,10 @@ mod tests {
         let sign_company_bill_block = IdentityBlock::create_block_for_sign_company_bill(
             chain.get_latest_block(),
             &IdentitySignCompanyBillBlockData {
-                bill_id: "some_bill".to_string(),
+                bill_id: bill_id_test(),
                 block_id: 1,
                 block_hash: "some hash".to_string(),
-                company_id: "some_id".to_string(),
+                company_id: node_id_test(),
                 operation: BillOpCode::Issue,
             },
             &keys,
@@ -463,7 +464,7 @@ mod tests {
         let create_company_block = IdentityBlock::create_block_for_create_company(
             chain.get_latest_block(),
             &IdentityCreateCompanyBlockData {
-                company_id: "some id".to_string(),
+                company_id: node_id_test(),
                 block_hash: "some hash".to_string(),
             },
             &keys,
@@ -475,10 +476,10 @@ mod tests {
         let add_signatory_block = IdentityBlock::create_block_for_add_signatory(
             chain.get_latest_block(),
             &IdentityAddSignatoryBlockData {
-                company_id: "some_id".to_string(),
+                company_id: node_id_test(),
                 block_id: 2,
                 block_hash: "some_hash".to_string(),
-                signatory: "some_signatory".to_string(),
+                signatory: node_id_test(),
             },
             &keys,
             1731593928,
@@ -489,10 +490,10 @@ mod tests {
         let remove_signatory_block = IdentityBlock::create_block_for_remove_signatory(
             chain.get_latest_block(),
             &IdentityRemoveSignatoryBlockData {
-                company_id: "some_id".to_string(),
+                company_id: node_id_test(),
                 block_id: 2,
                 block_hash: "some_hash".to_string(),
-                signatory: "some_signatory".to_string(),
+                signatory: node_id_test(),
             },
             &keys,
             1731593928,

@@ -1,10 +1,9 @@
 use crate::get_config;
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, util};
+use bcr_ebill_core::{PublicKey, ServiceTraitBounds, util};
 use bitcoin::{Network, secp256k1::Scalar};
 use log::debug;
 use serde::Deserialize;
-use std::str::FromStr;
 use thiserror::Error;
 
 /// Generic result type
@@ -50,7 +49,11 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
 
     async fn check_if_paid(&self, address: &str, sum: u64) -> Result<(bool, u64)>;
 
-    fn get_address_to_pay(&self, bill_public_key: &str, holder_public_key: &str) -> Result<String>;
+    fn get_address_to_pay(
+        &self,
+        bill_public_key: &PublicKey,
+        holder_public_key: &PublicKey,
+    ) -> Result<String>;
 
     fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String;
 
@@ -188,11 +191,13 @@ impl BitcoinClientApi for BitcoinClient {
         }
     }
 
-    fn get_address_to_pay(&self, bill_public_key: &str, holder_public_key: &str) -> Result<String> {
-        let public_key_bill = bitcoin::CompressedPublicKey::from_str(bill_public_key)
-            .map_err(|e| Error::PublicKey(e.to_string()))?;
-        let public_key_bill_holder = bitcoin::CompressedPublicKey::from_str(holder_public_key)
-            .map_err(|e| Error::PublicKey(e.to_string()))?;
+    fn get_address_to_pay(
+        &self,
+        bill_public_key: &PublicKey,
+        holder_public_key: &PublicKey,
+    ) -> Result<String> {
+        let public_key_bill = bitcoin::CompressedPublicKey(*bill_public_key);
+        let public_key_bill_holder = bitcoin::CompressedPublicKey(*holder_public_key);
 
         let public_key_bill = public_key_bill
             .0

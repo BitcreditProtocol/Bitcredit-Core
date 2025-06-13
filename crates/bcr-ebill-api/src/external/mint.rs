@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::{constants::CURRENCY_CRSAT, util};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    PostalAddress, ServiceTraitBounds,
+    PostalAddress, SecretKey, ServiceTraitBounds,
     bill::BitcreditBill,
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType},
     util::{BcrKeys, date::DateTimeUtc},
@@ -87,7 +87,7 @@ pub trait MintClientApi: ServiceTraitBounds {
         mint_url: &str,
         keyset: cdk02::KeySet,
         quote_id: &str,
-        private_key: &str,
+        private_key: &SecretKey,
         blinded_messages: Vec<cashu::BlindedMessage>,
         secrets: Vec<cashu::secret::Secret>,
         rs: Vec<cashu::SecretKey>,
@@ -196,14 +196,15 @@ impl MintClientApi for MintClient {
         mint_url: &str,
         keyset: cdk02::KeySet,
         quote_id: &str,
-        private_key: &str,
+        private_key: &SecretKey,
         blinded_messages: Vec<cashu::BlindedMessage>,
         secrets: Vec<cashu::secret::Secret>,
         rs: Vec<cashu::SecretKey>,
     ) -> Result<String> {
         let token_mint_url =
             cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
-        let secret_key = cdk01::SecretKey::from_hex(private_key).map_err(|_| Error::PrivateKey)?;
+        let secret_key = cdk01::SecretKey::from_hex(private_key.display_secret().to_string())
+            .map_err(|_| Error::PrivateKey)?;
         let qid = uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?;
 
         // mint
@@ -262,7 +263,7 @@ impl MintClientApi for MintClient {
         files: &[Url],
     ) -> Result<String> {
         let bill_info = BillInfo {
-            id: bill.id.clone(),
+            id: bill.id.clone().to_string(),
             drawee: map_bill_ident_participant(bill.drawee.to_owned()),
             drawer: map_bill_ident_participant(bill.drawer.to_owned()),
             payee: map_bill_participant(bill.payee.to_owned()),
@@ -453,7 +454,7 @@ fn map_bill_anon_participant(
     ident: BillAnonParticipant,
 ) -> bcr_wdc_webapi::bill::BillAnonParticipant {
     bcr_wdc_webapi::bill::BillAnonParticipant {
-        node_id: ident.node_id,
+        node_id: ident.node_id.to_string(),
         email: ident.email,
         nostr_relays: ident.nostr_relays,
     }
@@ -464,7 +465,7 @@ fn map_bill_ident_participant(
 ) -> bcr_wdc_webapi::bill::BillIdentParticipant {
     bcr_wdc_webapi::bill::BillIdentParticipant {
         t: map_contact_type(ident.t),
-        node_id: ident.node_id,
+        node_id: ident.node_id.to_string(),
         name: ident.name,
         postal_address: map_postal_address(ident.postal_address),
         email: ident.email,

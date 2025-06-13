@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{blockchain::BlockchainType, contact::BillParticipant, util::crypto};
+use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipant};
 use bcr_ebill_transport::{
     chain_keys::ChainKeyServiceApi,
     event::EventEnvelope,
@@ -16,7 +16,6 @@ use nostr_sdk::{
     RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp, ToBech32,
 };
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,10 +35,17 @@ pub struct NostrConfig {
     pub name: String,
     pub default_timeout: Duration,
     pub is_primary: bool,
+    pub node_id: NodeId,
 }
 
 impl NostrConfig {
-    pub fn new(keys: BcrKeys, relays: Vec<String>, name: String, is_primary: bool) -> Self {
+    pub fn new(
+        keys: BcrKeys,
+        relays: Vec<String>,
+        name: String,
+        is_primary: bool,
+        node_id: NodeId,
+    ) -> Self {
         assert!(!relays.is_empty());
         Self {
             keys,
@@ -47,12 +53,16 @@ impl NostrConfig {
             name,
             default_timeout: Duration::from_secs(20),
             is_primary,
+            node_id,
         }
     }
 
-    #[allow(dead_code)]
     pub fn get_npub(&self) -> String {
-        self.keys.get_nostr_npub()
+        self.keys
+            .get_nostr_keys()
+            .public_key()
+            .to_bech32()
+            .expect("checked conversion")
     }
 
     pub fn get_relay(&self) -> String {
@@ -128,8 +138,8 @@ impl NostrClient {
         Ok(client)
     }
 
-    pub fn get_node_id(&self) -> String {
-        self.keys.get_public_key()
+    pub fn get_node_id(&self) -> NodeId {
+        self.config.node_id.clone()
     }
 
     pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
@@ -253,26 +263,16 @@ impl NostrClient {
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id()) {
-            let public_key = PublicKey::from_str(&npub).map_err(|e| {
-                error!("Failed to parse Nostr npub when sending a notification: {e}");
-                Error::Crypto("Failed to parse Nostr npub".to_string())
-            })?;
-            let message = serde_json::to_string(&event)?;
-            let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
-            let relays = recipient.nostr_relays();
-            if !relays.is_empty() {
-                if let Err(e) = self.client.send_event_builder_to(&relays, event).await {
-                    error!("Error sending Nostr message: {e}")
-                };
-            } else if let Err(e) = self.client.send_event_builder(event).await {
+        let public_key = recipient.node_id().npub();
+        let message = serde_json::to_string(&event)?;
+        let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
+        let relays = recipient.nostr_relays();
+        if !relays.is_empty() {
+            if let Err(e) = self.client.send_event_builder_to(&relays, event).await {
                 error!("Error sending Nostr message: {e}")
-            }
-        } else {
-            error!(
-                "Try to send Nostr message but Nostr npub not found in contact {}",
-                recipient.node_id()
-            );
+            };
+        } else if let Err(e) = self.client.send_event_builder(event).await {
+            error!("Error sending Nostr message: {e}")
         }
         Ok(())
     }
@@ -282,33 +282,23 @@ impl NostrClient {
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> bcr_ebill_transport::Result<()> {
-        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id()) {
-            let public_key = PublicKey::from_str(&npub).map_err(|e| {
-                error!("Failed to parse Nostr npub when sending a notification: {e}");
-                Error::Crypto("Failed to parse Nostr npub".to_string())
-            })?;
-            let message = serde_json::to_string(&event)?;
-            let relays = recipient.nostr_relays();
-            if !relays.is_empty() {
-                if let Err(e) = self
-                    .client
-                    .send_private_msg_to(&relays, public_key, message, None)
-                    .await
-                {
-                    error!("Error sending Nostr message: {e}")
-                };
-            } else if let Err(e) = self
+        let public_key = recipient.node_id().npub();
+        let message = serde_json::to_string(&event)?;
+        let relays = recipient.nostr_relays();
+        if !relays.is_empty() {
+            if let Err(e) = self
                 .client
-                .send_private_msg(public_key, message, None)
+                .send_private_msg_to(&relays, public_key, message, None)
                 .await
             {
                 error!("Error sending Nostr message: {e}")
-            }
-        } else {
-            error!(
-                "Try to send Nostr message but Nostr npub not found in contact {}",
-                recipient.node_id()
-            );
+            };
+        } else if let Err(e) = self
+            .client
+            .send_private_msg(public_key, message, None)
+            .await
+        {
+            error!("Error sending Nostr message: {e}")
         }
         Ok(())
     }
@@ -319,7 +309,7 @@ impl ServiceTraitBounds for NostrClient {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationJsonTransportApi for NostrClient {
-    fn get_sender_key(&self) -> String {
+    fn get_sender_node_id(&self) -> NodeId {
         self.get_node_id()
     }
 
@@ -368,24 +358,19 @@ impl NotificationJsonTransportApi for NostrClient {
 
     async fn resolve_contact(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
     ) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>> {
-        if let Ok(public_key) = crypto::get_npub_from_node_id(node_id) {
-            match self.fetch_metadata(public_key).await? {
-                Some(meta) => {
-                    let relays = self
-                        .fetch_relay_list(public_key, self.config.relays.clone())
-                        .await?;
-                    Ok(Some(NostrContactData {
-                        metadata: meta,
-                        relays,
-                    }))
-                }
-                _ => Ok(None),
+        match self.fetch_metadata(node_id.npub()).await? {
+            Some(meta) => {
+                let relays = self
+                    .fetch_relay_list(node_id.npub(), self.config.relays.clone())
+                    .await?;
+                Ok(Some(NostrContactData {
+                    metadata: meta,
+                    relays,
+                }))
             }
-        } else {
-            error!("Try to resolve Nostr contact but node_id {node_id} was invalid");
-            Ok(None)
+            _ => Ok(None),
         }
     }
 
@@ -402,7 +387,7 @@ impl NotificationJsonTransportApi for NostrClient {
 
 #[derive(Clone)]
 pub struct NostrConsumer {
-    clients: HashMap<PublicKey, Arc<NostrClient>>,
+    clients: HashMap<NodeId, Arc<NostrClient>>,
     event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
@@ -419,8 +404,8 @@ impl NostrConsumer {
     ) -> Self {
         let clients = clients
             .into_iter()
-            .map(|c| (c.get_nostr_keys().public_key(), c))
-            .collect::<HashMap<PublicKey, Arc<NostrClient>>>();
+            .map(|c| (c.get_node_id(), c))
+            .collect::<HashMap<NodeId, Arc<NostrClient>>>();
         Self {
             clients,
             #[allow(clippy::arc_with_non_send_sync)]
@@ -440,14 +425,14 @@ impl NostrConsumer {
         let chain_key_store = self.chain_key_service.clone();
 
         let mut tasks = Vec::new();
-        let local_node_ids = clients.keys().cloned().collect::<Vec<PublicKey>>();
+        let local_node_ids = clients.keys().cloned().collect::<Vec<NodeId>>();
 
         for (node_id, node_client) in clients.into_iter() {
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
             let chain_key_store = chain_key_store.clone();
-            let client_id = node_id.to_hex();
+            let client_id = node_id;
             let contact_service = contact_service.clone();
             let local_node_ids = local_node_ids.clone();
 
@@ -591,7 +576,7 @@ impl NostrConsumer {
 
 async fn should_process(
     event: Box<Event>,
-    local_node_ids: &[PublicKey],
+    local_node_ids: &[NodeId],
     contact_service: &Arc<dyn ContactServiceApi>,
     offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
 ) -> bool {
@@ -605,7 +590,7 @@ async fn should_process(
 async fn handle_direct_message<T: NostrSigner>(
     event: Box<Event>,
     signer: &T,
-    client_id: &str,
+    client_id: &NodeId,
     event_handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
     if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
@@ -621,7 +606,7 @@ async fn handle_direct_message<T: NostrSigner>(
 
 async fn handle_public_event(
     event: Box<Event>,
-    node_id: &str,
+    node_id: &NodeId,
     chain_key_store: &Arc<dyn ChainKeyServiceApi>,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<bool> {
@@ -642,10 +627,10 @@ async fn handle_public_event(
 
 async fn valid_sender(
     npub: &PublicKey,
-    local_node_ids: &[PublicKey],
+    local_node_ids: &[NodeId],
     contact_service: &Arc<dyn ContactServiceApi>,
 ) -> bool {
-    if local_node_ids.contains(npub) {
+    if local_node_ids.iter().any(|node_id| node_id.npub() == *npub) {
         return true;
     }
     if let Ok(res) = contact_service.is_known_npub(npub).await {
@@ -656,7 +641,7 @@ async fn valid_sender(
     }
 }
 
-async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &str) -> Timestamp {
+async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) -> Timestamp {
     let current = db
         .current_offset(node_id)
         .await
@@ -676,13 +661,13 @@ async fn add_offset(
     event_id: EventId,
     time: u64,
     success: bool,
-    node_id: &str,
+    node_id: &NodeId,
 ) {
     db.add_event(NostrEventOffset {
         event_id: event_id.to_hex(),
         time,
         success,
-        node_id: node_id.to_string(),
+        node_id: node_id.to_owned(),
     })
     .await
     .map_err(|e| error!("Could not store event offset: {e}"))
@@ -692,7 +677,7 @@ async fn add_offset(
 /// Handle extracted event with given handlers.
 async fn handle_event(
     event: EventEnvelope,
-    node_id: &str,
+    node_id: &NodeId,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     original_event: Box<nostr::Event>,
 ) -> Result<()> {
@@ -721,6 +706,7 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
     use bcr_ebill_transport::handler::NotificationHandlerApi;
@@ -744,7 +730,7 @@ mod tests {
         pub NotificationHandler {}
         #[async_trait::async_trait]
         impl NotificationHandlerApi for NotificationHandler {
-            async fn handle_event(&self, event: EventEnvelope, identity: &str, original_event: Box<nostr::Event>) -> bcr_ebill_transport::Result<()>;
+            async fn handle_event(&self, event: EventEnvelope, identity: &NodeId, original_event: Box<nostr::Event>) -> bcr_ebill_transport::Result<()>;
             fn handles_event(&self, event_type: &EventType) -> bool;
         }
     }
@@ -766,6 +752,7 @@ mod tests {
             vec![url.to_string()],
             "BcrDamus1".to_string(),
             true,
+            NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet),
         );
         let client1 = NostrClient::new(&config1)
             .await
@@ -776,14 +763,18 @@ mod tests {
             vec![url.to_string()],
             "BcrDamus2".to_string(),
             true,
+            NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
         );
         let client2 = NostrClient::new(&config2)
             .await
             .expect("failed to create nostr client 2");
 
         // and a contact we want to send an event to
-        let contact =
-            get_identity_public_data(&keys2.get_public_key(), "payee@example.com", vec![&url]);
+        let contact = get_identity_public_data(
+            &NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
+            "payee@example.com",
+            vec![&url],
+        );
         let event = create_test_event(&BillEventType::BillSigned);
 
         // expect the receiver to check if the sender contact is known
@@ -810,7 +801,7 @@ mod tests {
                     e.clone().try_into().expect("could not convert event");
                 let valid_type = received.event_type == expected.event_type;
                 let valid_payload = received.data.foo == expected.data.foo;
-                let valid_identity = i == keys2.get_public_key();
+                let valid_identity = *i == NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
                 valid_type && valid_payload && valid_identity
             })
             .returning(|_, _, _| Ok(()));

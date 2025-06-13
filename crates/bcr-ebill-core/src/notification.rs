@@ -1,4 +1,8 @@
-use crate::util::date::{DateTimeUtc, now};
+use crate::{
+    NodeId,
+    bill::BillId,
+    util::date::{DateTimeUtc, now},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
@@ -15,7 +19,7 @@ pub struct Notification {
     /// The unique id of the notification
     pub id: String,
     /// Id of the identity that the notification is for
-    pub node_id: Option<String>,
+    pub node_id: Option<NodeId>,
     /// The type/topic of the notification
     pub notification_type: NotificationType,
     /// An optional reference to some other entity
@@ -33,14 +37,14 @@ pub struct Notification {
 
 impl Notification {
     pub fn new_bill_notification(
-        bill_id: &str,
-        node_id: &str,
+        bill_id: &BillId,
+        node_id: &NodeId,
         description: &str,
         payload: Option<Value>,
     ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
-            node_id: Some(node_id.to_string()),
+            node_id: Some(node_id.to_owned()),
             notification_type: NotificationType::Bill,
             reference_id: Some(bill_id.to_string()),
             description: description.to_string(),

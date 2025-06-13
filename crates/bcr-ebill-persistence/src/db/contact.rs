@@ -12,7 +12,7 @@ use crate::{
     constants::{DB_SEARCH_TERM, DB_TABLE},
 };
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
     contact::{Contact, ContactType},
 };
 
@@ -44,7 +44,7 @@ impl ContactStoreApi for SurrealContactStore {
         Ok(results.into_iter().map(|c| c.into()).collect())
     }
 
-    async fn get_map(&self) -> Result<HashMap<String, Contact>> {
+    async fn get_map(&self) -> Result<HashMap<NodeId, Contact>> {
         let all: Vec<ContactDb> = self.db.select_all(Self::TABLE).await?;
         let mut map = HashMap::new();
         for contact in all.into_iter() {
@@ -53,30 +53,31 @@ impl ContactStoreApi for SurrealContactStore {
         Ok(map)
     }
 
-    async fn get(&self, node_id: &str) -> Result<Option<Contact>> {
-        let result: Option<ContactDb> = self.db.select_one(Self::TABLE, node_id.to_owned()).await?;
+    async fn get(&self, node_id: &NodeId) -> Result<Option<Contact>> {
+        let result: Option<ContactDb> =
+            self.db.select_one(Self::TABLE, node_id.to_string()).await?;
         Ok(result.map(|c| c.to_owned().into()))
     }
 
-    async fn insert(&self, node_id: &str, data: Contact) -> Result<()> {
+    async fn insert(&self, node_id: &NodeId, data: Contact) -> Result<()> {
         let entity: ContactDb = data.into();
         let _: Option<ContactDb> = self
             .db
-            .create(Self::TABLE, Some(node_id.to_owned()), entity)
+            .create(Self::TABLE, Some(node_id.to_string()), entity)
             .await?;
         Ok(())
     }
 
-    async fn delete(&self, node_id: &str) -> Result<()> {
-        let _: Option<ContactDb> = self.db.delete(Self::TABLE, node_id.to_owned()).await?;
+    async fn delete(&self, node_id: &NodeId) -> Result<()> {
+        let _: Option<ContactDb> = self.db.delete(Self::TABLE, node_id.to_string()).await?;
         Ok(())
     }
 
-    async fn update(&self, node_id: &str, data: Contact) -> Result<()> {
+    async fn update(&self, node_id: &NodeId, data: Contact) -> Result<()> {
         let entity: ContactDb = data.into();
         let _: Option<ContactDb> = self
             .db
-            .update(Self::TABLE, node_id.to_owned(), entity)
+            .update(Self::TABLE, node_id.to_string(), entity)
             .await?;
         Ok(())
     }
@@ -86,7 +87,7 @@ impl ContactStoreApi for SurrealContactStore {
 pub struct ContactDb {
     #[serde(rename = "type")]
     pub t: ContactType,
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,                   // only optional for anon,
     pub postal_address: Option<PostalAddressDb>, // only optional for anon
@@ -142,13 +143,13 @@ pub mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
-        tests::tests::{TEST_NODE_ID_SECP, empty_address},
+        tests::tests::{empty_address, node_id_test, node_id_test_other},
     };
 
     pub fn get_baseline_contact() -> Contact {
         Contact {
             t: ContactType::Person,
-            node_id: TEST_NODE_ID_SECP.to_owned(),
+            node_id: node_id_test(),
             name: "some_name".to_string(),
             email: Some("some_mail@example.com".to_string()),
             postal_address: Some(empty_address()),
@@ -167,18 +168,18 @@ pub mod tests {
         let store = get_store().await;
         let contact = get_baseline_contact();
         store
-            .insert(TEST_NODE_ID_SECP, contact.clone())
+            .insert(&node_id_test(), contact.clone())
             .await
             .expect("could not create contact");
 
         let stored = store
-            .get(TEST_NODE_ID_SECP)
+            .get(&node_id_test())
             .await
             .expect("could not query contact")
             .expect("could not find created contact");
 
         assert_eq!(&stored.name, "some_name");
-        assert_eq!(&stored.node_id, TEST_NODE_ID_SECP);
+        assert_eq!(&stored.node_id, &node_id_test());
     }
 
     #[tokio::test]
@@ -186,12 +187,12 @@ pub mod tests {
         let store = get_store().await;
         let contact = get_baseline_contact();
         store
-            .insert(TEST_NODE_ID_SECP, contact.clone())
+            .insert(&node_id_test(), contact.clone())
             .await
             .expect("could not create contact");
 
         let stored = store
-            .get(TEST_NODE_ID_SECP)
+            .get(&node_id_test())
             .await
             .expect("could not query contact")
             .expect("could not find created contact");
@@ -199,12 +200,12 @@ pub mod tests {
         assert_eq!(&stored.name, "some_name");
 
         store
-            .delete(TEST_NODE_ID_SECP)
+            .delete(&node_id_test())
             .await
             .expect("could not delete contact");
 
         let empty = store
-            .get(TEST_NODE_ID_SECP)
+            .get(&node_id_test())
             .await
             .expect("could not query deleted contact");
         assert!(empty.is_none());
@@ -215,19 +216,19 @@ pub mod tests {
         let store = get_store().await;
         let contact = get_baseline_contact();
         store
-            .insert(TEST_NODE_ID_SECP, contact.clone())
+            .insert(&node_id_test(), contact.clone())
             .await
             .expect("could not create contact");
 
         let mut data = contact.clone();
         data.name = "other_name".to_string();
         store
-            .update(TEST_NODE_ID_SECP, data)
+            .update(&node_id_test(), data)
             .await
             .expect("could not update contact");
 
         let updated = store
-            .get(TEST_NODE_ID_SECP)
+            .get(&node_id_test())
             .await
             .expect("could not query contact")
             .expect("could not find created contact");
@@ -240,25 +241,22 @@ pub mod tests {
         let store = get_store().await;
         let contact = get_baseline_contact();
         let mut contact2 = get_baseline_contact();
-        contact2.node_id = "1234123124123124123412".to_string();
+        contact2.node_id = node_id_test_other();
         contact2.name = "other_name".to_string();
         store
-            .insert(TEST_NODE_ID_SECP, contact.clone())
+            .insert(&node_id_test(), contact.clone())
             .await
             .expect("could not create contact");
         store
-            .insert("1234123124123124123412", contact2.clone())
+            .insert(&contact2.node_id, contact2.clone())
             .await
             .expect("could not create contact");
 
         let all = store.get_map().await.expect("all query failed");
         assert_eq!(all.len(), 2);
-        assert!(all.contains_key(TEST_NODE_ID_SECP));
-        assert!(all.contains_key("1234123124123124123412"));
-        assert_eq!(
-            all.get("1234123124123124123412").unwrap().name,
-            "other_name"
-        );
+        assert!(all.contains_key(&node_id_test()));
+        assert!(all.contains_key(&contact2.node_id));
+        assert_eq!(all.get(&contact2.node_id).unwrap().name, "other_name");
     }
 
     async fn get_store() -> SurrealContactStore {

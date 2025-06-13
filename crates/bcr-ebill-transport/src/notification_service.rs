@@ -2,7 +2,8 @@ use crate::{Result, event::bill_events::BillChainEvent, transport::NostrContactD
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::{
-    bill::BitcreditBill,
+    NodeId,
+    bill::{BillId, BitcreditBill},
     contact::{BillIdentParticipant, BillParticipant},
     notification::{ActionType, Notification},
 };
@@ -91,8 +92,8 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     /// * recipients: The list of recipients that should receive the notification
     async fn send_request_to_action_timed_out_event(
         &self,
-        sender_node_id: &str,
-        bill_id: &str,
+        sender_node_id: &NodeId,
+        bill_id: &BillId,
         sum: Option<u64>,
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
@@ -117,7 +118,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     /// Receiver: Mint, Action: CheckBill (with generate quote page)
     async fn send_request_to_mint_event(
         &self,
-        sender_node_id: &str,
+        sender_node_id: &NodeId,
         mint: &BillParticipant,
         bill: &BitcreditBill,
     ) -> Result<()>;
@@ -140,17 +141,17 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
 
     /// Returns the active bill notification for the given bill id
-    async fn get_active_bill_notification(&self, bill_id: &str) -> Option<Notification>;
+    async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
 
     async fn get_active_bill_notifications(
         &self,
-        bill_ids: &[String],
-    ) -> HashMap<String, Notification>;
+        bill_ids: &[BillId],
+    ) -> HashMap<BillId, Notification>;
 
     /// Returns whether a notification was already sent for the given bill id and action
     async fn check_bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action: ActionType,
     ) -> Result<bool>;
@@ -158,7 +159,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     /// Stores that a notification was sent for the given bill id and action
     async fn mark_bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action: ActionType,
     ) -> Result<()>;
@@ -167,5 +168,5 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn send_retry_messages(&self) -> Result<()>;
 
     /// Attempts to resolve the nostr contact for the given Node Id
-    async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>>;
+    async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
 }

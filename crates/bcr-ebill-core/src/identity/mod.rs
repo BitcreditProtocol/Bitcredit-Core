@@ -1,5 +1,5 @@
 use super::{File, OptionalPostalAddress};
-use crate::{ValidationError, util::BcrKeys};
+use crate::{NodeId, ValidationError, util::BcrKeys};
 use serde::{Deserialize, Serialize};
 
 pub mod validation;
@@ -40,7 +40,7 @@ pub struct IdentityWithAll {
 pub struct Identity {
     #[serde(rename = "type")]
     pub t: IdentityType,
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
@@ -61,6 +61,6 @@ impl Identity {
 
 #[derive(Clone, Debug)]
 pub struct ActiveIdentityState {
-    pub personal: String,
-    pub company: Option<String>,
+    pub personal: NodeId,
+    pub company: Option<NodeId>,
 }

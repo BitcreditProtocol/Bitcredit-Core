@@ -5,8 +5,9 @@ use crate::blockchain::bill::block::BillIdentParticipantBlockData;
 use crate::blockchain::bill::{BillBlockchain, BillOpCode};
 use crate::constants::CURRENCY_SAT;
 use crate::data::{
+    NodeId, SecretKey,
     bill::{
-        BillCombinedBitcoinKey, BillKeys, BillRole, BillsBalance, BillsBalanceOverview,
+        BillCombinedBitcoinKey, BillId, BillKeys, BillRole, BillsBalance, BillsBalanceOverview,
         BillsFilterRole, BitcreditBill, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
         PastEndorsee,
     },
@@ -104,11 +105,11 @@ impl BillService {
     /// Recalculates the full bill and updates it in the cache
     pub(super) async fn recalculate_and_persist_bill(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         chain: &BillBlockchain,
         bill_keys: &BillKeys,
         local_identity: &Identity,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
         current_timestamp: u64,
     ) -> Result<()> {
         let calculated_bill = self
@@ -130,7 +131,7 @@ impl BillService {
         &self,
         chain_identity: BillParticipantBlockData,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> BillParticipant {
         match chain_identity {
             BillParticipantBlockData::Ident(data) => BillParticipant::Ident(
@@ -158,7 +159,7 @@ impl BillService {
         &self,
         chain_identity: BillIdentParticipantBlockData,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> BillIdentParticipant {
         let (email, nostr_relays) = self
             .get_email_and_nostr_relay(
@@ -180,13 +181,13 @@ impl BillService {
 
     async fn get_email_and_nostr_relay(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
         t: ContactType,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> (Option<String>, Vec<String>) {
         match node_id {
-            v if v == identity.node_id => (identity.email.clone(), identity.nostr_relays.clone()),
+            v if *v == identity.node_id => (identity.email.clone(), identity.nostr_relays.clone()),
             other_node_id => {
                 if let Some(contact) = contacts.get(other_node_id) {
                     (contact.email.clone(), contact.nostr_relays.clone())
@@ -206,7 +207,7 @@ impl BillService {
         }
     }
 
-    async fn check_bill_timeouts(&self, bill_id: &str, now: u64) -> Result<()> {
+    async fn check_bill_timeouts(&self, bill_id: &BillId, now: u64) -> Result<()> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
         let latest_ts = chain.get_latest_block().timestamp;
@@ -326,17 +327,17 @@ impl BillService {
                                         if identity.identity.node_id
                                             == mint_request.requester_node_id
                                         {
-                                            identity.key_pair.get_private_key_string()
+                                            identity.key_pair.get_private_key()
                                         } else {
                                             // check if requester is a company
                                             let local_companies: HashMap<
-                                                String,
+                                                NodeId,
                                                 (Company, CompanyKeys),
                                             > = self.company_store.get_all().await?;
                                             if let Some(requester_company) =
                                                 local_companies.get(&mint_request.requester_node_id)
                                             {
-                                                requester_company.1.private_key.clone()
+                                                requester_company.1.private_key
                                             } else {
                                                 // requester is neither identity, nor company
                                                 log::warn!(
@@ -540,12 +541,12 @@ impl BillService {
     async fn get_req_to_mint_for_node_id(
         &self,
         mint_request_id: &str,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<MintRequest> {
         match self.mint_store.get_request(mint_request_id).await {
             Ok(Some(req)) => {
                 // only if we're the requester
-                if req.requester_node_id == current_identity_node_id {
+                if req.requester_node_id == *current_identity_node_id {
                     let mint_cfg = &get_config().mint_config;
                     // only for the default mint for now
                     if req.mint_node_id == mint_cfg.default_mint_node_id {
@@ -565,8 +566,8 @@ impl BillService {
     async fn reject_mint_offers_except_accepted_one_for_bill(
         &self,
         accepted_mint_request_id: &str,
-        bill_id: &str,
-        current_identity_node_id: &str,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
     ) -> Result<()> {
         let requests = self
             .mint_store
@@ -598,7 +599,7 @@ impl BillService {
 
     async fn get_participant_for_mint(
         &self,
-        mint_node_id: &str,
+        mint_node_id: &NodeId,
         identity: &Identity,
     ) -> BillParticipant {
         let relays = match self
@@ -627,9 +628,9 @@ impl BillService {
     /// and relay url and return a list of urls to the uploaded files
     async fn upload_bill_files_for_node_id(
         &self,
-        bill_id: &str,
-        bill_private_key: &str,
-        node_id: &str,
+        bill_id: &BillId,
+        bill_private_key: &SecretKey,
+        node_id: &NodeId,
         relay_url: &str,
         files: &[File],
     ) -> Result<Vec<url::Url>> {
@@ -646,7 +647,7 @@ impl BillService {
                     &file.name,
                     &decrypted_file,
                     bill_id,
-                    node_id,
+                    &node_id.pub_key(),
                     relay_url,
                 )
                 .await?;
@@ -662,7 +663,7 @@ impl BillServiceApi for BillService {
     async fn get_bill_balances(
         &self,
         _currency: &str,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<BillsBalanceOverview> {
         let bills = self.get_bills(current_identity_node_id).await?;
 
@@ -702,7 +703,7 @@ impl BillServiceApi for BillService {
         date_range_from: Option<u64>,
         date_range_to: Option<u64>,
         role: &BillsFilterRole,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<Vec<LightBitcreditBillResult>> {
         debug!(
             "searching bills with {search_term:?} from {date_range_from:?} to {date_range_to:?} and {role:?}"
@@ -769,7 +770,10 @@ impl BillServiceApi for BillService {
         Ok(result)
     }
 
-    async fn get_bills(&self, current_identity_node_id: &str) -> Result<Vec<BitcreditBillResult>> {
+    async fn get_bills(
+        &self,
+        current_identity_node_id: &NodeId,
+    ) -> Result<Vec<BitcreditBillResult>> {
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
         let current_timestamp = util::date::now().timestamp() as u64;
@@ -843,7 +847,7 @@ impl BillServiceApi for BillService {
 
     async fn get_combined_bitcoin_key_for_bill(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey> {
@@ -871,9 +875,9 @@ impl BillServiceApi for BillService {
 
     async fn get_detail(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         identity: &Identity,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
         current_timestamp: u64,
     ) -> Result<BitcreditBillResult> {
         let res = self
@@ -896,7 +900,7 @@ impl BillServiceApi for BillService {
         Ok(res)
     }
 
-    async fn get_bill_keys(&self, bill_id: &str) -> Result<BillKeys> {
+    async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BillKeys> {
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -909,9 +913,9 @@ impl BillServiceApi for BillService {
 
     async fn open_and_decrypt_attached_file(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         file: &File,
-        bill_private_key: &str,
+        bill_private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {} for bill with id: {bill_id}", file.name);
         let nostr_relays = get_config().nostr_config.relays.clone();
@@ -941,7 +945,7 @@ impl BillServiceApi for BillService {
 
     async fn execute_bill_action(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         bill_action: BillAction,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
@@ -1027,7 +1031,7 @@ impl BillServiceApi for BillService {
         Ok(())
     }
 
-    async fn check_payment_for_bill(&self, bill_id: &str, identity: &Identity) -> Result<()> {
+    async fn check_payment_for_bill(&self, bill_id: &BillId, identity: &Identity) -> Result<()> {
         let bill_ids_waiting_for_payment = self.store.get_bill_ids_waiting_for_payment().await?;
 
         if bill_ids_waiting_for_payment.iter().any(|id| id == bill_id) {
@@ -1059,7 +1063,7 @@ impl BillServiceApi for BillService {
 
     async fn check_offer_to_sell_payment_for_bill(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         identity: &IdentityWithAll,
     ) -> Result<()> {
         let bill_ids_waiting_for_offer_to_sell_payment =
@@ -1105,7 +1109,7 @@ impl BillServiceApi for BillService {
 
     async fn check_recourse_payment_for_bill(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         identity: &IdentityWithAll,
     ) -> Result<()> {
         let bill_ids_waiting_for_recourse_payment = self
@@ -1157,8 +1161,8 @@ impl BillServiceApi for BillService {
 
     async fn get_past_endorsees(
         &self,
-        bill_id: &str,
-        current_identity_node_id: &str,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
     ) -> Result<Vec<PastEndorsee>> {
         match self.store.exists(bill_id).await {
             Ok(true) => (),
@@ -1186,7 +1190,7 @@ impl BillServiceApi for BillService {
 
     async fn get_past_payments(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
         timestamp: u64,
@@ -1224,7 +1228,7 @@ impl BillServiceApi for BillService {
             {
                 let address_to_pay = self
                     .bitcoin_client
-                    .get_address_to_pay(&bill_keys.public_key, &holder.node_id())?;
+                    .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
                 let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                     &address_to_pay,
                     bill.sum,
@@ -1317,7 +1321,7 @@ impl BillServiceApi for BillService {
         for past_sell_payment in past_recourse_payments {
             let address_to_pay = self.bitcoin_client.get_address_to_pay(
                 &bill_keys.public_key,
-                &past_sell_payment.0.recourser.node_id,
+                &past_sell_payment.0.recourser.node_id.pub_key(),
             )?;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                 &address_to_pay,
@@ -1347,8 +1351,8 @@ impl BillServiceApi for BillService {
 
     async fn get_endorsements(
         &self,
-        bill_id: &str,
-        current_identity_node_id: &str,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
     ) -> Result<Vec<Endorsement>> {
         match self.store.exists(bill_id).await {
             Ok(true) => (),
@@ -1381,8 +1385,8 @@ impl BillServiceApi for BillService {
 
     async fn request_to_mint(
         &self,
-        bill_id: &str,
-        mint_node_id: &str,
+        bill_id: &BillId,
+        mint_node_id: &NodeId,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         timestamp: u64,
@@ -1390,9 +1394,9 @@ impl BillServiceApi for BillService {
         debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
         let mint_cfg = &get_config().mint_config;
         // make sure the mint is a valid one - currently just checks it against the default mint
-        if mint_cfg.default_mint_node_id != mint_node_id {
+        if mint_cfg.default_mint_node_id != *mint_node_id {
             return Err(Error::Validation(ValidationError::InvalidMint(
-                mint_node_id.to_owned(),
+                mint_node_id.to_string(),
             )));
         }
         // fetch data
@@ -1519,8 +1523,8 @@ impl BillServiceApi for BillService {
 
     async fn get_mint_state(
         &self,
-        bill_id: &str,
-        current_identity_node_id: &str,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
     ) -> Result<Vec<MintRequestState>> {
         let requests = self
             .mint_store
@@ -1555,7 +1559,7 @@ impl BillServiceApi for BillService {
     async fn cancel_request_to_mint(
         &self,
         mint_request_id: &str,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to cancel request to mint {mint_request_id}");
         let req = self
@@ -1583,7 +1587,11 @@ impl BillServiceApi for BillService {
         }
     }
 
-    async fn check_mint_state(&self, bill_id: &str, current_identity_node_id: &str) -> Result<()> {
+    async fn check_mint_state(
+        &self,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
+    ) -> Result<()> {
         debug!("checking mint requests for bill {bill_id}");
         let requests = self
             .mint_store
@@ -1692,7 +1700,7 @@ impl BillServiceApi for BillService {
     async fn reject_mint_offer(
         &self,
         mint_request_id: &str,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to reject offer from request to mint {mint_request_id}");
         let req = self

@@ -1,13 +1,20 @@
-use bcr_ebill_api::data::mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus};
+use bcr_ebill_api::data::{
+    NodeId,
+    bill::BillId,
+    mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus},
+};
 use serde::Serialize;
 use tsify::Tsify;
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct MintRequestWeb {
-    pub requester_node_id: String,
-    pub bill_id: String,
-    pub mint_node_id: String,
+    #[tsify(type = "string")]
+    pub requester_node_id: NodeId,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub mint_node_id: NodeId,
     pub mint_request_id: String,
     pub timestamp: u64,
     pub status: MintRequestStatusWeb,

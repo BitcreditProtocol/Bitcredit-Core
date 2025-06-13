@@ -7,7 +7,7 @@ use crate::{
     util::date::{self, DateTimeUtc},
 };
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use serde::{Deserialize, Serialize};
 
 use crate::{NostrEventOffset, NostrEventOffsetStoreApi};
@@ -30,10 +30,10 @@ impl ServiceTraitBounds for SurrealNostrEventOffsetStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
-    async fn current_offset(&self, node_id: &str) -> Result<u64> {
+    async fn current_offset(&self, node_id: &NodeId) -> Result<u64> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
-        bindings.add(DB_NODE_ID, node_id.to_owned())?;
+        bindings.add(DB_NODE_ID, node_id.to_string())?;
         let result: Vec<NostrEventOffsetDb> = self
             .db
             .query(&format!("SELECT * FROM type::table($table) where {DB_NODE_ID} = $node_id ORDER BY time DESC LIMIT 1"), bindings)
@@ -68,7 +68,7 @@ struct NostrEventOffsetDb {
     pub event_id: String,
     pub time: DateTimeUtc,
     pub success: bool,
-    pub node_id: String,
+    pub node_id: NodeId,
 }
 
 impl From<NostrEventOffsetDb> for NostrEventOffset {
@@ -96,13 +96,13 @@ impl From<NostrEventOffset> for NostrEventOffsetDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::get_memory_db;
+    use crate::{db::get_memory_db, tests::tests::node_id_test};
 
     #[tokio::test]
     async fn test_get_offset_from_empty_table() {
         let store = get_store().await;
         let offset = store
-            .current_offset("node_id")
+            .current_offset(&node_id_test())
             .await
             .expect("could not get offset");
         assert_eq!(offset, 0);
@@ -115,7 +115,7 @@ mod tests {
             event_id: "test_event".to_string(),
             time: 1000,
             success: true,
-            node_id: "node_id".to_string(),
+            node_id: node_id_test(),
         };
         store
             .add_event(data)
@@ -123,7 +123,7 @@ mod tests {
             .expect("Could not add event offset");
 
         let offset = store
-            .current_offset("node_id")
+            .current_offset(&node_id_test())
             .await
             .expect("could not get offset");
         assert_eq!(offset, 1000);
@@ -136,7 +136,7 @@ mod tests {
             event_id: "test_event".to_string(),
             time: 1000,
             success: false,
-            node_id: "node_id".to_string(),
+            node_id: node_id_test(),
         };
         let is_known = store
             .is_processed(&data.event_id)

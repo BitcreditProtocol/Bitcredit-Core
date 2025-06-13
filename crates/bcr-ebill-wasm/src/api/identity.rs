@@ -11,7 +11,7 @@ use crate::{
 };
 use bcr_ebill_api::{
     data::{
-        OptionalPostalAddress,
+        NodeId, OptionalPostalAddress,
         identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
     },
     external,
@@ -45,7 +45,7 @@ impl Identity {
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, file_name: &str) -> Result<JsValue> {
         let identity = get_ctx().identity_service.get_full_identity().await?;
-        let private_key = identity.key_pair.get_private_key_string();
+        let private_key = identity.key_pair.get_private_key();
         let id = identity.identity.node_id.clone();
 
         let file_bytes = get_ctx()
@@ -92,7 +92,7 @@ impl Identity {
             return Err(Error::NotFound.into());
         } else {
             let full_identity = get_ctx().identity_service.get_full_identity().await?;
-            IdentityWeb::from(full_identity.identity, full_identity.key_pair)?
+            IdentityWeb::from(full_identity.identity)?
         };
         let res = serde_wasm_bindgen::to_value(&my_identity)?;
         Ok(res)
@@ -128,7 +128,7 @@ impl Identity {
             .await?;
 
         let full_identity = get_ctx().identity_service.get_full_identity().await?;
-        let identity = IdentityWeb::from(full_identity.identity, full_identity.key_pair)?;
+        let identity = IdentityWeb::from(full_identity.identity)?;
 
         let res = serde_wasm_bindgen::to_value(&identity)?;
         Ok(res)
@@ -164,7 +164,7 @@ impl Identity {
             .await?;
 
         let full_identity = get_ctx().identity_service.get_full_identity().await?;
-        let identity = IdentityWeb::from(full_identity.identity, full_identity.key_pair)?;
+        let identity = IdentityWeb::from(full_identity.identity)?;
 
         let res = serde_wasm_bindgen::to_value(&identity)?;
         Ok(res)
@@ -260,7 +260,7 @@ impl Identity {
         }
 
         // otherwise, return an error
-        Err(Error::Validation(ValidationError::UnknownNodeId(node_id.to_owned())).into())
+        Err(Error::Validation(ValidationError::UnknownNodeId(node_id.to_string())).into())
     }
 
     #[wasm_bindgen(unchecked_return_type = "SeedPhrase")]
@@ -295,7 +295,7 @@ pub async fn get_current_identity() -> Result<ActiveIdentityState> {
     Ok(active_identity)
 }
 
-pub async fn get_current_identity_node_id() -> Result<String> {
+pub async fn get_current_identity_node_id() -> Result<NodeId> {
     let current_identity = get_current_identity().await?;
     match current_identity.company {
         None => Ok(current_identity.personal),

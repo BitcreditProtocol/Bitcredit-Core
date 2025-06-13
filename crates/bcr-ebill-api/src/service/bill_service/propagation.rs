@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::{BillAction, Result, service::BillService};
 use bcr_ebill_core::{
+    NodeId,
     bill::{BillKeys, RecourseReason},
     blockchain::bill::BillBlockchain,
     contact::Contact,
@@ -17,7 +18,7 @@ impl BillService {
         bill_keys: &BillKeys,
         bill_action: &BillAction,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> Result<()> {
         let last_version_bill = self
             .get_last_version_bill(blockchain, bill_keys, identity, contacts)

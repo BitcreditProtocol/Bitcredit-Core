@@ -13,7 +13,7 @@ pub mod tests {
         identity::Identity,
     };
     use crate::{NodeId, Validate};
-    use borsh::{BorshDeserialize, BorshSerialize};
+    use borsh::BorshDeserialize;
     use rstest::rstest;
     use serde::{Deserialize, Serialize};
 
@@ -105,7 +105,7 @@ pub mod tests {
     pub fn empty_identity() -> Identity {
         Identity {
             t: IdentityType::Ident,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "some name".to_string(),
             email: Some("some@example.com".to_string()),
             postal_address: valid_optional_address(),
@@ -122,7 +122,7 @@ pub mod tests {
     pub fn valid_bill_participant() -> BillParticipant {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
-            node_id: TEST_PUB_KEY_SECP.into(),
+            node_id: node_id_test(),
             name: "Johanna Smith".into(),
             postal_address: valid_address(),
             email: None,
@@ -133,7 +133,7 @@ pub mod tests {
     pub fn valid_other_bill_participant() -> BillParticipant {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
-            node_id: OTHER_TEST_PUB_KEY_SECP.into(),
+            node_id: node_id_test_other(),
             name: "John Smith".into(),
             postal_address: valid_address(),
             email: None,
@@ -144,7 +144,7 @@ pub mod tests {
     pub fn valid_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
-            node_id: TEST_PUB_KEY_SECP.into(),
+            node_id: node_id_test(),
             name: "Johanna Smith".into(),
             postal_address: valid_address(),
             email: None,
@@ -155,7 +155,7 @@ pub mod tests {
     pub fn valid_other_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
-            node_id: OTHER_TEST_PUB_KEY_SECP.into(),
+            node_id: node_id_test_other(),
             name: "John Smith".into(),
             postal_address: valid_address(),
             email: None,
@@ -166,7 +166,7 @@ pub mod tests {
     pub fn empty_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "some name".to_string(),
             postal_address: valid_address(),
             email: None,
@@ -174,7 +174,7 @@ pub mod tests {
         }
     }
 
-    pub fn bill_participant_only_node_id(node_id: String) -> BillParticipant {
+    pub fn bill_participant_only_node_id(node_id: NodeId) -> BillParticipant {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id,
@@ -185,7 +185,7 @@ pub mod tests {
         })
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+    pub fn bill_identified_participant_only_node_id(node_id: NodeId) -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id,
@@ -198,7 +198,7 @@ pub mod tests {
 
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
-            id: TEST_BILL_ID.to_owned(),
+            id: bill_id_test(),
             country_of_issuing: "AT".to_string(),
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
@@ -218,21 +218,43 @@ pub mod tests {
 
     pub fn get_bill_keys() -> BillKeys {
         BillKeys {
-            private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-            public_key: TEST_PUB_KEY_SECP.to_owned(),
+            private_key: private_key_test(),
+            public_key: node_id_test().pub_key(),
         }
     }
 
-    pub const TEST_PUB_KEY_SECP: &str =
-        "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
+    pub fn node_id_test() -> NodeId {
+        NodeId::from_str("bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
 
-    pub const TEST_BILL_ID: &str = "KmtMUia3ezhshD9EyzvpT62DUPLr66M5LESy6j8ErCtv1USUDtoTA8JkXnCCGEtZxp41aKne5wVcCjoaFbjDqD4aFk";
+    pub fn node_id_test_other() -> NodeId {
+        NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
+            .unwrap()
+    }
 
-    pub const TEST_PRIVATE_KEY_SECP: &str =
-        "d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9";
+    pub fn node_id_regtest() -> NodeId {
+        NodeId::from_str("bitcrr02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
 
-    pub const OTHER_TEST_PUB_KEY_SECP: &str =
-        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f";
+    // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
+    pub fn bill_id_test() -> BillId {
+        BillId::new(
+            secp256k1::PublicKey::from_str(
+                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    pub fn private_key_test() -> secp256k1::SecretKey {
+        secp256k1::SecretKey::from_str(
+            "d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9",
+        )
+        .unwrap()
+    }
 
     pub const TEST_NODE_ID_SECP: &str =
         "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
@@ -245,7 +267,14 @@ pub mod tests {
     pub const OTHER_VALID_PAYMENT_ADDRESS_TESTNET: &str = "msAPAcTqHqosWu3gaVwATTupxdHSY2wyQn";
 
     #[derive(
-        Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+        Debug,
+        Clone,
+        Eq,
+        PartialEq,
+        borsh_derive::BorshSerialize,
+        borsh_derive::BorshDeserialize,
+        Serialize,
+        Deserialize,
     )]
     pub struct Test {
         pub node_id: NodeId,
@@ -348,7 +377,14 @@ pub mod tests {
     }
 
     #[derive(
-        Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+        Debug,
+        Clone,
+        Eq,
+        PartialEq,
+        borsh_derive::BorshSerialize,
+        borsh_derive::BorshDeserialize,
+        Serialize,
+        Deserialize,
     )]
     pub struct TestBill {
         pub bill_id: BillId,

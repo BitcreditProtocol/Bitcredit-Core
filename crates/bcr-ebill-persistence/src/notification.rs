@@ -4,7 +4,8 @@ use async_trait::async_trait;
 
 use super::Result;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
+    bill::BillId,
     notification::{ActionType, Notification, NotificationType},
 };
 
@@ -38,14 +39,14 @@ pub trait NotificationStoreApi: ServiceTraitBounds {
     /// marks a notification with specific type as sent for the current block of given bill
     async fn set_bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action_type: ActionType,
     ) -> Result<()>;
     /// lookup whether a notification has been sent for the given bill and block height
     async fn bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action_type: ActionType,
     ) -> Result<bool>;
@@ -56,7 +57,7 @@ pub struct NotificationFilter {
     pub active: Option<bool>,
     pub reference_id: Option<String>,
     pub notification_type: Option<String>,
-    pub node_ids: Vec<String>,
+    pub node_ids: Vec<NodeId>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -113,7 +114,7 @@ impl NotificationFilter {
         })
     }
 
-    pub fn get_node_ids(&self) -> Option<(String, Vec<String>)> {
+    pub fn get_node_ids(&self) -> Option<(String, Vec<NodeId>)> {
         if !self.node_ids.is_empty() {
             Some(("node_ids".to_string(), self.node_ids.clone()))
         } else {
@@ -124,6 +125,8 @@ impl NotificationFilter {
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::tests::{node_id_test, node_id_test_other};
+
     #[test]
     fn test_query_filters() {
         let empty = super::NotificationFilter::default();
@@ -136,7 +139,7 @@ mod tests {
         assert_eq!(active.filters(), "WHERE active = $active");
 
         let node_ids = super::NotificationFilter {
-            node_ids: vec!["123".to_string(), "456".to_string()],
+            node_ids: vec![node_id_test(), node_id_test_other()],
             ..Default::default()
         };
 
@@ -146,7 +149,7 @@ mod tests {
             node_ids.get_node_ids(),
             Some((
                 "node_ids".to_string(),
-                vec!["123".to_string(), "456".to_string()]
+                vec![node_id_test(), node_id_test_other()]
             ))
         );
 
@@ -154,7 +157,7 @@ mod tests {
             active: Some(true),
             reference_id: Some("123".to_string()),
             notification_type: Some("Bill".to_string()),
-            node_ids: vec!["123".to_string()],
+            node_ids: vec![node_id_test()],
             ..Default::default()
         };
 

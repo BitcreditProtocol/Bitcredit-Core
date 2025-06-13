@@ -8,9 +8,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-    util::crypto::get_npub_from_node_id,
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -38,8 +37,8 @@ impl ServiceTraitBounds for SurrealNostrContactStore {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrContactStoreApi for SurrealNostrContactStore {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
-    async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>> {
-        let npub = get_npub_from_node_id(node_id)?;
+    async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
+        let npub = node_id.npub();
         self.by_npub(&npub).await
     }
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
@@ -58,20 +57,17 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         Ok(())
     }
     /// Delete an Nostr contact. This will remove the contact from the store.
-    async fn delete(&self, node_id: &str) -> Result<()> {
-        let npub = get_npub_from_node_id(node_id)?.to_hex();
+    async fn delete(&self, node_id: &NodeId) -> Result<()> {
+        let npub = node_id.npub().to_hex();
         let _: Option<NostrContactDb> = self.db.delete(Self::TABLE, npub.to_owned()).await?;
         Ok(())
     }
     /// Sets a new handshake status for the contact. This is used to track the handshake process.
-    async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()> {
+    async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_HANDSHAKE_STATUS, status)?;
-        bindings.add(
-            DB_ID,
-            Self::thing_id(&get_npub_from_node_id(node_id)?.to_hex()),
-        )?;
+        bindings.add(DB_ID, Self::thing_id(&node_id.npub().to_hex()))?;
         self.db
             .query_check(&update_field_query(DB_HANDSHAKE_STATUS), bindings)
             .await?;
@@ -79,14 +75,11 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
     }
     /// Sets a new trust level for the contact. This is used to track the trust level of the
     /// contact.
-    async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()> {
+    async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_TRUST_LEVEL, trust_level)?;
-        bindings.add(
-            DB_ID,
-            Self::thing_id(&get_npub_from_node_id(node_id)?.to_hex()),
-        )?;
+        bindings.add(DB_ID, Self::thing_id(&node_id.npub().to_hex()))?;
         self.db
             .query_check(&update_field_query(DB_TRUST_LEVEL), bindings)
             .await?;
@@ -171,7 +164,7 @@ mod tests {
     async fn test_upsert_and_retrieve_by_node_id() {
         let keys = BcrKeys::new();
         let npub = keys.get_nostr_keys().public_key();
-        let node_id = keys.get_public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
         let contact = get_test_message(npub.to_hex().as_str());
 
@@ -222,7 +215,7 @@ mod tests {
     async fn test_delete_contact() {
         let keys = BcrKeys::new();
         let npub = keys.get_nostr_keys().public_key();
-        let node_id = keys.get_public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
         let contact = get_test_message(npub.to_hex().as_str());
 
@@ -250,7 +243,7 @@ mod tests {
     async fn test_set_handshake_status() {
         let keys = BcrKeys::new();
         let npub = keys.get_nostr_keys().public_key();
-        let node_id = keys.get_public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
         let contact = get_test_message(npub.to_hex().as_str());
 
@@ -280,7 +273,7 @@ mod tests {
     async fn test_set_trust_level() {
         let keys = BcrKeys::new();
         let npub = keys.get_nostr_keys().public_key();
-        let node_id = keys.get_public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
         let contact = get_test_message(npub.to_hex().as_str());
 
@@ -310,7 +303,7 @@ mod tests {
     async fn test_get_npubs() {
         let keys = BcrKeys::new();
         let npub = keys.get_nostr_keys().public_key();
-        let node_id = keys.get_public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
         let contact = get_test_message(&npub.to_hex());
 

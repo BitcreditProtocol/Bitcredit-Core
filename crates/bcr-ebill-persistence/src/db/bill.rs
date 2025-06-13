@@ -5,16 +5,17 @@ use super::{BillIdDb, FileDb, PostalAddressDb, Result};
 use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::bill::{
-    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillMintStatus, BillParticipants,
-    BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
-    BillWaitingForRecourseState, BillWaitingForSellState, BitcreditBillResult,
+    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillMintStatus,
+    BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
+    BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
+    BitcreditBillResult,
 };
 use bcr_ebill_core::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
 };
+use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode, util};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -42,8 +43,8 @@ impl ServiceTraitBounds for SurrealBillStore {}
 impl BillStoreApi for SurrealBillStore {
     async fn get_bills_from_cache(
         &self,
-        ids: &[String],
-        identity_node_id: &str,
+        ids: &[BillId],
+        identity_node_id: &NodeId,
     ) -> Result<Vec<BitcreditBillResult>> {
         let db_ids: Vec<Thing> = ids
             .iter()
@@ -70,8 +71,8 @@ impl BillStoreApi for SurrealBillStore {
 
     async fn get_bill_from_cache(
         &self,
-        id: &str,
-        identity_node_id: &str,
+        id: &BillId,
+        identity_node_id: &NodeId,
     ) -> Result<Option<BitcreditBillResult>> {
         let result: Option<BitcreditBillResultDb> = self
             .db
@@ -85,8 +86,8 @@ impl BillStoreApi for SurrealBillStore {
 
     async fn save_bill_to_cache(
         &self,
-        id: &str,
-        identity_node_id: &str,
+        id: &BillId,
+        identity_node_id: &NodeId,
         bill: &BitcreditBillResult,
     ) -> Result<()> {
         // invalidate bill for all
@@ -104,7 +105,7 @@ impl BillStoreApi for SurrealBillStore {
         Ok(())
     }
 
-    async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()> {
+    async fn invalidate_bill_in_cache(&self, id: &BillId) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CACHE_TABLE)?;
         bindings.add(DB_BILL_ID, id.to_owned())?;
@@ -122,7 +123,7 @@ impl BillStoreApi for SurrealBillStore {
         Ok(())
     }
 
-    async fn exists(&self, id: &str) -> Result<bool> {
+    async fn exists(&self, id: &BillId) -> Result<bool> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
         bindings.add(DB_BILL_ID, id.to_owned())?;
@@ -150,7 +151,7 @@ impl BillStoreApi for SurrealBillStore {
         }
     }
 
-    async fn get_ids(&self) -> Result<Vec<String>> {
+    async fn get_ids(&self) -> Result<Vec<BillId>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
         let ids: Vec<BillIdDb> = self
@@ -163,43 +164,43 @@ impl BillStoreApi for SurrealBillStore {
         Ok(ids.into_iter().map(|b| b.bill_id).collect())
     }
 
-    async fn save_keys(&self, id: &str, key_pair: &BillKeys) -> Result<()> {
+    async fn save_keys(&self, id: &BillId, key_pair: &BillKeys) -> Result<()> {
         let entity: BillKeysDb = key_pair.into();
         let _: Option<BillKeysDb> = self
             .db
-            .create(Self::KEYS_TABLE, Some(id.to_owned()), entity)
+            .create(Self::KEYS_TABLE, Some(id.to_string()), entity)
             .await?;
         Ok(())
     }
 
-    async fn get_keys(&self, id: &str) -> Result<BillKeys> {
+    async fn get_keys(&self, id: &BillId) -> Result<BillKeys> {
         let result: Option<BillKeysDb> =
-            self.db.select_one(Self::KEYS_TABLE, id.to_owned()).await?;
+            self.db.select_one(Self::KEYS_TABLE, id.to_string()).await?;
         match result {
-            None => Err(Error::NoSuchEntity("bill".to_string(), id.to_owned())),
+            None => Err(Error::NoSuchEntity("bill".to_string(), id.to_string())),
             Some(c) => Ok(c.into()),
         }
     }
 
-    async fn is_paid(&self, id: &str) -> Result<bool> {
+    async fn is_paid(&self, id: &BillId) -> Result<bool> {
         let result: Option<BillPaidDb> =
-            self.db.select_one(Self::PAID_TABLE, id.to_owned()).await?;
+            self.db.select_one(Self::PAID_TABLE, id.to_string()).await?;
         Ok(result.is_some())
     }
 
-    async fn set_to_paid(&self, id: &str, payment_address: &str) -> Result<()> {
+    async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()> {
         let entity = BillPaidDb {
-            id: (Self::PAID_TABLE, id).into(),
+            id: (Self::PAID_TABLE, id.to_string().as_str()).into(),
             payment_address: payment_address.to_string(),
         };
         let _: Option<BillPaidDb> = self
             .db
-            .upsert(Self::PAID_TABLE, id.to_owned(), entity)
+            .upsert(Self::PAID_TABLE, id.to_string(), entity)
             .await?;
         Ok(())
     }
 
-    async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<String>> {
+    async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>> {
         let bill_ids_paid: Vec<BillPaidDb> = self.db.select_all(Self::PAID_TABLE).await?;
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
@@ -211,12 +212,12 @@ impl BillStoreApi for SurrealBillStore {
                 bindings,
             )
             .await?;
-        let result: Vec<String> = with_req_to_pay_bill_ids
+        let result: Vec<BillId> = with_req_to_pay_bill_ids
             .into_iter()
             .filter_map(|bid| {
                 if !bill_ids_paid
                     .iter()
-                    .any(|idp| idp.id.id.to_raw() == bid.bill_id)
+                    .any(|idp| idp.id.id.to_raw() == bid.bill_id.to_string())
                 {
                     Some(bid.bill_id)
                 } else {
@@ -227,7 +228,7 @@ impl BillStoreApi for SurrealBillStore {
         Ok(result)
     }
 
-    async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<String>> {
+    async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>> {
         let timestamp_now_minus_payment_deadline =
             util::date::now().timestamp() - PAYMENT_DEADLINE_SECONDS as i64;
         let mut bindings = Bindings::default();
@@ -244,7 +245,7 @@ impl BillStoreApi for SurrealBillStore {
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
 
-    async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<String>> {
+    async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>> {
         let timestamp_now_minus_payment_deadline =
             util::date::now().timestamp() - RECOURSE_DEADLINE_SECONDS as i64;
         let mut bindings = Bindings::default();
@@ -265,7 +266,7 @@ impl BillStoreApi for SurrealBillStore {
         &self,
         op_codes: HashSet<BillOpCode>,
         since: u64,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<BillId>> {
         let codes = op_codes.into_iter().collect::<Vec<BillOpCode>>();
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
@@ -281,12 +282,12 @@ impl BillStoreApi for SurrealBillStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BitcreditBillResultDb {
-    pub bill_id: String,
+    pub bill_id: BillId,
     pub participants: BillParticipantsDb,
     pub data: BillDataDb,
     pub status: BillStatusDb,
     pub current_waiting_state: Option<BillCurrentWaitingStateDb>,
-    pub identity_node_id: String,
+    pub identity_node_id: NodeId,
 }
 
 impl From<BitcreditBillResultDb> for BitcreditBillResult {
@@ -301,8 +302,8 @@ impl From<BitcreditBillResultDb> for BitcreditBillResult {
     }
 }
 
-impl From<(&BitcreditBillResult, &str)> for BitcreditBillResultDb {
-    fn from((value, identity_node_id): (&BitcreditBillResult, &str)) -> Self {
+impl From<(&BitcreditBillResult, &NodeId)> for BitcreditBillResultDb {
+    fn from((value, identity_node_id): (&BitcreditBillResult, &NodeId)) -> Self {
         Self {
             bill_id: value.id.clone(),
             participants: (&value.participants).into(),
@@ -729,7 +730,7 @@ pub struct BillParticipantsDb {
     pub payee: BillParticipantDb,
     pub endorsee: Option<BillParticipantDb>,
     pub endorsements_count: u64,
-    pub all_participant_node_ids: Vec<String>,
+    pub all_participant_node_ids: Vec<NodeId>,
 }
 
 impl From<BillParticipantsDb> for BillParticipants {
@@ -767,14 +768,14 @@ pub enum BillParticipantDb {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BillIdentParticipantDb {
     pub t: ContactType,
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub postal_address: PostalAddressDb,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BillAnonParticipantDb {
-    pub node_id: String,
+    pub node_id: NodeId,
 }
 
 impl From<BillParticipantDb> for BillParticipant {
@@ -847,8 +848,8 @@ pub struct BillPaidDb {
 pub struct BillKeysDb {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
-    pub public_key: String,
-    pub private_key: String,
+    pub public_key: PublicKey,
+    pub private_key: SecretKey,
 }
 
 impl From<BillKeysDb> for BillKeys {
@@ -864,8 +865,8 @@ impl From<&BillKeys> for BillKeysDb {
     fn from(value: &BillKeys) -> Self {
         Self {
             id: None,
-            public_key: value.public_key.clone(),
-            private_key: value.private_key.clone(),
+            public_key: value.public_key,
+            private_key: value.private_key,
         }
     }
 }
@@ -879,13 +880,15 @@ pub mod tests {
         bill::{BillChainStoreApi, BillStoreApi},
         db::{bill_chain::SurrealBillChainStore, get_memory_db, surreal::SurrealWrapper},
         tests::tests::{
-            TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, bill_identified_participant_only_node_id,
-            cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys,
+            bill_id_test, bill_id_test_other, bill_identified_participant_only_node_id,
+            cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys, node_id_test,
+            node_id_test_other, private_key_test,
         },
         util::{self, BcrKeys},
     };
     use bcr_ebill_core::{
-        bill::BillKeys,
+        NodeId,
+        bill::{BillId, BillKeys},
         blockchain::bill::{
             BillBlock, BillOpCode,
             block::{
@@ -919,19 +922,25 @@ pub mod tests {
         })
     }
 
-    pub fn get_first_block(id: &str) -> BillBlock {
+    pub fn get_first_block(id: &BillId) -> BillBlock {
         let mut bill = empty_bitcredit_bill();
         bill.maturity_date = "2099-05-05".to_string();
         bill.id = id.to_owned();
-        bill.drawer = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawer = bill_identified_participant_only_node_id(NodeId::new(
+            BcrKeys::new().pub_key(),
+            bitcoin::Network::Testnet,
+        ));
         bill.payee = BillParticipant::Ident(bill.drawer.clone());
-        bill.drawee = bill_identified_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawee = bill_identified_participant_only_node_id(NodeId::new(
+            BcrKeys::new().pub_key(),
+            bitcoin::Network::Testnet,
+        ));
 
         BillBlock::create_block_for_issue(
             id.to_owned(),
             String::from("prevhash"),
             &BillIssueBlockData::from(bill, None, 1731593928),
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             1731593928,
@@ -944,31 +953,29 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        assert!(!store.exists("1234").await.as_ref().unwrap());
-        let first_block = get_first_block("1234");
-        chain_store.add_block("1234", &first_block).await.unwrap();
-        assert!(!store.exists("1234").await.as_ref().unwrap());
+        assert!(!store.exists(&bill_id_test()).await.as_ref().unwrap());
+        let first_block = get_first_block(&bill_id_test());
+        chain_store
+            .add_block(&bill_id_test(), &first_block)
+            .await
+            .unwrap();
+        assert!(!store.exists(&bill_id_test()).await.as_ref().unwrap());
         chain_store
             .add_block(
-                "1234",
+                &bill_id_test(),
                 &BillBlock::create_block_for_request_to_pay(
-                    "1234".to_string(),
+                    bill_id_test(),
                     &first_block,
                     &BillRequestToPayBlockData {
                         requester: BillParticipantBlockData::Ident(
-                            bill_identified_participant_only_node_id(
-                                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                                    .unwrap()
-                                    .get_public_key(),
-                            )
-                            .into(),
+                            bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
                         currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
                     },
-                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     1731593928,
@@ -977,18 +984,18 @@ pub mod tests {
             )
             .await
             .unwrap();
-        assert!(!store.exists("1234").await.as_ref().unwrap());
+        assert!(!store.exists(&bill_id_test()).await.as_ref().unwrap());
         store
             .save_keys(
-                "1234",
+                &bill_id_test(),
                 &BillKeys {
-                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
-                    public_key: TEST_PUB_KEY_SECP.to_string(),
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
                 },
             )
             .await
             .unwrap();
-        assert!(store.exists("1234").await.as_ref().unwrap())
+        assert!(store.exists(&bill_id_test()).await.as_ref().unwrap())
     }
 
     #[tokio::test]
@@ -997,17 +1004,20 @@ pub mod tests {
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
         chain_store
-            .add_block("1234", &get_first_block("1234"))
+            .add_block(&bill_id_test(), &get_first_block(&bill_id_test()))
             .await
             .unwrap();
         chain_store
-            .add_block("4321", &get_first_block("4321"))
+            .add_block(
+                &bill_id_test_other(),
+                &get_first_block(&bill_id_test_other()),
+            )
             .await
             .unwrap();
         let res = store.get_ids().await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().contains(&"1234".to_string()));
-        assert!(res.as_ref().unwrap().contains(&"4321".to_string()));
+        assert!(res.as_ref().unwrap().contains(&bill_id_test()));
+        assert!(res.as_ref().unwrap().contains(&bill_id_test_other()));
     }
 
     #[tokio::test]
@@ -1015,41 +1025,41 @@ pub mod tests {
         let store = get_store(get_db().await).await;
         let res = store
             .save_keys(
-                "1234",
+                &bill_id_test(),
                 &BillKeys {
-                    private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                    public_key: TEST_PUB_KEY_SECP.to_owned(),
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
                 },
             )
             .await;
         assert!(res.is_ok());
-        let get_res = store.get_keys("1234").await;
+        let get_res = store.get_keys(&bill_id_test()).await;
         assert!(get_res.is_ok());
-        assert_eq!(get_res.as_ref().unwrap().private_key, TEST_PRIVATE_KEY_SECP);
+        assert_eq!(get_res.as_ref().unwrap().private_key, private_key_test());
     }
 
     #[tokio::test]
     async fn test_paid() {
         let store = get_store(get_db().await).await;
         let res = store
-            .set_to_paid("1234", "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
+            .set_to_paid(&bill_id_test(), "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
             .await;
         assert!(res.is_ok());
-        let get_res = store.is_paid("1234").await;
+        let get_res = store.is_paid(&bill_id_test()).await;
         assert!(get_res.is_ok());
         assert!(get_res.as_ref().unwrap());
 
         // save again
         let res_again = store
-            .set_to_paid("1234", "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
+            .set_to_paid(&bill_id_test(), "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
             .await;
         assert!(res_again.is_ok());
-        let get_res_again = store.is_paid("1234").await;
+        let get_res_again = store.is_paid(&bill_id_test()).await;
         assert!(get_res_again.is_ok());
         assert!(get_res_again.as_ref().unwrap());
 
         // different bill without paid state
-        let get_res_not_paid = store.is_paid("4321").await;
+        let get_res_not_paid = store.is_paid(&bill_id_test_other()).await;
         assert!(get_res_not_paid.is_ok());
         assert!(!get_res_not_paid.as_ref().unwrap());
     }
@@ -1060,33 +1070,34 @@ pub mod tests {
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
 
-        let first_block = get_first_block("1234");
-        chain_store
-            .add_block("4321", &get_first_block("4321"))
-            .await
-            .unwrap(); // not returned, no req to pay block
-        chain_store.add_block("1234", &first_block).await.unwrap();
+        let first_block = get_first_block(&bill_id_test());
         chain_store
             .add_block(
-                "1234",
+                &bill_id_test_other(),
+                &get_first_block(&bill_id_test_other()),
+            )
+            .await
+            .unwrap(); // not returned, no req to pay block
+        chain_store
+            .add_block(&bill_id_test(), &first_block)
+            .await
+            .unwrap();
+        chain_store
+            .add_block(
+                &bill_id_test(),
                 &BillBlock::create_block_for_request_to_pay(
-                    "1234".to_string(),
+                    bill_id_test(),
                     &first_block,
                     &BillRequestToPayBlockData {
                         requester: BillParticipantBlockData::Ident(
-                            bill_identified_participant_only_node_id(
-                                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                                    .unwrap()
-                                    .get_public_key(),
-                            )
-                            .into(),
+                            bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
                         currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
                     },
-                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     1731593928,
@@ -1102,7 +1113,7 @@ pub mod tests {
 
         // add the bill to paid, expect it not to be returned afterwards
         store
-            .set_to_paid("1234", "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
+            .set_to_paid(&bill_id_test(), "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
             .await
             .unwrap();
 
@@ -1118,27 +1129,31 @@ pub mod tests {
         let store = get_store(db.clone()).await;
         let now = util::date::now().timestamp() as u64;
 
-        let first_block = get_first_block("1234");
+        let first_block = get_first_block(&bill_id_test());
         chain_store
-            .add_block("4321", &get_first_block("4321"))
+            .add_block(
+                &bill_id_test_other(),
+                &get_first_block(&bill_id_test_other()),
+            )
             .await
             .unwrap(); // not returned, no offer to sell block
-        chain_store.add_block("1234", &first_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &first_block)
+            .await
+            .unwrap();
         let second_block = BillBlock::create_block_for_offer_to_sell(
-            "1234".to_string(),
+            bill_id_test(),
             &first_block,
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(
-                    bill_identified_participant_only_node_id(
-                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                            .unwrap()
-                            .get_public_key(),
-                    )
-                    .into(),
+                    bill_identified_participant_only_node_id(node_id_test()).into(),
                 ),
                 buyer: BillParticipantBlockData::Ident(
-                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key())
-                        .into(),
+                    bill_identified_participant_only_node_id(NodeId::new(
+                        BcrKeys::new().pub_key(),
+                        bitcoin::Network::Testnet,
+                    ))
+                    .into(),
                 ),
                 currency: "sat".to_string(),
                 sum: 15000,
@@ -1147,13 +1162,16 @@ pub mod tests {
                 signing_timestamp: now,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             now,
         )
         .unwrap();
-        chain_store.add_block("1234", &second_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &second_block)
+            .await
+            .unwrap();
 
         let res = store.get_bill_ids_waiting_for_sell_payment().await;
         assert!(res.is_ok());
@@ -1161,23 +1179,19 @@ pub mod tests {
 
         chain_store
             .add_block(
-                "1234",
+                &bill_id_test(),
                 &BillBlock::create_block_for_sell(
-                    "1234".to_string(),
+                    bill_id_test(),
                     &second_block,
                     &BillSellBlockData {
                         seller: BillParticipantBlockData::Ident(
-                            bill_identified_participant_only_node_id(
-                                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                                    .unwrap()
-                                    .get_public_key(),
-                            )
-                            .into(),
+                            bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
                         buyer: BillParticipantBlockData::Ident(
-                            bill_identified_participant_only_node_id(
-                                BcrKeys::new().get_public_key(),
-                            )
+                            bill_identified_participant_only_node_id(NodeId::new(
+                                BcrKeys::new().pub_key(),
+                                bitcoin::Network::Testnet,
+                            ))
                             .into(),
                         ),
                         currency: "sat".to_string(),
@@ -1187,7 +1201,7 @@ pub mod tests {
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
                     },
-                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     now,
@@ -1213,27 +1227,31 @@ pub mod tests {
             .unwrap()
             .timestamp() as u64;
 
-        let first_block = get_first_block("1234");
+        let first_block = get_first_block(&bill_id_test());
         chain_store
-            .add_block("4321", &get_first_block("4321"))
+            .add_block(
+                &bill_id_test_other(),
+                &get_first_block(&bill_id_test_other()),
+            )
             .await
             .unwrap(); // not returned, no offer to sell block
-        chain_store.add_block("1234", &first_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &first_block)
+            .await
+            .unwrap();
         let second_block = BillBlock::create_block_for_offer_to_sell(
-            "1234".to_string(),
+            bill_id_test(),
             &first_block,
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(
-                    bill_identified_participant_only_node_id(
-                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                            .unwrap()
-                            .get_public_key(),
-                    )
-                    .into(),
+                    bill_identified_participant_only_node_id(node_id_test()).into(),
                 ),
                 buyer: BillParticipantBlockData::Ident(
-                    bill_identified_participant_only_node_id(BcrKeys::new().get_public_key())
-                        .into(),
+                    bill_identified_participant_only_node_id(NodeId::new(
+                        BcrKeys::new().pub_key(),
+                        bitcoin::Network::Testnet,
+                    ))
+                    .into(),
                 ),
                 currency: "sat".to_string(),
                 sum: 15000,
@@ -1242,13 +1260,16 @@ pub mod tests {
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             now_minus_one_month,
         )
         .unwrap();
-        chain_store.add_block("1234", &second_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &second_block)
+            .await
+            .unwrap();
 
         // nothing gets returned, because the offer to sell is expired
         let res = store.get_bill_ids_waiting_for_sell_payment().await;
@@ -1261,7 +1282,7 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        let bill_id = "1234";
+        let bill_id = &bill_id_test();
         let first_block_request_to_accept = get_first_block(bill_id);
         let first_block_ts = first_block_request_to_accept.timestamp;
         chain_store
@@ -1280,7 +1301,7 @@ pub mod tests {
             .await
             .expect("failed to add second block");
 
-        let bill_id_pay = "4321";
+        let bill_id_pay = &bill_id_test_other();
         let first_block_request_to_pay = get_first_block(bill_id_pay);
         chain_store
             .add_block(bill_id_pay, &first_block_request_to_pay)
@@ -1304,14 +1325,14 @@ pub mod tests {
             .get_bill_ids_with_op_codes_since(all.clone(), 0)
             .await
             .expect("could not get bill ids");
-        assert_eq!(res, vec![bill_id.to_string(), bill_id_pay.to_string()]);
+        assert_eq!(res, vec![bill_id.to_owned(), bill_id_pay.to_owned()]);
 
         // should return none as all are to old
         let res = store
             .get_bill_ids_with_op_codes_since(all, first_block_ts + 2000)
             .await
             .expect("could not get bill ids");
-        assert_eq!(res, Vec::<String>::new());
+        assert_eq!(res, Vec::<BillId>::new());
 
         // should return only the bill id with request to accept
         let to_accept_only = HashSet::from([BillOpCode::RequestToAccept]);
@@ -1320,7 +1341,7 @@ pub mod tests {
             .get_bill_ids_with_op_codes_since(to_accept_only, 0)
             .await
             .expect("could not get bill ids");
-        assert_eq!(res, vec![bill_id.to_string()]);
+        assert_eq!(res, vec![bill_id.to_owned()]);
 
         // should return only the bill id with request to pay
         let to_pay_only = HashSet::from([BillOpCode::RequestToPay]);
@@ -1329,27 +1350,22 @@ pub mod tests {
             .get_bill_ids_with_op_codes_since(to_pay_only, 0)
             .await
             .expect("could not get bill ids");
-        assert_eq!(res, vec![bill_id_pay.to_string()]);
+        assert_eq!(res, vec![bill_id_pay.to_owned()]);
     }
 
-    fn request_to_accept_block(id: &str, ts: u64, first_block: &BillBlock) -> BillBlock {
+    fn request_to_accept_block(id: &BillId, ts: u64, first_block: &BillBlock) -> BillBlock {
         BillBlock::create_block_for_request_to_accept(
-            id.to_string(),
+            id.clone(),
             first_block,
             &BillRequestToAcceptBlockData {
                 requester: BillParticipantBlockData::Ident(
-                    bill_identified_participant_only_node_id(
-                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                            .unwrap()
-                            .get_public_key(),
-                    )
-                    .into(),
+                    bill_identified_participant_only_node_id(node_id_test()).into(),
                 ),
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             ts,
@@ -1357,25 +1373,20 @@ pub mod tests {
         .expect("block could not be created")
     }
 
-    fn request_to_pay_block(id: &str, ts: u64, first_block: &BillBlock) -> BillBlock {
+    fn request_to_pay_block(id: &BillId, ts: u64, first_block: &BillBlock) -> BillBlock {
         BillBlock::create_block_for_request_to_pay(
-            id.to_string(),
+            id.clone(),
             first_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipantBlockData::Ident(
-                    bill_identified_participant_only_node_id(
-                        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                            .unwrap()
-                            .get_public_key(),
-                    )
-                    .into(),
+                    bill_identified_participant_only_node_id(node_id_test()).into(),
                 ),
                 currency: "SATS".to_string(),
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             ts,
@@ -1390,25 +1401,27 @@ pub mod tests {
         let store = get_store(db.clone()).await;
         let now = util::date::now().timestamp() as u64;
 
-        let first_block = get_first_block("1234");
+        let first_block = get_first_block(&bill_id_test());
         chain_store
-            .add_block("4321", &get_first_block("4321"))
+            .add_block(
+                &bill_id_test_other(),
+                &get_first_block(&bill_id_test_other()),
+            )
             .await
             .unwrap(); // not returned, no req to recourse block
-        chain_store.add_block("1234", &first_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &first_block)
+            .await
+            .unwrap();
         let second_block = BillBlock::create_block_for_request_recourse(
-            "1234".to_string(),
+            bill_id_test(),
             &first_block,
             &BillRequestRecourseBlockData {
-                recourser: bill_identified_participant_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
-                recoursee: bill_identified_participant_only_node_id(
-                    BcrKeys::new().get_public_key(),
-                )
+                recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+                recoursee: bill_identified_participant_only_node_id(NodeId::new(
+                    BcrKeys::new().pub_key(),
+                    bitcoin::Network::Testnet,
+                ))
                 .into(),
                 currency: "sat".to_string(),
                 sum: 15000,
@@ -1417,13 +1430,16 @@ pub mod tests {
                 signing_timestamp: now,
                 signing_address: empty_address(),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             now,
         )
         .unwrap();
-        chain_store.add_block("1234", &second_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &second_block)
+            .await
+            .unwrap();
 
         let res = store.get_bill_ids_waiting_for_recourse_payment().await;
         assert!(res.is_ok());
@@ -1431,20 +1447,16 @@ pub mod tests {
 
         chain_store
             .add_block(
-                "1234",
+                &bill_id_test(),
                 &BillBlock::create_block_for_recourse(
-                    "1234".to_string(),
+                    bill_id_test(),
                     &second_block,
                     &BillRecourseBlockData {
-                        recourser: bill_identified_participant_only_node_id(
-                            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                                .unwrap()
-                                .get_public_key(),
-                        )
-                        .into(),
-                        recoursee: bill_identified_participant_only_node_id(
-                            BcrKeys::new().get_public_key(),
-                        )
+                        recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+                        recoursee: bill_identified_participant_only_node_id(NodeId::new(
+                            BcrKeys::new().pub_key(),
+                            bitcoin::Network::Testnet,
+                        ))
                         .into(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         currency: "sat".to_string(),
@@ -1453,7 +1465,7 @@ pub mod tests {
                         signing_timestamp: now,
                         signing_address: empty_address(),
                     },
-                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     now,
@@ -1479,25 +1491,27 @@ pub mod tests {
             .unwrap()
             .timestamp() as u64;
 
-        let first_block = get_first_block("1234");
+        let first_block = get_first_block(&bill_id_test());
         chain_store
-            .add_block("4321", &get_first_block("4321"))
+            .add_block(
+                &bill_id_test_other(),
+                &get_first_block(&bill_id_test_other()),
+            )
             .await
             .unwrap(); // not returned, no offer to sell block
-        chain_store.add_block("1234", &first_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &first_block)
+            .await
+            .unwrap();
         let second_block = BillBlock::create_block_for_request_recourse(
-            "1234".to_string(),
+            bill_id_test(),
             &first_block,
             &BillRequestRecourseBlockData {
-                recourser: bill_identified_participant_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
-                recoursee: bill_identified_participant_only_node_id(
-                    BcrKeys::new().get_public_key(),
-                )
+                recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+                recoursee: bill_identified_participant_only_node_id(NodeId::new(
+                    BcrKeys::new().pub_key(),
+                    bitcoin::Network::Testnet,
+                ))
                 .into(),
                 currency: "sat".to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
@@ -1506,13 +1520,16 @@ pub mod tests {
                 signing_timestamp: now_minus_one_month,
                 signing_address: empty_address(),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             now_minus_one_month,
         )
         .unwrap();
-        chain_store.add_block("1234", &second_block).await.unwrap();
+        chain_store
+            .add_block(&bill_id_test(), &second_block)
+            .await
+            .unwrap();
 
         // nothing gets returned, because the req to recourse is expired
         let res = store.get_bill_ids_waiting_for_recourse_payment().await;
@@ -1524,70 +1541,73 @@ pub mod tests {
     async fn bill_caching() {
         let db = get_db().await;
         let store = get_store(db.clone()).await;
-        let bill = cached_bill("1234".to_string());
-        let bill2 = cached_bill("4321".to_string());
+        let bill = cached_bill(bill_id_test());
+        let bill2 = cached_bill(bill_id_test_other());
 
         // save bills to cache
         store
-            .save_bill_to_cache("1234", "1234", &bill)
+            .save_bill_to_cache(&bill_id_test(), &node_id_test(), &bill)
             .await
             .expect("could not save bill to cache");
 
         store
-            .save_bill_to_cache("4321", "1234", &bill2)
+            .save_bill_to_cache(&bill_id_test_other(), &node_id_test(), &bill2)
             .await
             .expect("could not save bill to cache");
 
         // different identity
         store
-            .save_bill_to_cache("1234", "4321", &bill)
+            .save_bill_to_cache(&bill_id_test(), &node_id_test_other(), &bill)
             .await
             .expect("could not save bill to cache");
 
         // get bill from cache
         let cached_bill = store
-            .get_bill_from_cache("1234", "4321")
+            .get_bill_from_cache(&bill_id_test(), &node_id_test_other())
             .await
             .expect("could not fetch from cache");
-        assert_eq!(cached_bill.as_ref().unwrap().id, "1234".to_string());
+        assert_eq!(cached_bill.as_ref().unwrap().id, bill_id_test());
 
         // removed for other identity now
         // get bills from cache
         let cached_bills = store
-            .get_bills_from_cache(&["1234".to_string(), "4321".to_string()], "1234")
+            .get_bills_from_cache(&[bill_id_test(), bill_id_test_other()], &node_id_test())
             .await
             .expect("could not fetch from cache");
         assert_eq!(cached_bills.len(), 1);
 
         // get bills from cache for other identity
         let cached_bills = store
-            .get_bills_from_cache(&["1234".to_string(), "4321".to_string()], "4321")
+            .get_bills_from_cache(
+                &[bill_id_test(), bill_id_test_other()],
+                &node_id_test_other(),
+            )
             .await
             .expect("could not fetch from cache");
         assert_eq!(cached_bills.len(), 1);
 
         // invalidate bill in cache
         store
-            .invalidate_bill_in_cache("1234")
+            .invalidate_bill_in_cache(&bill_id_test())
             .await
             .expect("could not invalidate cache");
 
         // bill is not cached anymore
         let cached_bill_gone = store
-            .get_bill_from_cache("1234", "1234")
+            .get_bill_from_cache(&bill_id_test(), &node_id_test())
             .await
             .expect("could not fetch from cache");
         assert!(cached_bill_gone.is_none());
         // bill is not cached anymore for all identities
         let cached_bill_gone = store
-            .get_bill_from_cache("1234", "4321")
+            .get_bill_from_cache(&bill_id_test(), &node_id_test_other())
             .await
             .expect("could not fetch from cache");
         assert!(cached_bill_gone.is_none());
 
         // bill is not cached anymore
         let cached_bills_after_invalidate = store
-            .get_bills_from_cache(&["4321".to_string()], "1234")
+            .get_bills_from_cache(&[bill_id_test_other()], &node_id_test())
             .await
             .expect("could not fetch from cache");
         assert_eq!(cached_bills_after_invalidate.len(), 1);

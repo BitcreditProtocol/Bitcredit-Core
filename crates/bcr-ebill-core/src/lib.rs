@@ -2,8 +2,9 @@ use bill::LightBitcreditBillResult;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use company::Company;
 use contact::Contact;
+use nostr_contact::NostrPublicKey;
 use serde::{Deserialize, Serialize};
-use std::{fmt, pin::Pin, str::FromStr};
+use std::{fmt, str::FromStr};
 use thiserror::Error;
 use util::is_blank;
 
@@ -19,6 +20,8 @@ pub mod notification;
 #[cfg(test)]
 mod tests;
 pub mod util;
+
+pub use secp256k1::{PublicKey, SecretKey};
 
 const ID_PREFIX: &str = "bitcr";
 const NETWORK_MAINNET: char = 'm';
@@ -46,7 +49,7 @@ fn network_char(network: &bitcoin::Network) -> char {
 /// * t => Testnet
 /// * T => Testnet4
 /// * r => Regtest
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct NodeId {
     pub_key: bitcoin::secp256k1::PublicKey,
     network: bitcoin::Network,
@@ -65,7 +68,7 @@ impl NodeId {
         self.pub_key
     }
 
-    pub fn npub(&self) -> nostr::PublicKey {
+    pub fn npub(&self) -> NostrPublicKey {
         nostr::PublicKey::from(self.pub_key.x_only_public_key().0)
     }
 
@@ -149,14 +152,6 @@ impl borsh::BorshDeserialize for NodeId {
         NodeId::from_str(&node_id_str)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
-}
-
-/// Return type of an async function. Can be used to avoid async_trait
-pub type BoxedFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
-
-/// Wraps a value in a boxed future, so it can be used in async tests
-pub fn as_boxed_future<T: Send + 'static>(v: T) -> BoxedFuture<'static, T> {
-    Box::pin(async { v })
 }
 
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a

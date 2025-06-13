@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use crate::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType, util::BcrKeys};
+use bcr_ebill_core::{ServiceTraitBounds, bill::BillId, blockchain::BlockchainType, util::BcrKeys};
 use bcr_ebill_persistence::bill::BillStoreApi;
 use log::warn;
 
@@ -42,13 +42,15 @@ impl ChainKeyServiceApi for ChainKeyService {
         chain_type: BlockchainType,
     ) -> Result<Option<BcrKeys>> {
         let keys = match chain_type {
-            BlockchainType::Bill => match self.bill_store.get_keys(chain_id).await {
-                Ok(keys) => Some(keys.try_into()?),
-                Err(e) => {
-                    warn!("failed to get bill keys for {chain_id} with {e}");
-                    None
+            BlockchainType::Bill => {
+                match self.bill_store.get_keys(&BillId::from_str(chain_id)?).await {
+                    Ok(keys) => Some(keys.try_into()?),
+                    Err(e) => {
+                        warn!("failed to get bill keys for {chain_id} with {e}");
+                        None
+                    }
                 }
-            },
+            }
             _ => None,
         };
 

@@ -4,6 +4,7 @@ use crate::BillChainEventPayload;
 use crate::EventType;
 use crate::{Error, Event, EventEnvelope, PushApi, Result};
 use async_trait::async_trait;
+use bcr_ebill_core::NodeId;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::notification::BillEventType;
 use bcr_ebill_core::notification::{Notification, NotificationType};
@@ -34,7 +35,7 @@ impl BillActionEventHandler {
     async fn create_notification(
         &self,
         event: &BillChainEventPayload,
-        node_id: &str,
+        node_id: &NodeId,
     ) -> Result<()> {
         trace!("creating notification {event:?} for {node_id}");
         // no action no notification required
@@ -51,7 +52,7 @@ impl BillActionEventHandler {
         // mark Bill event as done if any active one exists
         match self
             .notification_store
-            .get_latest_by_reference(&event.bill_id, NotificationType::Bill)
+            .get_latest_by_reference(&event.bill_id.to_string(), NotificationType::Bill)
             .await
         {
             Ok(Some(currently_active)) => {
@@ -104,7 +105,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        node_id: &str,
+        node_id: &NodeId,
         _: Box<nostr::Event>,
     ) -> Result<()> {
         debug!("incoming bill chain event for {node_id}");
@@ -163,10 +164,11 @@ fn event_description(event_type: &BillEventType) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress,
-        bill::BillKeys,
-        bill::BitcreditBill,
+        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
+        bill::{BillId, BillKeys, BitcreditBill},
         blockchain::{
             Blockchain,
             bill::{
@@ -205,9 +207,9 @@ mod tests {
     async fn test_creates_new_chain_for_new_chain_event() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        payee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
+        payee.node_id = node_id_test_other();
         let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
@@ -215,7 +217,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -226,7 +228,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: chain.blocks().clone(),
                 keys: Some(keys.clone()),
@@ -238,7 +240,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -249,15 +251,15 @@ mod tests {
     async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_validation_fails() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        payee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
+        payee.node_id = node_id_test();
         let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
         // reject to pay without a request to accept will fail
         let block = BillBlock::create_block_for_reject_to_pay(
-            TEST_BILL_ID.to_string(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRejectBlockData {
                 rejecter: payer.clone().into(),
@@ -265,9 +267,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: empty_address(),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -277,7 +279,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -288,7 +290,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: chain.blocks().clone(),
                 keys: Some(keys.clone()),
@@ -300,7 +302,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -313,8 +315,8 @@ mod tests {
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         // drawer has a different key than signer, signing check will fail
         let mut drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        drawer.node_id = BcrKeys::new().get_public_key();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
+        drawer.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
@@ -322,7 +324,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -333,7 +335,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: chain.blocks().clone(),
                 keys: Some(keys.clone()),
@@ -345,7 +347,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -357,11 +359,11 @@ mod tests {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        endorsee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        endorsee.node_id = node_id_test_other();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let block = BillBlock::create_block_for_endorse(
-            TEST_BILL_ID.to_string(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
                 endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
@@ -375,9 +377,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -386,7 +388,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -397,7 +399,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: vec![block.clone()],
                 keys: None,
@@ -409,7 +411,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -420,12 +422,12 @@ mod tests {
     async fn test_fails_to_add_block_for_invalid_bill_action() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
         // reject to pay without a request to accept will fail
         let block = BillBlock::create_block_for_reject_to_pay(
-            TEST_BILL_ID.to_string(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRejectBlockData {
                 rejecter: payer.clone().into(),
@@ -433,9 +435,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: empty_address(),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -444,7 +446,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -456,7 +458,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: vec![block.clone()],
                 keys: None,
@@ -468,7 +470,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -482,12 +484,12 @@ mod tests {
         let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         // endorser is different than block signer - signature won't be able to be validated
         let mut endorser = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        endorser.node_id = BcrKeys::new().get_public_key();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        endorser.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
         let block = BillBlock::create_block_for_endorse(
-            TEST_BILL_ID.to_string(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
                 endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
@@ -497,9 +499,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -508,7 +510,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -519,7 +521,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: vec![block.clone()],
                 keys: None,
@@ -531,7 +533,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -543,11 +545,11 @@ mod tests {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
         let block = BillBlock::create_block_for_endorse(
-            TEST_BILL_ID.to_string(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
                 endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
@@ -561,9 +563,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -572,7 +574,7 @@ mod tests {
 
         bill_chain_event_processor
             .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
+            .with(eq(bill_id_test()), always(), always())
             .returning(|_, _, _| Ok(()));
 
         let handler = BillActionEventHandler::new(
@@ -583,7 +585,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: vec![block.clone()],
                 keys: None,
@@ -595,7 +597,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -623,7 +625,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: "bill_id".to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
                 blocks: vec![],
                 keys: None,
@@ -635,7 +637,7 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
@@ -649,15 +651,15 @@ mod tests {
         // look for currently active notification
         notification_store
             .expect_get_latest_by_reference()
-            .with(eq("bill_id"), eq(NotificationType::Bill))
+            .with(eq(bill_id_test().to_string()), eq(NotificationType::Bill))
             .times(1)
             .returning(|_, _| Ok(None));
 
         // store new notification
         notification_store.expect_add().times(1).returning(|_| {
             Ok(Notification::new_bill_notification(
-                "bill_id",
-                "node_id",
+                &bill_id_test(),
+                &node_id_test(),
                 "description",
                 None,
             ))
@@ -674,7 +676,7 @@ mod tests {
         let event = Event::new(
             EventType::Bill,
             BillChainEventPayload {
-                bill_id: "bill_id".to_string(),
+                bill_id: bill_id_test(),
                 event_type: BillEventType::BillSigned,
                 blocks: vec![],
                 keys: None,
@@ -686,14 +688,14 @@ mod tests {
         handler
             .handle_event(
                 event.try_into().expect("Envelope from event"),
-                "node_id",
+                &node_id_test(),
                 Box::new(get_test_nostr_event()),
             )
             .await
             .expect("Event should be handled");
     }
     pub fn get_test_bitcredit_bill(
-        id: &str,
+        id: &BillId,
         payer: &BillIdentParticipant,
         payee: &BillIdentParticipant,
         drawer: Option<&BillIdentParticipant>,
@@ -710,32 +712,32 @@ mod tests {
         bill
     }
     fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
-        let bill = bill.unwrap_or(get_baseline_bill("some id"));
+        let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
         BillBlockchain::new(
             &BillIssueBlockData::from(bill, None, 1731593928),
             get_baseline_identity().key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap()
     }
-    fn get_baseline_bill(bill_id: &str) -> BitcreditBill {
+    fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
         let mut bill = empty_bitcredit_bill();
         let keys = BcrKeys::new();
 
         bill.maturity_date = "2099-10-15".to_string();
         let mut payee = empty_bill_identified_participant();
         payee.name = "payee".to_owned();
-        payee.node_id = keys.get_public_key();
+        payee.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         bill.payee = BillParticipant::Ident(payee);
         bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        bill.id = bill_id.to_owned();
+        bill.id = bill_id.clone();
         bill
     }
     fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
-            id: "".to_string(),
+            id: bill_id_test(),
             country_of_issuing: "AT".to_string(),
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
@@ -755,16 +757,16 @@ mod tests {
 
     pub fn get_bill_keys() -> BillKeys {
         BillKeys {
-            private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-            public_key: TEST_PUB_KEY_SECP.to_owned(),
+            private_key: private_key_test(),
+            public_key: node_id_test().pub_key(),
         }
     }
 
     fn get_baseline_identity() -> IdentityWithAll {
-        let keys = BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap();
+        let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
         let mut identity = empty_identity();
         identity.name = "drawer".to_owned();
-        identity.node_id = keys.get_public_key();
+        identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         identity.postal_address.country = Some("AT".to_owned());
         identity.postal_address.city = Some("Vienna".to_owned());
         identity.postal_address.address = Some("Hayekweg 5".to_owned());
@@ -776,7 +778,7 @@ mod tests {
     fn empty_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "some name".to_string(),
             postal_address: empty_address(),
             email: None,
@@ -794,7 +796,7 @@ mod tests {
     fn empty_identity() -> Identity {
         Identity {
             t: IdentityType::Ident,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "some name".to_string(),
             email: Some("some@example.com".to_string()),
             postal_address: empty_optional_address(),
@@ -817,16 +819,31 @@ mod tests {
         }
     }
 
-    const TEST_PRIVATE_KEY_SECP: &str =
-        "d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9";
+    // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
+    pub fn bill_id_test() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
 
-    pub const TEST_PUB_KEY_SECP: &str =
-        "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
+    pub fn private_key_test() -> SecretKey {
+        SecretKey::from_str("d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9")
+            .unwrap()
+    }
 
-    pub const OTHER_TEST_PUB_KEY_SECP: &str =
-        "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f";
+    pub fn node_id_test() -> NodeId {
+        NodeId::from_str("bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
 
-    pub const TEST_BILL_ID: &str = "KmtMUia3ezhshD9EyzvpT62DUPLr66M5LESy6j8ErCtv1USUDtoTA8JkXnCCGEtZxp41aKne5wVcCjoaFbjDqD4aFk";
+    pub fn node_id_test_other() -> NodeId {
+        NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
+            .unwrap()
+    }
 
     fn create_mocks() -> (
         MockNotificationStore,

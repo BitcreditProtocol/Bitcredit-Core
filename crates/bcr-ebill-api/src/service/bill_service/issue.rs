@@ -1,8 +1,10 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
-use crate::util;
+use crate::{get_config, util};
 use bcr_ebill_core::{
-    File, Validate, ValidationError,
-    bill::{BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue},
+    File, PublicKey, Validate, ValidationError,
+    bill::{
+        BillId, BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue,
+    },
     blockchain::{
         Blockchain,
         bill::{BillBlockchain, block::BillIssueBlockData},
@@ -18,8 +20,8 @@ impl BillService {
         &self,
         file_name: &str,
         file_bytes: &[u8],
-        bill_id: &str,
-        public_key: &str,
+        bill_id: &BillId,
+        public_key: &PublicKey,
         relay_url: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
@@ -126,12 +128,12 @@ impl BillService {
         let identity = self.identity_store.get_full().await?;
         let nostr_relays = identity.identity.nostr_relays.clone();
         let keys = BcrKeys::new();
-        let public_key = keys.get_public_key();
+        let public_key = keys.pub_key();
 
-        let bill_id = util::sha256_hash(public_key.as_bytes());
+        let bill_id = BillId::new(public_key, get_config().bitcoin_network());
         let bill_keys = BillKeys {
-            private_key: keys.get_private_key_string(),
-            public_key: keys.get_public_key(),
+            private_key: keys.get_private_key(),
+            public_key: keys.pub_key(),
         };
 
         let mut bill_files: Vec<File> = vec![];
