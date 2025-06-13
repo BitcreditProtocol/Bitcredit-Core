@@ -5,10 +5,7 @@ use bcr_ebill_core::{
     bill::{BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue},
     blockchain::{
         Blockchain,
-        bill::{
-            BillBlockchain,
-            block::{BillIssueBlockData, NodeId},
-        },
+        bill::{BillBlockchain, block::BillIssueBlockData},
     },
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     util::BcrKeys,

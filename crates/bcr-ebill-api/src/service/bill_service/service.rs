@@ -31,7 +31,7 @@ use bcr_ebill_core::bill::{
     BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
     PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
 };
-use bcr_ebill_core::blockchain::bill::block::{BillParticipantBlockData, NodeId};
+use bcr_ebill_core::blockchain::bill::block::BillParticipantBlockData;
 use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,

@@ -27,10 +27,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::str::FromStr;
 
-pub trait NodeId {
-    fn node_id(&self) -> String;
-}
-
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BillBlock {
     pub bill_id: String,
@@ -488,8 +484,8 @@ pub enum BillParticipantBlockData {
     Ident(BillIdentParticipantBlockData),
 }
 
-impl NodeId for BillParticipantBlockData {
-    fn node_id(&self) -> String {
+impl BillParticipantBlockData {
+    pub fn node_id(&self) -> String {
         match self {
             BillParticipantBlockData::Anon(data) => data.node_id.clone(),
             BillParticipantBlockData::Ident(data) => data.node_id.clone(),
@@ -571,8 +567,8 @@ pub struct BillIdentParticipantBlockData {
     pub postal_address: PostalAddress,
 }
 
-impl NodeId for BillIdentParticipantBlockData {
-    fn node_id(&self) -> String {
+impl BillIdentParticipantBlockData {
+    pub fn node_id(&self) -> String {
         self.node_id.clone()
     }
 }

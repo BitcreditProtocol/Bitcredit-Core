@@ -8,7 +8,6 @@ use bcr_ebill_core::bill::BillValidateActionData;
 use bcr_ebill_core::blockchain::Blockchain;
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
-use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::nostr_contact::HandshakeStatus;
 use bcr_ebill_core::nostr_contact::NostrContact;

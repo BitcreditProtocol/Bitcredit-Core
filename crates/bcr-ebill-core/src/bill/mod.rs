@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::{
     ID_PREFIX, NETWORK_MAINNET, NETWORK_REGTEST, NETWORK_TESTNET, NETWORK_TESTNET4,
     ValidationError,
-    blockchain::bill::{BillBlockchain, block::NodeId},
+    blockchain::bill::BillBlockchain,
     contact::{BillParticipant, LightBillParticipant},
     network_char,
     util::{self, BcrKeys},

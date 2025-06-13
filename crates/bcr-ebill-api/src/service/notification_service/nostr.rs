@@ -1,9 +1,5 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{
-    blockchain::{BlockchainType, bill::block::NodeId},
-    contact::BillParticipant,
-    util::crypto,
-};
+use bcr_ebill_core::{blockchain::BlockchainType, contact::BillParticipant, util::crypto};
 use bcr_ebill_transport::{
     chain_keys::ChainKeyServiceApi,
     event::EventEnvelope,

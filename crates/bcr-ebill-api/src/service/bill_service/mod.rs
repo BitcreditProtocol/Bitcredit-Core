@@ -237,7 +237,7 @@ pub mod tests {
                     BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
                     BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
                     BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
-                    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData, NodeId,
+                    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
                 },
             },
         },

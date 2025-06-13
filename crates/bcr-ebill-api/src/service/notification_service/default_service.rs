@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::BlockchainType;
-use bcr_ebill_core::blockchain::bill::block::NodeId;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,

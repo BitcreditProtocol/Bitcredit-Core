@@ -1,4 +1,4 @@
-use crate::{ValidationError, blockchain::bill::block::NodeId, identity::IdentityType};
+use crate::{ValidationError, identity::IdentityType};
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -70,6 +70,13 @@ impl Default for BillParticipant {
 }
 
 impl BillParticipant {
+    pub fn node_id(&self) -> String {
+        match self {
+            BillParticipant::Ident(data) => data.node_id.clone(),
+            BillParticipant::Anon(data) => data.node_id.clone(),
+        }
+    }
+
     pub fn postal_address(&self) -> Option<PostalAddress> {
         match self {
             BillParticipant::Ident(data) => Some(data.postal_address.clone()),
@@ -106,15 +113,6 @@ impl BillParticipant {
                 BillParticipant::Anon(anon)
             }
             BillParticipant::Anon(anon) => BillParticipant::Anon(anon.clone()),
-        }
-    }
-}
-
-impl NodeId for BillParticipant {
-    fn node_id(&self) -> String {
-        match self {
-            BillParticipant::Ident(data) => data.node_id.clone(),
-            BillParticipant::Anon(data) => data.node_id.clone(),
         }
     }
 }
