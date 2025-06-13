@@ -59,5 +59,6 @@ pub struct ChainKeys {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockEvent {
     pub bill_id: String,
+    pub block_height: usize,
     pub block: BillBlock,
 }

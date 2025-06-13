@@ -12,8 +12,8 @@ use bcr_ebill_persistence::nostr::{
 };
 use bcr_ebill_transport::chain_keys::ChainKeyServiceApi;
 use bcr_ebill_transport::handler::{
-    BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler, LoggingEventHandler,
-    NotificationHandlerApi,
+    BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
+    LoggingEventHandler, NotificationHandlerApi,
 };
 use bcr_ebill_transport::{Error, EventType, Result};
 use bcr_ebill_transport::{NotificationServiceApi, PushApi};
@@ -134,7 +134,7 @@ pub async fn create_nostr_consumer(
 
     let processor = Arc::new(BillChainEventProcessor::new(
         bill_blockchain_store,
-        bill_store,
+        bill_store.clone(),
         transport.clone(),
         nostr_contact_store,
     ));
@@ -150,7 +150,7 @@ pub async fn create_nostr_consumer(
         Box::new(LoggingEventHandler {
             event_types: EventType::all(),
         }),
-        Box::new(BillChainEventHandler::new(
+        Box::new(BillActionEventHandler::new(
             notification_store,
             push_service,
             processor.clone(),
@@ -158,6 +158,11 @@ pub async fn create_nostr_consumer(
         Box::new(BillInviteEventHandler::new(
             transport.clone(),
             processor.clone(),
+            chain_event_store.clone(),
+        )),
+        Box::new(BillChainEventHandler::new(
+            processor.clone(),
+            bill_store.clone(),
             chain_event_store.clone(),
         )),
     ];

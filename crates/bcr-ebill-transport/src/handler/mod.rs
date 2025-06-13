@@ -7,15 +7,15 @@ use mockall::automock;
 
 use super::{EventEnvelope, EventType};
 
+mod bill_action_event_handler;
 mod bill_chain_event_handler;
 mod bill_chain_event_processor;
 mod bill_invite_handler;
-mod public_bill_chain_event_handler;
 
+pub use bill_action_event_handler::BillActionEventHandler;
 pub use bill_chain_event_handler::BillChainEventHandler;
 pub use bill_chain_event_processor::BillChainEventProcessor;
 pub use bill_invite_handler::BillInviteEventHandler;
-pub use public_bill_chain_event_handler::PublicBillChainEventHandler;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -34,7 +34,12 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// should be able to deserialize the data into its T type because the EventType
     /// determines the T type. Identity represents the active identity that is receiving
     /// the event.
-    async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()>;
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        node_id: &str,
+        original_event: Box<nostr::Event>,
+    ) -> Result<()>;
 }
 
 /// Generalizes the actual handling and validation of a bill block event.
@@ -71,7 +76,12 @@ impl NotificationHandlerApi for LoggingEventHandler {
         self.event_types.contains(event_type)
     }
 
-    async fn handle_event(&self, event: EventEnvelope, identity: &str) -> Result<()> {
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        identity: &str,
+        _: Box<nostr::Event>,
+    ) -> Result<()> {
         trace!("Received event: {event:?} for identity: {identity}");
         Ok(())
     }
@@ -84,7 +94,7 @@ mod tests {
     use serde::{Deserialize, Serialize, de::DeserializeOwned};
     use tokio::sync::Mutex;
 
-    use crate::{Event, event::EventType};
+    use crate::{Event, event::EventType, handler::test_utils::get_test_nostr_event};
 
     use super::*;
 
@@ -102,10 +112,11 @@ mod tests {
         // given an event and encode it to an envelope
         let event = create_test_event(&BillEventType::BillPaid);
         let envelope: EventEnvelope = event.clone().try_into().unwrap();
+        let nostr_event = Box::new(get_test_nostr_event());
 
         // handler should run successfully
         event_handler
-            .handle_event(envelope, "identity")
+            .handle_event(envelope, "identity", nostr_event)
             .await
             .expect("event was not handled");
 
@@ -152,7 +163,12 @@ mod tests {
             }
         }
 
-        async fn handle_event(&self, event: EventEnvelope, _: &str) -> Result<()> {
+        async fn handle_event(
+            &self,
+            event: EventEnvelope,
+            _: &str,
+            _: Box<nostr::Event>,
+        ) -> Result<()> {
             *self.called.lock().await = true;
             let event: Event<TestEventPayload> = event.try_into()?;
             *self.received_event.lock().await = Some(event);
@@ -184,12 +200,13 @@ mod test_utils {
         notification::{ActionType, Notification, NotificationType},
     };
     use bcr_ebill_persistence::{
-        NotificationStoreApi, Result,
+        NostrChainEventStoreApi, NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
         nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
     use mockall::mock;
+    use nostr::event::EventBuilder;
     use std::collections::HashMap;
 
     use crate::PushApi;
@@ -303,5 +320,38 @@ mod test_utils {
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 
         }
+    }
+
+    mock! {
+        pub NostrChainEventStore {}
+        impl ServiceTraitBounds for NostrChainEventStore {}
+
+        #[async_trait]
+        impl NostrChainEventStoreApi for NostrChainEventStore {
+          async fn find_chain_events(
+              &self,
+              chain_id: &str,
+              chain_type: bcr_ebill_core::blockchain::BlockchainType,
+          ) -> Result<Vec<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn find_latest_block_events(
+              &self,
+              chain_id: &str,
+              chain_type: bcr_ebill_core::blockchain::BlockchainType,
+          ) -> Result<Vec<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn find_root_event(
+              &self,
+              chain_id: &str,
+              chain_type: bcr_ebill_core::blockchain::BlockchainType,
+          ) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn find_by_block_hash(&self, hash: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn add_chain_event(&self, event: bcr_ebill_persistence::nostr::NostrChainEvent) -> Result<()>;
+          async fn by_event_id(&self, event_id: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+        }
+    }
+
+    pub fn get_test_nostr_event() -> nostr::Event {
+        EventBuilder::text_note("message")
+            .sign_with_keys(&nostr::key::Keys::generate())
+            .expect("Could not create nostr test event")
     }
 }

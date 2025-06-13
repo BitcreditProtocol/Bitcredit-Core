@@ -19,7 +19,7 @@ use nostr::{
     event::{EventBuilder, EventId, Kind, Tag, TagKind, TagStandard, UnsignedEvent},
     filter::{Alphabet, Filter, SingleLetterTag},
     key::PublicKey,
-    nips::{nip01::Metadata, nip59::UnwrappedGift, nip73::ExternalContentId},
+    nips::{nip01::Metadata, nip10::Marker, nip59::UnwrappedGift, nip73::ExternalContentId},
     signer::NostrSigner,
     types::{RelayUrl, Timestamp},
 };
@@ -52,6 +52,7 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
         &self,
         id: &str,
         blockchain: BlockchainType,
+        block_time: u64,
         keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
@@ -192,6 +193,24 @@ pub fn bcr_nostr_tag(id: &str, blockchain: BlockchainType) -> Tag {
     .into()
 }
 
+pub fn root_and_reply_id(event: &Event) -> (Option<EventId>, Option<EventId>) {
+    let mut root: Option<EventId> = None;
+    let mut reply: Option<EventId> = None;
+    event.tags.filter_standardized(TagKind::e()).for_each(|t| {
+        if let TagStandard::Event {
+            event_id, marker, ..
+        } = t
+        {
+            match marker {
+                Some(Marker::Root) => root = Some(event_id.to_owned()),
+                Some(Marker::Reply) => reply = Some(event_id.to_owned()),
+                _ => {}
+            }
+        }
+    });
+    (root, reply)
+}
+
 /// Given an encrypted payload and a private key, decrypts the payload and returns
 /// its content as an EventEnvelope.
 pub fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
@@ -231,6 +250,7 @@ pub async fn create_nip04_event<T: NostrSigner>(
 pub fn create_public_chain_event(
     id: &str,
     event: EventEnvelope,
+    block_time: u64,
     blockchain: BlockchainType,
     keys: BcrKeys,
     previous_event: Option<Event>,
@@ -245,6 +265,7 @@ pub fn create_public_chain_event(
             .tag(bcr_nostr_tag(id, blockchain)),
         None => EventBuilder::text_note(payload).tag(bcr_nostr_tag(id, blockchain)),
     };
+    let event = event.custom_created_at(nostr::Timestamp::from(block_time));
     Ok(event)
 }
 

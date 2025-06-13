@@ -177,6 +177,7 @@ impl DefaultNotificationService {
                     .send_public_chain_event(
                         &block_event.data.bill_id,
                         BlockchainType::Bill,
+                        block_event.data.block.timestamp,
                         events.bill_keys.clone().try_into()?,
                         block_event.clone().try_into()?,
                         previous_event.clone().map(|e| e.payload),
@@ -650,6 +651,7 @@ mod tests {
                 &self,
                 id: &str,
                 blockchain: BlockchainType,
+                block_time: u64,
                 keys: BcrKeys,
                 event: EventEnvelope,
                 previous_event: Option<nostr::event::Event>,
@@ -1100,7 +1102,7 @@ mod tests {
             .times(2);
 
         mock.expect_send_public_chain_event()
-            .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
+            .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()))
             .times(2);
 
         mock.expect_send_private_event()
@@ -1242,7 +1244,7 @@ mod tests {
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
 
         mock.expect_send_public_chain_event()
-            .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()));
+            .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()));
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
@@ -1357,7 +1359,7 @@ mod tests {
         let mut mock_event_store: MockNostrChainEventStore = MockNostrChainEventStore::new();
         if new_blocks {
             mock.expect_send_public_chain_event()
-                .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
+                .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()))
                 .once();
             mock_event_store = setup_event_store_expectations(
                 chain.get_latest_block().previous_hash.to_owned().as_str(),
@@ -1365,7 +1367,7 @@ mod tests {
             );
         } else {
             mock.expect_send_public_chain_event()
-                .returning(|_, _, _, _, _, _| Ok(get_test_nostr_event()))
+                .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()))
                 .never();
         }
 
