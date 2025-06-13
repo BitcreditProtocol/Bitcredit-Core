@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bcr_ebill_core::{blockchain::BlockchainType, contact::BillParticipant, util::crypto};
+use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipant, util::crypto};
 use bcr_ebill_transport::{
     chain_keys::ChainKeyServiceApi,
     event::EventEnvelope,
@@ -368,11 +368,11 @@ impl NotificationJsonTransportApi for NostrClient {
         &self,
         node_id: &str,
     ) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>> {
-        if let Ok(public_key) = crypto::get_npub_from_node_id(node_id) {
-            match self.fetch_metadata(public_key).await? {
+        if let Ok(parsed_node_id) = NodeId::from_str(node_id) {
+            match self.fetch_metadata(parsed_node_id.npub()).await? {
                 Some(meta) => {
                     let relays = self
-                        .fetch_relay_list(public_key, self.config.relays.clone())
+                        .fetch_relay_list(parsed_node_id.npub(), self.config.relays.clone())
                         .await?;
                     Ok(Some(NostrContactData {
                         metadata: meta,

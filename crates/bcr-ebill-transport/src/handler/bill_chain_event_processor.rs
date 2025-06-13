@@ -1,7 +1,6 @@
 use crate::NotificationJsonTransportApi;
 use crate::{Error, Result};
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
 use bcr_ebill_core::bill::BillKeys;
 use bcr_ebill_core::bill::BillValidateActionData;
@@ -12,11 +11,12 @@ use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::nostr_contact::HandshakeStatus;
 use bcr_ebill_core::nostr_contact::NostrContact;
 use bcr_ebill_core::nostr_contact::TrustLevel;
-use bcr_ebill_core::util::crypto::get_npub_from_node_id;
+use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use super::BillChainEventProcessorApi;
@@ -83,11 +83,11 @@ impl BillChainEventProcessor {
                 .iter()
                 .map(|r| r.as_str().to_owned())
                 .collect();
-            if let Ok(npub) = get_npub_from_node_id(node_id) {
+            if let Ok(parsed_node_id) = NodeId::from_str(node_id) {
                 if let Err(e) = self
                     .nostr_contact_store
                     .upsert(&NostrContact {
-                        npub,
+                        npub: parsed_node_id.npub(),
                         name: contact.metadata.name,
                         relays,
                         trust_level: TrustLevel::Participant,
@@ -617,7 +617,7 @@ mod tests {
 
         contact_store.expect_by_node_id().returning(move |_| {
             Ok(Some(NostrContact {
-                npub: get_npub_from_node_id(TEST_PUB_KEY_SECP).unwrap(),
+                npub: NodeId::from_str(TEST_PUB_KEY_SECP).unwrap().npub(),
                 name: Some("name".to_string()),
                 relays: vec!["wws://some.example.com".to_string()],
                 trust_level: TrustLevel::Participant,

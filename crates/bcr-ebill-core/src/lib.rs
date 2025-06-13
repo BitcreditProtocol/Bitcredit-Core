@@ -2,6 +2,7 @@ use bill::LightBitcreditBillResult;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use company::Company;
 use contact::Contact;
+use nostr_contact::NostrPublicKey;
 use serde::{Deserialize, Serialize};
 use std::{fmt, pin::Pin, str::FromStr};
 use thiserror::Error;
@@ -65,7 +66,7 @@ impl NodeId {
         self.pub_key
     }
 
-    pub fn npub(&self) -> nostr::PublicKey {
+    pub fn npub(&self) -> NostrPublicKey {
         nostr::PublicKey::from(self.pub_key.x_only_public_key().0)
     }
 
@@ -110,6 +111,7 @@ impl FromStr for NodeId {
         };
 
         let pub_key_str = &s[ID_PREFIX.len() + 1..];
+        println!("{pub_key_str}");
         let pub_key = bitcoin::secp256k1::PublicKey::from_str(pub_key_str)
             .map_err(|_| ValidationError::InvalidNodeId)?;
 

@@ -223,6 +223,27 @@ pub mod tests {
         }
     }
 
+    pub fn node_id_test() -> NodeId {
+        crate::NodeId::from_str(
+            "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
+        )
+        .unwrap()
+    }
+
+    pub fn node_id_regtest() -> NodeId {
+        crate::NodeId::from_str(
+            "bitcrr02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
+        )
+        .unwrap()
+    }
+
+    pub fn node_id_test_other() -> NodeId {
+        crate::NodeId::from_str(
+            "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
+        )
+        .unwrap()
+    }
+
     pub const TEST_PUB_KEY_SECP: &str =
         "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
 

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::{
     Error, Result,
     surreal::{Bindings, SurrealWrapper},
@@ -8,9 +10,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-    util::crypto::get_npub_from_node_id,
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -39,7 +40,7 @@ impl ServiceTraitBounds for SurrealNostrContactStore {}
 impl NostrContactStoreApi for SurrealNostrContactStore {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>> {
-        let npub = get_npub_from_node_id(node_id)?;
+        let npub = NodeId::from_str(node_id)?.npub();
         self.by_npub(&npub).await
     }
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
@@ -59,7 +60,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
     }
     /// Delete an Nostr contact. This will remove the contact from the store.
     async fn delete(&self, node_id: &str) -> Result<()> {
-        let npub = get_npub_from_node_id(node_id)?.to_hex();
+        let npub = NodeId::from_str(node_id)?.npub().to_hex();
         let _: Option<NostrContactDb> = self.db.delete(Self::TABLE, npub.to_owned()).await?;
         Ok(())
     }
@@ -70,7 +71,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         bindings.add(DB_HANDSHAKE_STATUS, status)?;
         bindings.add(
             DB_ID,
-            Self::thing_id(&get_npub_from_node_id(node_id)?.to_hex()),
+            Self::thing_id(&NodeId::from_str(node_id)?.npub().to_hex()),
         )?;
         self.db
             .query_check(&update_field_query(DB_HANDSHAKE_STATUS), bindings)
@@ -85,7 +86,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         bindings.add(DB_TRUST_LEVEL, trust_level)?;
         bindings.add(
             DB_ID,
-            Self::thing_id(&get_npub_from_node_id(node_id)?.to_hex()),
+            Self::thing_id(&NodeId::from_str(node_id)?.npub().to_hex()),
         )?;
         self.db
             .query_check(&update_field_query(DB_TRUST_LEVEL), bindings)

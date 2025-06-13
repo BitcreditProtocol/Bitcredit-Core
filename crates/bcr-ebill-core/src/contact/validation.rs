@@ -1,18 +1,19 @@
-use crate::{Field, OptionalPostalAddress, PostalAddress, Validate, ValidationError, util};
+use crate::{Field, NodeId, OptionalPostalAddress, PostalAddress, Validate, ValidationError, util};
 
 use super::ContactType;
 
 pub fn validate_create_contact(
     t: ContactType,
-    node_id: &str,
+    node_id: &NodeId,
     name: &str,
     email: &Option<String>,
     postal_address: &Option<PostalAddress>,
     avatar_file_upload_id: &Option<String>,
     proof_document_file_upload_id: &Option<String>,
+    btc_network: bitcoin::Network,
 ) -> Result<(), ValidationError> {
-    if util::crypto::validate_pub_key(node_id).is_err() {
-        return Err(ValidationError::InvalidSecp256k1Key(node_id.to_owned()));
+    if node_id.network() != btc_network {
+        return Err(ValidationError::InvalidNodeId);
     }
 
     if name.trim().is_empty() {
@@ -74,7 +75,7 @@ pub fn validate_update_contact(
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::tests::{TEST_PUB_KEY_SECP, valid_address};
+    use crate::tests::tests::{node_id_regtest, node_id_test, valid_address};
 
     use super::*;
     use rstest::rstest;
@@ -83,31 +84,32 @@ mod tests {
     fn test_validate_create_contact() {
         let result = validate_create_contact(
             ContactType::Anon,
-            TEST_PUB_KEY_SECP,
+            &node_id_test(),
             "some name",
             &None,
             &None,
             &None,
             &None,
+            bitcoin::Network::Testnet,
         );
         assert!(result.is_ok());
     }
 
     #[rstest]
-    #[case::invalid_node_id(ContactType::Anon, "invalid_node_id", "some name", &None, &None, &None, &None, ValidationError::InvalidSecp256k1Key("invalid_node_id".to_owned()))]
-    #[case::invalid_name(ContactType::Anon, TEST_PUB_KEY_SECP, "", &None, &None, &None, &None, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_email(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &None, &Some(valid_address()), &None, &None, ValidationError::FieldEmpty(Field::Email))]
-    #[case::invalid_address(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &None, &None, &None, ValidationError::FieldEmpty(Field::Address))]
-    #[case::blank_city(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { city: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::City))]
-    #[case::blank_country(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { country: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Country))]
-    #[case::blank_zip(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { zip: Some("".into()), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Zip))]
-    #[case::blank_address(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { address: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Address))]
-    #[case::blank_city(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &None, &None, &None, ValidationError::FieldEmpty(Field::Address))]
-    #[case::ident_blank_avatar(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &Some(valid_address()), &Some("".into()), &None, ValidationError::InvalidFileUploadId)]
-    #[case::ident_blank_proof_document(ContactType::Person, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &Some(valid_address()), &None, &Some("".into()), ValidationError::InvalidFileUploadId)]
+    #[case::invalid_node_id(ContactType::Anon, node_id_regtest(), "some name", &None, &None, &None, &None, ValidationError::InvalidNodeId)]
+    #[case::invalid_name(ContactType::Anon, node_id_test(), "", &None, &None, &None, &None, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_email(ContactType::Person, node_id_test(), "some name", &None, &Some(valid_address()), &None, &None, ValidationError::FieldEmpty(Field::Email))]
+    #[case::invalid_address(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &None, &None, &None, ValidationError::FieldEmpty(Field::Address))]
+    #[case::blank_city(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { city: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::City))]
+    #[case::blank_country(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { country: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Country))]
+    #[case::blank_zip(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { zip: Some("".into()), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Zip))]
+    #[case::blank_address(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { address: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Address))]
+    #[case::blank_city(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &None, &None, &None, ValidationError::FieldEmpty(Field::Address))]
+    #[case::ident_blank_avatar(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(valid_address()), &Some("".into()), &None, ValidationError::InvalidFileUploadId)]
+    #[case::ident_blank_proof_document(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(valid_address()), &None, &Some("".into()), ValidationError::InvalidFileUploadId)]
     fn test_validate_create_contact_errors(
         #[case] t: ContactType,
-        #[case] node_id: &str,
+        #[case] node_id: NodeId,
         #[case] name: &str,
         #[case] email: &Option<String>,
         #[case] postal_address: &Option<PostalAddress>,
@@ -118,12 +120,13 @@ mod tests {
         assert_eq!(
             validate_create_contact(
                 t,
-                node_id,
+                &node_id,
                 name,
                 email,
                 postal_address,
                 profile_picture_file_upload_id,
-                identity_document_file_upload_id
+                identity_document_file_upload_id,
+                bitcoin::Network::Testnet,
             ),
             Err(expected)
         );

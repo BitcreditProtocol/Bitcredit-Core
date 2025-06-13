@@ -177,6 +177,7 @@ fn notification_service_error_data(e: NotificationServiceError) -> JsErrorData {
         NotificationServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
         NotificationServiceError::Crypto(e) => err_500(e, JsErrorType::Crypto),
         NotificationServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
+        NotificationServiceError::Validation(e) => validation_error_data(e),
     }
 }
 

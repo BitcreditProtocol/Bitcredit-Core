@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds, ValidationError,
+    NodeId, ServiceTraitBounds, ValidationError,
     contact::{
         BillParticipant,
         validation::{validate_create_contact, validate_update_contact},
@@ -178,7 +178,7 @@ impl ContactService {
         relay_url: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        let encrypted = util::crypto::encrypt_ecies(file_bytes, &public_key.to_string())?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
         Ok(File {
@@ -385,7 +385,7 @@ impl ContactServiceApi for ContactService {
 
     async fn add_contact(
         &self,
-        node_id: &str,
+        node_id_str: &str,
         t: ContactType,
         name: String,
         email: Option<String>,
@@ -397,15 +397,17 @@ impl ContactServiceApi for ContactService {
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
-        debug!("creating {:?} contact with node_id {node_id}", &t);
+        debug!("creating {:?} contact with node_id {node_id_str}", &t);
+        let node_id = NodeId::from_str(node_id_str)?;
         validate_create_contact(
             t.clone(),
-            node_id,
+            &node_id,
             &name,
             &email,
             &postal_address,
             &avatar_file_upload_id,
             &proof_document_file_upload_id,
+            get_config().bitcoin_network(),
         )?;
 
         let nostr_relays = get_config().nostr_config.relays.clone();
@@ -418,7 +420,7 @@ impl ContactServiceApi for ContactService {
                         let avatar_file = self
                             .process_upload_file(
                                 &avatar_file_upload_id,
-                                node_id,
+                                &node_id.to_string(),
                                 &identity_public_key,
                                 nostr_relay,
                             )
@@ -427,7 +429,7 @@ impl ContactServiceApi for ContactService {
                         let proof_document_file = self
                             .process_upload_file(
                                 &proof_document_file_upload_id,
-                                node_id,
+                                &node_id.to_string(),
                                 &identity_public_key,
                                 nostr_relay,
                             )
@@ -438,7 +440,7 @@ impl ContactServiceApi for ContactService {
                 };
 
                 Contact {
-                    node_id: node_id.to_owned(),
+                    node_id: node_id.to_string(),
                     t: t.clone(),
                     name,
                     email,
@@ -454,7 +456,7 @@ impl ContactServiceApi for ContactService {
             }
             ContactType::Anon => {
                 Contact {
-                    node_id: node_id.to_owned(),
+                    node_id: node_id.to_string(),
                     t: t.clone(),
                     name,
                     email,
@@ -470,7 +472,9 @@ impl ContactServiceApi for ContactService {
             }
         };
 
-        self.store.insert(node_id, contact.clone()).await?;
+        self.store
+            .insert(&node_id.to_string(), contact.clone())
+            .await?;
         self.cascade_nostr_contact(&contact).await?;
         debug!("contact {:?} with node_id {node_id} created", &t);
         Ok(contact)
@@ -478,7 +482,7 @@ impl ContactServiceApi for ContactService {
 
     async fn deanonymize_contact(
         &self,
-        node_id: &str,
+        node_id_str: &str,
         t: ContactType,
         name: String,
         email: Option<String>,
@@ -490,15 +494,17 @@ impl ContactServiceApi for ContactService {
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
-        debug!("de-anonymizing {:?} contact with node_id {node_id}", &t);
+        debug!("de-anonymizing {:?} contact with node_id {node_id_str}", &t);
+        let node_id = NodeId::from_str(node_id_str)?;
         validate_create_contact(
             t.clone(),
-            node_id,
+            &node_id,
             &name,
             &email,
             &postal_address,
             &avatar_file_upload_id,
             &proof_document_file_upload_id,
+            get_config().bitcoin_network(),
         )?;
 
         // can't de-anonymize to an anonymous contact
@@ -508,7 +514,7 @@ impl ContactServiceApi for ContactService {
             ));
         }
 
-        let existing_anon_contact = match self.store.get(node_id).await? {
+        let existing_anon_contact = match self.store.get(&node_id.to_string()).await? {
             Some(existing_anon_contact) => existing_anon_contact,
             None => {
                 return Err(super::Error::NotFound);
@@ -520,7 +526,7 @@ impl ContactServiceApi for ContactService {
         // if the existing contact is not anonymous, the action is not valid
         if existing_anon_contact.t != ContactType::Anon {
             return Err(super::Error::Validation(ValidationError::InvalidContact(
-                node_id.to_owned(),
+                node_id.to_string(),
             )));
         }
 
@@ -531,7 +537,7 @@ impl ContactServiceApi for ContactService {
                 let avatar_file = self
                     .process_upload_file(
                         &avatar_file_upload_id,
-                        node_id,
+                        &node_id.to_string(),
                         &identity_public_key,
                         nostr_relay,
                     )
@@ -540,7 +546,7 @@ impl ContactServiceApi for ContactService {
                 let proof_document_file = self
                     .process_upload_file(
                         &proof_document_file_upload_id,
-                        node_id,
+                        &node_id.to_string(),
                         &identity_public_key,
                         nostr_relay,
                     )
@@ -551,7 +557,7 @@ impl ContactServiceApi for ContactService {
         };
 
         let contact = Contact {
-            node_id: node_id.to_owned(),
+            node_id: node_id.to_string(),
             t: t.clone(),
             name,
             email,
@@ -566,7 +572,9 @@ impl ContactServiceApi for ContactService {
         };
 
         debug!("contact {:?} with node_id {node_id} created", &t);
-        self.store.update(node_id, contact.clone()).await?;
+        self.store
+            .update(&node_id.to_string(), contact.clone())
+            .await?;
         self.cascade_nostr_contact(&contact).await?;
         debug!("deanonymized contact with node_id: {node_id}");
         Ok(contact)
@@ -651,8 +659,8 @@ pub mod tests {
         service::Error,
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
-            empty_optional_address, init_test_cfg,
+            MockNostrContactStore, NODE_ID_TEST_STR, TEST_NODE_ID_SECP,
+            TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address, empty_optional_address, init_test_cfg,
         },
     };
     use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrPublicKey};
@@ -846,7 +854,7 @@ pub mod tests {
             nostr_contact,
         )
         .add_contact(
-            TEST_NODE_ID_SECP,
+            NODE_ID_TEST_STR,
             ContactType::Person,
             "some_name".to_string(),
             Some("some_email@example.com".to_string()),
@@ -888,7 +896,7 @@ pub mod tests {
             nostr_contact_store,
         )
         .add_contact(
-            TEST_NODE_ID_SECP,
+            NODE_ID_TEST_STR,
             ContactType::Anon,
             "some_name".to_string(),
             Some("some_email@example.com".to_string()),
@@ -935,7 +943,7 @@ pub mod tests {
             nostr_contact_store,
         )
         .deanonymize_contact(
-            TEST_NODE_ID_SECP,
+            NODE_ID_TEST_STR,
             ContactType::Person,
             "some_name".to_string(),
             Some("some_email@example.com".to_string()),
@@ -977,7 +985,7 @@ pub mod tests {
             nostr_contact_store,
         )
         .deanonymize_contact(
-            TEST_NODE_ID_SECP,
+            NODE_ID_TEST_STR,
             ContactType::Person,
             "some_name".to_string(),
             Some("some_email@example.com".to_string()),
@@ -1025,7 +1033,7 @@ pub mod tests {
             nostr_contact_store,
         )
         .deanonymize_contact(
-            TEST_NODE_ID_SECP,
+            NODE_ID_TEST_STR,
             ContactType::Anon,
             "some_name".to_string(),
             Some("some_email@example.com".to_string()),

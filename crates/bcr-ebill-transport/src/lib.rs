@@ -32,6 +32,10 @@ pub enum Error {
     /// Errors that are related to crypto (keys, encryption, etc.)
     #[error("Crypto error: {0}")]
     Crypto(String),
+
+    /// errors that stem from validation in core
+    #[error("Validation Error: {0}")]
+    Validation(#[from] bcr_ebill_core::ValidationError),
 }
 
 impl From<serde_json::Error> for Error {

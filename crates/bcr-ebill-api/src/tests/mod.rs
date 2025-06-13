@@ -440,7 +440,7 @@ pub mod tests {
             Some(_) => (),
             None => {
                 let _ = crate::init(crate::Config {
-                    bitcoin_network: "mainnet".to_string(),
+                    bitcoin_network: "testnet".to_string(),
                     esplora_base_url: "https://esplora.minibill.tech".to_string(),
                     db_config: SurrealDbConfig {
                         connection_string: "ws://localhost:8800".to_string(),
@@ -549,6 +549,9 @@ pub mod tests {
             files: vec![],
         }
     }
+
+    pub const NODE_ID_TEST_STR: &str =
+        "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
 
     pub const TEST_PUB_KEY_SECP: &str =
         "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
