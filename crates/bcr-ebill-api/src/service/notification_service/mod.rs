@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::persistence::identity::IdentityStoreApi;
 use crate::persistence::nostr::NostrEventOffsetStoreApi;
 use crate::persistence::notification::NotificationStoreApi;
 use crate::{Config, get_config};
+use bcr_ebill_core::NodeId;
 use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::CompanyStoreApi;
 use bcr_ebill_persistence::nostr::{
@@ -141,7 +143,9 @@ pub async fn create_nostr_consumer(
 
     // on startup, we make sure the configured default mint exists
     processor
-        .ensure_nostr_contact(&get_config().mint_config.default_mint_node_id)
+        .ensure_nostr_contact(&NodeId::from_str(
+            &get_config().mint_config.default_mint_node_id,
+        )?)
         .await;
 
     // register the logging event handler for all events for now. Later we will probably

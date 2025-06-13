@@ -1,6 +1,7 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
+use crate::NodeId;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
 use borsh::to_vec;
@@ -42,7 +43,7 @@ pub struct IdentityBlock {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
@@ -218,7 +219,7 @@ impl IdentityBlock {
 
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &identity_bytes,
-            &keys.get_public_key(),
+            &keys.pub_key(),
         )?);
 
         Self::new(
@@ -336,10 +337,8 @@ impl IdentityBlock {
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
 
-        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
-            &bytes,
-            &keys.get_public_key(),
-        )?);
+        let encrypted_data =
+            util::base58_encode(&util::crypto::encrypt_ecies(&bytes, &keys.pub_key())?);
 
         let new_block = Self::new(
             previous_block.id + 1,

@@ -1,10 +1,12 @@
+use crate::NodeId;
+
 use super::{File, PostalAddress};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
 pub struct Company {
-    pub id: String,
+    pub id: NodeId,
     pub name: String,
     pub country_of_registration: Option<String>,
     pub city_of_registration: Option<String>,

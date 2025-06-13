@@ -1,5 +1,5 @@
 use super::{File, OptionalPostalAddress};
-use crate::{ValidationError, util::BcrKeys};
+use crate::{NodeId, ValidationError, util::BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -61,7 +61,7 @@ pub struct IdentityWithAll {
 pub struct Identity {
     #[serde(rename = "type")]
     pub t: IdentityType,
-    pub node_id: String,
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,

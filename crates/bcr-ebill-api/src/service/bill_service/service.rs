@@ -41,7 +41,7 @@ use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
-use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
+use bcr_ebill_core::{File, NodeId, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_transport::NotificationServiceApi;
 use log::{debug, error, info, warn};
@@ -130,7 +130,7 @@ impl BillService {
         &self,
         chain_identity: BillParticipantBlockData,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> BillParticipant {
         match chain_identity {
             BillParticipantBlockData::Ident(data) => BillParticipant::Ident(
@@ -158,7 +158,7 @@ impl BillService {
         &self,
         chain_identity: BillIdentParticipantBlockData,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> BillIdentParticipant {
         let (email, nostr_relays) = self
             .get_email_and_nostr_relay(
@@ -180,10 +180,10 @@ impl BillService {
 
     async fn get_email_and_nostr_relay(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
         t: ContactType,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> (Option<String>, Vec<String>) {
         match node_id {
             v if v == identity.node_id => (identity.email.clone(), identity.nostr_relays.clone()),

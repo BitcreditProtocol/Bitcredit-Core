@@ -1,7 +1,7 @@
 use super::Result;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
     blockchain::BlockchainType,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
 };
@@ -77,18 +77,18 @@ pub struct NostrQueuedMessage {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
-    async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+    async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
     /// Creates a new or updates an existing Nostr contact.
     async fn upsert(&self, data: &NostrContact) -> Result<()>;
     /// Delete an Nostr contact. This will remove the contact from the store.
-    async fn delete(&self, node_id: &str) -> Result<()>;
+    async fn delete(&self, node_id: &NodeId) -> Result<()>;
     /// Sets a new handshake status for the contact. This is used to track the handshake process.
-    async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
+    async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> Result<()>;
     /// Sets a new trust level for the contact. This is used to track the trust level of the
     /// contact.
-    async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
+    async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
     // returns all npubs that have a trust level higher than or equal to the given level.
     async fn get_npubs(&self, min_trust_level: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 }

@@ -2,12 +2,12 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
-use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::bill::BillMintStatus;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::{NodeId, ValidationError};
 use bcr_ebill_core::{
     bill::{
         BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillKeys, BillParticipants,
@@ -43,7 +43,7 @@ impl BillService {
         chain: &BillBlockchain,
         bill_keys: &BillKeys,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> Result<BitcreditBill> {
         let bill_first_version = chain.get_first_version_bill(bill_keys)?;
         let bill_parties = chain.get_bill_parties(bill_keys, &bill_first_version)?;

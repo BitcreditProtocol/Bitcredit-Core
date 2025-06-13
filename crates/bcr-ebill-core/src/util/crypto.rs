@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::{bill::BillKeys, company::CompanyKeys, nostr_contact::NostrPublicKey};
+use crate::{bill::BillKeys, company::CompanyKeys};
 
 use super::{base58_decode, base58_encode};
 use bip39::Mnemonic;
@@ -86,6 +86,10 @@ impl BcrKeys {
         self.inner.secret_key().display_secret().to_string()
     }
 
+    pub fn pub_key(&self) -> PublicKey {
+        self.inner.public_key()
+    }
+
     /// Returns the public key as a hex encoded string
     pub fn get_public_key(&self) -> String {
         self.inner.public_key().to_string()
@@ -144,6 +148,14 @@ impl TryFrom<CompanyKeys> for BcrKeys {
     }
 }
 
+impl TryFrom<&CompanyKeys> for BcrKeys {
+    type Error = Error;
+
+    fn try_from(keys: &CompanyKeys) -> Result<Self> {
+        BcrKeys::from_private_key(&keys.private_key)
+    }
+}
+
 impl TryFrom<BillKeys> for BcrKeys {
     type Error = Error;
 
@@ -152,38 +164,16 @@ impl TryFrom<BillKeys> for BcrKeys {
     }
 }
 
-pub fn validate_pub_key(pub_key: &str) -> Result<()> {
-    match PublicKey::from_str(pub_key) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e.into()),
+impl TryFrom<&BillKeys> for BcrKeys {
+    type Error = Error;
+
+    fn try_from(keys: &BillKeys) -> Result<Self> {
+        BcrKeys::from_private_key(&keys.private_key)
     }
 }
 
 /// Number of words to use when generating BIP39 seed phrases
 const BIP39_WORD_COUNT: usize = 12;
-
-/// Calculates the XOnlyPublicKey as hex from the given node_id to be used as the npub as hex for
-/// nostr
-pub fn get_nostr_npub_as_hex_from_node_id(node_id: &str) -> Result<String> {
-    Ok(PublicKey::from_str(node_id)?
-        .x_only_public_key()
-        .0
-        .to_string())
-}
-
-/// Checks if the given node_id and the given npub (as hex) are the same public key.
-/// This converts the node_id to an XOnlyPublicKey (which is the way nostr saves it's public key)
-/// and compares it to the given npub
-pub fn is_node_id_nostr_hex_npub(node_id: &str, npub: &str) -> bool {
-    let x_only_pub_key = match get_nostr_npub_as_hex_from_node_id(node_id) {
-        Ok(pub_key) => pub_key,
-        Err(_) => return false,
-    };
-    match NostrPublicKey::from_hex(&x_only_pub_key) {
-        Ok(npub_from_node_id) => npub == npub_from_node_id.to_hex(),
-        Err(_) => false,
-    }
-}
 
 /// Generates a new keypair using the secp256k1 library
 fn generate_keypair() -> Keypair {
@@ -199,17 +189,12 @@ fn load_keypair(private_key: &str) -> Result<Keypair> {
 // -------------------- Aggregated Signatures --------------------------
 
 /// Returns the combined public key for the given public keys
-pub fn combine_pub_keys(pub_keys: &[String]) -> Result<String> {
+pub fn combine_pub_keys(pub_keys: &[PublicKey]) -> Result<String> {
     if pub_keys.len() < 2 {
         return Err(Error::TooFewKeys);
     }
 
-    let public_keys: Vec<PublicKey> = pub_keys
-        .iter()
-        .map(|pk| PublicKey::from_str(pk).map_err(|e| e.into()))
-        .collect::<Result<Vec<PublicKey>>>()?;
-
-    let combined_key = PublicKey::combine_keys(&public_keys.iter().collect::<Vec<&PublicKey>>())?;
+    let combined_key = PublicKey::combine_keys(&pub_keys.iter().collect::<Vec<&PublicKey>>())?;
 
     Ok(combined_key.to_string())
 }
@@ -282,9 +267,8 @@ pub fn verify(hash: &str, signature: &str, public_key: &str) -> Result<bool> {
 // -------------------- Encryption --------------------------
 
 /// Encrypt the given bytes with the given Secp256k1 key via ECIES
-pub fn encrypt_ecies(bytes: &[u8], public_key: &str) -> Result<Vec<u8>> {
-    let pub_key_parsed = PublicKey::from_str(public_key)?;
-    let pub_key_bytes = pub_key_parsed.serialize();
+pub fn encrypt_ecies(bytes: &[u8], public_key: &PublicKey) -> Result<Vec<u8>> {
+    let pub_key_bytes = public_key.serialize();
     let encrypted =
         ecies::encrypt(pub_key_bytes.as_slice(), bytes).map_err(|e| Error::Ecies(e.to_string()))?;
     Ok(encrypted)
@@ -326,12 +310,7 @@ fn keypair_from_mnemonic(mnemonic: &Mnemonic) -> Result<Keypair> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        PostalAddress,
-        company::Company,
-        tests::tests::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
-        util,
-    };
+    use crate::{PostalAddress, company::Company, tests::tests::node_id_test, util};
     use borsh::to_vec;
 
     const PKEY: &str = "926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3";
@@ -583,10 +562,9 @@ mod tests {
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
 
-        let combined_pub_key =
-            combine_pub_keys(&[keypair1.get_public_key(), keypair3.get_public_key()]).unwrap();
+        let combined_pub_key = combine_pub_keys(&[keypair1.pub_key(), keypair3.pub_key()]).unwrap();
         let combined_correct_pub_key =
-            combine_pub_keys(&[keypair1.get_public_key(), keypair2.get_public_key()]).unwrap();
+            combine_pub_keys(&[keypair1.pub_key(), keypair2.pub_key()]).unwrap();
         assert_ne!(public_key, combined_pub_key);
         assert_eq!(public_key, combined_correct_pub_key);
         assert!(verify(&hash, &signature, &combined_pub_key).is_ok());
@@ -599,18 +577,12 @@ mod tests {
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
         let keypair3 = BcrKeys::new();
-        let combined_pub_key = combine_pub_keys(&[
-            keypair1.get_public_key(),
-            keypair2.get_public_key(),
-            keypair3.get_public_key(),
-        ])
-        .unwrap();
-        let combined_pub_key_diff_order = combine_pub_keys(&[
-            keypair2.get_public_key(),
-            keypair1.get_public_key(),
-            keypair3.get_public_key(),
-        ])
-        .unwrap();
+        let combined_pub_key =
+            combine_pub_keys(&[keypair1.pub_key(), keypair2.pub_key(), keypair3.pub_key()])
+                .unwrap();
+        let combined_pub_key_diff_order =
+            combine_pub_keys(&[keypair2.pub_key(), keypair1.pub_key(), keypair3.pub_key()])
+                .unwrap();
         // when combining public keys, the order isn't important
         assert_eq!(combined_pub_key, combined_pub_key_diff_order);
     }
@@ -618,13 +590,7 @@ mod tests {
     #[test]
     fn test_combine_pub_keys_too_few() {
         let keypair1 = BcrKeys::new();
-        let combined_pub_key = combine_pub_keys(&[keypair1.get_public_key()]);
-        assert!(combined_pub_key.is_err());
-    }
-
-    #[test]
-    fn test_combine_pub_keys_invalid_key() {
-        let combined_pub_key = combine_pub_keys(&["nonsense".to_string()]);
+        let combined_pub_key = combine_pub_keys(&[keypair1.pub_key()]);
         assert!(combined_pub_key.is_err());
     }
 
@@ -668,7 +634,7 @@ mod tests {
             .into_bytes();
         let keypair = BcrKeys::new();
 
-        let encrypted = encrypt_ecies(&msg, &keypair.get_public_key());
+        let encrypted = encrypt_ecies(&msg, &keypair.pub_key());
         assert!(encrypted.is_ok());
         let decrypted = decrypt_ecies(
             encrypted.as_ref().unwrap(),
@@ -685,7 +651,10 @@ mod tests {
 
         let encrypted = encrypt_ecies(
             &msg,
-            "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
+            &PublicKey::from_str(
+                "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
+            )
+            .unwrap(),
         );
         assert!(encrypted.is_ok());
         let decrypted = decrypt_ecies(
@@ -700,7 +669,7 @@ mod tests {
     #[test]
     fn encrypt_decrypt_ecies_big_data() {
         let company_data = Company {
-            id: "company_id".to_owned(),
+            id: node_id_test(),
             name: "some_name".to_string(),
             country_of_registration: Some("AT".to_string()),
             city_of_registration: Some("Vienna".to_string()),
@@ -724,7 +693,7 @@ mod tests {
         let companies_bytes = to_vec(&companies).unwrap();
         let keypair = BcrKeys::new();
 
-        let encrypted = encrypt_ecies(&companies_bytes, &keypair.get_public_key());
+        let encrypted = encrypt_ecies(&companies_bytes, &keypair.pub_key());
         assert!(encrypted.is_ok());
         let decrypted = decrypt_ecies(
             encrypted.as_ref().unwrap(),
@@ -733,72 +702,6 @@ mod tests {
         assert!(decrypted.is_ok());
 
         assert_eq!(&companies_bytes, decrypted.as_ref().unwrap());
-    }
-
-    #[test]
-    fn get_nostr_npub_as_hex_from_node_id_base() {
-        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-        let npub_as_hex = "39a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-
-        assert_eq!(
-            get_nostr_npub_as_hex_from_node_id(node_id).unwrap(),
-            npub_as_hex.to_string()
-        );
-        let npub =
-            nostr::PublicKey::from_hex(&get_nostr_npub_as_hex_from_node_id(node_id).unwrap())
-                .unwrap();
-        assert_eq!(npub.to_hex(), npub_as_hex);
-        assert_eq!(
-            get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
-            TEST_NODE_ID_SECP_AS_NPUB_HEX.to_string()
-        );
-        let npub = nostr::PublicKey::from_hex(
-            &get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(npub.to_hex(), TEST_NODE_ID_SECP_AS_NPUB_HEX);
-    }
-
-    #[test]
-    fn get_nostr_npub_as_hex_from_node_id_invalid() {
-        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-        let npub_as_hex = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-
-        assert_ne!(
-            get_nostr_npub_as_hex_from_node_id(node_id).unwrap(),
-            npub_as_hex.to_string()
-        );
-        assert_ne!(
-            get_nostr_npub_as_hex_from_node_id(node_id).unwrap(),
-            TEST_NODE_ID_SECP_AS_NPUB_HEX.to_string()
-        );
-    }
-
-    #[test]
-    fn is_node_id_nostr_hex_npub_base() {
-        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-        let npub_as_hex = "39a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-
-        assert!(is_node_id_nostr_hex_npub(node_id, npub_as_hex));
-        assert!(is_node_id_nostr_hex_npub(
-            TEST_NODE_ID_SECP,
-            TEST_NODE_ID_SECP_AS_NPUB_HEX
-        ));
-    }
-
-    #[test]
-    fn is_node_id_nostr_hex_npub_neg() {
-        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-        let npub_as_hex = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-
-        assert!(!is_node_id_nostr_hex_npub(node_id, npub_as_hex));
-
-        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
-
-        assert!(!is_node_id_nostr_hex_npub(
-            node_id,
-            TEST_NODE_ID_SECP_AS_NPUB_HEX
-        ));
     }
 
     #[test]

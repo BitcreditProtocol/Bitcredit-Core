@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    ID_PREFIX, NETWORK_MAINNET, NETWORK_REGTEST, NETWORK_TESTNET, NETWORK_TESTNET4,
+    ID_PREFIX, NETWORK_MAINNET, NETWORK_REGTEST, NETWORK_TESTNET, NETWORK_TESTNET4, NodeId,
     ValidationError,
     blockchain::bill::BillBlockchain,
     contact::{BillParticipant, LightBillParticipant},
@@ -172,8 +172,8 @@ pub struct BillIssueData {
     pub city_of_issuing: String,
     pub issue_date: String,
     pub maturity_date: String,
-    pub drawee: String,
-    pub payee: String,
+    pub drawee: NodeId,
+    pub payee: NodeId,
     pub sum: String,
     pub currency: String,
     pub country_of_payment: String,
@@ -189,13 +189,13 @@ pub struct BillIssueData {
 #[derive(Debug, Clone)]
 pub struct BillValidateActionData {
     pub blockchain: BillBlockchain,
-    pub drawee_node_id: String,
-    pub payee_node_id: String,
-    pub endorsee_node_id: Option<String>,
+    pub drawee_node_id: NodeId,
+    pub payee_node_id: NodeId,
+    pub endorsee_node_id: Option<NodeId>,
     pub maturity_date: String,
     pub bill_keys: BillKeys,
     pub timestamp: u64,
-    pub signer_node_id: String,
+    pub signer_node_id: NodeId,
     pub bill_action: BillAction,
     pub is_paid: bool,
 }
@@ -362,13 +362,13 @@ pub struct BillParticipants {
     pub payee: BillParticipant,
     pub endorsee: Option<BillParticipant>,
     pub endorsements_count: u64,
-    pub all_participant_node_ids: Vec<String>,
+    pub all_participant_node_ids: Vec<NodeId>,
 }
 
 impl BitcreditBillResult {
     /// Returns the role of the given node_id in the bill, or None if the node_id is not a
     /// participant in the bill
-    pub fn get_bill_role_for_node_id(&self, node_id: &str) -> Option<BillRole> {
+    pub fn get_bill_role_for_node_id(&self, node_id: &NodeId) -> Option<BillRole> {
         // Node id is not part of the bill
         if !self
             .participants

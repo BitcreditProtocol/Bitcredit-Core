@@ -4,17 +4,12 @@ use super::IdentityType;
 
 pub fn validate_create_identity(
     t: IdentityType,
-    node_id: &str,
     name: &str,
     email: &Option<String>,
     postal_address: &OptionalPostalAddress,
     profile_picture_file_upload_id: &Option<String>,
     identity_document_file_upload_id: &Option<String>,
 ) -> Result<(), ValidationError> {
-    if util::crypto::validate_pub_key(node_id).is_err() {
-        return Err(ValidationError::InvalidSecp256k1Key(node_id.to_owned()));
-    }
-
     if name.trim().is_empty() {
         return Err(ValidationError::FieldEmpty(Field::Name));
     }
@@ -71,17 +66,13 @@ pub fn validate_update_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        OptionalPostalAddress, ValidationError, identity::IdentityType,
-        tests::tests::TEST_PUB_KEY_SECP,
-    };
+    use crate::{OptionalPostalAddress, ValidationError, identity::IdentityType};
     use rstest::rstest;
 
     #[test]
     fn test_validate_create_identity() {
         let result = validate_create_identity(
             IdentityType::Anon,
-            TEST_PUB_KEY_SECP,
             "some name",
             &None,
             &OptionalPostalAddress::empty(),
@@ -92,18 +83,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case::invalid_node_id(IdentityType::Anon, "invalid_node_id", "some name", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::InvalidSecp256k1Key("invalid_node_id".to_owned()))]
-    #[case::invalid_name(IdentityType::Anon, TEST_PUB_KEY_SECP, "", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Name))]
-    #[case::ident_no_email(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
-    #[case::ident_blank_address(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, zip: None, address: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
-    #[case::ident_blank_city(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, address: None, zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
-    #[case::ident_blank_country(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { address: None, city: None, zip: None, country: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Country))]
-    #[case::ident_blank_zip(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, address: None, zip: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Zip))]
-    #[case::ident_blank_profile_pic(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress::empty(), &Some("".into()), &None, ValidationError::InvalidFileUploadId)]
-    #[case::ident_blank_identity_doc(IdentityType::Ident, TEST_PUB_KEY_SECP, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress::empty(), &None, &Some("".into()), ValidationError::InvalidFileUploadId)]
+    #[case::invalid_name(IdentityType::Anon, "", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Name))]
+    #[case::ident_no_email(IdentityType::Ident, "some name", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
+    #[case::ident_blank_address(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, zip: None, address: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
+    #[case::ident_blank_city(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, address: None, zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
+    #[case::ident_blank_country(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { address: None, city: None, zip: None, country: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Country))]
+    #[case::ident_blank_zip(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, address: None, zip: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Zip))]
+    #[case::ident_blank_profile_pic(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress::empty(), &Some("".into()), &None, ValidationError::InvalidFileUploadId)]
+    #[case::ident_blank_identity_doc(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress::empty(), &None, &Some("".into()), ValidationError::InvalidFileUploadId)]
     fn test_validate_create_identity_errors(
         #[case] t: IdentityType,
-        #[case] node_id: &str,
         #[case] name: &str,
         #[case] email: &Option<String>,
         #[case] postal_address: &OptionalPostalAddress,
@@ -114,7 +103,6 @@ mod tests {
         assert_eq!(
             validate_create_identity(
                 t,
-                node_id,
                 name,
                 email,
                 postal_address,

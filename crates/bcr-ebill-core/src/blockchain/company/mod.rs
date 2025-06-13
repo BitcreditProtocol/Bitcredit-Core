@@ -1,6 +1,7 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
+use crate::NodeId;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{
     File, OptionalPostalAddress, PostalAddress,
@@ -8,6 +9,7 @@ use crate::{
 };
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -21,7 +23,7 @@ pub enum CompanyOpCode {
 
 #[derive(BorshSerialize)]
 pub struct CompanyBlockDataToHash {
-    company_id: String,
+    company_id: NodeId,
     id: u64,
     previous_hash: String,
     data: String,
@@ -49,7 +51,7 @@ pub struct CompanyBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyBlock {
-    pub company_id: String,
+    pub company_id: NodeId,
     pub id: u64,
     pub hash: String,
     pub timestamp: u64,
@@ -63,7 +65,7 @@ pub struct CompanyBlock {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct CompanyCreateBlockData {
-    pub id: String,
+    pub id: NodeId,
     pub name: String,
     pub country_of_registration: Option<String>,
     pub city_of_registration: Option<String>,
@@ -163,7 +165,7 @@ impl Block for CompanyBlock {
     }
 
     fn validate(&self) -> bool {
-        util::crypto::validate_pub_key(&self.company_id).is_ok()
+        true
     }
 
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
@@ -184,7 +186,7 @@ impl CompanyBlock {
     /// Create a new block and sign it with an aggregated key, combining the identity key of the
     /// signer and the company key
     fn new(
-        company_id: String,
+        company_id: NodeId,
         id: u64,
         previous_hash: String,
         data: String,
@@ -227,7 +229,7 @@ impl CompanyBlock {
     }
 
     pub fn create_block_for_create(
-        company_id: String,
+        company_id: NodeId,
         genesis_hash: String,
         company: &CompanyCreateBlockData,
         identity_keys: &BcrKeys,
@@ -238,14 +240,14 @@ impl CompanyBlock {
         // encrypt data using company pub key
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &company_bytes,
-            &company_keys.public_key,
+            &BcrKeys::try_from(company_keys)?.pub_key(),
         )?);
 
         let key_bytes = to_vec(&company_keys.private_key)?;
         // encrypt company keys using creator's identity pub key
         let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
             &key_bytes,
-            &identity_keys.get_public_key(),
+            &identity_keys.pub_key(),
         )?);
 
         let data = CompanyBlockData {
@@ -267,7 +269,7 @@ impl CompanyBlock {
     }
 
     pub fn create_block_for_update(
-        company_id: String,
+        company_id: NodeId,
         previous_block: &Self,
         data: &CompanyUpdateBlockData,
         identity_keys: &BcrKeys,
@@ -288,7 +290,7 @@ impl CompanyBlock {
     }
 
     pub fn create_block_for_sign_company_bill(
-        company_id: String,
+        company_id: NodeId,
         previous_block: &Self,
         data: &CompanySignCompanyBillBlockData,
         identity_keys: &BcrKeys,
@@ -309,12 +311,12 @@ impl CompanyBlock {
     }
 
     pub fn create_block_for_add_signatory(
-        company_id: String,
+        company_id: NodeId,
         previous_block: &Self,
         data: &CompanyAddSignatoryBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        signatory_public_key: &str, // the signatory's public key
+        signatory_public_key: &PublicKey, // the signatory's public key
         timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
@@ -331,7 +333,7 @@ impl CompanyBlock {
     }
 
     pub fn create_block_for_remove_signatory(
-        company_id: String,
+        company_id: NodeId,
         previous_block: &Self,
         data: &CompanyRemoveSignatoryBlockData,
         identity_keys: &BcrKeys,
@@ -352,12 +354,12 @@ impl CompanyBlock {
     }
 
     fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
-        company_id: String,
+        company_id: NodeId,
         previous_block: &Self,
         data: &T,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        public_key_for_keys: Option<&str>,
+        public_key_for_keys: Option<&PublicKey>,
         timestamp: u64,
         op_code: CompanyOpCode,
     ) -> Result<Self> {
@@ -365,7 +367,7 @@ impl CompanyBlock {
         // encrypt data using the company pub key
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &bytes,
-            &company_keys.public_key,
+            &BcrKeys::try_from(company_keys)?.pub_key(),
         )?);
 
         let mut key = None;
@@ -431,7 +433,7 @@ impl CompanyBlockchain {
         company_keys: &CompanyKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        let genesis_hash = util::base58_encode(company.id.as_bytes());
+        let genesis_hash = util::base58_encode(company.id.to_string().as_bytes());
 
         let first_block = CompanyBlock::create_block_for_create(
             company.id.clone(),
@@ -474,15 +476,16 @@ impl CompanyBlockchain {
 mod tests {
     use super::*;
     use crate::tests::tests::{
-        TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, valid_address, valid_optional_address,
+        TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, node_id_test, valid_address,
+        valid_optional_address,
     };
 
-    fn get_baseline_company_data() -> (String, (Company, CompanyKeys)) {
+    fn get_baseline_company_data() -> (NodeId, (Company, CompanyKeys)) {
         (
-            TEST_PUB_KEY_SECP.to_owned(),
+            node_id_test(),
             (
                 Company {
-                    id: TEST_PUB_KEY_SECP.to_owned(),
+                    id: node_id_test(),
                     name: "some_name".to_string(),
                     country_of_registration: Some("AT".to_string()),
                     city_of_registration: Some("Vienna".to_string()),
@@ -531,7 +534,7 @@ mod tests {
 
         let mut chain = chain.unwrap();
         let update_block = CompanyBlock::create_block_for_update(
-            id.to_owned(),
+            id.clone(),
             chain.get_latest_block(),
             &CompanyUpdateBlockData {
                 name: Some("new_name".to_string()),
@@ -552,7 +555,7 @@ mod tests {
         chain.try_add_block(update_block.unwrap());
 
         let bill_block = CompanyBlock::create_block_for_sign_company_bill(
-            id.to_owned(),
+            id.clone(),
             chain.get_latest_block(),
             &CompanySignCompanyBillBlockData {
                 bill_id: "some_id".to_string(),
@@ -568,7 +571,7 @@ mod tests {
         chain.try_add_block(bill_block.unwrap());
 
         let add_signatory_block = CompanyBlock::create_block_for_add_signatory(
-            id.to_owned(),
+            id.clone(),
             chain.get_latest_block(),
             &CompanyAddSignatoryBlockData {
                 signatory: "some_signatory".to_string(),
@@ -576,14 +579,14 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            TEST_PUB_KEY_SECP,
+            &node_id_test().pub_key(),
             1731593931,
         );
         assert!(add_signatory_block.is_ok());
         chain.try_add_block(add_signatory_block.unwrap());
 
         let remove_signatory_block = CompanyBlock::create_block_for_remove_signatory(
-            id.to_owned(),
+            id.clone(),
             chain.get_latest_block(),
             &CompanyRemoveSignatoryBlockData {
                 signatory: "some_signatory".to_string(),

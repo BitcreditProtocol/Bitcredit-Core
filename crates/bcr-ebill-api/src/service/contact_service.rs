@@ -43,18 +43,18 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     async fn get_contacts(&self) -> Result<Vec<Contact>>;
 
     /// Returns the contact details for the given node_id
-    async fn get_contact(&self, node_id: &str) -> Result<Contact>;
+    async fn get_contact(&self, node_id: &NodeId) -> Result<Contact>;
 
     /// Returns the contact by node id
-    async fn get_identity_by_node_id(&self, node_id: &str) -> Result<Option<BillParticipant>>;
+    async fn get_identity_by_node_id(&self, node_id: &NodeId) -> Result<Option<BillParticipant>>;
 
     /// Deletes the contact with the given node_id.
-    async fn delete(&self, node_id: &str) -> Result<()>;
+    async fn delete(&self, node_id: &NodeId) -> Result<()>;
 
     /// Updates the contact with the given data.
     async fn update_contact(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
@@ -69,7 +69,7 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     /// Adds a new contact
     async fn add_contact(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
         t: ContactType,
         name: String,
         email: Option<String>,
@@ -85,7 +85,7 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     /// Deanonymize a contact
     async fn deanonymize_contact(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
         t: ContactType,
         name: String,
         email: Option<String>,
@@ -105,13 +105,13 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     async fn get_nostr_npubs(&self) -> Result<Vec<NostrPublicKey>>;
 
     /// Returns a Nostr contact by node id if we have a trusted one.
-    async fn get_nostr_contact_by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+    async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
 
     /// opens and decrypts the attached file from the given contact
     async fn open_and_decrypt_file(
         &self,
         contact: Contact,
-        id: &str,
+        id: &NodeId,
         file_name: &str,
         private_key: &str,
     ) -> Result<Vec<u8>>;
@@ -218,7 +218,7 @@ impl ContactServiceApi for ContactService {
         Ok(contact_list)
     }
 
-    async fn get_contact(&self, node_id: &str) -> Result<Contact> {
+    async fn get_contact(&self, node_id: &NodeId) -> Result<Contact> {
         debug!("getting contact for {node_id}");
         let res = self.store.get(node_id).await?;
         match res {
@@ -227,13 +227,13 @@ impl ContactServiceApi for ContactService {
         }
     }
 
-    async fn get_identity_by_node_id(&self, node_id: &str) -> Result<Option<BillParticipant>> {
+    async fn get_identity_by_node_id(&self, node_id: &NodeId) -> Result<Option<BillParticipant>> {
         let res = self.store.get(node_id).await?;
         res.map(|c| c.try_into().map_err(super::Error::Validation))
             .transpose()
     }
 
-    async fn delete(&self, node_id: &str) -> Result<()> {
+    async fn delete(&self, node_id: &NodeId) -> Result<()> {
         self.store.delete(node_id).await?;
         self.nostr_contact_store.delete(node_id).await?;
         Ok(())
@@ -241,7 +241,7 @@ impl ContactServiceApi for ContactService {
 
     async fn update_contact(
         &self,
-        node_id: &str,
+        node_id: &NodeId,
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
@@ -253,7 +253,7 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: Option<String>,
     ) -> Result<()> {
         debug!("updating contact with node_id: {node_id}");
-        let mut contact = match self.store.get(node_id).await? {
+        let mut contact = match self.store.get(&node_id).await? {
             Some(contact) => contact,
             None => {
                 return Err(super::Error::NotFound);
@@ -351,7 +351,7 @@ impl ContactServiceApi for ContactService {
                 let avatar_file = self
                     .process_upload_file(
                         &avatar_file_upload_id,
-                        node_id,
+                        &node_id.to_string(),
                         &identity_public_key,
                         nostr_relay,
                     )
@@ -363,7 +363,7 @@ impl ContactServiceApi for ContactService {
                 let proof_document_file = self
                     .process_upload_file(
                         &proof_document_file_upload_id,
-                        node_id,
+                        &node_id.to_string(),
                         &identity_public_key,
                         nostr_relay,
                     )
@@ -375,7 +375,7 @@ impl ContactServiceApi for ContactService {
             };
         }
 
-        self.store.update(node_id, contact.clone()).await?;
+        self.store.update(&node_id, contact.clone()).await?;
         self.cascade_nostr_contact(&contact).await?;
 
         debug!("updated contact with node_id: {node_id}");
@@ -385,7 +385,7 @@ impl ContactServiceApi for ContactService {
 
     async fn add_contact(
         &self,
-        node_id_str: &str,
+        node_id: &NodeId,
         t: ContactType,
         name: String,
         email: Option<String>,
@@ -397,8 +397,7 @@ impl ContactServiceApi for ContactService {
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
-        debug!("creating {:?} contact with node_id {node_id_str}", &t);
-        let node_id = NodeId::from_str(node_id_str)?;
+        debug!("creating {t:?} contact with node_id {node_id}");
         validate_create_contact(
             t.clone(),
             &node_id,
@@ -440,7 +439,7 @@ impl ContactServiceApi for ContactService {
                 };
 
                 Contact {
-                    node_id: node_id.to_string(),
+                    node_id,
                     t: t.clone(),
                     name,
                     email,
@@ -456,7 +455,7 @@ impl ContactServiceApi for ContactService {
             }
             ContactType::Anon => {
                 Contact {
-                    node_id: node_id.to_string(),
+                    node_id,
                     t: t.clone(),
                     name,
                     email,
@@ -472,17 +471,15 @@ impl ContactServiceApi for ContactService {
             }
         };
 
-        self.store
-            .insert(&node_id.to_string(), contact.clone())
-            .await?;
+        self.store.insert(&node_id, contact.clone()).await?;
         self.cascade_nostr_contact(&contact).await?;
-        debug!("contact {:?} with node_id {node_id} created", &t);
+        debug!("contact {t:?} with node_id {node_id} created");
         Ok(contact)
     }
 
     async fn deanonymize_contact(
         &self,
-        node_id_str: &str,
+        node_id: &NodeId,
         t: ContactType,
         name: String,
         email: Option<String>,
@@ -494,8 +491,7 @@ impl ContactServiceApi for ContactService {
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
-        debug!("de-anonymizing {:?} contact with node_id {node_id_str}", &t);
-        let node_id = NodeId::from_str(node_id_str)?;
+        debug!("de-anonymizing {t:?} contact with node_id {node_id}");
         validate_create_contact(
             t.clone(),
             &node_id,
@@ -514,7 +510,7 @@ impl ContactServiceApi for ContactService {
             ));
         }
 
-        let existing_anon_contact = match self.store.get(&node_id.to_string()).await? {
+        let existing_anon_contact = match self.store.get(&node_id).await? {
             Some(existing_anon_contact) => existing_anon_contact,
             None => {
                 return Err(super::Error::NotFound);
@@ -557,7 +553,7 @@ impl ContactServiceApi for ContactService {
         };
 
         let contact = Contact {
-            node_id: node_id.to_string(),
+            node_id: node_id.clone(),
             t: t.clone(),
             name,
             email,
@@ -571,10 +567,8 @@ impl ContactServiceApi for ContactService {
             nostr_relays: self.config.nostr_config.relays.clone(),
         };
 
-        debug!("contact {:?} with node_id {node_id} created", &t);
-        self.store
-            .update(&node_id.to_string(), contact.clone())
-            .await?;
+        debug!("contact {t:?} with node_id {node_id} created");
+        self.store.update(&node_id, contact.clone()).await?;
         self.cascade_nostr_contact(&contact).await?;
         debug!("deanonymized contact with node_id: {node_id}");
         Ok(contact)
@@ -599,7 +593,7 @@ impl ContactServiceApi for ContactService {
     }
 
     /// Returns a Nostr contact by node id if we have a trusted or participant one.
-    async fn get_nostr_contact_by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>> {
+    async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
         match self.nostr_contact_store.by_node_id(node_id).await {
             Ok(Some(c)) if c.trust_level != TrustLevel::None => Ok(Some(c)),
             _ => Ok(None),
@@ -609,11 +603,11 @@ impl ContactServiceApi for ContactService {
     async fn open_and_decrypt_file(
         &self,
         contact: Contact,
-        id: &str,
+        node_id: &NodeId,
         file_name: &str,
         private_key: &str,
     ) -> Result<Vec<u8>> {
-        debug!("getting file {file_name} for contact with id: {id}",);
+        debug!("getting file {file_name} for contact with id: {node_id}",);
         let nostr_relays = contact.nostr_relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
@@ -659,8 +653,8 @@ pub mod tests {
         service::Error,
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, NODE_ID_TEST_STR, TEST_NODE_ID_SECP,
-            TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address, empty_optional_address, init_test_cfg,
+            MockNostrContactStore, NODE_ID_TEST_STR, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
+            empty_optional_address, init_test_cfg,
         },
     };
     use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrPublicKey};
@@ -670,7 +664,7 @@ pub mod tests {
     pub fn get_baseline_contact() -> Contact {
         Contact {
             t: ContactType::Person,
-            node_id: TEST_NODE_ID_SECP.to_owned(),
+            node_id: NODE_ID_TEST_STR.to_owned(),
             name: "some_name".to_string(),
             email: Some("some_mail@example.com".to_string()),
             postal_address: Some(empty_address()),
@@ -725,7 +719,7 @@ pub mod tests {
             let mut contact = get_baseline_contact();
             contact.name = "Minka".to_string();
             let mut map = HashMap::new();
-            map.insert(TEST_NODE_ID_SECP.to_string(), contact);
+            map.insert(NODE_ID_TEST_STR.to_string(), contact);
             Ok(map)
         });
         let result = get_service(
@@ -741,7 +735,7 @@ pub mod tests {
         assert_eq!(result.as_ref().unwrap().first().unwrap().name, *"Minka");
         assert_eq!(
             result.as_ref().unwrap().first().unwrap().node_id,
-            *TEST_NODE_ID_SECP
+            *NODE_ID_TEST_STR
         );
     }
 
@@ -761,7 +755,7 @@ pub mod tests {
             identity_store,
             nostr_contact,
         )
-        .get_identity_by_node_id(TEST_NODE_ID_SECP)
+        .get_identity_by_node_id(NODE_ID_TEST_STR)
         .await;
         assert!(result.is_ok());
         assert_eq!(
@@ -815,7 +809,7 @@ pub mod tests {
             nostr_contact,
         )
         .update_contact(
-            TEST_NODE_ID_SECP,
+            NODE_ID_TEST_STR,
             Some("new_name".to_string()),
             None,
             empty_optional_address(),
@@ -827,6 +821,7 @@ pub mod tests {
             None,
         )
         .await;
+        println!("{result:?}");
         assert!(result.is_ok());
     }
 
@@ -1000,7 +995,7 @@ pub mod tests {
         .await;
         assert!(result.is_err());
         if let Err(Error::Validation(ValidationError::InvalidContact(node_id))) = result {
-            assert_eq!(node_id, TEST_NODE_ID_SECP.to_owned());
+            assert_eq!(node_id, NODE_ID_TEST_STR.to_owned());
         } else {
             panic!("wrong error");
         }

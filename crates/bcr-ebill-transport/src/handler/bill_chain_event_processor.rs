@@ -71,32 +71,30 @@ impl BillChainEventProcessor {
         }
     }
 
-    pub async fn ensure_nostr_contact(&self, node_id: &str) {
+    pub async fn ensure_nostr_contact(&self, node_id: &NodeId) {
         // we already have the contact in the store, no need to resolve it
         if let Ok(Some(_)) = self.nostr_contact_store.by_node_id(node_id).await {
             return;
         }
         // Let's try to get some details and add the contact
-        if let Ok(Some(contact)) = self.transport.resolve_contact(node_id).await {
+        if let Ok(Some(contact)) = self.transport.resolve_contact(&node_id.to_string()).await {
             let relays = contact
                 .relays
                 .iter()
                 .map(|r| r.as_str().to_owned())
                 .collect();
-            if let Ok(parsed_node_id) = NodeId::from_str(node_id) {
-                if let Err(e) = self
-                    .nostr_contact_store
-                    .upsert(&NostrContact {
-                        npub: parsed_node_id.npub(),
-                        name: contact.metadata.name,
-                        relays,
-                        trust_level: TrustLevel::Participant,
-                        handshake_status: HandshakeStatus::None,
-                    })
-                    .await
-                {
-                    error!("Failed to save nostr contact information for node_id {node_id}: {e}");
-                }
+            if let Err(e) = self
+                .nostr_contact_store
+                .upsert(&NostrContact {
+                    npub: node_id.npub(),
+                    name: contact.metadata.name,
+                    relays,
+                    trust_level: TrustLevel::Participant,
+                    handshake_status: HandshakeStatus::None,
+                })
+                .await
+            {
+                error!("Failed to save nostr contact information for node_id {node_id}: {e}");
             }
         } else {
             info!("Could not resolve nostr contact information for node_id {node_id}");
@@ -149,7 +147,8 @@ impl BillChainEventProcessor {
                 .get_all_nodes_from_bill(&bill_keys)
                 .unwrap_or_default();
             for node_id in node_ids {
-                self.ensure_nostr_contact(&node_id).await
+                self.ensure_nostr_contact(&NodeId::from_str(&node_id)?)
+                    .await
             }
         }
         Ok(())
@@ -277,7 +276,8 @@ impl BillChainEventProcessor {
         // ensure that we have all nostr contacts for the bill participants
         let node_ids = chain.get_all_nodes_from_bill(keys).unwrap_or_default();
         for node_id in node_ids {
-            self.ensure_nostr_contact(&node_id).await
+            self.ensure_nostr_contact(&NodeId::from_str(&node_id)?)
+                .await
         }
 
         Ok(())
@@ -617,7 +617,7 @@ mod tests {
 
         contact_store.expect_by_node_id().returning(move |_| {
             Ok(Some(NostrContact {
-                npub: NodeId::from_str(TEST_PUB_KEY_SECP).unwrap().npub(),
+                npub: NodeId::from_str(NODE_ID_TEST_STR).unwrap().npub(),
                 name: Some("name".to_string()),
                 relays: vec!["wws://some.example.com".to_string()],
                 trust_level: TrustLevel::Participant,
@@ -940,6 +940,9 @@ mod tests {
 
     const TEST_PRIVATE_KEY_SECP: &str =
         "d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9";
+
+    pub const NODE_ID_TEST_STR: &str =
+        "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
 
     pub const TEST_PUB_KEY_SECP: &str =
         "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";

@@ -47,7 +47,7 @@ fn network_char(network: &bitcoin::Network) -> char {
 /// * t => Testnet
 /// * T => Testnet4
 /// * r => Regtest
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct NodeId {
     pub_key: bitcoin::secp256k1::PublicKey,
     network: bitcoin::Network,
@@ -111,7 +111,6 @@ impl FromStr for NodeId {
         };
 
         let pub_key_str = &s[ID_PREFIX.len() + 1..];
-        println!("{pub_key_str}");
         let pub_key = bitcoin::secp256k1::PublicKey::from_str(pub_key_str)
             .map_err(|_| ValidationError::InvalidNodeId)?;
 

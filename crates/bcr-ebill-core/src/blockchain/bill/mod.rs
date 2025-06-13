@@ -66,7 +66,7 @@ pub mod tests {
     use crate::{
         blockchain::Blockchain,
         identity::IdentityWithAll,
-        tests::tests::{TEST_PRIVATE_KEY_SECP, empty_bitcredit_bill, empty_identity},
+        tests::tests::{TEST_PRIVATE_KEY_SECP, empty_bitcredit_bill, empty_identity, node_id_test},
         util::BcrKeys,
     };
     use block::BillIssueBlockData;
@@ -74,7 +74,7 @@ pub mod tests {
     pub fn get_baseline_identity() -> IdentityWithAll {
         let keys = BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap();
         let mut identity = empty_identity();
-        identity.node_id = keys.get_public_key();
+        identity.node_id = node_id_test();
         identity.name = "drawer".to_owned();
         identity.postal_address.country = Some("AT".to_owned());
         identity.postal_address.city = Some("Vienna".to_owned());
