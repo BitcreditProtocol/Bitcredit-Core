@@ -81,7 +81,7 @@ pub enum SortOrder {
 /// We use the latest GiftWrap and PrivateDirectMessage already with this if I
 /// understand the nostr-sdk docs and sources correctly.
 /// @see https://nips.nostr.com/59 and https://nips.nostr.com/17
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct NostrClient {
     pub keys: BcrKeys,
     pub client: Client,
@@ -340,6 +340,7 @@ impl NotificationJsonTransportApi for NostrClient {
         &self,
         id: &str,
         blockchain: BlockchainType,
+        block_time: u64,
         keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
@@ -348,7 +349,8 @@ impl NotificationJsonTransportApi for NostrClient {
         let event = create_public_chain_event(
             id,
             event,
-            blockchain.to_owned(),
+            block_time,
+            blockchain,
             keys,
             previous_event,
             root_event,

@@ -52,6 +52,7 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
         &self,
         id: &str,
         blockchain: BlockchainType,
+        block_time: u64,
         keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
@@ -249,6 +250,7 @@ pub async fn create_nip04_event<T: NostrSigner>(
 pub fn create_public_chain_event(
     id: &str,
     event: EventEnvelope,
+    block_time: u64,
     blockchain: BlockchainType,
     keys: BcrKeys,
     previous_event: Option<Event>,
@@ -263,6 +265,7 @@ pub fn create_public_chain_event(
             .tag(bcr_nostr_tag(id, blockchain)),
         None => EventBuilder::text_note(payload).tag(bcr_nostr_tag(id, blockchain)),
     };
+    let event = event.custom_created_at(nostr::Timestamp::from(block_time));
     Ok(event)
 }
 
