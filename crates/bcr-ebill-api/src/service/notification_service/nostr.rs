@@ -606,13 +606,13 @@ async fn handle_direct_message<T: NostrSigner>(
     client_id: &str,
     event_handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
-    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event, signer).await {
+    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
         let sender_npub = sender.to_bech32();
         let sender_node_id = sender.to_hex();
         trace!(
             "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}"
         );
-        handle_event(envelope, client_id, event_handlers).await?;
+        handle_event(envelope, client_id, event_handlers, event).await?;
     }
     Ok(())
 }
@@ -623,14 +623,14 @@ async fn handle_public_event(
     chain_key_store: &Arc<dyn ChainKeyServiceApi>,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
-    if let Some(encrypted_data) = unwrap_public_chain_event(event)? {
+    if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
         if let Ok(Some(chain_keys)) = chain_key_store
             .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
             .await
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
             trace!("Handling public chain event: {decrypted:?}");
-            handle_event(decrypted, node_id, handlers).await?
+            handle_event(decrypted.clone(), node_id, handlers, event.clone()).await?;
         }
     }
     Ok(())
@@ -690,12 +690,16 @@ async fn handle_event(
     event: EventEnvelope,
     node_id: &str,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    original_event: Box<nostr::Event>,
 ) -> Result<()> {
     let event_type = &event.event_type;
     let mut times = 0;
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
-            match handler.handle_event(event.to_owned(), node_id).await {
+            match handler
+                .handle_event(event.to_owned(), node_id, original_event.clone())
+                .await
+            {
                 Ok(_) => times += 1,
                 Err(e) => error!("Nostr event handler failed: {e}"),
             }
@@ -736,7 +740,7 @@ mod tests {
         pub NotificationHandler {}
         #[async_trait::async_trait]
         impl NotificationHandlerApi for NotificationHandler {
-            async fn handle_event(&self, event: EventEnvelope, identity: &str) -> bcr_ebill_transport::Result<()>;
+            async fn handle_event(&self, event: EventEnvelope, identity: &str, original_event: Box<nostr::Event>) -> bcr_ebill_transport::Result<()>;
             fn handles_event(&self, event_type: &EventType) -> bool;
         }
     }
@@ -796,7 +800,7 @@ mod tests {
         let expected_event: Event<TestEventPayload> = event.clone();
         handler
             .expect_handle_event()
-            .withf(move |e, i| {
+            .withf(move |e, i, _| {
                 let expected = expected_event.clone();
                 let received: Event<TestEventPayload> =
                     e.clone().try_into().expect("could not convert event");
@@ -805,7 +809,7 @@ mod tests {
                 let valid_identity = i == keys2.get_public_key();
                 valid_type && valid_payload && valid_identity
             })
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
 
         let mut offset_store = MockNostrEventOffsetStoreApiMock::new();
 

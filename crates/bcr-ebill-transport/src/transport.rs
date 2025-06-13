@@ -19,7 +19,7 @@ use nostr::{
     event::{EventBuilder, EventId, Kind, Tag, TagKind, TagStandard, UnsignedEvent},
     filter::{Alphabet, Filter, SingleLetterTag},
     key::PublicKey,
-    nips::{nip01::Metadata, nip59::UnwrappedGift, nip73::ExternalContentId},
+    nips::{nip01::Metadata, nip10::Marker, nip59::UnwrappedGift, nip73::ExternalContentId},
     signer::NostrSigner,
     types::{RelayUrl, Timestamp},
 };
@@ -190,6 +190,24 @@ pub fn bcr_nostr_tag(id: &str, blockchain: BlockchainType) -> Tag {
         uppercase: false,
     }
     .into()
+}
+
+pub fn root_and_reply_id(event: &Event) -> (Option<EventId>, Option<EventId>) {
+    let mut root: Option<EventId> = None;
+    let mut reply: Option<EventId> = None;
+    event.tags.filter_standardized(TagKind::e()).for_each(|t| {
+        if let TagStandard::Event {
+            event_id, marker, ..
+        } = t
+        {
+            match marker {
+                Some(Marker::Root) => root = Some(event_id.to_owned()),
+                Some(Marker::Reply) => reply = Some(event_id.to_owned()),
+                _ => {}
+            }
+        }
+    });
+    (root, reply)
 }
 
 /// Given an encrypted payload and a private key, decrypts the payload and returns

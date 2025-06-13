@@ -101,7 +101,12 @@ impl NotificationHandlerApi for BillChainEventHandler {
         event_type == &EventType::Bill
     }
 
-    async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()> {
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        node_id: &str,
+        _: Box<nostr::Event>,
+    ) -> Result<()> {
         debug!("incoming bill chain event for {node_id}");
         if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
             if !decoded.data.blocks.is_empty() {
@@ -181,7 +186,7 @@ mod tests {
 
     use crate::handler::{
         MockBillChainEventProcessorApi,
-        test_utils::{MockNotificationStore, MockPushService},
+        test_utils::{MockNotificationStore, MockPushService, get_test_nostr_event},
     };
 
     use super::*;
@@ -231,7 +236,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -289,7 +298,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -330,7 +343,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -390,7 +407,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -445,7 +466,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -504,7 +529,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -564,7 +593,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -600,7 +633,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -647,7 +684,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }

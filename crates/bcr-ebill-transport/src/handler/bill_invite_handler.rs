@@ -35,7 +35,12 @@ impl NotificationHandlerApi for BillInviteEventHandler {
         event_type == &EventType::BillChainInvite
     }
 
-    async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()> {
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        node_id: &str,
+        _: Box<nostr::Event>,
+    ) -> Result<()> {
         debug!("incoming bill chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
             let events = self
@@ -196,8 +201,8 @@ fn ids_and_markers(
     chain_type: BlockchainType,
     keys: &BcrKeys,
 ) -> Option<EventContainer> {
-    if let Ok(block) = decrypt_block(event.clone(), chain_id, chain_type, keys) {
-        let mut result = EventContainer::new(event.clone(), None, None, block);
+    if let Ok((block, height)) = decrypt_block(event.clone(), chain_id, chain_type, keys) {
+        let mut result = EventContainer::new(event.clone(), None, None, block, height);
         event.tags.filter_standardized(TagKind::e()).for_each(|t| {
             if let TagStandard::Event {
                 event_id, marker, ..
@@ -221,12 +226,12 @@ fn decrypt_block(
     chain_id: &str,
     chain_type: BlockchainType,
     keys: &BcrKeys,
-) -> Result<BillBlock> {
+) -> Result<(BillBlock, usize)> {
     if let Ok(Some(payload)) = unwrap_public_chain_event(Box::new(event.clone())) {
         if (payload.id == chain_id) && (payload.chain_type == chain_type) {
             let decrypted = decrypt_public_chain_event(&payload.payload, keys)?;
             let event: BillBlockEvent = serde_json::from_value(decrypted.data)?;
-            Ok(event.block)
+            Ok((event.block, event.block_height))
         } else {
             Err(Error::Blockchain(format!(
                 "Invalid blockchain event {} {} expected {chain_id} {chain_type}",
@@ -247,6 +252,7 @@ struct EventContainer {
     pub reply_id: Option<EventId>,
     pub children: Vec<EventContainer>,
     pub block: BillBlock,
+    pub block_height: usize,
 }
 
 impl EventContainer {
@@ -255,6 +261,7 @@ impl EventContainer {
         root_id: Option<EventId>,
         reply_id: Option<EventId>,
         block: BillBlock,
+        block_height: usize,
     ) -> Self {
         Self {
             event,
@@ -262,6 +269,7 @@ impl EventContainer {
             reply_id,
             children: Vec::new(),
             block,
+            block_height,
         }
     }
 
@@ -281,6 +289,7 @@ impl EventContainer {
             reply_id: self.reply_id,
             children,
             block: self.block,
+            block_height: self.block_height,
         }
     }
 

@@ -2,10 +2,15 @@ use super::BillChainEventProcessorApi;
 use super::NotificationHandlerApi;
 use crate::EventType;
 use crate::event::bill_blockchain_event::BillBlockEvent;
+use crate::transport::root_and_reply_id;
 use crate::{Event, EventEnvelope, Result};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::blockchain::BlockchainType;
+use bcr_ebill_core::util::date::now;
+use bcr_ebill_persistence::NostrChainEventStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
+use bcr_ebill_persistence::nostr::NostrChainEvent;
 use log::trace;
 use log::{debug, error, warn};
 use std::sync::Arc;
@@ -14,16 +19,19 @@ use std::sync::Arc;
 pub struct PublicBillChainEventHandler {
     bill_store: Arc<dyn BillStoreApi>,
     processor: Arc<dyn BillChainEventProcessorApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
 impl PublicBillChainEventHandler {
     pub fn new(
         processor: Arc<dyn BillChainEventProcessorApi>,
         bill_store: Arc<dyn BillStoreApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     ) -> Self {
         Self {
             bill_store,
             processor,
+            chain_event_store,
         }
     }
 }
@@ -37,7 +45,12 @@ impl NotificationHandlerApi for PublicBillChainEventHandler {
         event_type == &EventType::BillChain
     }
 
-    async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()> {
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        node_id: &str,
+        original_event: Box<nostr::Event>,
+    ) -> Result<()> {
         debug!("incoming bill chain event for {node_id}");
         if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.bill_store.get_keys(&decoded.data.bill_id).await {
@@ -51,12 +64,54 @@ impl NotificationHandlerApi for PublicBillChainEventHandler {
                     .await
                 {
                     error!("Failed to process chain data: {e}");
+                } else {
+                    self.store_event(
+                        original_event,
+                        decoded.data.block_height,
+                        &decoded.data.block.hash,
+                        &decoded.data.bill_id,
+                    )
+                    .await?;
                 }
             } else {
                 trace!("no keys for incoming bill block");
             }
         } else {
             warn!("Could not decode event to BillChainEventPayload {event:?}");
+        }
+        Ok(())
+    }
+}
+
+impl PublicBillChainEventHandler {
+    async fn store_event(
+        &self,
+        event: Box<nostr::Event>,
+        block_height: usize,
+        block_hash: &str,
+        chain_id: &str,
+    ) -> Result<()> {
+        let (root, reply) = root_and_reply_id(&event);
+        if let Err(e) = self
+            .chain_event_store
+            .add_chain_event(NostrChainEvent {
+                event_id: event.id.to_string(),
+                root_id: root
+                    .map(|id| id.to_string())
+                    .unwrap_or(event.id.to_string()),
+                reply_id: reply.map(|id| id.to_string()),
+                author: event.pubkey.to_string(),
+                chain_id: chain_id.to_string(),
+                chain_type: BlockchainType::Bill,
+                block_height,
+                block_hash: block_hash.to_string(),
+                received: now().timestamp() as u64,
+                time: event.created_at.as_u64(),
+                payload: *event.clone(),
+            })
+            .await
+        {
+            error!("Failed to store bill chain nostr event into event store {e}");
         }
         Ok(())
     }
@@ -80,16 +135,20 @@ mod tests {
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::{MockBillChainEventProcessorApi, test_utils::MockBillStore};
+    use crate::handler::{
+        MockBillChainEventProcessorApi,
+        test_utils::{MockBillStore, MockNostrChainEventStore, get_test_nostr_event},
+    };
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (bill_chain_event_processor, bill_store) = create_mocks();
+        let (bill_chain_event_processor, bill_store, event_store) = create_mocks();
         PublicBillChainEventHandler::new(
             Arc::new(bill_chain_event_processor),
             Arc::new(bill_store),
+            Arc::new(event_store),
         );
     }
 
@@ -123,7 +182,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_event_processor, mut bill_store) = create_mocks();
+        let (mut bill_chain_event_processor, mut bill_store, mut event_store) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -135,9 +194,20 @@ mod tests {
             .with(eq(TEST_BILL_ID), always(), always())
             .returning(|_, _, _| Ok(()));
 
+        let nostr_event = get_test_nostr_event();
+        let nostr_event_id = nostr_event.id.to_string();
+
+        event_store
+            .expect_add_chain_event()
+            .withf(move |e| {
+                e.event_id == nostr_event_id && e.root_id == nostr_event_id && e.reply_id.is_none()
+            })
+            .returning(|_| Ok(()));
+
         let handler = PublicBillChainEventHandler::new(
             Arc::new(bill_chain_event_processor),
             Arc::new(bill_store),
+            Arc::new(event_store),
         );
 
         let event = Event::new(
@@ -150,7 +220,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(nostr_event),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -185,7 +259,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_event_processor, mut bill_store) = create_mocks();
+        let (mut bill_chain_event_processor, mut bill_store, event_store) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -201,6 +275,7 @@ mod tests {
         let handler = PublicBillChainEventHandler::new(
             Arc::new(bill_chain_event_processor),
             Arc::new(bill_store),
+            Arc::new(event_store),
         );
 
         let event = Event::new(
@@ -213,7 +288,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
@@ -354,7 +433,15 @@ mod tests {
 
     pub const TEST_BILL_ID: &str = "KmtMUia3ezhshD9EyzvpT62DUPLr66M5LESy6j8ErCtv1USUDtoTA8JkXnCCGEtZxp41aKne5wVcCjoaFbjDqD4aFk";
 
-    fn create_mocks() -> (MockBillChainEventProcessorApi, MockBillStore) {
-        (MockBillChainEventProcessorApi::new(), MockBillStore::new())
+    fn create_mocks() -> (
+        MockBillChainEventProcessorApi,
+        MockBillStore,
+        MockNostrChainEventStore,
+    ) {
+        (
+            MockBillChainEventProcessorApi::new(),
+            MockBillStore::new(),
+            MockNostrChainEventStore::new(),
+        )
     }
 }
