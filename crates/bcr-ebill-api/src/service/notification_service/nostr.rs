@@ -508,7 +508,7 @@ impl NostrConsumer {
                                 )
                                 .await
                                 {
-                                    let success = match event.kind {
+                                    let (success, time) = match event.kind {
                                         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
                                             trace!("Received encrypted direct message: {event:?}");
                                             match handle_direct_message(
@@ -521,9 +521,9 @@ impl NostrConsumer {
                                             {
                                                 Err(e) => {
                                                     error!("Failed to handle direct message: {e}");
-                                                    false
+                                                    (false, 0u64)
                                                 }
-                                                Ok(_) => true,
+                                                Ok(_) => (true, event.created_at.as_u64()),
                                             }
                                         }
                                         Kind::TextNote => {
@@ -540,32 +540,32 @@ impl NostrConsumer {
                                                     error!(
                                                         "Failed to handle public chain event: {e}"
                                                     );
-                                                    false
+                                                    (false, 0u64)
                                                 }
-                                                Ok(_) => true,
+                                                Ok(v) => {
+                                                    if v {
+                                                        (v, event.created_at.as_u64())
+                                                    } else {
+                                                        (false, 0u64)
+                                                    }
+                                                }
                                             }
                                         }
                                         Kind::RelayList => {
                                             // we have not subscribed to relaylist events yet
                                             info!("Received relay list: {event:?}");
-                                            true
+                                            (true, 0u64)
                                         }
                                         Kind::Metadata => {
                                             // we have not subscribed to metadata events yet
                                             info!("Received metadata: {event:?}");
-                                            true
+                                            (true, 0u64)
                                         }
-                                        _ => true,
+                                        _ => (true, 0u64),
                                     };
                                     // store the new event offset
-                                    add_offset(
-                                        &offset_store,
-                                        event.id,
-                                        event.created_at,
-                                        success,
-                                        &client_id,
-                                    )
-                                    .await;
+                                    add_offset(&offset_store, event.id, time, success, &client_id)
+                                        .await;
                                 }
                             }
                             Ok(false)
@@ -624,7 +624,7 @@ async fn handle_public_event(
     node_id: &str,
     chain_key_store: &Arc<dyn ChainKeyServiceApi>,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
-) -> Result<()> {
+) -> Result<bool> {
     if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
         if let Ok(Some(chain_keys)) = chain_key_store
             .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
@@ -634,8 +634,10 @@ async fn handle_public_event(
             trace!("Handling public chain event: {decrypted:?}");
             handle_event(decrypted.clone(), node_id, handlers, event.clone()).await?;
         }
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
 async fn valid_sender(
@@ -672,13 +674,13 @@ async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &str) -> Ti
 async fn add_offset(
     db: &Arc<dyn NostrEventOffsetStoreApi>,
     event_id: EventId,
-    time: Timestamp,
+    time: u64,
     success: bool,
     node_id: &str,
 ) {
     db.add_event(NostrEventOffset {
         event_id: event_id.to_hex(),
-        time: time.as_u64(),
+        time,
         success,
         node_id: node_id.to_string(),
     })
