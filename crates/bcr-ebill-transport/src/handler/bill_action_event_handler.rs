@@ -154,7 +154,7 @@ fn event_description(event_type: &BillEventType) -> String {
         BillEventType::BillRecoursePaid => "bill_recourse_paid".to_string(),
         BillEventType::BillEndorsed => "bill_endorsed".to_string(),
         BillEventType::BillSold => "bill_sold".to_string(),
-        BillEventType::BillMintingRequested => "bill_minted".to_string(),
+        BillEventType::BillMintingRequested => "requested_to_mint".to_string(),
         BillEventType::BillNewQuote => "new_quote".to_string(),
         BillEventType::BillQuoteApproved => "quote_approved".to_string(),
         BillEventType::BillBlock => "".to_string(),
