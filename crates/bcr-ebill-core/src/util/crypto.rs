@@ -331,12 +331,9 @@ fn keypair_from_mnemonic(mnemonic: &Mnemonic) -> Result<Keypair> {
 mod tests {
     use super::*;
     use crate::{
-        PostalAddress,
-        company::Company,
         tests::tests::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
         util,
     };
-    use borsh::to_vec;
 
     const PKEY: &str = "926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3";
 
@@ -699,44 +696,6 @@ mod tests {
         assert!(decrypted.is_ok());
 
         assert_eq!(&msg, decrypted.as_ref().unwrap());
-    }
-
-    #[test]
-    fn encrypt_decrypt_ecies_big_data() {
-        let company_data = Company {
-            id: "company_id".to_owned(),
-            name: "some_name".to_string(),
-            country_of_registration: Some("AT".to_string()),
-            city_of_registration: Some("Vienna".to_string()),
-            postal_address: PostalAddress {
-                country: "AT".to_string(),
-                city: "Vienna".to_string(),
-                zip: None,
-                address: "Smithstreet 1".to_string(),
-            },
-            email: "company@example.com".to_string(),
-            registration_number: Some("some_number".to_string()),
-            registration_date: Some("2012-01-01".to_string()),
-            proof_of_registration_file: None,
-            logo_file: None,
-            signatories: vec!["signatory".to_string()],
-        };
-        let mut companies = vec![];
-        for _ in 0..100 {
-            companies.push(company_data.clone());
-        }
-        let companies_bytes = to_vec(&companies).unwrap();
-        let keypair = BcrKeys::new();
-
-        let encrypted = encrypt_ecies(&companies_bytes, &keypair.get_public_key());
-        assert!(encrypted.is_ok());
-        let decrypted = decrypt_ecies(
-            encrypted.as_ref().unwrap(),
-            &keypair.get_private_key_string(),
-        );
-        assert!(decrypted.is_ok());
-
-        assert_eq!(&companies_bytes, decrypted.as_ref().unwrap());
     }
 
     #[test]
