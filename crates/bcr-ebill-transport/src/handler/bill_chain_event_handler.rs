@@ -1,94 +1,38 @@
 use super::BillChainEventProcessorApi;
 use super::NotificationHandlerApi;
-use crate::BillChainEventPayload;
 use crate::EventType;
-use crate::{Error, Event, EventEnvelope, PushApi, Result};
+use crate::event::bill_blockchain_event::BillBlockEvent;
+use crate::transport::root_and_reply_id;
+use crate::{Event, EventEnvelope, Result};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::notification::BillEventType;
-use bcr_ebill_core::notification::{Notification, NotificationType};
-use bcr_ebill_persistence::NotificationStoreApi;
-use log::{debug, error, trace, warn};
+use bcr_ebill_core::blockchain::BlockchainType;
+use bcr_ebill_core::util::date::now;
+use bcr_ebill_persistence::NostrChainEventStoreApi;
+use bcr_ebill_persistence::bill::BillStoreApi;
+use bcr_ebill_persistence::nostr::NostrChainEvent;
+use log::trace;
+use log::{debug, error, warn};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct BillChainEventHandler {
-    notification_store: Arc<dyn NotificationStoreApi>,
-    push_service: Arc<dyn PushApi>,
+    bill_store: Arc<dyn BillStoreApi>,
     processor: Arc<dyn BillChainEventProcessorApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
 impl BillChainEventHandler {
     pub fn new(
-        notification_store: Arc<dyn NotificationStoreApi>,
-        push_service: Arc<dyn PushApi>,
         processor: Arc<dyn BillChainEventProcessorApi>,
+        bill_store: Arc<dyn BillStoreApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     ) -> Self {
         Self {
-            notification_store,
-            push_service,
+            bill_store,
             processor,
+            chain_event_store,
         }
-    }
-
-    async fn create_notification(
-        &self,
-        event: &BillChainEventPayload,
-        node_id: &str,
-    ) -> Result<()> {
-        trace!("creating notification {event:?} for {node_id}");
-        // no action no notification required
-        if event.action_type.is_none() {
-            return Ok(());
-        }
-        // create notification
-        let notification = Notification::new_bill_notification(
-            &event.bill_id,
-            node_id,
-            &event_description(&event.event_type),
-            Some(serde_json::to_value(event)?),
-        );
-        // mark Bill event as done if any active one exists
-        match self
-            .notification_store
-            .get_latest_by_reference(&event.bill_id, NotificationType::Bill)
-            .await
-        {
-            Ok(Some(currently_active)) => {
-                if let Err(e) = self
-                    .notification_store
-                    .mark_as_done(&currently_active.id)
-                    .await
-                {
-                    error!(
-                        "Failed to mark currently active notification as done: {}",
-                        e
-                    );
-                }
-            }
-            Err(e) => error!("Failed to get latest notification by reference: {}", e),
-            Ok(None) => {}
-        }
-        // save new notification to database
-        self.notification_store
-            .add(notification.clone())
-            .await
-            .map_err(|e| {
-                error!("Failed to save new notification to database: {}", e);
-                Error::Persistence("Failed to save new notification to database".to_string())
-            })?;
-
-        // send push notification to connected clients
-        match serde_json::to_value(notification) {
-            Ok(notification) => {
-                trace!("sending notification {notification:?} for {node_id}");
-                self.push_service.send(notification).await;
-            }
-            Err(e) => {
-                error!("Failed to serialize notification for push service: {}", e);
-            }
-        }
-        Ok(())
     }
 }
 
@@ -98,28 +42,39 @@ impl ServiceTraitBounds for BillChainEventHandler {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationHandlerApi for BillChainEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
-        event_type == &EventType::Bill
+        event_type == &EventType::BillChain
     }
 
-    async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()> {
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        node_id: &str,
+        original_event: Box<nostr::Event>,
+    ) -> Result<()> {
         debug!("incoming bill chain event for {node_id}");
-        if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
-            if !decoded.data.blocks.is_empty() {
+        if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
+            if let Ok(keys) = self.bill_store.get_keys(&decoded.data.bill_id).await {
                 if let Err(e) = self
                     .processor
                     .process_chain_data(
                         &decoded.data.bill_id,
-                        decoded.data.blocks.clone(),
-                        decoded.data.keys.clone(),
+                        vec![decoded.data.block.clone()],
+                        Some(keys.clone()),
                     )
                     .await
                 {
-                    error!("Failed to process chain data: {}", e);
-                    return Ok(());
+                    error!("Failed to process chain data: {e}");
+                } else {
+                    self.store_event(
+                        original_event,
+                        decoded.data.block_height,
+                        &decoded.data.block.hash,
+                        &decoded.data.bill_id,
+                    )
+                    .await?;
                 }
-            }
-            if let Err(e) = self.create_notification(&decoded.data, node_id).await {
-                error!("Failed to create notification for bill event: {}", e);
+            } else {
+                trace!("no keys for incoming bill block");
             }
         } else {
             warn!("Could not decode event to BillChainEventPayload {event:?}");
@@ -128,31 +83,37 @@ impl NotificationHandlerApi for BillChainEventHandler {
     }
 }
 
-// generates a human readable description for an event
-fn event_description(event_type: &BillEventType) -> String {
-    match event_type {
-        BillEventType::BillSigned => "bill_signed".to_string(),
-        BillEventType::BillAccepted => "bill_accepted".to_string(),
-        BillEventType::BillAcceptanceRequested => "bill_should_be_accepted".to_string(),
-        BillEventType::BillAcceptanceRejected => "bill_acceptance_rejected".to_string(),
-        BillEventType::BillAcceptanceTimeout => "bill_acceptance_timed_out".to_string(),
-        BillEventType::BillAcceptanceRecourse => "bill_recourse_acceptance_required".to_string(),
-        BillEventType::BillPaymentRequested => "bill_payment_required".to_string(),
-        BillEventType::BillPaymentRejected => "bill_payment_rejected".to_string(),
-        BillEventType::BillPaymentTimeout => "bill_payment_timed_out".to_string(),
-        BillEventType::BillPaymentRecourse => "bill_recourse_payment_required".to_string(),
-        BillEventType::BillRecourseRejected => "Bill_recourse_rejected".to_string(),
-        BillEventType::BillRecourseTimeout => "Bill_recourse_timed_out".to_string(),
-        BillEventType::BillSellOffered => "bill_request_to_buy".to_string(),
-        BillEventType::BillBuyingRejected => "bill_buying_rejected".to_string(),
-        BillEventType::BillPaid => "bill_paid".to_string(),
-        BillEventType::BillRecoursePaid => "bill_recourse_paid".to_string(),
-        BillEventType::BillEndorsed => "bill_endorsed".to_string(),
-        BillEventType::BillSold => "bill_sold".to_string(),
-        BillEventType::BillMintingRequested => "bill_minted".to_string(),
-        BillEventType::BillNewQuote => "new_quote".to_string(),
-        BillEventType::BillQuoteApproved => "quote_approved".to_string(),
-        BillEventType::BillBlock => "".to_string(),
+impl BillChainEventHandler {
+    async fn store_event(
+        &self,
+        event: Box<nostr::Event>,
+        block_height: usize,
+        block_hash: &str,
+        chain_id: &str,
+    ) -> Result<()> {
+        let (root, reply) = root_and_reply_id(&event);
+        if let Err(e) = self
+            .chain_event_store
+            .add_chain_event(NostrChainEvent {
+                event_id: event.id.to_string(),
+                root_id: root
+                    .map(|id| id.to_string())
+                    .unwrap_or(event.id.to_string()),
+                reply_id: reply.map(|id| id.to_string()),
+                author: event.pubkey.to_string(),
+                chain_id: chain_id.to_string(),
+                chain_type: BlockchainType::Bill,
+                block_height,
+                block_hash: block_hash.to_string(),
+                received: now().timestamp() as u64,
+                time: event.created_at.as_u64(),
+                payload: *event.clone(),
+            })
+            .await
+        {
+            error!("Failed to store bill chain nostr event into event store {e}");
+        }
+        Ok(())
     }
 }
 
@@ -160,183 +121,39 @@ fn event_description(event_type: &BillEventType) -> String {
 mod tests {
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress,
-        bill::BillKeys,
-        bill::BitcreditBill,
+        bill::{BillKeys, BitcreditBill},
         blockchain::{
             Blockchain,
             bill::{
                 BillBlock, BillBlockchain,
-                block::{
-                    BillEndorseBlockData, BillIssueBlockData, BillParticipantBlockData,
-                    BillRejectBlockData,
-                },
+                block::{BillEndorseBlockData, BillIssueBlockData, BillParticipantBlockData},
             },
         },
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         identity::{Identity, IdentityType, IdentityWithAll},
-        notification::ActionType,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
     use crate::handler::{
         MockBillChainEventProcessorApi,
-        test_utils::{MockNotificationStore, MockPushService},
+        test_utils::{MockBillStore, MockNostrChainEventStore, get_test_nostr_event},
     };
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (notification_store, push_service, bill_chain_event_processor) = create_mocks();
+        let (bill_chain_event_processor, bill_store, event_store) = create_mocks();
         BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
             Arc::new(bill_chain_event_processor),
+            Arc::new(bill_store),
+            Arc::new(event_store),
         );
     }
 
     #[tokio::test]
-    async fn test_creates_new_chain_for_new_chain_event() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        payee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
-        let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-        let keys = get_bill_keys();
-
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
-
-        bill_chain_event_processor
-            .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
-            .returning(|_, _, _| Ok(()));
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: chain.blocks().clone(),
-                keys: Some(keys.clone()),
-                sum: Some(0),
-                action_type: None,
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_validation_fails() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        payee.node_id = OTHER_TEST_PUB_KEY_SECP.to_owned();
-        let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
-        let mut chain = get_genesis_chain(Some(bill.clone()));
-        let keys = get_bill_keys();
-
-        // reject to pay without a request to accept will fail
-        let block = BillBlock::create_block_for_reject_to_pay(
-            TEST_BILL_ID.to_string(),
-            chain.get_latest_block(),
-            &BillRejectBlockData {
-                rejecter: payer.clone().into(),
-                signatory: None,
-                signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: empty_address(),
-            },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
-            None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
-            chain.get_latest_block().timestamp + 1000,
-        )
-        .unwrap();
-        assert!(chain.try_add_block(block));
-
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
-
-        bill_chain_event_processor
-            .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
-            .returning(|_, _, _| Ok(()));
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: chain.blocks().clone(),
-                keys: Some(keys.clone()),
-                sum: Some(0),
-                action_type: None,
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_signing_check_fails() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        // drawer has a different key than signer, signing check will fail
-        let mut drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        drawer.node_id = BcrKeys::new().get_public_key();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, Some(&drawer), None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-        let keys = get_bill_keys();
-
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
-
-        bill_chain_event_processor
-            .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
-            .returning(|_, _, _| Ok(()));
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: chain.blocks().clone(),
-                keys: Some(keys.clone()),
-                sum: Some(0),
-                action_type: None,
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_adds_block_for_existing_chain_event() {
+    async fn test_adds_block_and_event_for_valid_existing_chain_event() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
@@ -365,152 +182,55 @@ mod tests {
         )
         .unwrap();
 
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
+        let (mut bill_chain_event_processor, mut bill_store, mut event_store) = create_mocks();
+
+        bill_store
+            .expect_get_keys()
+            .with(eq(TEST_BILL_ID))
+            .returning(|_| Ok(get_bill_keys()));
 
         bill_chain_event_processor
             .expect_process_chain_data()
             .with(eq(TEST_BILL_ID), always(), always())
             .returning(|_, _, _| Ok(()));
 
+        let nostr_event = get_test_nostr_event();
+        let nostr_event_id = nostr_event.id.to_string();
+
+        event_store
+            .expect_add_chain_event()
+            .withf(move |e| {
+                e.event_id == nostr_event_id && e.root_id == nostr_event_id && e.reply_id.is_none()
+            })
+            .returning(|_| Ok(()));
+
         let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
             Arc::new(bill_chain_event_processor),
+            Arc::new(bill_store),
+            Arc::new(event_store),
         );
+
         let event = Event::new(
             EventType::Bill,
-            BillChainEventPayload {
+            BillBlockEvent {
                 bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: vec![block.clone()],
-                keys: None,
-                sum: Some(0),
-                action_type: None,
+                block_height: 1,
+                block: block.clone(),
             },
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                "node_id",
+                Box::new(nostr_event),
+            )
             .await
             .expect("Event should be handled");
     }
 
     #[tokio::test]
-    async fn test_fails_to_add_block_for_invalid_bill_action() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-
-        // reject to pay without a request to accept will fail
-        let block = BillBlock::create_block_for_reject_to_pay(
-            TEST_BILL_ID.to_string(),
-            chain.get_latest_block(),
-            &BillRejectBlockData {
-                rejecter: payer.clone().into(),
-                signatory: None,
-                signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: empty_address(),
-            },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
-            None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
-            chain.get_latest_block().timestamp + 1000,
-        )
-        .unwrap();
-
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
-
-        bill_chain_event_processor
-            .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
-            .returning(|_, _, _| Ok(()));
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: vec![block.clone()],
-                keys: None,
-                sum: Some(0),
-                action_type: None,
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_fails_to_add_block_for_invalidly_signed_blocks() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        // endorser is different than block signer - signature won't be able to be validated
-        let mut endorser = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        endorser.node_id = BcrKeys::new().get_public_key();
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-
-        let block = BillBlock::create_block_for_endorse(
-            TEST_BILL_ID.to_string(),
-            chain.get_latest_block(),
-            &BillEndorseBlockData {
-                endorsee: BillParticipantBlockData::Ident(endorsee.clone().into()),
-                // endorsed by payee
-                endorser: BillParticipantBlockData::Ident(endorser.clone().into()),
-                signatory: None,
-                signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: Some(empty_address()),
-            },
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
-            None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
-            chain.get_latest_block().timestamp + 1000,
-        )
-        .unwrap();
-
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
-
-        bill_chain_event_processor
-            .expect_process_chain_data()
-            .with(eq(TEST_BILL_ID), always(), always())
-            .returning(|_, _, _| Ok(()));
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: vec![block.clone()],
-                keys: None,
-                sum: Some(0),
-                action_type: None,
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_fails_to_add_block_for_unknown_chain() {
+    async fn test_does_not_attempt_to_add_block_for_unknown_chain() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
@@ -539,118 +259,44 @@ mod tests {
         )
         .unwrap();
 
-        let (notification_store, push_service, mut bill_chain_event_processor) = create_mocks();
+        let (mut bill_chain_event_processor, mut bill_store, event_store) = create_mocks();
+
+        bill_store
+            .expect_get_keys()
+            .with(eq(bill.id))
+            .returning(|_| Err(bcr_ebill_persistence::Error::NoIdentity));
 
         bill_chain_event_processor
             .expect_process_chain_data()
             .with(eq(TEST_BILL_ID), always(), always())
-            .returning(|_, _, _| Ok(()));
+            .returning(|_, _, _| Ok(()))
+            .never();
 
         let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
             Arc::new(bill_chain_event_processor),
+            Arc::new(bill_store),
+            Arc::new(event_store),
         );
+
         let event = Event::new(
             EventType::Bill,
-            BillChainEventPayload {
+            BillBlockEvent {
                 bill_id: TEST_BILL_ID.to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: vec![block.clone()],
-                keys: None,
-                sum: Some(0),
-                action_type: None,
+                block_height: 1,
+                block: block.clone(),
             },
         );
 
         handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_creates_no_notification_for_non_action_event() {
-        let (mut notification_store, mut push_service, bill_chain_event_processor) = create_mocks();
-
-        // look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
-
-        // store new notification
-        notification_store.expect_add().never();
-
-        // send push notification
-        push_service.expect_send().never();
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: "bill_id".to_string(),
-                event_type: BillEventType::BillBlock,
-                blocks: vec![],
-                keys: None,
-                sum: None,
-                action_type: None,
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
-            .await
-            .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_creates_notification_for_simple_action_event() {
-        let (mut notification_store, mut push_service, bill_chain_event_processor) = create_mocks();
-
-        // look for currently active notification
-        notification_store
-            .expect_get_latest_by_reference()
-            .with(eq("bill_id"), eq(NotificationType::Bill))
-            .times(1)
-            .returning(|_, _| Ok(None));
-
-        // store new notification
-        notification_store.expect_add().times(1).returning(|_| {
-            Ok(Notification::new_bill_notification(
-                "bill_id",
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
                 "node_id",
-                "description",
-                None,
-            ))
-        });
-
-        // send push notification
-        push_service.expect_send().times(1).returning(|_| ());
-
-        let handler = BillChainEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(bill_chain_event_processor),
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                bill_id: "bill_id".to_string(),
-                event_type: BillEventType::BillSigned,
-                blocks: vec![],
-                keys: None,
-                sum: Some(0),
-                action_type: Some(ActionType::CheckBill),
-            },
-        );
-
-        handler
-            .handle_event(event.try_into().expect("Envelope from event"), "node_id")
+                Box::new(get_test_nostr_event()),
+            )
             .await
             .expect("Event should be handled");
     }
+
     pub fn get_test_bitcredit_bill(
         id: &str,
         payer: &BillIdentParticipant,
@@ -788,14 +434,14 @@ mod tests {
     pub const TEST_BILL_ID: &str = "KmtMUia3ezhshD9EyzvpT62DUPLr66M5LESy6j8ErCtv1USUDtoTA8JkXnCCGEtZxp41aKne5wVcCjoaFbjDqD4aFk";
 
     fn create_mocks() -> (
-        MockNotificationStore,
-        MockPushService,
         MockBillChainEventProcessorApi,
+        MockBillStore,
+        MockNostrChainEventStore,
     ) {
         (
-            MockNotificationStore::new(),
-            MockPushService::new(),
             MockBillChainEventProcessorApi::new(),
+            MockBillStore::new(),
+            MockNostrChainEventStore::new(),
         )
     }
 }

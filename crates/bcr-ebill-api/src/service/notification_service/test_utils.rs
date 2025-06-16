@@ -69,7 +69,12 @@ impl NotificationHandlerApi for TestEventHandler<TestEventPayload> {
         }
     }
 
-    async fn handle_event(&self, event: EventEnvelope, _: &str) -> bcr_ebill_transport::Result<()> {
+    async fn handle_event(
+        &self,
+        event: EventEnvelope,
+        _: &str,
+        _: Box<nostr::Event>,
+    ) -> bcr_ebill_transport::Result<()> {
         *self.called.lock().await = true;
         let event: Event<TestEventPayload> = event.try_into()?;
         *self.received_event.lock().await = Some(event);

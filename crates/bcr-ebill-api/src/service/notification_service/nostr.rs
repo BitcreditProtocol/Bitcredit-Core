@@ -81,7 +81,7 @@ pub enum SortOrder {
 /// We use the latest GiftWrap and PrivateDirectMessage already with this if I
 /// understand the nostr-sdk docs and sources correctly.
 /// @see https://nips.nostr.com/59 and https://nips.nostr.com/17
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct NostrClient {
     pub keys: BcrKeys,
     pub client: Client,
@@ -340,6 +340,7 @@ impl NotificationJsonTransportApi for NostrClient {
         &self,
         id: &str,
         blockchain: BlockchainType,
+        block_time: u64,
         keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
@@ -348,7 +349,8 @@ impl NotificationJsonTransportApi for NostrClient {
         let event = create_public_chain_event(
             id,
             event,
-            blockchain.to_owned(),
+            block_time,
+            blockchain,
             keys,
             previous_event,
             root_event,
@@ -506,7 +508,7 @@ impl NostrConsumer {
                                 )
                                 .await
                                 {
-                                    let success = match event.kind {
+                                    let (success, time) = match event.kind {
                                         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
                                             trace!("Received encrypted direct message: {event:?}");
                                             match handle_direct_message(
@@ -519,9 +521,9 @@ impl NostrConsumer {
                                             {
                                                 Err(e) => {
                                                     error!("Failed to handle direct message: {e}");
-                                                    false
+                                                    (false, 0u64)
                                                 }
-                                                Ok(_) => true,
+                                                Ok(_) => (true, event.created_at.as_u64()),
                                             }
                                         }
                                         Kind::TextNote => {
@@ -538,32 +540,32 @@ impl NostrConsumer {
                                                     error!(
                                                         "Failed to handle public chain event: {e}"
                                                     );
-                                                    false
+                                                    (false, 0u64)
                                                 }
-                                                Ok(_) => true,
+                                                Ok(v) => {
+                                                    if v {
+                                                        (v, event.created_at.as_u64())
+                                                    } else {
+                                                        (false, 0u64)
+                                                    }
+                                                }
                                             }
                                         }
                                         Kind::RelayList => {
                                             // we have not subscribed to relaylist events yet
                                             info!("Received relay list: {event:?}");
-                                            true
+                                            (true, 0u64)
                                         }
                                         Kind::Metadata => {
                                             // we have not subscribed to metadata events yet
                                             info!("Received metadata: {event:?}");
-                                            true
+                                            (true, 0u64)
                                         }
-                                        _ => true,
+                                        _ => (true, 0u64),
                                     };
                                     // store the new event offset
-                                    add_offset(
-                                        &offset_store,
-                                        event.id,
-                                        event.created_at,
-                                        success,
-                                        &client_id,
-                                    )
-                                    .await;
+                                    add_offset(&offset_store, event.id, time, success, &client_id)
+                                        .await;
                                 }
                             }
                             Ok(false)
@@ -606,13 +608,13 @@ async fn handle_direct_message<T: NostrSigner>(
     client_id: &str,
     event_handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
-    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event, signer).await {
+    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
         let sender_npub = sender.to_bech32();
         let sender_node_id = sender.to_hex();
         trace!(
             "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}"
         );
-        handle_event(envelope, client_id, event_handlers).await?;
+        handle_event(envelope, client_id, event_handlers, event).await?;
     }
     Ok(())
 }
@@ -622,18 +624,20 @@ async fn handle_public_event(
     node_id: &str,
     chain_key_store: &Arc<dyn ChainKeyServiceApi>,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
-) -> Result<()> {
-    if let Some(encrypted_data) = unwrap_public_chain_event(event)? {
+) -> Result<bool> {
+    if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
         if let Ok(Some(chain_keys)) = chain_key_store
             .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
             .await
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
             trace!("Handling public chain event: {decrypted:?}");
-            handle_event(decrypted, node_id, handlers).await?
+            handle_event(decrypted.clone(), node_id, handlers, event.clone()).await?;
         }
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
 async fn valid_sender(
@@ -670,13 +674,13 @@ async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &str) -> Ti
 async fn add_offset(
     db: &Arc<dyn NostrEventOffsetStoreApi>,
     event_id: EventId,
-    time: Timestamp,
+    time: u64,
     success: bool,
     node_id: &str,
 ) {
     db.add_event(NostrEventOffset {
         event_id: event_id.to_hex(),
-        time: time.as_u64(),
+        time,
         success,
         node_id: node_id.to_string(),
     })
@@ -690,12 +694,16 @@ async fn handle_event(
     event: EventEnvelope,
     node_id: &str,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    original_event: Box<nostr::Event>,
 ) -> Result<()> {
     let event_type = &event.event_type;
     let mut times = 0;
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
-            match handler.handle_event(event.to_owned(), node_id).await {
+            match handler
+                .handle_event(event.to_owned(), node_id, original_event.clone())
+                .await
+            {
                 Ok(_) => times += 1,
                 Err(e) => error!("Nostr event handler failed: {e}"),
             }
@@ -736,7 +744,7 @@ mod tests {
         pub NotificationHandler {}
         #[async_trait::async_trait]
         impl NotificationHandlerApi for NotificationHandler {
-            async fn handle_event(&self, event: EventEnvelope, identity: &str) -> bcr_ebill_transport::Result<()>;
+            async fn handle_event(&self, event: EventEnvelope, identity: &str, original_event: Box<nostr::Event>) -> bcr_ebill_transport::Result<()>;
             fn handles_event(&self, event_type: &EventType) -> bool;
         }
     }
@@ -796,7 +804,7 @@ mod tests {
         let expected_event: Event<TestEventPayload> = event.clone();
         handler
             .expect_handle_event()
-            .withf(move |e, i| {
+            .withf(move |e, i, _| {
                 let expected = expected_event.clone();
                 let received: Event<TestEventPayload> =
                     e.clone().try_into().expect("could not convert event");
@@ -805,7 +813,7 @@ mod tests {
                 let valid_identity = i == keys2.get_public_key();
                 valid_type && valid_payload && valid_identity
             })
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
 
         let mut offset_store = MockNostrEventOffsetStoreApiMock::new();
 
