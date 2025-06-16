@@ -1,39 +1,18 @@
 use super::{File, OptionalPostalAddress};
 use crate::{ValidationError, util::BcrKeys};
-use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 pub mod validation;
 
 #[repr(u8)]
-#[derive(
-    Debug,
-    Clone,
-    serde_repr::Serialize_repr,
-    serde_repr::Deserialize_repr,
-    PartialEq,
-    Eq,
-    BorshSerialize,
-    BorshDeserialize,
-)]
-#[borsh(use_discriminant = true)]
+#[derive(Debug, Clone, serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Eq)]
 pub enum SwitchIdentityType {
     Person = 0,
     Company = 1,
 }
 
 #[repr(u8)]
-#[derive(
-    Debug,
-    Clone,
-    serde_repr::Serialize_repr,
-    serde_repr::Deserialize_repr,
-    PartialEq,
-    Eq,
-    BorshSerialize,
-    BorshDeserialize,
-)]
-#[borsh(use_discriminant = true)]
+#[derive(Debug, Clone, serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Eq)]
 pub enum IdentityType {
     Ident = 0,
     Anon = 1,
@@ -57,7 +36,7 @@ pub struct IdentityWithAll {
     pub key_pair: BcrKeys,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Identity {
     #[serde(rename = "type")]
     pub t: IdentityType,

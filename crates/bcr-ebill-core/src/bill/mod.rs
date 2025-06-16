@@ -16,7 +16,6 @@ use super::{
     },
     notification::Notification,
 };
-use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 pub mod validation;
@@ -200,7 +199,7 @@ pub struct BillValidateActionData {
     pub is_paid: bool,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BitcreditBill {
     pub id: String,
     pub country_of_issuing: String,
@@ -222,7 +221,7 @@ pub struct BitcreditBill {
     pub files: Vec<File>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillKeys {
     pub private_key: String,
     pub public_key: String,
@@ -536,7 +535,7 @@ pub enum BillsFilterRole {
     Contingent,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(Debug)]
 pub struct PastEndorsee {
     pub pay_to_the_order_of: LightBillIdentParticipant,
     pub signed: LightSignedBy,
@@ -552,7 +551,7 @@ pub struct Endorsement {
     pub signing_address: Option<PostalAddress>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(Debug)]
 pub struct LightSignedBy {
     pub data: LightBillParticipant,
     pub signatory: Option<LightBillIdentParticipant>,

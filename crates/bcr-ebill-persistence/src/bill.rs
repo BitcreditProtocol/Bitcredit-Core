@@ -8,8 +8,6 @@ use bcr_ebill_core::{
     blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
 };
 
-use borsh::{from_slice, to_vec};
-
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BillStoreApi: ServiceTraitBounds {
@@ -72,24 +70,4 @@ pub trait BillChainStoreApi: ServiceTraitBounds {
     async fn add_block(&self, id: &str, block: &BillBlock) -> Result<()>;
     /// Get the whole blockchain
     async fn get_chain(&self, id: &str) -> Result<BillBlockchain>;
-}
-
-pub fn bill_chain_from_bytes(bytes: &[u8]) -> Result<BillBlockchain> {
-    let chain: BillBlockchain = from_slice(bytes)?;
-    Ok(chain)
-}
-
-pub fn bill_keys_from_bytes(bytes: &[u8]) -> Result<BillKeys> {
-    let keys: BillKeys = from_slice(bytes)?;
-    Ok(keys)
-}
-
-pub fn bill_keys_to_bytes(keys: &BillKeys) -> Result<Vec<u8>> {
-    let bytes = to_vec(&keys)?;
-    Ok(bytes)
-}
-
-pub fn bill_chain_to_bytes(chain: &BillBlockchain) -> Result<Vec<u8>> {
-    let bytes = to_vec(&chain)?;
-    Ok(bytes)
 }

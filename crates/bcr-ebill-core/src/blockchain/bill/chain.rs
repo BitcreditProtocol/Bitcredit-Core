@@ -14,7 +14,6 @@ use crate::contact::{
     BillParticipant, ContactType, LightBillIdentParticipant, LightBillParticipant,
 };
 use crate::util::{self, BcrKeys};
-use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,7 +26,7 @@ pub struct BillParties {
     pub endorsee: Option<BillParticipantBlockData>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockchain {
     blocks: Vec<BillBlock>,
 }
