@@ -57,7 +57,7 @@ pub struct Contact {
     pub nostr_relays: Vec<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum BillParticipant {
     Anon(BillAnonParticipant),
     Ident(BillIdentParticipant),
@@ -117,9 +117,7 @@ impl BillParticipant {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default,
-)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct BillAnonParticipant {
     /// The node id of the participant
     pub node_id: String,
@@ -148,9 +146,7 @@ impl From<BillParticipant> for BillAnonParticipant {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Default,
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Default)]
 pub struct BillIdentParticipant {
     /// The type of identity (0 = person, 1 = company)
     #[serde(rename = "type")]
@@ -168,18 +164,18 @@ pub struct BillIdentParticipant {
     pub nostr_relays: Vec<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum LightBillParticipant {
     Anon(LightBillAnonParticipant),
     Ident(LightBillIdentParticipant),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct LightBillAnonParticipant {
     pub node_id: String,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct LightBillIdentParticipant {
     #[serde(rename = "type")]
     pub t: ContactType,
@@ -214,7 +210,7 @@ impl From<BillAnonParticipant> for LightBillAnonParticipant {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct LightBillIdentParticipantWithAddress {
     #[serde(rename = "type")]
     pub t: ContactType,

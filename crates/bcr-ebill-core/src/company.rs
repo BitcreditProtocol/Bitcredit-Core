@@ -1,8 +1,7 @@
 use super::{File, PostalAddress};
-use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Company {
     pub id: String,
     pub name: String,
@@ -17,7 +16,7 @@ pub struct Company {
     pub signatories: Vec<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CompanyKeys {
     pub private_key: String,
     pub public_key: String,

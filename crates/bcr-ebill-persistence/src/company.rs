@@ -6,8 +6,6 @@ use std::collections::HashMap;
 use super::Result;
 use async_trait::async_trait;
 
-use borsh::{from_slice, to_vec};
-
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait CompanyStoreApi: ServiceTraitBounds {
@@ -50,34 +48,4 @@ pub trait CompanyChainStoreApi: ServiceTraitBounds {
     async fn remove(&self, id: &str) -> Result<()>;
     /// Get the whole blockchain
     async fn get_chain(&self, id: &str) -> Result<CompanyBlockchain>;
-}
-
-pub fn company_from_bytes(bytes: &[u8]) -> Result<Company> {
-    let company: Company = from_slice(bytes)?;
-    Ok(company)
-}
-
-pub fn company_to_bytes(company: &Company) -> Result<Vec<u8>> {
-    let bytes = to_vec(&company)?;
-    Ok(bytes)
-}
-
-pub fn company_keys_from_bytes(bytes: &[u8]) -> Result<CompanyKeys> {
-    let company_keys: CompanyKeys = from_slice(bytes)?;
-    Ok(company_keys)
-}
-
-pub fn company_keys_to_bytes(company_keys: &CompanyKeys) -> Result<Vec<u8>> {
-    let bytes = to_vec(&company_keys)?;
-    Ok(bytes)
-}
-
-pub fn company_chain_from_bytes(bytes: &[u8]) -> Result<CompanyBlockchain> {
-    let company_chain: CompanyBlockchain = from_slice(bytes)?;
-    Ok(company_chain)
-}
-
-pub fn company_chain_to_bytes(company_chain: &CompanyBlockchain) -> Result<Vec<u8>> {
-    let bytes = to_vec(&company_chain)?;
-    Ok(bytes)
 }
