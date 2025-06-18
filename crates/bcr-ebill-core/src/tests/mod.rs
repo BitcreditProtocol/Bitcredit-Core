@@ -395,7 +395,6 @@ pub mod tests {
         // parsing
         let valid_bill_id = "bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3y";
         let parsed = BillId::from_str(valid_bill_id).unwrap();
-        assert_eq!(parsed.id(), "BBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3y");
         assert!(matches!(parsed.network(), bitcoin::Network::Testnet));
         assert_eq!(parsed.to_string(), valid_bill_id);
 

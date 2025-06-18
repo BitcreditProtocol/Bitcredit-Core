@@ -54,7 +54,7 @@ impl BillBlockchain {
         bill_keys: BcrKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        let genesis_hash = util::base58_encode(bill.id.id().as_bytes());
+        let genesis_hash = util::base58_encode(bill.id.to_string().as_bytes());
 
         let first_block = BillBlock::create_block_for_issue(
             bill.id.clone(),

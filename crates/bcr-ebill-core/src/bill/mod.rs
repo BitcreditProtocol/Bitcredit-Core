@@ -45,10 +45,6 @@ impl BillId {
     pub fn network(&self) -> bitcoin::Network {
         self.network
     }
-
-    pub fn id(&self) -> &str {
-        &self.hash
-    }
 }
 
 impl std::fmt::Display for BillId {
