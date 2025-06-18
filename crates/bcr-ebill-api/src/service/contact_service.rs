@@ -18,6 +18,7 @@ use crate::{
     data::{
         File, OptionalPostalAddress, PostalAddress,
         contact::{Contact, ContactType},
+        validate_node_id_network,
     },
     external::file_storage::FileStorageClientApi,
     get_config,
@@ -219,6 +220,7 @@ impl ContactServiceApi for ContactService {
     }
 
     async fn get_contact(&self, node_id: &NodeId) -> Result<Contact> {
+        validate_node_id_network(node_id)?;
         debug!("getting contact for {node_id}");
         let res = self.store.get(node_id).await?;
         match res {
@@ -228,12 +230,14 @@ impl ContactServiceApi for ContactService {
     }
 
     async fn get_identity_by_node_id(&self, node_id: &NodeId) -> Result<Option<BillParticipant>> {
+        validate_node_id_network(node_id)?;
         let res = self.store.get(node_id).await?;
         res.map(|c| c.try_into().map_err(super::Error::Validation))
             .transpose()
     }
 
     async fn delete(&self, node_id: &NodeId) -> Result<()> {
+        validate_node_id_network(node_id)?;
         self.store.delete(node_id).await?;
         self.nostr_contact_store.delete(node_id).await?;
         Ok(())
@@ -253,6 +257,7 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: Option<String>,
     ) -> Result<()> {
         debug!("updating contact with node_id: {node_id}");
+        validate_node_id_network(node_id)?;
         let mut contact = match self.store.get(node_id).await? {
             Some(contact) => contact,
             None => {
@@ -398,6 +403,7 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
         debug!("creating {t:?} contact with node_id {node_id}");
+        validate_node_id_network(node_id)?;
         validate_create_contact(
             t.clone(),
             node_id,
@@ -492,6 +498,7 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
         debug!("de-anonymizing {t:?} contact with node_id {node_id}");
+        validate_node_id_network(node_id)?;
         validate_create_contact(
             t.clone(),
             node_id,
@@ -594,6 +601,7 @@ impl ContactServiceApi for ContactService {
 
     /// Returns a Nostr contact by node id if we have a trusted or participant one.
     async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
+        validate_node_id_network(node_id)?;
         match self.nostr_contact_store.by_node_id(node_id).await {
             Ok(Some(c)) if c.trust_level != TrustLevel::None => Ok(Some(c)),
             _ => Ok(None),
@@ -608,6 +616,7 @@ impl ContactServiceApi for ContactService {
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for contact with id: {node_id}",);
+        validate_node_id_network(node_id)?;
         let nostr_relays = contact.nostr_relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
@@ -761,6 +770,88 @@ pub mod tests {
         assert_eq!(
             result.as_ref().unwrap().as_ref().unwrap().name(),
             Some("Minka".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn wrong_network_failures() {
+        let (store, file_upload_store, file_upload_client, identity_store, nostr_contact) =
+            get_storages();
+        let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            nostr_contact,
+        );
+
+        assert!(
+            service
+                .get_identity_by_node_id(&mainnet_node_id)
+                .await
+                .is_err()
+        );
+        assert!(service.delete(&mainnet_node_id).await.is_err());
+        assert!(service.get_contact(&mainnet_node_id).await.is_err());
+        assert!(
+            service
+                .get_nostr_contact_by_node_id(&mainnet_node_id)
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .update_contact(
+                    &mainnet_node_id,
+                    None,
+                    None,
+                    OptionalPostalAddress::empty(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .add_contact(
+                    &mainnet_node_id,
+                    ContactType::Person,
+                    "name".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .deanonymize_contact(
+                    &mainnet_node_id,
+                    ContactType::Person,
+                    "name".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .is_err()
         );
     }
 

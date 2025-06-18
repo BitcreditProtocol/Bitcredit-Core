@@ -23,6 +23,8 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 
+use crate::data::validate_node_id_network;
+
 use super::{BillAction, Result, error::Error, service::BillService};
 
 impl BillService {
@@ -126,6 +128,7 @@ impl BillService {
             }
             // has to be ident to req recourse
             BillAction::RequestRecourse(recoursee, recourse_reason) => {
+                validate_node_id_network(&recoursee.node_id)?;
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let (sum, currency, reason) = match *recourse_reason {
                         RecourseReason::Accept => (
@@ -163,6 +166,7 @@ impl BillService {
             }
             // has to be ident to recourse
             BillAction::Recourse(recoursee, sum, currency, recourse_reason) => {
+                validate_node_id_network(&recoursee.node_id)?;
                 if let BillParticipant::Ident(signer) = signer_public_data {
                     let reason = match *recourse_reason {
                         RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
@@ -194,6 +198,7 @@ impl BillService {
             }
             // can be anon to mint
             BillAction::Mint(mint, sum, currency) => {
+                validate_node_id_network(&mint.node_id())?;
                 let block_data = BillMintBlockData {
                     endorser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -221,6 +226,7 @@ impl BillService {
             }
             // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, currency) => {
+                validate_node_id_network(&buyer.node_id())?;
                 let address_to_pay = self.bitcoin_client.get_address_to_pay(
                     &bill_keys.public_key,
                     &signer_public_data.node_id().pub_key(),
@@ -253,6 +259,7 @@ impl BillService {
             }
             // can be anon to sell
             BillAction::Sell(buyer, sum, currency, payment_address) => {
+                validate_node_id_network(&buyer.node_id())?;
                 let block_data = BillSellBlockData {
                     seller: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -281,6 +288,7 @@ impl BillService {
             }
             // can be anon to endorse
             BillAction::Endorse(endorsee) => {
+                validate_node_id_network(&endorsee.node_id())?;
                 let block_data = BillEndorseBlockData {
                     endorser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon

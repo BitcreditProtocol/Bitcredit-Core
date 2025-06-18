@@ -20,6 +20,7 @@ use crate::data::{
     contact::BillIdentParticipant,
     notification::{Notification, NotificationType},
 };
+use crate::data::{validate_bill_id_network, validate_node_id_network};
 use crate::persistence::notification::{NotificationFilter, NotificationStoreApi};
 use crate::service::contact_service::ContactServiceApi;
 use bcr_ebill_core::notification::{ActionType, BillEventType};
@@ -498,6 +499,9 @@ impl NotificationServiceApi for DefaultNotificationService {
         &self,
         filter: NotificationFilter,
     ) -> Result<Vec<Notification>> {
+        for node_id in filter.node_ids.iter() {
+            validate_node_id_network(node_id)?;
+        }
         let result = self.notification_store.list(filter).await.map_err(|e| {
             error!("Failed to get client notifications: {}", e);
             Error::Persistence("Failed to get client notifications".to_string())
@@ -518,6 +522,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     }
 
     async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification> {
+        validate_bill_id_network(bill_id).ok()?;
         self.notification_store
             .get_latest_by_reference(&bill_id.to_string(), NotificationType::Bill)
             .await
@@ -548,6 +553,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         block_height: i32,
         action: ActionType,
     ) -> Result<bool> {
+        validate_bill_id_network(bill_id)?;
         Ok(self
             .notification_store
             .bill_notification_sent(bill_id, block_height, action)
@@ -570,6 +576,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         block_height: i32,
         action: ActionType,
     ) -> Result<()> {
+        validate_bill_id_network(bill_id)?;
         self.notification_store
             .set_bill_notification_sent(bill_id, block_height, action)
             .await
@@ -618,6 +625,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     }
 
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
+        validate_node_id_network(node_id)?;
         // take any transport - doesn't matter
         if let Some((_node, transport)) = self.notification_transport.iter().next() {
             let res = transport.resolve_contact(node_id).await?;
@@ -1834,6 +1842,51 @@ mod tests {
             .expect("could not get notifications");
         assert!(!res.is_empty());
         assert_eq!(res[0].id, result.id);
+    }
+
+    #[tokio::test]
+    async fn wrong_network_failures() {
+        let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        let filter = NotificationFilter {
+            node_ids: vec![mainnet_node_id.clone()],
+            ..Default::default()
+        };
+
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+
+        let service = DefaultNotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStoreApiMock::new()),
+            Arc::new(MockContactServiceApi::new()),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            vec!["ws://test.relay".into()],
+        );
+
+        assert!(service.get_client_notifications(filter).await.is_err());
+        assert!(service.resolve_contact(&mainnet_node_id).await.is_err());
+        assert!(
+            service
+                .check_bill_notification_sent(&mainnet_bill_id, 0, ActionType::CheckBill)
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .mark_bill_notification_sent(&mainnet_bill_id, 0, ActionType::CheckBill)
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .get_active_bill_notification(&mainnet_bill_id)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]

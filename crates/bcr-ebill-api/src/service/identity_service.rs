@@ -1,4 +1,5 @@
 use super::Result;
+use crate::data::validate_node_id_network;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::{get_config, util};
 use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
@@ -548,6 +549,7 @@ impl IdentityServiceApi for IdentityService {
         file_name: &str,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
+        validate_node_id_network(id)?;
         debug!("getting file {file_name} for identity with id: {id}");
         let nostr_relays = identity.nostr_relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
@@ -591,6 +593,7 @@ impl IdentityServiceApi for IdentityService {
     }
 
     async fn set_current_personal_identity(&self, node_id: &NodeId) -> Result<()> {
+        validate_node_id_network(node_id)?;
         debug!("setting current identity to personal identity: {node_id}");
         self.store
             .set_current_identity(&ActiveIdentityState {
@@ -602,6 +605,7 @@ impl IdentityServiceApi for IdentityService {
     }
 
     async fn set_current_company_identity(&self, node_id: &NodeId) -> Result<()> {
+        validate_node_id_network(node_id)?;
         debug!("setting current identity to company identity: {node_id}");
         let active_identity = self.store.get_current_identity().await?;
         self.store
@@ -1067,5 +1071,29 @@ mod tests {
             .recover_from_seedphrase(seed)
             .await
             .expect("could not recover from seedphrase")
+    }
+
+    #[tokio::test]
+    async fn set_current_personal_identity_fails_for_different_network_id() {
+        let service = get_service(MockIdentityStoreApiMock::new());
+        let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        assert!(
+            service
+                .set_current_personal_identity(&mainnet_node_id)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn set_current_company_identity_fails_for_different_network_id() {
+        let service = get_service(MockIdentityStoreApiMock::new());
+        let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        assert!(
+            service
+                .set_current_company_identity(&mainnet_node_id)
+                .await
+                .is_err()
+        );
     }
 }

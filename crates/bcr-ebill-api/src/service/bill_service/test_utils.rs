@@ -12,8 +12,8 @@ use crate::{
         MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockMintStore,
         MockNotificationService, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
         bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
-        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, node_id_test,
-        node_id_test_other, node_id_test_other2, private_key_test,
+        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, init_test_cfg,
+        node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
     },
     util,
 };
@@ -170,6 +170,7 @@ pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
 }
 
 pub fn get_service(mut ctx: MockBillContext) -> BillService {
+    init_test_cfg();
     let mut bitcoin_client = MockBitcoinClientApi::new();
     bitcoin_client
         .expect_check_if_paid()

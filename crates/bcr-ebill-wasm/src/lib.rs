@@ -1,5 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
+use bcr_ebill_api::data::validate_node_id_network;
 use bcr_ebill_api::{
     Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
     init,
@@ -86,6 +87,8 @@ pub async fn initialize_api(
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
     };
     init(api_config.clone())?;
+    // make sure the configured default mint node id is valid for the configured network
+    validate_node_id_network(&api_config.mint_config.default_mint_node_id)?;
 
     // init db
     let db = get_db_context(&api_config).await?;

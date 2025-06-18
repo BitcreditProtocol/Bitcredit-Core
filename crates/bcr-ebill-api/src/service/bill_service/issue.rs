@@ -1,5 +1,5 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
-use crate::{get_config, util};
+use crate::{data::validate_node_id_network, get_config, util};
 use bcr_ebill_core::{
     File, PublicKey, Validate, ValidationError,
     bill::{
@@ -40,6 +40,9 @@ impl BillService {
             "issuing bill with type {}, blank: {}",
             &data.t, &data.blank_issue
         );
+        validate_node_id_network(&data.drawee)?;
+        validate_node_id_network(&data.payee)?;
+        validate_node_id_network(&data.drawer_public_data.node_id())?;
         let (sum, bill_type) = validate_bill_issue(&data)?;
 
         let drawer = match data.drawer_public_data {
