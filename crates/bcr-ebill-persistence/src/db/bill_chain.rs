@@ -11,7 +11,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    PublicKey, ServiceTraitBounds,
+    bill::BillId,
     blockchain::{
         Block,
         bill::{BillBlock, BillBlockchain, BillOpCode},
@@ -65,7 +66,7 @@ impl ServiceTraitBounds for SurrealBillChainStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl BillChainStoreApi for SurrealBillChainStore {
-    async fn get_latest_block(&self, id: &str) -> Result<BillBlock> {
+    async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_BILL_ID, id.to_owned())?;
@@ -84,7 +85,7 @@ impl BillChainStoreApi for SurrealBillChainStore {
         }
     }
 
-    async fn add_block(&self, id: &str, block: &BillBlock) -> Result<()> {
+    async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()> {
         let entity: BillBlockDb = block.into();
         match self.get_latest_block(id).await {
             Err(Error::NoBillBlock) => {
@@ -148,7 +149,7 @@ impl BillChainStoreApi for SurrealBillChainStore {
         }
     }
 
-    async fn get_chain(&self, id: &str) -> Result<BillBlockchain> {
+    async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_BILL_ID, id.to_owned())?;
@@ -173,13 +174,13 @@ impl BillChainStoreApi for SurrealBillChainStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillBlockDb {
-    pub bill_id: String,
+    pub bill_id: BillId,
     pub block_id: u64,
     pub hash: String,
     pub previous_hash: String,
     pub signature: String,
     pub timestamp: u64,
-    pub public_key: String,
+    pub public_key: PublicKey,
     pub data: String,
     pub op_code: BillOpCode,
 }
@@ -209,7 +210,7 @@ impl From<&BillBlock> for BillBlockDb {
             previous_hash: value.previous_hash.clone(),
             signature: value.signature.clone(),
             timestamp: value.timestamp,
-            public_key: value.public_key.clone(),
+            public_key: value.public_key,
             data: value.data.clone(),
             op_code: value.op_code.clone(),
         }
@@ -221,7 +222,7 @@ mod tests {
     use super::*;
     use crate::{
         db::{bill::tests::get_first_block, get_memory_db},
-        tests::tests::{empty_address, get_bill_keys},
+        tests::tests::{bill_id_test, empty_address, get_bill_keys, node_id_test},
     };
     use bcr_ebill_core::{
         blockchain::{
@@ -245,19 +246,19 @@ mod tests {
     #[tokio::test]
     async fn test_chain() {
         let store = get_store().await;
-        let block = get_first_block("1234");
-        store.add_block("1234", &block).await.unwrap();
-        let last_block = store.get_latest_block("1234").await;
+        let block = get_first_block(&bill_id_test());
+        store.add_block(&bill_id_test(), &block).await.unwrap();
+        let last_block = store.get_latest_block(&bill_id_test()).await;
         assert!(last_block.is_ok());
         assert_eq!(last_block.as_ref().unwrap().id, 1);
 
         let block2 = BillBlock::create_block_for_accept(
-            "1234".to_string(),
+            bill_id_test(),
             &block,
             &BillAcceptBlockData {
                 accepter: BillIdentParticipantBlockData {
                     t: ContactType::Person,
-                    node_id: "555555".to_owned(),
+                    node_id: node_id_test(),
                     name: "some dude".to_owned(),
                     postal_address: empty_address(),
                 },
@@ -271,11 +272,11 @@ mod tests {
             1731593928,
         )
         .unwrap();
-        store.add_block("1234", &block2).await.unwrap();
-        let last_block = store.get_latest_block("1234").await;
+        store.add_block(&bill_id_test(), &block2).await.unwrap();
+        let last_block = store.get_latest_block(&bill_id_test()).await;
         assert!(last_block.is_ok());
         assert_eq!(last_block.as_ref().unwrap().id, 2);
-        let chain = store.get_chain("1234").await.unwrap();
+        let chain = store.get_chain(&bill_id_test()).await.unwrap();
         assert_eq!(chain.blocks().len(), 2);
     }
 }

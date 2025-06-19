@@ -103,6 +103,10 @@ pub enum Error {
 
     #[error("Error with encoding, or decoding")]
     EncodingError,
+
+    /// errors that stem from validation in core
+    #[error("Validation Error: {0}")]
+    Validation(#[from] bcr_ebill_core::ValidationError),
 }
 
 impl From<surrealdb::Error> for Error {

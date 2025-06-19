@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use bcr_ebill_core::NodeId;
 use bitcoin::Network;
 use std::sync::OnceLock;
 
@@ -20,7 +21,7 @@ pub use persistence::db::SurrealDbConfig;
 pub use persistence::get_db_context;
 pub use persistence::notification::NotificationFilter;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: String,
@@ -54,17 +55,16 @@ pub struct NostrConfig {
 }
 
 /// Mint configuration
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MintConfig {
     /// URL of the default mint
     pub default_mint_url: String,
     /// Node Id of the default mint
-    pub default_mint_node_id: String,
+    pub default_mint_node_id: NodeId,
 }
 
 impl MintConfig {
-    pub fn new(default_mint_url: String, default_mint_node_id: String) -> Result<Self> {
-        util::crypto::validate_pub_key(&default_mint_node_id)?;
+    pub fn new(default_mint_url: String, default_mint_node_id: NodeId) -> Result<Self> {
         reqwest::Url::parse(&default_mint_url)
             .map_err(|e| anyhow!("Invalid Default Mint URL: {e}"))?;
         Ok(Self {

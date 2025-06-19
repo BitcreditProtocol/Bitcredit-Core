@@ -4,8 +4,8 @@ pub mod tests {
     use crate::{CONFIG, MintConfig, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
-        bill::{BitcreditBill, BitcreditBillResult},
+        NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
+        bill::{BillId, BitcreditBill, BitcreditBillResult},
         blockchain::{
             BlockchainType,
             bill::{BillBlock, BillBlockchain, BillOpCode},
@@ -38,8 +38,11 @@ pub mod tests {
         BillChainEvent, NotificationServiceApi, chain_keys::ChainKeyServiceApi,
         transport::NostrContactData,
     };
-    use std::collections::{HashMap, HashSet};
     use std::path::Path;
+    use std::{
+        collections::{HashMap, HashSet},
+        str::FromStr,
+    };
 
     // Need to wrap mocks, because traits are in a different crate
     mockall::mock! {
@@ -50,11 +53,11 @@ pub mod tests {
         #[async_trait]
         impl ContactStoreApi for ContactStoreApiMock {
             async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
-            async fn get_map(&self) -> Result<HashMap<String, Contact>>;
-            async fn get(&self, node_id: &str) -> Result<Option<Contact>>;
-            async fn insert(&self, node_id: &str, data: Contact) -> Result<()>;
-            async fn delete(&self, node_id: &str) -> Result<()>;
-            async fn update(&self, node_id: &str, data: Contact) -> Result<()>;
+            async fn get_map(&self) -> Result<HashMap<NodeId, Contact>>;
+            async fn get(&self, node_id: &NodeId) -> Result<Option<Contact>>;
+            async fn insert(&self, node_id: &NodeId, data: Contact) -> Result<()>;
+            async fn delete(&self, node_id: &NodeId) -> Result<()>;
+            async fn update(&self, node_id: &NodeId, data: Contact) -> Result<()>;
         }
     }
 
@@ -65,24 +68,24 @@ pub mod tests {
 
         #[async_trait]
         impl MintStoreApi for MintStore {
-            async fn exists_for_bill(&self, requester_node_id: &str, bill_id: &str) -> Result<bool>;
+            async fn exists_for_bill(&self, requester_node_id: &NodeId, bill_id: &BillId) -> Result<bool>;
             async fn get_all_active_requests(&self) -> Result<Vec<MintRequest>>;
             async fn get_requests(
                 &self,
-                requester_node_id: &str,
-                bill_id: &str,
-                mint_node_id: &str,
+                requester_node_id: &NodeId,
+                bill_id: &BillId,
+                mint_node_id: &NodeId,
             ) -> Result<Vec<MintRequest>>;
             async fn get_requests_for_bill(
                 &self,
-                requester_node_id: &str,
-                bill_id: &str,
+                requester_node_id: &NodeId,
+                bill_id: &BillId,
             ) -> Result<Vec<MintRequest>>;
             async fn add_request(
                 &self,
-                requester_node_id: &str,
-                bill_id: &str,
-                mint_node_id: &str,
+                requester_node_id: &NodeId,
+                bill_id: &BillId,
+                mint_node_id: &NodeId,
                 mint_request_id: &str,
                 timestamp: u64,
             ) -> Result<()>;
@@ -118,12 +121,12 @@ pub mod tests {
 
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
-            async fn by_node_id(&self, node_id: &str) -> Result<Option<NostrContact>>;
+            async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
             async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
             async fn upsert(&self, data: &NostrContact) -> Result<()>;
-            async fn delete(&self, node_id: &str) -> Result<()>;
-            async fn set_handshake_status(&self, node_id: &str, status: HandshakeStatus) -> Result<()>;
-            async fn set_trust_level(&self, node_id: &str, trust_level: TrustLevel) -> Result<()>;
+            async fn delete(&self, node_id: &NodeId) -> Result<()>;
+            async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> Result<()>;
+            async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
         }
     }
@@ -148,25 +151,25 @@ pub mod tests {
 
         #[async_trait]
         impl BillStoreApi for BillStoreApiMock {
-            async fn get_bills_from_cache(&self, ids: &[String], identity_node_id: &str) -> Result<Vec<BitcreditBillResult>>;
-            async fn get_bill_from_cache(&self, id: &str, identity_node_id: &str) -> Result<Option<BitcreditBillResult>>;
-            async fn save_bill_to_cache(&self, id: &str, identity_node_id: &str, bill: &BitcreditBillResult) -> Result<()>;
-            async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()>;
+            async fn get_bills_from_cache(&self, ids: &[BillId], identity_node_id: &NodeId) -> Result<Vec<BitcreditBillResult>>;
+            async fn get_bill_from_cache(&self, id: &BillId, identity_node_id: &NodeId) -> Result<Option<BitcreditBillResult>>;
+            async fn save_bill_to_cache(&self, id: &BillId, identity_node_id: &NodeId, bill: &BitcreditBillResult) -> Result<()>;
+            async fn invalidate_bill_in_cache(&self, id: &BillId) -> Result<()>;
             async fn clear_bill_cache(&self) -> Result<()>;
-            async fn exists(&self, id: &str) -> Result<bool>;
-            async fn get_ids(&self) -> Result<Vec<String>>;
-            async fn save_keys(&self, id: &str, keys: &BillKeys) -> Result<()>;
-            async fn get_keys(&self, id: &str) -> Result<BillKeys>;
-            async fn is_paid(&self, id: &str) -> Result<bool>;
-            async fn set_to_paid(&self, id: &str, payment_address: &str) -> Result<()>;
-            async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<String>>;
-            async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<String>>;
-            async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<String>>;
+            async fn exists(&self, id: &BillId) -> Result<bool>;
+            async fn get_ids(&self) -> Result<Vec<BillId>>;
+            async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
+            async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
+            async fn is_paid(&self, id: &BillId) -> Result<bool>;
+            async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()>;
+            async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
+            async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
+            async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_with_op_codes_since(
                 &self,
                 op_code: HashSet<BillOpCode>,
                 since: u64,
-            ) -> Result<Vec<String>>;
+            ) -> Result<Vec<BillId>>;
         }
     }
 
@@ -177,9 +180,9 @@ pub mod tests {
 
         #[async_trait]
         impl BillChainStoreApi for BillChainStoreApiMock {
-            async fn get_latest_block(&self, id: &str) -> Result<BillBlock>;
-            async fn add_block(&self, id: &str, block: &BillBlock) -> Result<()>;
-            async fn get_chain(&self, id: &str) -> Result<BillBlockchain>;
+            async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;
+            async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
+            async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
         }
     }
 
@@ -202,14 +205,14 @@ pub mod tests {
         #[async_trait]
         impl CompanyStoreApi for CompanyStoreApiMock {
             async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
-            async fn exists(&self, id: &str) -> bool;
-            async fn get(&self, id: &str) -> Result<Company>;
-            async fn get_all(&self) -> Result<HashMap<String, (Company, CompanyKeys)>>;
+            async fn exists(&self, id: &NodeId) -> bool;
+            async fn get(&self, id: &NodeId) -> Result<Company>;
+            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>>;
             async fn insert(&self, data: &Company) -> Result<()>;
-            async fn update(&self, id: &str, data: &Company) -> Result<()>;
-            async fn remove(&self, id: &str) -> Result<()>;
-            async fn save_key_pair(&self, id: &str, key_pair: &CompanyKeys) -> Result<()>;
-            async fn get_key_pair(&self, id: &str) -> Result<CompanyKeys>;
+            async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
+            async fn remove(&self, id: &NodeId) -> Result<()>;
+            async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()>;
+            async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys>;
         }
     }
 
@@ -220,10 +223,10 @@ pub mod tests {
 
         #[async_trait]
         impl CompanyChainStoreApi for CompanyChainStoreApiMock {
-            async fn get_latest_block(&self, id: &str) -> Result<CompanyBlock>;
-            async fn add_block(&self, id: &str, block: &CompanyBlock) -> Result<()>;
-            async fn remove(&self, id: &str) -> Result<()>;
-            async fn get_chain(&self, id: &str) -> Result<CompanyBlockchain>;
+            async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock>;
+            async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
+            async fn remove(&self, id: &NodeId) -> Result<()>;
+            async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
         }
     }
 
@@ -267,7 +270,7 @@ pub mod tests {
 
         #[async_trait]
         impl NostrEventOffsetStoreApi for NostrEventOffsetStoreApiMock {
-            async fn current_offset(&self, node_id: &str) -> Result<u64>;
+            async fn current_offset(&self, node_id: &NodeId) -> Result<u64>;
             async fn is_processed(&self, event_id: &str) -> Result<bool>;
             async fn add_event(&self, data: NostrEventOffset) -> Result<()>;
         }
@@ -329,13 +332,13 @@ pub mod tests {
             async fn delete(&self, notification_id: &str) -> Result<()>;
             async fn set_bill_notification_sent(
                 &self,
-                bill_id: &str,
+                bill_id: &BillId,
                 block_height: i32,
                 action_type: ActionType,
             ) -> Result<()>;
             async fn bill_notification_sent(
                 &self,
-                bill_id: &str,
+                bill_id: &BillId,
                 block_height: i32,
                 action_type: ActionType,
             ) -> Result<bool>;
@@ -396,8 +399,8 @@ pub mod tests {
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_request_to_action_timed_out_event(
                 &self,
-                sender_node_id: &str,
-                bill_id: &str,
+                sender_node_id: &NodeId,
+                bill_id: &BillId,
                 sum: Option<u64>,
                 timed_out_action: ActionType,
                 recipients: Vec<BillParticipant>,
@@ -408,7 +411,7 @@ pub mod tests {
                 action: ActionType,
                 recoursee: &BillIdentParticipant,
             ) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_mint_event(&self, sender_node_id: &str, mint: &BillParticipant, bill: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
+            async fn send_request_to_mint_event(&self, sender_node_id: &NodeId, mint: &BillParticipant, bill: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn send_new_quote_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
             async fn get_client_notifications(
@@ -416,22 +419,22 @@ pub mod tests {
                 filter: NotificationFilter,
             ) -> bcr_ebill_transport::Result<Vec<Notification>>;
             async fn mark_notification_as_done(&self, notification_id: &str) -> bcr_ebill_transport::Result<()>;
-            async fn get_active_bill_notification(&self, bill_id: &str) -> Option<Notification>;
-            async fn get_active_bill_notifications(&self, bill_ids: &[String]) -> HashMap<String, Notification>;
+            async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
+            async fn get_active_bill_notifications(&self, bill_ids: &[BillId]) -> HashMap<BillId, Notification>;
             async fn check_bill_notification_sent(
                 &self,
-                bill_id: &str,
+                bill_id: &BillId,
                 block_height: i32,
                 action: ActionType,
             ) -> bcr_ebill_transport::Result<bool>;
             async fn mark_bill_notification_sent(
                 &self,
-                bill_id: &str,
+                bill_id: &BillId,
                 block_height: i32,
                 action: ActionType,
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_retry_messages(&self) -> bcr_ebill_transport::Result<()>;
-            async fn resolve_contact(&self, node_id: &str) -> bcr_ebill_transport::Result<Option<NostrContactData>>;
+            async fn resolve_contact(&self, node_id: &NodeId) -> bcr_ebill_transport::Result<Option<NostrContactData>>;
         }
     }
 
@@ -440,7 +443,7 @@ pub mod tests {
             Some(_) => (),
             None => {
                 let _ = crate::init(crate::Config {
-                    bitcoin_network: "mainnet".to_string(),
+                    bitcoin_network: "testnet".to_string(),
                     esplora_base_url: "https://esplora.minibill.tech".to_string(),
                     db_config: SurrealDbConfig {
                         connection_string: "ws://localhost:8800".to_string(),
@@ -453,9 +456,9 @@ pub mod tests {
                     },
                     mint_config: MintConfig {
                         default_mint_url: "http://localhost:4242/".into(),
-                        default_mint_node_id:
-                            "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f"
-                                .into(),
+                        default_mint_node_id: NodeId::from_str(
+                            "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
+                        ).unwrap(),
                     },
                 });
             }
@@ -483,7 +486,7 @@ pub mod tests {
     pub fn empty_identity() -> Identity {
         Identity {
             t: IdentityType::Ident,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "some name".to_string(),
             email: Some("some@example.com".to_string()),
             postal_address: empty_optional_address(),
@@ -500,7 +503,7 @@ pub mod tests {
     pub fn empty_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
-            node_id: "".to_string(),
+            node_id: node_id_test(),
             name: "some@example.com".to_string(),
             postal_address: empty_address(),
             email: None,
@@ -508,7 +511,7 @@ pub mod tests {
         }
     }
 
-    pub fn bill_participant_only_node_id(node_id: String) -> BillParticipant {
+    pub fn bill_participant_only_node_id(node_id: NodeId) -> BillParticipant {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id,
@@ -519,7 +522,7 @@ pub mod tests {
         })
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: String) -> BillIdentParticipant {
+    pub fn bill_identified_participant_only_node_id(node_id: NodeId) -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id,
@@ -532,7 +535,7 @@ pub mod tests {
 
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
-            id: "".to_string(),
+            id: bill_id_test(),
             country_of_issuing: "AT".to_string(),
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
@@ -550,16 +553,61 @@ pub mod tests {
         }
     }
 
-    pub const TEST_PUB_KEY_SECP: &str =
-        "02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
+    pub fn node_id_test() -> NodeId {
+        NodeId::from_str("bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
 
-    pub const TEST_BILL_ID: &str = "KmtMUia3ezhshD9EyzvpT62DUPLr66M5LESy6j8ErCtv1USUDtoTA8JkXnCCGEtZxp41aKne5wVcCjoaFbjDqD4aFk";
+    pub fn node_id_test_other() -> NodeId {
+        NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
+            .unwrap()
+    }
 
-    pub const TEST_PRIVATE_KEY_SECP: &str =
-        "d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9";
+    pub fn node_id_test_other2() -> NodeId {
+        NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
+            .unwrap()
+    }
 
-    pub const TEST_NODE_ID_SECP: &str =
-        "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
+    // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
+    pub fn bill_id_test() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    // bitcrt76LWp9iFregj9Lv1awLSfQAmjtDDinBR4GSCbNrEtqEe
+    pub fn bill_id_test_other() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "027a233c85a8f98e276e949ab94bba8bbc07b21946e50e388da767bcc6c95603ce",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    // bitcrtJArd6A7fDhkiD3AU5UgBSQ66yjzQT1NP9tVoeQ1aZW1y
+    pub fn bill_id_test_other2() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "0364f8de530163a528b4de33405ebe434bbd974a26ac24708674de572efacbdfdd",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    pub fn private_key_test() -> SecretKey {
+        SecretKey::from_str("d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9")
+            .unwrap()
+    }
+
+    pub const NODE_ID_TEST_STR: &str =
+        "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
 
     pub const TEST_NODE_ID_SECP_AS_NPUB_HEX: &str =
         "205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";

@@ -10,10 +10,10 @@ use crate::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
         MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
         MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockMintStore,
-        MockNotificationService, TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
-        VALID_PAYMENT_ADDRESS_TESTNET, bill_identified_participant_only_node_id,
-        bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
-        empty_bitcredit_bill, empty_identity,
+        MockNotificationService, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
+        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
+        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, node_id_test,
+        node_id_test_other, node_id_test_other2, private_key_test,
     },
     util,
 };
@@ -37,7 +37,6 @@ use bcr_ebill_core::{
     },
     contact::{BillIdentParticipant, BillParticipant},
 };
-use core::str;
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
 use service::BillService;
 use std::{collections::HashMap, sync::Arc};
@@ -59,10 +58,10 @@ pub struct MockBillContext {
 }
 
 pub fn get_baseline_identity() -> IdentityWithAll {
-    let keys = BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap();
+    let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
     let mut identity = empty_identity();
     identity.name = "drawer".to_owned();
-    identity.node_id = keys.get_public_key();
+    identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
     identity.postal_address.country = Some("AT".to_owned());
     identity.postal_address.city = Some("Vienna".to_owned());
     identity.postal_address.address = Some("Hayekweg 5".to_owned());
@@ -73,21 +72,21 @@ pub fn get_baseline_identity() -> IdentityWithAll {
     }
 }
 
-pub fn get_baseline_cached_bill(id: String) -> BitcreditBillResult {
+pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
     BitcreditBillResult {
         id,
         participants: BillParticipants {
-            drawee: bill_identified_participant_only_node_id("drawee".to_string()),
-            drawer: bill_identified_participant_only_node_id("drawer".to_string()),
+            drawee: bill_identified_participant_only_node_id(node_id_test()),
+            drawer: bill_identified_participant_only_node_id(node_id_test_other()),
             payee: BillParticipant::Ident(bill_identified_participant_only_node_id(
-                "payee".to_string(),
+                node_id_test_other2(),
             )),
             endorsee: None,
             endorsements_count: 5,
             all_participant_node_ids: vec![
-                "drawee".to_string(),
-                "drawer".to_string(),
-                "payee".to_string(),
+                node_id_test(),
+                node_id_test_other(),
+                node_id_test_other2(),
             ],
         },
         data: BillData {
@@ -144,14 +143,14 @@ pub fn get_baseline_cached_bill(id: String) -> BitcreditBillResult {
     }
 }
 
-pub fn get_baseline_bill(bill_id: &str) -> BitcreditBill {
+pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
     let mut bill = empty_bitcredit_bill();
     let keys = BcrKeys::new();
 
     bill.maturity_date = "2099-10-15".to_string();
     let mut payee = empty_bill_identified_participant();
     payee.name = "payee".to_owned();
-    payee.node_id = keys.get_public_key();
+    payee.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
     bill.payee = BillParticipant::Ident(payee);
     bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
     bill.id = bill_id.to_owned();
@@ -159,12 +158,12 @@ pub fn get_baseline_bill(bill_id: &str) -> BitcreditBill {
 }
 
 pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
-    let bill = bill.unwrap_or(get_baseline_bill(TEST_BILL_ID));
+    let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
     BillBlockchain::new(
         &BillIssueBlockData::from(bill, None, 1731593920),
         get_baseline_identity().key_pair,
         None,
-        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        BcrKeys::from_private_key(&private_key_test()).unwrap(),
         1731593920,
     )
     .unwrap()
@@ -226,8 +225,8 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .returning(|_, _| Ok(()));
     ctx.bill_store.expect_get_keys().returning(|_| {
         Ok(BillKeys {
-            private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-            public_key: TEST_PUB_KEY_SECP.to_owned(),
+            private_key: private_key_test(),
+            public_key: node_id_test().pub_key(),
         })
     });
     ctx.bill_store
@@ -290,22 +289,17 @@ pub fn get_ctx() -> MockBillContext {
 }
 
 pub fn request_to_recourse_block(
-    id: &str,
+    id: &BillId,
     first_block: &BillBlock,
     recoursee: &BillIdentParticipant,
     ts: Option<u64>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_request_recourse(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRequestRecourseBlockData {
-            recourser: bill_identified_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
             recoursee: recoursee.to_owned().into(),
             sum: 15000,
             currency: "sat".to_string(),
@@ -314,29 +308,24 @@ pub fn request_to_recourse_block(
             signing_timestamp: timestamp,
             signing_address: empty_address(),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         timestamp,
     )
     .expect("block could not be created")
 }
 
 pub fn recourse_block(
-    id: &str,
+    id: &BillId,
     first_block: &BillBlock,
     recoursee: &BillIdentParticipant,
 ) -> BillBlock {
     BillBlock::create_block_for_recourse(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRecourseBlockData {
-            recourser: bill_identified_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
             recoursee: recoursee.to_owned().into(),
             sum: 15000,
             currency: "sat".to_string(),
@@ -345,104 +334,84 @@ pub fn recourse_block(
             signing_timestamp: first_block.timestamp + 1,
             signing_address: empty_address(),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp + 1,
     )
     .expect("block could not be created")
 }
 
-pub fn reject_recourse_block(id: &str, first_block: &BillBlock) -> BillBlock {
+pub fn reject_recourse_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
     BillBlock::create_block_for_reject_to_pay_recourse(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRejectBlockData {
-            rejecter: bill_identified_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            rejecter: bill_identified_participant_only_node_id(node_id_test()).into(),
             signatory: None,
             signing_timestamp: first_block.timestamp,
             signing_address: empty_address(),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp,
     )
     .expect("block could not be created")
 }
 
-pub fn request_to_accept_block(id: &str, first_block: &BillBlock, ts: Option<u64>) -> BillBlock {
+pub fn request_to_accept_block(id: &BillId, first_block: &BillBlock, ts: Option<u64>) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_request_to_accept(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRequestToAcceptBlockData {
             requester: BillParticipantBlockData::Ident(
-                bill_identified_participant_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
+                bill_identified_participant_only_node_id(node_id_test()).into(),
             ),
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         timestamp,
     )
     .expect("block could not be created")
 }
 
-pub fn reject_accept_block(id: &str, first_block: &BillBlock) -> BillBlock {
+pub fn reject_accept_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
     BillBlock::create_block_for_reject_to_accept(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRejectBlockData {
-            rejecter: bill_identified_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            rejecter: bill_identified_participant_only_node_id(node_id_test()).into(),
             signatory: None,
             signing_timestamp: first_block.timestamp,
             signing_address: empty_address(),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp,
     )
     .expect("block could not be created")
 }
 
 pub fn offer_to_sell_block(
-    id: &str,
+    id: &BillId,
     first_block: &BillBlock,
     buyer: &BillIdentParticipant,
     ts: Option<u64>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_offer_to_sell(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillOfferToSellBlockData {
             seller: BillParticipantBlockData::Ident(
-                bill_identified_participant_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
+                bill_identified_participant_only_node_id(node_id_test()).into(),
             ),
             buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             currency: "sat".to_string(),
@@ -452,49 +421,39 @@ pub fn offer_to_sell_block(
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         timestamp,
     )
     .expect("block could not be created")
 }
 
-pub fn reject_buy_block(id: &str, first_block: &BillBlock) -> BillBlock {
+pub fn reject_buy_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
     BillBlock::create_block_for_reject_to_buy(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRejectToBuyBlockData {
-            rejecter: bill_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            rejecter: bill_participant_only_node_id(node_id_test()).into(),
             signatory: None,
             signing_timestamp: first_block.timestamp,
             signing_address: Some(empty_address()),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp,
     )
     .expect("block could not be created")
 }
 
-pub fn sell_block(id: &str, first_block: &BillBlock, buyer: &BillIdentParticipant) -> BillBlock {
+pub fn sell_block(id: &BillId, first_block: &BillBlock, buyer: &BillIdentParticipant) -> BillBlock {
     BillBlock::create_block_for_sell(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillSellBlockData {
             seller: BillParticipantBlockData::Ident(
-                bill_identified_participant_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
+                bill_identified_participant_only_node_id(node_id_test()).into(),
             ),
             buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             currency: "sat".to_string(),
@@ -504,82 +463,67 @@ pub fn sell_block(id: &str, first_block: &BillBlock, buyer: &BillIdentParticipan
             signing_timestamp: first_block.timestamp + 1,
             signing_address: Some(empty_address()),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp + 1,
     )
     .expect("block could not be created")
 }
 
-pub fn accept_block(id: &str, first_block: &BillBlock) -> BillBlock {
+pub fn accept_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
     BillBlock::create_block_for_accept(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillAcceptBlockData {
-            accepter: bill_identified_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            accepter: bill_identified_participant_only_node_id(node_id_test()).into(),
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
             signing_address: empty_address(),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp + 1,
     )
     .expect("block could not be created")
 }
 
-pub fn request_to_pay_block(id: &str, first_block: &BillBlock, ts: Option<u64>) -> BillBlock {
+pub fn request_to_pay_block(id: &BillId, first_block: &BillBlock, ts: Option<u64>) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_request_to_pay(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRequestToPayBlockData {
             requester: BillParticipantBlockData::Ident(
-                bill_identified_participant_only_node_id(
-                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                        .unwrap()
-                        .get_public_key(),
-                )
-                .into(),
+                bill_identified_participant_only_node_id(node_id_test()).into(),
             ),
             currency: "sat".to_string(),
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         timestamp,
     )
     .expect("block could not be created")
 }
 
-pub fn reject_to_pay_block(id: &str, first_block: &BillBlock) -> BillBlock {
+pub fn reject_to_pay_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
     BillBlock::create_block_for_reject_to_pay(
-        id.to_string(),
+        id.to_owned(),
         first_block,
         &BillRejectBlockData {
-            rejecter: bill_identified_participant_only_node_id(
-                BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
-                    .unwrap()
-                    .get_public_key(),
-            )
-            .into(),
+            rejecter: bill_identified_participant_only_node_id(node_id_test()).into(),
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
             signing_address: empty_address(),
         },
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
-        &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+        &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         first_block.timestamp + 1,
     )
     .expect("block could not be created")
@@ -587,7 +531,7 @@ pub fn reject_to_pay_block(id: &str, first_block: &BillBlock) -> BillBlock {
 
 pub fn bill_keys() -> BillKeys {
     BillKeys {
-        private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-        public_key: TEST_PUB_KEY_SECP.to_owned(),
+        private_key: private_key_test(),
+        public_key: node_id_test().pub_key(),
     }
 }

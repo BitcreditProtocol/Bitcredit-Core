@@ -1,10 +1,12 @@
+use std::str::FromStr;
+
 use crate::data::contact::{
     ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload, NewContactPayload,
 };
 use crate::data::{BinaryFileResponse, UploadFile, UploadFileResponse};
 use crate::{Result, context::get_ctx};
 use bcr_ebill_api::data::contact::ContactType;
-use bcr_ebill_api::data::{OptionalPostalAddress, PostalAddress};
+use bcr_ebill_api::data::{NodeId, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_api::service;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
 use bcr_ebill_api::util::{ValidationError, validate_file_upload_id};
@@ -21,19 +23,23 @@ impl Contact {
     }
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
-    pub async fn file(&self, id: &str, file_name: &str) -> Result<JsValue> {
-        let contact = get_ctx().contact_service.get_contact(id).await?; // check if contact exists
+    pub async fn file(&self, node_id: &str, file_name: &str) -> Result<JsValue> {
+        let parsed_node_id = NodeId::from_str(node_id)?;
+        let contact = get_ctx()
+            .contact_service
+            .get_contact(&parsed_node_id)
+            .await?; // check if contact exists
 
         let private_key = get_ctx()
             .identity_service
             .get_full_identity()
             .await?
             .key_pair
-            .get_private_key_string();
+            .get_private_key();
 
         let file_bytes = get_ctx()
             .contact_service
-            .open_and_decrypt_file(contact, id, file_name, &private_key)
+            .open_and_decrypt_file(contact, &parsed_node_id, file_name, &private_key)
             .await?;
 
         let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(
@@ -81,14 +87,20 @@ impl Contact {
 
     #[wasm_bindgen(unchecked_return_type = "ContactWeb")]
     pub async fn detail(&self, node_id: &str) -> Result<JsValue> {
-        let contact: ContactWeb = get_ctx().contact_service.get_contact(node_id).await?.into();
+        let parsed_node_id = NodeId::from_str(node_id)?;
+        let contact: ContactWeb = get_ctx()
+            .contact_service
+            .get_contact(&parsed_node_id)
+            .await?
+            .into();
         let res = serde_wasm_bindgen::to_value(&contact)?;
         Ok(res)
     }
 
     #[wasm_bindgen]
     pub async fn remove(&self, node_id: &str) -> Result<()> {
-        get_ctx().contact_service.delete(node_id).await?;
+        let parsed_node_id = NodeId::from_str(node_id)?;
+        get_ctx().contact_service.delete(&parsed_node_id).await?;
         Ok(())
     }
 

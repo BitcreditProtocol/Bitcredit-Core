@@ -1,6 +1,10 @@
 use crate::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, bill::BillKeys, blockchain::bill::BillBlock};
+use bcr_ebill_core::{
+    NodeId, ServiceTraitBounds,
+    bill::{BillId, BillKeys},
+    blockchain::bill::BillBlock,
+};
 use log::trace;
 #[cfg(test)]
 use mockall::automock;
@@ -37,7 +41,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        node_id: &str,
+        node_id: &NodeId,
         original_event: Box<nostr::Event>,
     ) -> Result<()>;
 }
@@ -52,7 +56,7 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
     /// present when we are joining a new chain.
     async fn process_chain_data(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         blocks: Vec<BillBlock>,
         keys: Option<BillKeys>,
     ) -> Result<()>;
@@ -79,7 +83,7 @@ impl NotificationHandlerApi for LoggingEventHandler {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        identity: &str,
+        identity: &NodeId,
         _: Box<nostr::Event>,
     ) -> Result<()> {
         trace!("Received event: {event:?} for identity: {identity}");
@@ -89,6 +93,7 @@ impl NotificationHandlerApi for LoggingEventHandler {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
 
     use bcr_ebill_core::notification::BillEventType;
     use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -116,7 +121,14 @@ mod tests {
 
         // handler should run successfully
         event_handler
-            .handle_event(envelope, "identity", nostr_event)
+            .handle_event(
+                envelope,
+                &NodeId::from_str(
+                    "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
+                )
+                .unwrap(),
+                nostr_event,
+            )
             .await
             .expect("event was not handled");
 
@@ -166,7 +178,7 @@ mod tests {
         async fn handle_event(
             &self,
             event: EventEnvelope,
-            _: &str,
+            _: &NodeId,
             _: Box<nostr::Event>,
         ) -> Result<()> {
             *self.called.lock().await = true;
@@ -193,8 +205,8 @@ mod tests {
 mod test_utils {
     use async_trait::async_trait;
     use bcr_ebill_core::{
-        ServiceTraitBounds,
-        bill::{BillKeys, BitcreditBillResult},
+        NodeId, ServiceTraitBounds,
+        bill::{BillId, BillKeys, BitcreditBillResult},
         blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
         nostr_contact::NostrPublicKey,
         notification::{ActionType, Notification, NotificationType},
@@ -237,13 +249,13 @@ mod test_utils {
             async fn delete(&self, notification_id: &str) -> Result<()>;
             async fn set_bill_notification_sent(
                 &self,
-                bill_id: &str,
+                bill_id: &BillId,
                 block_height: i32,
                 action_type: ActionType,
             ) -> Result<()>;
             async fn bill_notification_sent(
                 &self,
-                bill_id: &str,
+                bill_id: &BillId,
                 block_height: i32,
                 action_type: ActionType,
             ) -> Result<bool>;
@@ -269,9 +281,9 @@ mod test_utils {
 
         #[async_trait]
         impl BillChainStoreApi for BillChainStore {
-            async fn get_latest_block(&self, id: &str) -> Result<BillBlock>;
-            async fn add_block(&self, id: &str, block: &BillBlock) -> Result<()>;
-            async fn get_chain(&self, id: &str) -> Result<BillBlockchain>;
+            async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;
+            async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
+            async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
         }
     }
 
@@ -282,25 +294,25 @@ mod test_utils {
 
         #[async_trait]
         impl BillStoreApi for BillStore {
-            async fn get_bills_from_cache(&self, ids: &[String], identity_node_id: &str) -> Result<Vec<BitcreditBillResult>>;
-            async fn get_bill_from_cache(&self, id: &str, identity_node_id: &str) -> Result<Option<BitcreditBillResult>>;
-            async fn save_bill_to_cache(&self, id: &str, identity_node_id: &str, bill: &BitcreditBillResult) -> Result<()>;
-            async fn invalidate_bill_in_cache(&self, id: &str) -> Result<()>;
+            async fn get_bills_from_cache(&self, ids: &[BillId], identity_node_id: &NodeId) -> Result<Vec<BitcreditBillResult>>;
+            async fn get_bill_from_cache(&self, id: &BillId, identity_node_id: &NodeId) -> Result<Option<BitcreditBillResult>>;
+            async fn save_bill_to_cache(&self, id: &BillId, identity_node_id: &NodeId, bill: &BitcreditBillResult) -> Result<()>;
+            async fn invalidate_bill_in_cache(&self, id: &BillId) -> Result<()>;
             async fn clear_bill_cache(&self) -> Result<()>;
-            async fn exists(&self, id: &str) -> Result<bool>;
-            async fn get_ids(&self) -> Result<Vec<String>>;
-            async fn save_keys(&self, id: &str, keys: &BillKeys) -> Result<()>;
-            async fn get_keys(&self, id: &str) -> Result<BillKeys>;
-            async fn is_paid(&self, id: &str) -> Result<bool>;
-            async fn set_to_paid(&self, id: &str, payment_address: &str) -> Result<()>;
-            async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<String>>;
-            async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<String>>;
-            async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<String>>;
+            async fn exists(&self, id: &BillId) -> Result<bool>;
+            async fn get_ids(&self) -> Result<Vec<BillId>>;
+            async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
+            async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
+            async fn is_paid(&self, id: &BillId) -> Result<bool>;
+            async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()>;
+            async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
+            async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
+            async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_with_op_codes_since(
                 &self,
                 op_code: std::collections::HashSet<BillOpCode> ,
                 since: u64,
-            ) -> Result<Vec<String>>;
+            ) -> Result<Vec<BillId>>;
         }
     }
 
@@ -311,12 +323,12 @@ mod test_utils {
 
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
-            async fn by_node_id(&self, node_id: &str) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
+            async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
             async fn by_npub(&self, npub: &bcr_ebill_core::nostr_contact::NostrPublicKey) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
             async fn upsert(&self, data: &bcr_ebill_core::nostr_contact::NostrContact) -> Result<()>;
-            async fn delete(&self, node_id: &str) -> Result<()>;
-            async fn set_handshake_status(&self, node_id: &str, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
-            async fn set_trust_level(&self, node_id: &str, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
+            async fn delete(&self, node_id: &NodeId) -> Result<()>;
+            async fn set_handshake_status(&self, node_id: &NodeId, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
+            async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 
         }

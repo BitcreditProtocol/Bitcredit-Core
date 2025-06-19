@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
 use bcr_ebill_persistence::nostr::{
@@ -21,13 +23,13 @@ use crate::data::{
 use crate::persistence::notification::{NotificationFilter, NotificationStoreApi};
 use crate::service::contact_service::ContactServiceApi;
 use bcr_ebill_core::notification::{ActionType, BillEventType};
-use bcr_ebill_core::{PostalAddress, ServiceTraitBounds};
+use bcr_ebill_core::{NodeId, PostalAddress, ServiceTraitBounds};
 
 /// A default implementation of the NotificationServiceApi that can
 /// send events via json and email transports.
 #[allow(dead_code)]
 pub struct DefaultNotificationService {
-    notification_transport: HashMap<String, Arc<dyn NotificationJsonTransportApi>>,
+    notification_transport: HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>,
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
@@ -52,7 +54,7 @@ impl DefaultNotificationService {
         Self {
             notification_transport: notification_transport
                 .into_iter()
-                .map(|t| (t.get_sender_key(), t))
+                .map(|t| (t.get_sender_node_id(), t))
                 .collect(),
             notification_store,
             contact_service,
@@ -62,12 +64,12 @@ impl DefaultNotificationService {
         }
     }
 
-    fn get_local_identity(&self, node_id: &str) -> Option<BillParticipant> {
+    fn get_local_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
         if self.notification_transport.contains_key(node_id) {
             Some(BillParticipant::Ident(BillIdentParticipant {
                 // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
                 t: ContactType::Person,
-                node_id: node_id.to_string(),
+                node_id: node_id.to_owned(),
                 email: None,
                 name: String::new(),
                 postal_address: PostalAddress::default(),
@@ -78,7 +80,7 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn resolve_identity(&self, node_id: &str) -> Option<BillParticipant> {
+    async fn resolve_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
         match self.get_local_identity(node_id) {
             Some(id) => Some(id),
             None => {
@@ -93,7 +95,7 @@ impl DefaultNotificationService {
                 {
                     // we have no contact but a nostr contact of a participant
                     Some(BillParticipant::Anon(BillAnonParticipant {
-                        node_id: node_id.to_string(),
+                        node_id: node_id.to_owned(),
                         email: None,
                         nostr_relays: nostr.relays,
                     }))
@@ -106,8 +108,8 @@ impl DefaultNotificationService {
 
     async fn send_all_events(
         &self,
-        sender: &str,
-        events: HashMap<String, Event<BillChainEventPayload>>,
+        sender: &NodeId,
+        events: HashMap<NodeId, Event<BillChainEventPayload>>,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender) {
             for (node_id, event_to_process) in events.into_iter() {
@@ -163,7 +165,10 @@ impl DefaultNotificationService {
                 // if there is a previous and it is not the root event, also get the root event
                 let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
                     self.chain_event_store
-                        .find_root_event(&block_event.data.bill_id, BlockchainType::Bill)
+                        .find_root_event(
+                            &block_event.data.bill_id.to_string(),
+                            BlockchainType::Bill,
+                        )
                         .await
                         .map_err(|_| {
                             Error::Persistence("failed to read from chain events".to_owned())
@@ -175,7 +180,7 @@ impl DefaultNotificationService {
                 // now send the event
                 let event = node
                     .send_public_chain_event(
-                        &block_event.data.bill_id,
+                        &block_event.data.bill_id.to_string(),
                         BlockchainType::Bill,
                         block_event.data.block.timestamp,
                         events.bill_keys.clone().try_into()?,
@@ -193,7 +198,7 @@ impl DefaultNotificationService {
                             .unwrap_or(event.id.to_string()),
                         reply_id: previous_event.map(|e| e.event_id.to_string()),
                         author: event.pubkey.to_string(),
-                        chain_id: block_event.data.bill_id.to_owned(),
+                        chain_id: block_event.data.bill_id.to_string(),
                         chain_type: BlockchainType::Bill,
                         block_height: events.block_height(),
                         block_hash: block_event.data.block.hash.to_owned(),
@@ -222,8 +227,8 @@ impl DefaultNotificationService {
 
     async fn send_retry_message(
         &self,
-        sender: &str,
-        node_id: &str,
+        sender: &NodeId,
+        node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
         if let Some(node) = self.notification_transport.get(sender) {
@@ -391,7 +396,7 @@ impl NotificationServiceApi for DefaultNotificationService {
 
     async fn send_request_to_mint_event(
         &self,
-        sender_node_id: &str,
+        sender_node_id: &NodeId,
         mint: &BillParticipant,
         bill: &BitcreditBill,
     ) -> Result<()> {
@@ -400,7 +405,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             bill_id: bill.id.clone(),
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum),
-            ..Default::default()
+            keys: None,
+            blocks: vec![],
         });
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             node.send_private_event(mint, event.try_into()?).await?;
@@ -427,8 +433,8 @@ impl NotificationServiceApi for DefaultNotificationService {
 
     async fn send_request_to_action_timed_out_event(
         &self,
-        sender_node_id: &str,
-        bill_id: &str,
+        sender_node_id: &NodeId,
+        bill_id: &BillId,
         sum: Option<u64>,
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
@@ -436,7 +442,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             if let Some(event_type) = timed_out_action.get_timeout_event_type() {
                 // only send to a recipient once
-                let unique: HashMap<String, BillParticipant> =
+                let unique: HashMap<NodeId, BillParticipant> =
                     HashMap::from_iter(recipients.iter().map(|r| (r.node_id().clone(), r.clone())));
 
                 let payload = BillChainEventPayload {
@@ -444,7 +450,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                     bill_id: bill_id.to_owned(),
                     action_type: Some(ActionType::CheckBill),
                     sum,
-                    ..Default::default()
+                    keys: None,
+                    blocks: vec![],
                 };
                 for (_, recipient) in unique {
                     let event = Event::new_bill(payload.clone());
@@ -510,26 +517,34 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
-    async fn get_active_bill_notification(&self, bill_id: &str) -> Option<Notification> {
+    async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification> {
         self.notification_store
-            .get_latest_by_reference(bill_id, NotificationType::Bill)
+            .get_latest_by_reference(&bill_id.to_string(), NotificationType::Bill)
             .await
             .unwrap_or_default()
     }
 
     async fn get_active_bill_notifications(
         &self,
-        bill_ids: &[String],
-    ) -> HashMap<String, Notification> {
-        self.notification_store
-            .get_latest_by_references(bill_ids, NotificationType::Bill)
+        bill_ids: &[BillId],
+    ) -> HashMap<BillId, Notification> {
+        let ids: Vec<String> = bill_ids.iter().map(|bill_id| bill_id.to_string()).collect();
+        let refs = self
+            .notification_store
+            .get_latest_by_references(&ids, NotificationType::Bill)
             .await
-            .unwrap_or_default()
+            .unwrap_or_default();
+        refs.into_iter()
+            .filter_map(|(key, value)| match BillId::from_str(&key) {
+                Ok(bill_id) => Some((bill_id, value)),
+                Err(_) => None,
+            })
+            .collect()
     }
 
     async fn check_bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action: ActionType,
     ) -> Result<bool> {
@@ -551,7 +566,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     /// Stores that a notification was sent for the given bill id and action
     async fn mark_bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action: ActionType,
     ) -> Result<()> {
@@ -602,7 +617,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
-    async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>> {
+    async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
         // take any transport - doesn't matter
         if let Some((_node, transport)) = self.notification_transport.iter().next() {
             let res = transport.resolve_contact(node_id).await?;
@@ -645,7 +660,7 @@ mod tests {
         pub NotificationJsonTransport {}
         #[async_trait]
         impl NotificationJsonTransportApi for NotificationJsonTransport {
-            fn get_sender_key(&self) -> String;
+            fn get_sender_node_id(&self) -> NodeId;
             async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> bcr_ebill_transport::Result<()>;
             async fn send_public_chain_event(
                 &self,
@@ -656,7 +671,7 @@ mod tests {
                 event: EventEnvelope,
                 previous_event: Option<nostr::event::Event>,
                 root_event: Option<nostr::event::Event>) -> bcr_ebill_transport::Result<nostr::event::Event>;
-            async fn resolve_contact(&self, node_id: &str) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
+            async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>>;
             async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         }
     }
@@ -680,8 +695,8 @@ mod tests {
     use crate::tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockChainKeyService,
         MockNostrChainEventStore, MockNostrContactStore, MockNostrEventOffsetStoreApiMock,
-        MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_BILL_ID,
-        TEST_NODE_ID_SECP_AS_NPUB_HEX, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP,
+        MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_NODE_ID_SECP_AS_NPUB_HEX,
+        bill_id_test, node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -711,10 +726,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -744,11 +759,11 @@ mod tests {
             &bill,
             &chain,
             &BillKeys {
-                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                public_key: TEST_PUB_KEY_SECP.to_owned(),
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
             },
             true,
-            "node_id",
+            &node_id_test(),
         )
         .unwrap();
 
@@ -757,22 +772,21 @@ mod tests {
         // every participant should receive events
         mock_contact_service
             .expect_get_identity_by_node_id()
-            .with(eq("buyer"))
+            .with(eq(node_id_test_other2()))
             .returning(move |_| Ok(Some(BillParticipant::Ident(buyer.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
-            .with(eq("drawee"))
+            .with(eq(node_id_test()))
             .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
         mock_contact_service
             .expect_get_identity_by_node_id()
-            .with(eq("payee"))
+            .with(eq(node_id_test_other()))
             .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
 
         let mut mock = MockNotificationJsonTransport::new();
 
         // get node_id
-        mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         // expect to send payment rejected event to all recipients
         mock.expect_send_private_event()
@@ -830,10 +844,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_does_not_send_non_rejectable_action() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -863,11 +877,11 @@ mod tests {
             &bill,
             &chain,
             &BillKeys {
-                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                public_key: TEST_PUB_KEY_SECP.to_owned(),
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
             },
             true,
-            "node_id",
+            &node_id_test(),
         )
         .unwrap();
 
@@ -879,8 +893,7 @@ mod tests {
             .never();
 
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         // expect to not send rejected event for non rejectable actions
         mock.expect_send_private_event().never();
@@ -904,17 +917,17 @@ mod tests {
     async fn test_send_request_to_action_timed_out_event() {
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
-                "part1",
+                &node_id_test(),
                 "part1@example.com",
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
-                "part2",
+                &node_id_test_other(),
                 "part2@example.com",
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
-                "part3",
+                &node_id_test_other2(),
                 "part3@example.com",
                 vec![],
             )),
@@ -923,8 +936,7 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
 
         // resolves node_id
-        mock.expect_get_sender_key()
-            .returning(move || "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         // expect to send payment timeout event to all recipients
         mock.expect_send_private_event()
@@ -949,8 +961,8 @@ mod tests {
 
         service
             .send_request_to_action_timed_out_event(
-                "node_id",
-                "bill_id",
+                &node_id_test(),
+                &bill_id_test(),
                 Some(100),
                 ActionType::PayBill,
                 recipients.clone(),
@@ -960,8 +972,8 @@ mod tests {
 
         service
             .send_request_to_action_timed_out_event(
-                "node_id",
-                "bill_id",
+                &node_id_test(),
+                &bill_id_test(),
                 Some(100),
                 ActionType::AcceptBill,
                 recipients.clone(),
@@ -974,25 +986,24 @@ mod tests {
     async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
-                "part1",
+                &node_id_test(),
                 "part1@example.com",
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
-                "part2",
+                &node_id_test_other(),
                 "part2@example.com",
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
-                "part3",
+                &node_id_test_other2(),
                 "part3@example.com",
                 vec![],
             )),
         ];
 
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         // expect to never send timeout event on non expiring events
         mock.expect_send_private_event().never();
@@ -1008,8 +1019,8 @@ mod tests {
 
         service
             .send_request_to_action_timed_out_event(
-                "node_id",
-                "bill_id",
+                &node_id_test(),
+                &bill_id_test(),
                 Some(100),
                 ActionType::CheckBill,
                 recipients.clone(),
@@ -1020,10 +1031,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1053,11 +1064,11 @@ mod tests {
             &bill,
             &chain,
             &BillKeys {
-                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                public_key: TEST_PUB_KEY_SECP.to_owned(),
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
             },
             true,
-            "node_id",
+            &node_id_test(),
         )
         .unwrap();
 
@@ -1078,8 +1089,7 @@ mod tests {
         let mut mock = MockNotificationJsonTransport::new();
 
         // resolve node_id
-        mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         // expect to send payment recourse event to all recipients
         mock.expect_send_private_event()
@@ -1114,7 +1124,7 @@ mod tests {
 
         let event_store = setup_event_store_expectations(
             chain.get_latest_block().previous_hash.to_owned().as_str(),
-            bill.id.as_str(),
+            &bill.id,
         );
 
         let service = DefaultNotificationService::new(
@@ -1139,10 +1149,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event_does_not_send_non_recurse_action() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1172,11 +1182,11 @@ mod tests {
             &bill,
             &chain,
             &BillKeys {
-                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                public_key: TEST_PUB_KEY_SECP.to_owned(),
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
             },
             true,
-            "node_id",
+            &node_id_test(),
         )
         .unwrap();
 
@@ -1188,8 +1198,7 @@ mod tests {
             .never();
 
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         // expect not to send non recourse event
         mock.expect_send_private_event().never();
@@ -1212,9 +1221,9 @@ mod tests {
     #[tokio::test]
     async fn test_failed_to_send_is_added_to_retry_queue() {
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -1229,8 +1238,7 @@ mod tests {
             .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
 
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
 
         mock.expect_send_private_event()
             .returning(|_, _| Ok(()))
@@ -1255,7 +1263,7 @@ mod tests {
 
         let mock_event_store = setup_event_store_expectations(
             chain.get_latest_block().previous_hash.to_owned().as_str(),
-            bill.id.as_str(),
+            &bill.id,
         );
 
         let mut queue_mock = MockNostrQueuedMessageStore::new();
@@ -1277,11 +1285,11 @@ mod tests {
             &bill,
             &chain,
             &BillKeys {
-                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                public_key: TEST_PUB_KEY_SECP.to_owned(),
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
             },
             true,
-            "node_id",
+            &node_id_test(),
         )
         .unwrap();
 
@@ -1293,7 +1301,7 @@ mod tests {
 
     fn setup_event_store_expectations(
         previous_hash: &str,
-        bill_id: &str,
+        bill_id: &BillId,
     ) -> MockNostrChainEventStore {
         let mut mock_event_store = MockNostrChainEventStore::new();
         // lookup parent event
@@ -1305,7 +1313,7 @@ mod tests {
         // if no parent we don't need to lookup the root event
         mock_event_store
             .expect_find_root_event()
-            .with(eq(bill_id.to_owned()), eq(BlockchainType::Bill))
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
             .returning(|_, _| Ok(None))
             .never();
 
@@ -1331,8 +1339,7 @@ mod tests {
                 .with(eq(p.0.node_id.clone()))
                 .returning(move |_| Ok(Some(BillParticipant::Ident(clone1.0.clone()))));
 
-            mock.expect_get_sender_key()
-                .returning(|| "node_id".to_string());
+            mock.expect_get_sender_node_id().returning(node_id_test);
 
             let clone2 = p.clone();
             mock.expect_send_private_event()
@@ -1363,7 +1370,7 @@ mod tests {
                 .once();
             mock_event_store = setup_event_store_expectations(
                 chain.get_latest_block().previous_hash.to_owned().as_str(),
-                bill.id.as_str(),
+                &bill.id,
             );
         } else {
             mock.expect_send_public_chain_event()
@@ -1386,11 +1393,11 @@ mod tests {
                 bill,
                 chain,
                 &BillKeys {
-                    private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
-                    public_key: TEST_PUB_KEY_SECP.to_owned(),
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
                 },
                 new_blocks,
-                "node_id",
+                &node_id_test(),
             )
             .unwrap(),
         )
@@ -1399,9 +1406,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_signed_event() {
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let (service, event) = setup_chain_expectation(
             vec![
@@ -1428,9 +1435,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_accepted_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1474,9 +1481,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_accept_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1520,9 +1527,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_pay_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1567,9 +1574,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_paid_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let (service, event) = setup_chain_expectation(
             vec![
@@ -1589,10 +1596,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_endorsed_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let endorsee = get_identity_public_data("endorsee", "endorsee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, Some(&endorsee));
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let endorsee =
+            get_identity_public_data(&node_id_test_other2(), "endorsee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, Some(&endorsee));
         let chain = get_genesis_chain(Some(bill.clone()));
 
         let (service, event) = setup_chain_expectation(
@@ -1618,10 +1626,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_offer_to_sell_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1670,10 +1678,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_sold_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let buyer = get_identity_public_data("buyer", "buyer@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1722,10 +1730,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_recourse_paid_event() {
-        let payer = get_identity_public_data("drawee", "drawee@example.com", vec![]);
-        let payee = get_identity_public_data("payee", "payee@example.com", vec![]);
-        let recoursee = get_identity_public_data("recoursee", "recoursee@example.com", vec![]);
-        let bill = get_test_bitcredit_bill(TEST_BILL_ID, &payer, &payee, None, None);
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let recoursee =
+            get_identity_public_data(&node_id_test_other2(), "recoursee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
         let keys = get_baseline_identity().key_pair;
@@ -1779,13 +1788,13 @@ mod tests {
 
         // should send minting requested to endorsee (mint)
         let service = setup_service_expectation(
-            "endorsee",
+            &endorsee.node_id(),
             BillEventType::BillMintingRequested,
             ActionType::CheckBill,
         );
 
         service
-            .send_request_to_mint_event("node_id", &endorsee, &bill)
+            .send_request_to_mint_event(&node_id_test(), &endorsee, &bill)
             .await
             .expect("failed to send event");
     }
@@ -1793,7 +1802,8 @@ mod tests {
     #[tokio::test]
     async fn get_client_notifications() {
         let mut mock_store = MockNotificationStoreApiMock::new();
-        let result = Notification::new_bill_notification("bill_id", "node_id", "desc", None);
+        let result =
+            Notification::new_bill_notification(&bill_id_test(), &node_id_test(), "desc", None);
         let returning = result.clone();
         let filter = NotificationFilter {
             active: Some(true),
@@ -1806,8 +1816,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -1836,8 +1846,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -1855,14 +1865,13 @@ mod tests {
     }
 
     fn setup_service_expectation(
-        node_id: &str,
+        node_id: &NodeId,
         event_type: BillEventType,
         action_type: ActionType,
     ) -> DefaultNotificationService {
         let node_id = node_id.to_owned();
         let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_key()
-            .returning(move || "node_id".to_string());
+        mock.expect_get_sender_node_id().returning(node_id_test);
         mock.expect_send_private_event()
             .withf(move |r, e| {
                 let valid_node_id = r.node_id() == node_id;
@@ -1884,16 +1893,16 @@ mod tests {
 
     fn get_test_bill() -> BitcreditBill {
         get_test_bitcredit_bill(
-            "bill",
-            &get_identity_public_data("drawee", "drawee@example.com", vec![]),
-            &get_identity_public_data("payee", "payee@example.com", vec![]),
+            &bill_id_test(),
+            &get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]),
+            &get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]),
             Some(&get_identity_public_data(
-                "drawer",
+                &node_id_test_other(),
                 "drawer@example.com",
                 vec![],
             )),
             Some(&get_identity_public_data(
-                "endorsee",
+                &node_id_test_other2(),
                 "endorsee@example.com",
                 vec![],
             )),
@@ -1938,9 +1947,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_success() {
-        let node_id = "test_node_id";
+        let node_id = node_id_test_other();
         let message_id = "test_message_id";
-        let sender_id = "node_id";
+        let sender_id = node_id_test();
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
@@ -1949,12 +1958,12 @@ mod tests {
         .unwrap();
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
-            sender_id: sender_id.to_string(),
-            node_id: node_id.to_string(),
+            sender_id: sender_id.to_owned(),
+            node_id: node_id.to_owned(),
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
+        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -1965,8 +1974,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
         mock_transport
             .expect_send_private_event()
             .returning(|_, _| Ok(()));
@@ -2001,9 +2010,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_send_failure() {
-        let node_id = "test_node_id";
+        let node_id = node_id_test_other();
         let message_id = "test_message_id";
-        let sender_id = "node_id";
+        let sender_id = node_id_test();
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
@@ -2013,12 +2022,12 @@ mod tests {
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
-            sender_id: sender_id.to_string(),
-            node_id: node_id.to_string(),
+            sender_id: sender_id.to_owned(),
+            node_id: node_id.to_owned(),
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
+        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -2029,8 +2038,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
 
         mock_transport
             .expect_send_private_event()
@@ -2066,9 +2075,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_multiple_messages() {
-        let node_id1 = "test_node_id_1";
-        let sender_id = "node_id";
-        let node_id2 = "test_node_id_2";
+        let node_id1 = node_id_test_other();
+        let sender_id = node_id_test();
+        let node_id2 = node_id_test_other2();
         let message_id1 = "test_message_id_1";
         let message_id2 = "test_message_id_2";
 
@@ -2088,20 +2097,20 @@ mod tests {
 
         let queued_message1 = NostrQueuedMessage {
             id: message_id1.to_string(),
-            sender_id: sender_id.to_string(),
-            node_id: node_id1.to_string(),
+            sender_id: sender_id.to_owned(),
+            node_id: node_id1.to_owned(),
             payload: payload1.clone(),
         };
 
         let queued_message2 = NostrQueuedMessage {
             id: message_id2.to_string(),
-            sender_id: sender_id.to_string(),
-            node_id: node_id2.to_string(),
+            sender_id: sender_id.to_owned(),
+            node_id: node_id2.to_owned(),
             payload: payload2.clone(),
         };
 
-        let identity1 = get_identity_public_data(node_id1, "test1@example.com", vec![]);
-        let identity2 = get_identity_public_data(node_id2, "test2@example.com", vec![]);
+        let identity1 = get_identity_public_data(&node_id1, "test1@example.com", vec![]);
+        let identity2 = get_identity_public_data(&node_id2, "test2@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -2117,8 +2126,8 @@ mod tests {
         let mut mock_transport = MockNotificationJsonTransport::new();
 
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
 
         // First message succeeds, second fails
         mock_transport
@@ -2172,16 +2181,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_invalid_payload() {
-        let node_id = "test_node_id";
+        let node_id = node_id_test_other();
         let message_id = "test_message_id";
-        let sender = "node_id";
+        let sender = node_id_test();
         // Invalid payload that can't be deserialized to EventEnvelope
         let invalid_payload = serde_json::json!({ "invalid": "data" });
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
-            sender_id: sender.to_string(),
-            node_id: node_id.to_string(),
+            sender_id: sender.to_owned(),
+            node_id: node_id.to_owned(),
             payload: invalid_payload,
         };
 
@@ -2199,8 +2208,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],
@@ -2217,9 +2226,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_fail_retry_error() {
-        let node_id = "test_node_id";
+        let node_id = node_id_test_other();
         let message_id = "test_message_id";
-        let sender = "node_id";
+        let sender = node_id_test();
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
@@ -2229,12 +2238,12 @@ mod tests {
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
-            sender_id: sender.to_string(),
-            node_id: node_id.to_string(),
+            sender_id: sender.to_owned(),
+            node_id: node_id.to_owned(),
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
+        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -2245,8 +2254,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
         mock_transport
             .expect_send_private_event()
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
@@ -2287,9 +2296,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_succeed_retry_error() {
-        let node_id = "test_node_id";
+        let node_id = node_id_test_other();
         let message_id = "test_message_id";
-        let sender = "node_id";
+        let sender = node_id_test();
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
@@ -2299,12 +2308,12 @@ mod tests {
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
-            sender_id: sender.to_string(),
-            node_id: node_id.to_string(),
+            sender_id: sender.to_owned(),
+            node_id: node_id.to_owned(),
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(node_id, "test@example.com", vec![]);
+        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
         let mut mock_contact_service = MockContactServiceApi::new();
@@ -2315,8 +2324,8 @@ mod tests {
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
         mock_transport
             .expect_send_private_event()
             .returning(|_, _| Ok(()));
@@ -2365,8 +2374,8 @@ mod tests {
             .times(1);
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
-            .expect_get_sender_key()
-            .returning(|| "node_id".to_string());
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
 
         let service = DefaultNotificationService::new(
             vec![Arc::new(mock_transport)],

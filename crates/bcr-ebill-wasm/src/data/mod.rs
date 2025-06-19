@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use bcr_ebill_api::{
     NotificationFilter,
     data::{
-        File, GeneralSearchFilterItemType, GeneralSearchResult, OptionalPostalAddress,
+        File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
         PostalAddress, UploadFileResult,
     },
     util::file::{UploadFileHandler, detect_content_type_for_bytes},
@@ -188,7 +188,8 @@ pub struct NotificationFilters {
     pub active: Option<bool>,
     pub reference_id: Option<String>,
     pub notification_type: Option<String>,
-    pub node_ids: Option<Vec<String>>,
+    #[tsify(type = "string[] | undefined")]
+    pub node_ids: Option<Vec<NodeId>>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

@@ -6,7 +6,7 @@ use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
 use crate::blockchain::Blockchain;
 use crate::blockchain::identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData};
 use crate::data::{
-    File, OptionalPostalAddress,
+    File, OptionalPostalAddress, PublicKey, SecretKey,
     identity::{Identity, IdentityWithAll},
 };
 use crate::persistence::file_upload::FileUploadStoreApi;
@@ -14,7 +14,7 @@ use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
-use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
+use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError};
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -79,19 +79,19 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     async fn open_and_decrypt_file(
         &self,
         identity: Identity,
-        id: &str,
+        id: &NodeId,
         file_name: &str,
-        private_key: &str,
+        private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
 
     /// gets the currently set identity
     async fn get_current_identity(&self) -> Result<ActiveIdentityState>;
 
     /// sets the active identity to the given personal node id
-    async fn set_current_personal_identity(&self, node_id: &str) -> Result<()>;
+    async fn set_current_personal_identity(&self, node_id: &NodeId) -> Result<()>;
 
     /// sets the active identity to the given company node id
-    async fn set_current_company_identity(&self, node_id: &str) -> Result<()>;
+    async fn set_current_company_identity(&self, node_id: &NodeId) -> Result<()>;
 }
 
 /// The identity service is responsible for managing the local identity
@@ -121,8 +121,8 @@ impl IdentityService {
     async fn process_upload_file(
         &self,
         upload_id: &Option<String>,
-        id: &str,
-        public_key: &str,
+        id: &NodeId,
+        public_key: &PublicKey,
         relay_url: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -144,8 +144,8 @@ impl IdentityService {
         &self,
         file_name: &str,
         file_bytes: &[u8],
-        node_id: &str,
-        public_key: &str,
+        node_id: &NodeId,
+        public_key: &PublicKey,
         relay_url: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
@@ -273,7 +273,7 @@ impl IdentityServiceApi for IdentityService {
                     .process_upload_file(
                         &profile_picture_file_upload_id,
                         &identity.node_id,
-                        &keys.get_public_key(),
+                        &keys.pub_key(),
                         nostr_relay,
                     )
                     .await?;
@@ -285,7 +285,7 @@ impl IdentityServiceApi for IdentityService {
                     .process_upload_file(
                         &identity_document_file_upload_id,
                         &identity.node_id,
-                        &keys.get_public_key(),
+                        &keys.pub_key(),
                         nostr_relay,
                     )
                     .await?;
@@ -345,10 +345,9 @@ impl IdentityServiceApi for IdentityService {
     ) -> Result<()> {
         debug!("creating identity");
         let keys = self.store.get_or_create_key_pair().await?;
-        let node_id = keys.get_public_key();
+        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
         validate_create_identity(
             t.clone(),
-            &node_id,
             &name,
             &email,
             &postal_address,
@@ -365,7 +364,7 @@ impl IdentityServiceApi for IdentityService {
                             .process_upload_file(
                                 &profile_picture_file_upload_id,
                                 &node_id,
-                                &keys.get_public_key(),
+                                &keys.pub_key(),
                                 nostr_relay,
                             )
                             .await?;
@@ -374,7 +373,7 @@ impl IdentityServiceApi for IdentityService {
                             .process_upload_file(
                                 &identity_document_file_upload_id,
                                 &node_id,
-                                &keys.get_public_key(),
+                                &keys.pub_key(),
                                 nostr_relay,
                             )
                             .await?;
@@ -451,7 +450,7 @@ impl IdentityServiceApi for IdentityService {
             ));
         }
 
-        // if the exitsing identity is not anon, the action is not valid
+        // if the existing identity is not anon, the action is not valid
         if existing_identity.t != IdentityType::Anon {
             return Err(super::Error::Validation(
                 ValidationError::InvalidIdentityType,
@@ -460,7 +459,6 @@ impl IdentityServiceApi for IdentityService {
 
         validate_create_identity(
             t.clone(),
-            &existing_identity.node_id,
             &name,
             &email,
             &postal_address,
@@ -474,7 +472,7 @@ impl IdentityServiceApi for IdentityService {
                     .process_upload_file(
                         &profile_picture_file_upload_id,
                         &existing_identity.node_id,
-                        &keys.get_public_key(),
+                        &keys.pub_key(),
                         nostr_relay,
                     )
                     .await?;
@@ -483,7 +481,7 @@ impl IdentityServiceApi for IdentityService {
                     .process_upload_file(
                         &identity_document_file_upload_id,
                         &existing_identity.node_id,
-                        &keys.get_public_key(),
+                        &keys.pub_key(),
                         nostr_relay,
                     )
                     .await?;
@@ -546,9 +544,9 @@ impl IdentityServiceApi for IdentityService {
     async fn open_and_decrypt_file(
         &self,
         identity: Identity,
-        id: &str,
+        id: &NodeId,
         file_name: &str,
-        private_key: &str,
+        private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for identity with id: {id}");
         let nostr_relays = identity.nostr_relays.clone();
@@ -592,7 +590,7 @@ impl IdentityServiceApi for IdentityService {
         Ok(active_identity)
     }
 
-    async fn set_current_personal_identity(&self, node_id: &str) -> Result<()> {
+    async fn set_current_personal_identity(&self, node_id: &NodeId) -> Result<()> {
         debug!("setting current identity to personal identity: {node_id}");
         self.store
             .set_current_identity(&ActiveIdentityState {
@@ -603,7 +601,7 @@ impl IdentityServiceApi for IdentityService {
         Ok(())
     }
 
-    async fn set_current_company_identity(&self, node_id: &str) -> Result<()> {
+    async fn set_current_company_identity(&self, node_id: &NodeId) -> Result<()> {
         debug!("setting current identity to company identity: {node_id}");
         let active_identity = self.store.get_current_identity().await?;
         self.store
@@ -618,6 +616,8 @@ impl IdentityServiceApi for IdentityService {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::{
         external::file_storage::MockFileStorageClientApi,
@@ -730,7 +730,7 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = BcrKeys::new().get_public_key();
+            identity.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
             identity.t = IdentityType::Anon;
             Ok(identity)
         });
@@ -779,7 +779,7 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = BcrKeys::new().get_public_key();
+            identity.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
             identity.t = IdentityType::Anon;
             Ok(identity)
         });
@@ -823,7 +823,7 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = BcrKeys::new().get_public_key();
+            identity.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
             Ok(identity)
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
@@ -1051,9 +1051,12 @@ mod tests {
     async fn recover_from_seedphrase_stores_key_and_seed() {
         let seed = "forward paper connect economy twelve debate cart isolate accident creek bind predict captain rifle glory cradle hip whisper wealth save buddy place develop dolphin";
         let expected_key = BcrKeys::from_private_key(
-            "f31e0373f6fa9f4835d49a278cd48f47ea115af7480edf435275a3c2dbb1f982",
+            &SecretKey::from_str(
+                "f31e0373f6fa9f4835d49a278cd48f47ea115af7480edf435275a3c2dbb1f982",
+            )
+            .unwrap(),
         )
-        .expect("valid seed phrase");
+        .unwrap();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_save_key_pair()

@@ -1,9 +1,9 @@
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{cmp::Reverse, collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    bill::BillKeys,
+    NodeId, ServiceTraitBounds,
+    bill::{BillId, BillKeys},
     blockchain::{BlockchainType, bill::BillBlock},
     util::{BcrKeys, date::now},
 };
@@ -38,7 +38,7 @@ impl NotificationHandlerApi for BillInviteEventHandler {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        node_id: &str,
+        node_id: &NodeId,
         _: Box<nostr::Event>,
     ) -> Result<()> {
         debug!("incoming bill chain invite for {node_id}");
@@ -65,7 +65,7 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                         && self
                             .processor
                             .process_chain_data(
-                                &decoded.data.chain_id,
+                                &BillId::from_str(&decoded.data.chain_id)?,
                                 blocks,
                                 Some(BillKeys {
                                     public_key: decoded.data.keys.public_key.to_owned(),

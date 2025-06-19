@@ -1,7 +1,10 @@
 use bcr_ebill_api::{
-    data::identity::{Identity, IdentityType, SwitchIdentityType},
+    data::{
+        NodeId, PublicKey,
+        identity::{Identity, IdentityType, SwitchIdentityType},
+        nostr_contact::NostrPublicKey,
+    },
     service::{Error, Result},
-    util::BcrKeys,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -13,7 +16,8 @@ use super::{FileWeb, OptionalPostalAddressWeb};
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct SwitchIdentity {
     pub t: Option<SwitchIdentityTypeWeb>,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
 }
 
 #[wasm_bindgen]
@@ -106,11 +110,14 @@ pub struct ChangeIdentityPayload {
 #[tsify(into_wasm_abi)]
 pub struct IdentityWeb {
     pub t: IdentityTypeWeb,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
-    pub bitcoin_public_key: String,
-    pub npub: String,
+    #[tsify(type = "string")]
+    pub bitcoin_public_key: PublicKey,
+    #[tsify(type = "string")]
+    pub npub: NostrPublicKey,
     pub postal_address: OptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
     pub country_of_birth: Option<String>,
@@ -122,14 +129,14 @@ pub struct IdentityWeb {
 }
 
 impl IdentityWeb {
-    pub fn from(identity: Identity, keys: BcrKeys) -> Result<Self> {
+    pub fn from(identity: Identity) -> Result<Self> {
         Ok(Self {
             t: identity.t.into(),
             node_id: identity.node_id.clone(),
             name: identity.name,
             email: identity.email,
-            bitcoin_public_key: identity.node_id.clone(),
-            npub: keys.get_nostr_npub(),
+            bitcoin_public_key: identity.node_id.pub_key(),
+            npub: identity.node_id.npub(),
             postal_address: identity.postal_address.into(),
             date_of_birth: identity.date_of_birth,
             country_of_birth: identity.country_of_birth,

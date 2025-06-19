@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    ID_PREFIX, NETWORK_MAINNET, NETWORK_REGTEST, NETWORK_TESTNET, NETWORK_TESTNET4,
+    ID_PREFIX, NETWORK_MAINNET, NETWORK_REGTEST, NETWORK_TESTNET, NETWORK_TESTNET4, NodeId,
     ValidationError,
     blockchain::bill::BillBlockchain,
     contact::{BillParticipant, LightBillParticipant},
@@ -16,6 +16,7 @@ use super::{
     },
     notification::Notification,
 };
+use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 
 pub mod validation;
@@ -29,23 +30,20 @@ pub mod validation;
 /// * t => Testnet
 /// * T => Testnet4
 /// * r => Regtest
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct BillId {
     hash: String,
     network: bitcoin::Network,
 }
 
 impl BillId {
-    pub fn new(hash: String, network: bitcoin::Network) -> Self {
+    pub fn new(public_key: PublicKey, network: bitcoin::Network) -> Self {
+        let hash = util::sha256_hash(public_key.to_string().as_bytes());
         Self { hash, network }
     }
 
     pub fn network(&self) -> bitcoin::Network {
         self.network
-    }
-
-    pub fn id(&self) -> &str {
-        &self.hash
     }
 }
 
@@ -171,8 +169,8 @@ pub struct BillIssueData {
     pub city_of_issuing: String,
     pub issue_date: String,
     pub maturity_date: String,
-    pub drawee: String,
-    pub payee: String,
+    pub drawee: NodeId,
+    pub payee: NodeId,
     pub sum: String,
     pub currency: String,
     pub country_of_payment: String,
@@ -188,20 +186,20 @@ pub struct BillIssueData {
 #[derive(Debug, Clone)]
 pub struct BillValidateActionData {
     pub blockchain: BillBlockchain,
-    pub drawee_node_id: String,
-    pub payee_node_id: String,
-    pub endorsee_node_id: Option<String>,
+    pub drawee_node_id: NodeId,
+    pub payee_node_id: NodeId,
+    pub endorsee_node_id: Option<NodeId>,
     pub maturity_date: String,
     pub bill_keys: BillKeys,
     pub timestamp: u64,
-    pub signer_node_id: String,
+    pub signer_node_id: NodeId,
     pub bill_action: BillAction,
     pub is_paid: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BitcreditBill {
-    pub id: String,
+    pub id: BillId,
     pub country_of_issuing: String,
     pub city_of_issuing: String,
     // The party obliged to pay a Bill
@@ -223,8 +221,8 @@ pub struct BitcreditBill {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillKeys {
-    pub private_key: String,
-    pub public_key: String,
+    pub private_key: SecretKey,
+    pub public_key: PublicKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,7 +233,7 @@ pub enum RecourseReason {
 
 #[derive(Debug, Clone)]
 pub struct BitcreditBillResult {
-    pub id: String,
+    pub id: BillId,
     pub participants: BillParticipants,
     pub data: BillData,
     pub status: BillStatus,
@@ -361,13 +359,13 @@ pub struct BillParticipants {
     pub payee: BillParticipant,
     pub endorsee: Option<BillParticipant>,
     pub endorsements_count: u64,
-    pub all_participant_node_ids: Vec<String>,
+    pub all_participant_node_ids: Vec<NodeId>,
 }
 
 impl BitcreditBillResult {
     /// Returns the role of the given node_id in the bill, or None if the node_id is not a
     /// participant in the bill
-    pub fn get_bill_role_for_node_id(&self, node_id: &str) -> Option<BillRole> {
+    pub fn get_bill_role_for_node_id(&self, node_id: &NodeId) -> Option<BillRole> {
         // Node id is not part of the bill
         if !self
             .participants
@@ -472,7 +470,7 @@ impl BitcreditBillResult {
 
 #[derive(Debug, Clone)]
 pub struct LightBitcreditBillResult {
-    pub id: String,
+    pub id: BillId,
     pub drawee: LightBillIdentParticipant,
     pub drawer: LightBillIdentParticipant,
     pub payee: LightBillParticipant,

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
     blockchain::BlockchainType,
     constants::BCR_NOSTR_CHAIN_PREFIX,
     contact::BillParticipant,
@@ -37,8 +37,8 @@ impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationJsonTransportApi: ServiceTraitBounds {
-    /// Returns the senders public key for this instance.
-    fn get_sender_key(&self) -> String;
+    /// Returns the senders node id for this instance.
+    fn get_sender_node_id(&self) -> NodeId;
     /// Sends a private json event to the given recipient.
     async fn send_private_event(
         &self,
@@ -59,7 +59,7 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
         root_event: Option<Event>,
     ) -> Result<Event>;
     /// Resolves a nostr contact by node id.
-    async fn resolve_contact(&self, node_id: &str) -> Result<Option<NostrContactData>>;
+    async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
     /// Given an id and chain type, tries to resolve the public chain events.
     async fn resolve_public_chain(
         &self,
@@ -214,7 +214,7 @@ pub fn root_and_reply_id(event: &Event) -> (Option<EventId>, Option<EventId>) {
 /// Given an encrypted payload and a private key, decrypts the payload and returns
 /// its content as an EventEnvelope.
 pub fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
-    let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key_string())?;
+    let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key())?;
     let payload = serde_json::from_slice::<EventEnvelope>(&decrypted)?;
     Ok(payload)
 }
@@ -258,7 +258,7 @@ pub fn create_public_chain_event(
 ) -> Result<EventBuilder> {
     let payload = base58_encode(&encrypt_ecies(
         &serde_json::to_vec(&event)?,
-        &keys.get_public_key(),
+        &keys.pub_key(),
     )?);
     let event = match previous_event {
         Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None)

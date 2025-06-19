@@ -1,7 +1,8 @@
 use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    NodeId, ServiceTraitBounds,
+    bill::BillId,
     mint::{MintOffer, MintOfferRecoveryData, MintRequest, MintRequestStatus},
 };
 use serde::{Deserialize, Serialize};
@@ -37,7 +38,7 @@ impl ServiceTraitBounds for SurrealMintStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl MintStoreApi for SurrealMintStore {
-    async fn exists_for_bill(&self, requester_node_id: &str, bill_id: &str) -> Result<bool> {
+    async fn exists_for_bill(&self, requester_node_id: &NodeId, bill_id: &BillId) -> Result<bool> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
         bindings.add(DB_BILL_ID, bill_id.to_owned())?;
@@ -81,9 +82,9 @@ impl MintStoreApi for SurrealMintStore {
 
     async fn get_requests(
         &self,
-        requester_node_id: &str,
-        bill_id: &str,
-        mint_node_id: &str,
+        requester_node_id: &NodeId,
+        bill_id: &BillId,
+        mint_node_id: &NodeId,
     ) -> Result<Vec<MintRequest>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
@@ -97,8 +98,8 @@ impl MintStoreApi for SurrealMintStore {
 
     async fn get_requests_for_bill(
         &self,
-        requester_node_id: &str,
-        bill_id: &str,
+        requester_node_id: &NodeId,
+        bill_id: &BillId,
     ) -> Result<Vec<MintRequest>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::REQUESTS_TABLE)?;
@@ -111,9 +112,9 @@ impl MintStoreApi for SurrealMintStore {
 
     async fn add_request(
         &self,
-        requester_node_id: &str,
-        bill_id: &str,
-        mint_node_id: &str,
+        requester_node_id: &NodeId,
+        bill_id: &BillId,
+        mint_node_id: &NodeId,
         mint_request_id: &str,
         timestamp: u64,
     ) -> Result<()> {
@@ -310,9 +311,9 @@ impl From<MintOfferRecoveryDataDb> for MintOfferRecoveryData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MintRequestDb {
-    pub requester_node_id: String,
-    pub bill_id: String,
-    pub mint_node_id: String,
+    pub requester_node_id: NodeId,
+    pub bill_id: BillId,
+    pub mint_node_id: NodeId,
     pub mint_request_id: String,
     pub timestamp: u64,
     pub status: MintRequestStatusDb,
@@ -381,7 +382,10 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::get_memory_db;
+    use crate::{
+        db::get_memory_db,
+        tests::tests::{bill_id_test, node_id_test, node_id_test_other},
+    };
 
     async fn get_requests_store() -> SurrealMintStore {
         let mem_db = get_memory_db("test", "requests")
@@ -406,29 +410,17 @@ mod tests {
     #[tokio::test]
     async fn test_exists_for_bill() {
         let store = get_requests_store().await;
-        assert!(!store.exists_for_bill("requester", "bill_id").await.unwrap());
-        store
-            .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
-                "mint_req_id",
-                1731593928,
-            )
-            .await
-            .unwrap();
-        assert!(store.exists_for_bill("requester", "bill_id").await.unwrap());
         assert!(
             !store
-                .exists_for_bill("other_requester", "bill_id")
+                .exists_for_bill(&node_id_test(), &bill_id_test())
                 .await
                 .unwrap()
         );
         store
             .add_request(
-                "other_requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
@@ -436,7 +428,29 @@ mod tests {
             .unwrap();
         assert!(
             store
-                .exists_for_bill("other_requester", "bill_id")
+                .exists_for_bill(&node_id_test(), &bill_id_test())
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .exists_for_bill(&node_id_test_other(), &bill_id_test())
+                .await
+                .unwrap()
+        );
+        store
+            .add_request(
+                &node_id_test_other(),
+                &bill_id_test(),
+                &node_id_test_other(),
+                "mint_req_id",
+                1731593928,
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .exists_for_bill(&node_id_test_other(), &bill_id_test())
                 .await
                 .unwrap()
         );
@@ -446,22 +460,22 @@ mod tests {
     async fn test_get_requests() {
         let store = get_requests_store().await;
         let reqs = store
-            .get_requests("requester", "bill_id", "mint_node_id")
+            .get_requests(&node_id_test(), &bill_id_test(), &node_id_test_other())
             .await
             .unwrap();
         assert_eq!(reqs.len(), 0);
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
             .await
             .unwrap();
         let reqs = store
-            .get_requests("requester", "bill_id", "mint_node_id")
+            .get_requests(&node_id_test(), &bill_id_test(), &node_id_test_other())
             .await
             .unwrap();
         assert_eq!(reqs.len(), 1);
@@ -471,22 +485,22 @@ mod tests {
     async fn test_get_requests_for_bill() {
         let store = get_requests_store().await;
         let reqs = store
-            .get_requests_for_bill("requester", "bill_id")
+            .get_requests_for_bill(&node_id_test(), &bill_id_test())
             .await
             .unwrap();
         assert_eq!(reqs.len(), 0);
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
             .await
             .unwrap();
         let reqs = store
-            .get_requests_for_bill("requester", "bill_id")
+            .get_requests_for_bill(&node_id_test(), &bill_id_test())
             .await
             .unwrap();
         assert_eq!(reqs.len(), 1);
@@ -497,9 +511,9 @@ mod tests {
         let store = get_requests_store().await;
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
@@ -516,9 +530,9 @@ mod tests {
         assert!(req.is_none());
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
@@ -533,9 +547,9 @@ mod tests {
         let store = get_requests_store().await;
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
@@ -563,9 +577,9 @@ mod tests {
         let offer_store = get_offers_store().await;
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )
@@ -585,9 +599,9 @@ mod tests {
         let offer_store = get_offers_store().await;
         store
             .add_request(
-                "requester",
-                "bill_id",
-                "mint_node_id",
+                &node_id_test(),
+                &bill_id_test(),
+                &node_id_test_other(),
                 "mint_req_id",
                 1731593928,
             )

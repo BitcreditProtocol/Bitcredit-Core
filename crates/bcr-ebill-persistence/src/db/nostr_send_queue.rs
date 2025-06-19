@@ -7,7 +7,7 @@ use crate::{
     util::date::{self, DateTimeUtc},
 };
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use surrealdb::sql::Thing;
@@ -103,8 +103,8 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct QueuedMessageDb {
     pub id: Thing,
-    pub sender_id: String,
-    pub node_id: String,
+    pub sender_id: NodeId,
+    pub node_id: NodeId,
     pub payload: Value,
     pub created: DateTimeUtc,
     pub last_try: DateTimeUtc,
@@ -148,7 +148,7 @@ impl From<QueuedMessageDb> for NostrQueuedMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::get_memory_db;
+    use crate::{db::get_memory_db, tests::tests::node_id_test};
 
     #[tokio::test]
     async fn test_insert_query_and_mark_succeeded() {
@@ -257,8 +257,8 @@ mod tests {
     fn get_test_message(id: &str) -> NostrQueuedMessage {
         NostrQueuedMessage {
             id: id.to_string(),
-            sender_id: "test_sender".to_string(),
-            node_id: "test_node".to_string(),
+            sender_id: node_id_test(),
+            node_id: node_id_test(),
             payload: serde_json::json!({"foo": "bar"}),
         }
     }

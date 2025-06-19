@@ -1,5 +1,8 @@
 use bcr_ebill_api::{
-    data::contact::{Contact, ContactType},
+    data::{
+        NodeId,
+        contact::{Contact, ContactType},
+    },
     service::Error,
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +21,8 @@ pub struct ContactsResponse {
 #[tsify(from_wasm_abi)]
 pub struct NewContactPayload {
     pub t: u64,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: Option<PostalAddressWeb>,
@@ -33,7 +37,8 @@ pub struct NewContactPayload {
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct EditContactPayload {
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddressWeb,
@@ -90,7 +95,8 @@ impl From<ContactTypeWeb> for ContactType {
 #[tsify(into_wasm_abi)]
 pub struct ContactWeb {
     pub t: ContactTypeWeb,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
     pub postal_address: Option<PostalAddressWeb>,

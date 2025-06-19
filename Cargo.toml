@@ -43,7 +43,7 @@ futures = { version = "0.3", default-features = false }
 anyhow = { version = "1", default-features = false }
 thiserror = { version = "2", default-features = false }
 uuid = { version = "1", default-features = false, features = ["v4", "js"] }
-bitcoin = { version = "0.32", default-features = false }
+bitcoin = { version = "0.32", default-features = false, features = ["serde"] }
 bip39 = { version = "2.1", features = ["rand"] }
 ecies = { version = "0.2", default-features = false, features = ["pure"] }
 nostr = { version = "0.42" }

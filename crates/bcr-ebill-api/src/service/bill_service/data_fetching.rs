@@ -2,16 +2,16 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
-use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::bill::BillMintStatus;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::{NodeId, ValidationError};
 use bcr_ebill_core::{
     bill::{
-        BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillKeys, BillParticipants,
-        BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
+        BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillKeys,
+        BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
         BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
         BitcreditBill, BitcreditBillResult,
     },
@@ -43,7 +43,7 @@ impl BillService {
         chain: &BillBlockchain,
         bill_keys: &BillKeys,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) -> Result<BitcreditBill> {
         let bill_first_version = chain.get_first_version_bill(bill_keys)?;
         let bill_parties = chain.get_bill_parties(bill_keys, &bill_first_version)?;
@@ -137,7 +137,7 @@ impl BillService {
         chain: &BillBlockchain,
         bill_keys: &BillKeys,
         local_identity: &Identity,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
         current_timestamp: u64,
     ) -> Result<BitcreditBillResult> {
         // fetch contacts to get current contact data for participants
@@ -193,7 +193,7 @@ impl BillService {
         // calculate, if the caller has received funds at any point in the bill
         let mut redeemed_funds_available =
             chain.is_beneficiary_from_a_block(bill_keys, current_identity_node_id);
-        if holder.node_id() == current_identity_node_id && paid {
+        if holder.node_id() == *current_identity_node_id && paid {
             redeemed_funds_available = true;
         }
 
@@ -362,7 +362,7 @@ impl BillService {
                     // we're waiting, collect data
                     let address_to_pay = self
                         .bitcoin_client
-                        .get_address_to_pay(&bill_keys.public_key, &holder.node_id())?;
+                        .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
@@ -413,7 +413,7 @@ impl BillService {
 
                     let address_to_pay = self.bitcoin_client.get_address_to_pay(
                         &bill_keys.public_key,
-                        &payment_info.recourser.node_id,
+                        &payment_info.recourser.node_id.pub_key(),
                     )?;
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
@@ -624,7 +624,7 @@ impl BillService {
         &self,
         bill: &mut BitcreditBillResult,
         identity: &Identity,
-        contacts: &HashMap<String, Contact>,
+        contacts: &HashMap<NodeId, Contact>,
     ) {
         bill.participants.payee = self
             .extend_bill_chain_participant_data_from_contacts_or_identity(
@@ -711,9 +711,9 @@ impl BillService {
 
     pub(super) async fn recalculate_and_cache_bill(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         local_identity: &Identity,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
         current_timestamp: u64,
     ) -> Result<BitcreditBillResult> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
@@ -739,9 +739,9 @@ impl BillService {
 
     pub(super) async fn get_full_bill(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         local_identity: &Identity,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
         current_timestamp: u64,
     ) -> Result<BitcreditBillResult> {
         // if there is no such bill, we return an error

@@ -66,18 +66,14 @@ impl BackupService {
 impl BackupServiceApi for BackupService {
     async fn backup(&self) -> Result<Vec<u8>> {
         self.validate_surreal_db_connection()?;
-        let public_key = self.identity_store.get_key_pair().await?.get_public_key();
+        let public_key = self.identity_store.get_key_pair().await?.pub_key();
         let bytes = self.store.backup().await?;
         let encrypted_bytes = util::crypto::encrypt_ecies(&bytes, &public_key)?;
         Ok(encrypted_bytes)
     }
 
     async fn restore(&self, file_path: &Path) -> Result<()> {
-        let private_key = self
-            .identity_store
-            .get_key_pair()
-            .await?
-            .get_private_key_string();
+        let private_key = self.identity_store.get_key_pair().await?.get_private_key();
         let mut buffer = vec![];
         let mut file = File::open(file_path).await?;
         file.read_to_end(&mut buffer).await?;
@@ -187,7 +183,7 @@ OPTION IMPORT;
 DEFINE TABLE bill_chain TYPE ANY SCHEMALESS PERMISSIONS NONE;";
 
         let encrypted_bytes =
-            util::crypto::encrypt_ecies(backup_str.as_bytes(), &keys.get_public_key()).unwrap();
+            util::crypto::encrypt_ecies(backup_str.as_bytes(), &keys.pub_key()).unwrap();
 
         let temp_dir = env::temp_dir();
         let file_path = temp_dir.join("test.surql");

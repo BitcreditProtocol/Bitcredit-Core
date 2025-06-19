@@ -7,7 +7,6 @@ pub mod contact;
 pub mod general;
 pub mod identity;
 pub mod notification;
-pub mod quote;
 
 #[wasm_bindgen]
 pub struct Api;
@@ -42,10 +41,5 @@ impl Api {
     #[wasm_bindgen]
     pub fn bill() -> bill::Bill {
         bill::Bill::new()
-    }
-
-    #[wasm_bindgen]
-    pub fn quote() -> quote::Quote {
-        quote::Quote::new()
     }
 }

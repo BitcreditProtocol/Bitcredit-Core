@@ -1,6 +1,7 @@
 use bcr_ebill_api::data::{
+    NodeId,
     bill::{
-        BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData,
+        BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData, BillId,
         BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
         BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
         BillWaitingForSellState, BillsFilterRole, BitcreditBillResult, Endorsement,
@@ -18,10 +19,11 @@ use wasm_bindgen::prelude::*;
 
 use super::{FileWeb, PostalAddressWeb, contact::ContactTypeWeb, notification::NotificationWeb};
 
-#[derive(Tsify, Debug, Serialize)]
+#[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
-pub struct BillId {
-    pub id: String,
+pub struct BillIdResponse {
+    #[tsify(type = "string")]
+    pub id: BillId,
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
@@ -53,21 +55,25 @@ pub struct BillNumbersToWordsForSum {
 #[tsify(from_wasm_abi)]
 pub struct EndorseBitcreditBillPayload {
     pub endorsee: String,
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
 }
 
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
 pub struct RequestToMintBitcreditBillPayload {
     pub mint_node: String,
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct OfferToSellBitcreditBillPayload {
-    pub buyer: String,
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub buyer: NodeId,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
     pub sum: String,
     pub currency: String,
 }
@@ -75,15 +81,18 @@ pub struct OfferToSellBitcreditBillPayload {
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct RequestToPayBitcreditBillPayload {
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
     pub currency: String,
 }
 
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct RequestRecourseForPaymentPayload {
-    pub bill_id: String,
-    pub recoursee: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub recoursee: NodeId,
     pub currency: String,
     pub sum: String,
 }
@@ -91,26 +100,31 @@ pub struct RequestRecourseForPaymentPayload {
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct RequestRecourseForAcceptancePayload {
-    pub bill_id: String,
-    pub recoursee: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub recoursee: NodeId,
 }
 
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct AcceptBitcreditBillPayload {
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct RequestToAcceptBitcreditBillPayload {
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct RejectActionBillPayload {
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -389,10 +403,12 @@ impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BitcreditEbillQuote {
-    pub bill_id: String,
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
     pub quote_id: String,
     pub sum: u64,
-    pub mint_node_id: String,
+    #[tsify(type = "string")]
+    pub mint_node_id: NodeId,
     pub mint_url: String,
     pub accepted: bool,
     pub token: String,
@@ -401,7 +417,8 @@ pub struct BitcreditEbillQuote {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BitcreditBillWeb {
-    pub id: String,
+    #[tsify(type = "string")]
+    pub id: BillId,
     pub participants: BillParticipantsWeb,
     pub data: BillDataWeb,
     pub status: BillStatusWeb,
@@ -697,7 +714,8 @@ pub struct BillParticipantsWeb {
     pub payee: BillParticipantWeb,
     pub endorsee: Option<BillParticipantWeb>,
     pub endorsements_count: u64,
-    pub all_participant_node_ids: Vec<String>,
+    #[tsify(type = "string[]")]
+    pub all_participant_node_ids: Vec<NodeId>,
 }
 
 impl From<BillParticipants> for BillParticipantsWeb {
@@ -716,7 +734,8 @@ impl From<BillParticipants> for BillParticipantsWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct LightBitcreditBillWeb {
-    pub id: String,
+    #[tsify(type = "string")]
+    pub id: BillId,
     pub drawee: LightBillIdentParticipantWeb,
     pub drawer: LightBillIdentParticipantWeb,
     pub payee: LightBillParticipantWeb,
@@ -766,7 +785,8 @@ impl From<BillParticipant> for BillParticipantWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillAnonParticipantWeb {
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub email: Option<String>,
     pub nostr_relays: Vec<String>,
 }
@@ -785,7 +805,8 @@ impl From<BillAnonParticipant> for BillAnonParticipantWeb {
 #[tsify(into_wasm_abi)]
 pub struct BillIdentParticipantWeb {
     pub t: ContactTypeWeb,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub name: String,
     pub postal_address: PostalAddressWeb,
     pub email: Option<String>,
@@ -810,7 +831,8 @@ impl From<BillIdentParticipant> for BillIdentParticipantWeb {
 pub struct LightBillIdentParticipantWithAddressWeb {
     pub t: ContactTypeWeb,
     pub name: String,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
     pub postal_address: PostalAddressWeb,
 }
 
@@ -844,7 +866,8 @@ impl From<LightBillParticipant> for LightBillParticipantWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct LightBillAnonParticipantWeb {
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
 }
 
 impl From<LightBillAnonParticipant> for LightBillAnonParticipantWeb {
@@ -860,7 +883,8 @@ impl From<LightBillAnonParticipant> for LightBillAnonParticipantWeb {
 pub struct LightBillIdentParticipantWeb {
     pub t: ContactTypeWeb,
     pub name: String,
-    pub node_id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
 }
 
 impl From<LightBillIdentParticipant> for LightBillIdentParticipantWeb {

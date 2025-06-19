@@ -1,5 +1,6 @@
 use bcr_ebill_core::{
-    bill::BillKeys,
+    PublicKey, SecretKey,
+    bill::{BillId, BillKeys},
     blockchain::{BlockchainType, bill::BillBlock},
     company::CompanyKeys,
     util::BcrKeys,
@@ -41,8 +42,8 @@ impl ChainInvite {
             chain_id,
             chain_type: BlockchainType::Identity,
             keys: ChainKeys {
-                private_key: keys.get_public_key(),
-                public_key: keys.get_private_key_string(),
+                private_key: keys.get_private_key(),
+                public_key: keys.pub_key(),
             },
         }
     }
@@ -51,14 +52,14 @@ impl ChainInvite {
 /// Generalizes key pairs for different chain types.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChainKeys {
-    pub private_key: String,
-    pub public_key: String,
+    pub private_key: SecretKey,
+    pub public_key: PublicKey,
 }
 
 /// The encrypted BCR payload contained in a public block Nostr event.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockEvent {
-    pub bill_id: String,
+    pub bill_id: BillId,
     pub block_height: usize,
     pub block: BillBlock,
 }

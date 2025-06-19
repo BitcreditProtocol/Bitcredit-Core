@@ -50,6 +50,7 @@ pub fn update_optional_field(
         }
     };
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

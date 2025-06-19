@@ -1,6 +1,6 @@
 use bcr_ebill_core::{
-    Validate, ValidationError,
-    bill::{BillKeys, BitcreditBill, RecourseReason},
+    NodeId, Validate, ValidationError,
+    bill::{BillId, BillKeys, BitcreditBill, RecourseReason},
     blockchain::{
         self, Blockchain,
         bill::{
@@ -221,9 +221,10 @@ impl BillService {
             }
             // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, currency) => {
-                let address_to_pay = self
-                    .bitcoin_client
-                    .get_address_to_pay(&bill_keys.public_key, &signer_public_data.node_id())?;
+                let address_to_pay = self.bitcoin_client.get_address_to_pay(
+                    &bill_keys.public_key,
+                    &signer_public_data.node_id().pub_key(),
+                )?;
                 let block_data = BillOfferToSellBlockData {
                     seller: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -416,7 +417,7 @@ impl BillService {
 
     pub(super) async fn validate_and_add_block(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         blockchain: &mut BillBlockchain,
         new_block: BillBlock,
     ) -> Result<()> {
@@ -432,7 +433,7 @@ impl BillService {
     pub(super) async fn add_identity_and_company_chain_blocks_for_signed_bill_action(
         &self,
         signer_public_data: &BillParticipant,
-        bill_id: &str,
+        bill_id: &BillId,
         block: &BillBlock,
         identity_keys: &BcrKeys,
         signer_keys: &BcrKeys,
@@ -457,8 +458,8 @@ impl BillService {
                             block,
                             identity_keys,
                             &CompanyKeys {
-                                private_key: signer_keys.get_private_key_string(),
-                                public_key: signer_keys.get_public_key(),
+                                private_key: signer_keys.get_private_key(),
+                                public_key: signer_keys.pub_key(),
                             },
                             timestamp,
                         )
@@ -491,7 +492,7 @@ impl BillService {
 
     pub(super) async fn add_block_to_identity_chain_for_signed_bill_action(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block: &BillBlock,
         keys: &BcrKeys,
         timestamp: u64,
@@ -514,8 +515,8 @@ impl BillService {
 
     pub(super) async fn add_block_to_identity_chain_for_signed_company_bill_action(
         &self,
-        company_id: &str,
-        bill_id: &str,
+        company_id: &NodeId,
+        bill_id: &BillId,
         block: &BillBlock,
         keys: &BcrKeys,
         timestamp: u64,
@@ -539,8 +540,8 @@ impl BillService {
 
     pub(super) async fn add_block_to_company_chain_for_signed_bill_action(
         &self,
-        company_id: &str,
-        bill_id: &str,
+        company_id: &NodeId,
+        bill_id: &BillId,
         block: &BillBlock,
         signatory_keys: &BcrKeys,
         company_keys: &CompanyKeys,

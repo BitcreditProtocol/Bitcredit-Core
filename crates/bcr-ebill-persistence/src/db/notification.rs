@@ -14,7 +14,11 @@ use crate::{
     notification::{NotificationFilter, NotificationStoreApi},
     util::date::{DateTimeUtc, now},
 };
-use bcr_ebill_core::notification::{Notification, NotificationType};
+use bcr_ebill_core::{
+    NodeId,
+    bill::BillId,
+    notification::{Notification, NotificationType},
+};
 use bcr_ebill_core::{ServiceTraitBounds, notification::ActionType};
 
 #[derive(Clone)]
@@ -167,13 +171,13 @@ impl NotificationStoreApi for SurrealNotificationStore {
 
     async fn set_bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action_type: ActionType,
     ) -> Result<()> {
         let db = SentBlockNotificationDb {
             notification_type: NotificationType::Bill,
-            reference_id: bill_id.to_owned(),
+            reference_id: bill_id.to_string(),
             block_height,
             action_type,
             datetime: now(),
@@ -184,14 +188,14 @@ impl NotificationStoreApi for SurrealNotificationStore {
 
     async fn bill_notification_sent(
         &self,
-        bill_id: &str,
+        bill_id: &BillId,
         block_height: i32,
         action_type: ActionType,
     ) -> Result<bool> {
         let mut bindings = Bindings::default();
         bindings.add("table", Self::SENT_TABLE)?;
         bindings.add("notification_type", NotificationType::Bill)?;
-        bindings.add("reference_id", bill_id.to_owned())?;
+        bindings.add("reference_id", bill_id.to_string())?;
         bindings.add("block_height", block_height)?;
         bindings.add("action_type", action_type)?;
         let res: Vec<SentBlockNotificationDb> = self.db
@@ -204,7 +208,7 @@ impl NotificationStoreApi for SurrealNotificationStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NotificationDb {
     pub id: Thing,
-    pub node_id: Option<String>,
+    pub node_id: Option<NodeId>,
     pub notification_type: NotificationType,
     pub reference_id: Option<String>,
     pub description: String,
@@ -263,11 +267,16 @@ struct SentBlockNotificationDb {
 #[cfg(test)]
 mod tests {
 
+    use bcr_ebill_core::bill::BillId;
     use serde_json::json;
     use uuid::Uuid;
 
     use super::*;
-    use crate::{db::get_memory_db, util::date::now};
+    use crate::{
+        db::get_memory_db,
+        tests::tests::{bill_id_test, bill_id_test_other, node_id_test},
+        util::date::now,
+    };
 
     async fn get_store() -> SurrealNotificationStore {
         let db = get_memory_db("test", "notification")
@@ -280,7 +289,7 @@ mod tests {
     async fn test_notification_sent_returns_false_for_non_existing() {
         let store = get_store().await;
         let sent = store
-            .bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
+            .bill_notification_sent(&bill_id_test(), 1, ActionType::AcceptBill)
             .await
             .expect("could not check if notification was sent");
         assert!(!sent);
@@ -290,11 +299,11 @@ mod tests {
     async fn test_notification_sent_returns_true_for_existing() {
         let store = get_store().await;
         store
-            .set_bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
+            .set_bill_notification_sent(&bill_id_test(), 1, ActionType::AcceptBill)
             .await
             .expect("could not set notification as sent");
         let sent = store
-            .bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
+            .bill_notification_sent(&bill_id_test(), 1, ActionType::AcceptBill)
             .await
             .expect("could not check if notification was sent");
         assert!(sent);
@@ -304,11 +313,11 @@ mod tests {
     async fn test_notification_sent_returns_false_for_different_notification_type() {
         let store = get_store().await;
         store
-            .set_bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
+            .set_bill_notification_sent(&bill_id_test(), 1, ActionType::AcceptBill)
             .await
             .expect("could not set notification as sent");
         let sent = store
-            .bill_notification_sent("bill_id", 1, ActionType::PayBill)
+            .bill_notification_sent(&bill_id_test(), 1, ActionType::PayBill)
             .await
             .expect("could not check if notification was sent");
         assert!(!sent);
@@ -317,7 +326,7 @@ mod tests {
     #[tokio::test]
     async fn test_inserts_and_queries_notification() {
         let store = get_store().await;
-        let notification = test_notification("bill_id", Some(test_payload()));
+        let notification = test_notification(&bill_id_test(), Some(test_payload()));
         let r = store
             .add(notification.clone())
             .await
@@ -334,7 +343,7 @@ mod tests {
     #[tokio::test]
     async fn test_deletes_existing_notification() {
         let store = get_store().await;
-        let notification = test_notification("bill_id", Some(test_payload()));
+        let notification = test_notification(&bill_id_test(), Some(test_payload()));
         let r = store
             .add(notification.clone())
             .await
@@ -360,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn test_marks_done_and_no_longer_returns_in_list() {
         let store = get_store().await;
-        let notification = test_notification("bill_id", Some(test_payload()));
+        let notification = test_notification(&bill_id_test(), Some(test_payload()));
         let r = store
             .add(notification.clone())
             .await
@@ -391,8 +400,8 @@ mod tests {
     #[tokio::test]
     async fn test_marks_done_and_no_longer_returns_by_references() {
         let store = get_store().await;
-        let notification = test_notification("bill_id", Some(test_payload()));
-        let notification2 = test_notification("bill_id2", Some(test_payload()));
+        let notification = test_notification(&bill_id_test(), Some(test_payload()));
+        let notification2 = test_notification(&bill_id_test_other(), Some(test_payload()));
         let r = store
             .add(notification.clone())
             .await
@@ -404,7 +413,7 @@ mod tests {
 
         let references = store
             .get_latest_by_references(
-                &["bill_id".to_string(), "bill_id2".to_string()],
+                &[bill_id_test().to_string(), bill_id_test_other().to_string()],
                 NotificationType::Bill,
             )
             .await
@@ -412,21 +421,21 @@ mod tests {
         assert_eq!(references.len(), 2);
         assert_eq!(
             references
-                .get("bill_id")
+                .get(&bill_id_test().to_string())
                 .unwrap()
                 .reference_id
                 .as_ref()
                 .unwrap(),
-            &"bill_id".to_string()
+            &bill_id_test().to_string()
         );
         assert_eq!(
             references
-                .get("bill_id2")
+                .get(&bill_id_test_other().to_string())
                 .unwrap()
                 .reference_id
                 .as_ref()
                 .unwrap(),
-            &"bill_id2".to_string()
+            &bill_id_test_other().to_string()
         );
 
         store
@@ -436,7 +445,7 @@ mod tests {
 
         let references = store
             .get_latest_by_references(
-                &["bill_id".to_string(), "bill_id2".to_string()],
+                &[bill_id_test().to_string(), bill_id_test_other().to_string()],
                 NotificationType::Bill,
             )
             .await
@@ -444,19 +453,19 @@ mod tests {
         assert_eq!(references.len(), 1);
         assert_eq!(
             references
-                .get("bill_id2")
+                .get(&bill_id_test_other().to_string())
                 .unwrap()
                 .reference_id
                 .as_ref()
                 .unwrap(),
-            &"bill_id2".to_string()
+            &bill_id_test_other().to_string()
         );
     }
 
     #[tokio::test]
     async fn test_marks_done_and_no_longer_returns_by_reference() {
         let store = get_store().await;
-        let notification = test_notification("bill_id", Some(test_payload()));
+        let notification = test_notification(&bill_id_test(), Some(test_payload()));
         let r = store
             .add(notification.clone())
             .await
@@ -490,8 +499,8 @@ mod tests {
     #[tokio::test]
     async fn test_returns_all_active_by_type() {
         let store = get_store().await;
-        let notification1 = test_notification("bill_id1", Some(test_payload()));
-        let notification2 = test_notification("bill_id2", Some(test_payload()));
+        let notification1 = test_notification(&bill_id_test(), Some(test_payload()));
+        let notification2 = test_notification(&bill_id_test_other(), Some(test_payload()));
         let notification3 = test_general_notification();
         let _ = store
             .add(notification1.clone())
@@ -524,8 +533,8 @@ mod tests {
         });
     }
 
-    fn test_notification(bill_id: &str, payload: Option<Value>) -> Notification {
-        Notification::new_bill_notification(bill_id, "node_id", "test_notification", payload)
+    fn test_notification(bill_id: &BillId, payload: Option<Value>) -> Notification {
+        Notification::new_bill_notification(bill_id, &node_id_test(), "test_notification", payload)
     }
 
     fn test_payload() -> Value {
@@ -535,7 +544,7 @@ mod tests {
     fn test_general_notification() -> Notification {
         Notification {
             id: Uuid::new_v4().to_string(),
-            node_id: Some("node_id".to_string()),
+            node_id: Some(node_id_test()),
             notification_type: NotificationType::General,
             reference_id: Some("general".to_string()),
             description: "general desc".to_string(),

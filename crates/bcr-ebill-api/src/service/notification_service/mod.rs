@@ -5,6 +5,8 @@ use crate::persistence::identity::IdentityStoreApi;
 use crate::persistence::nostr::NostrEventOffsetStoreApi;
 use crate::persistence::notification::NotificationStoreApi;
 use crate::{Config, get_config};
+use bcr_ebill_core::NodeId;
+use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::CompanyStoreApi;
 use bcr_ebill_persistence::nostr::{
@@ -49,10 +51,11 @@ pub async fn create_nostr_clients(
         _ => "New user".to_owned(),
     };
     let mut configs: Vec<NostrConfig> = vec![NostrConfig::new(
-        keys,
+        keys.clone(),
         config.nostr_config.relays.clone(),
         nostr_name,
         true,
+        NodeId::new(keys.pub_key(), get_config().bitcoin_network()),
     )];
 
     // optionally collect all company accounts
@@ -65,12 +68,13 @@ pub async fn create_nostr_clients(
     };
 
     for (_, (company, keys)) in companies.iter() {
-        if let Ok(keys) = keys.clone().try_into() {
+        if let Ok(k) = BcrKeys::try_from(keys) {
             configs.push(NostrConfig::new(
-                keys,
+                k.clone(),
                 config.nostr_config.relays.clone(),
                 company.name.clone(),
                 false,
+                NodeId::new(k.pub_key(), get_config().bitcoin_network()),
             ));
         }
     }

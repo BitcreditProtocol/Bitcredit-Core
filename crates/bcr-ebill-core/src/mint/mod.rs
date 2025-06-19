@@ -1,12 +1,14 @@
+use crate::{NodeId, bill::BillId};
+
 /// A request to mint
 #[derive(Debug, Clone)]
 pub struct MintRequest {
     /// The requester
-    pub requester_node_id: String,
+    pub requester_node_id: NodeId,
     /// The bill to request to mint
-    pub bill_id: String,
+    pub bill_id: BillId,
     /// The mint to be requested against
-    pub mint_node_id: String,
+    pub mint_node_id: NodeId,
     /// The id returned from the mint
     pub mint_request_id: String,
     /// The time of the request

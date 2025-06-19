@@ -1,6 +1,8 @@
+use std::str::FromStr;
+
 use super::Result;
 use bcr_ebill_api::{
-    data::{OptionalPostalAddress, PostalAddress},
+    data::{NodeId, OptionalPostalAddress, PostalAddress},
     external,
     service::Error,
     util::{
@@ -34,17 +36,21 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, id: &str, file_name: &str) -> Result<JsValue> {
-        let company = get_ctx().company_service.get_company_by_id(id).await?; // check if company exists
+        let parsed_id = NodeId::from_str(id)?;
+        let company = get_ctx()
+            .company_service
+            .get_company_by_id(&parsed_id)
+            .await?; // check if company exists
         let private_key = get_ctx()
             .identity_service
             .get_full_identity()
             .await?
             .key_pair
-            .get_private_key_string();
+            .get_private_key();
 
         let file_bytes = get_ctx()
             .company_service
-            .open_and_decrypt_file(company, id, file_name, &private_key)
+            .open_and_decrypt_file(company, &parsed_id, file_name, &private_key)
             .await?;
 
         let content_type = detect_content_type_for_bytes(&file_bytes)
@@ -95,7 +101,11 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "ListSignatoriesResponse")]
     pub async fn list_signatories(&self, id: &str) -> Result<JsValue> {
-        let signatories = get_ctx().company_service.list_signatories(id).await?;
+        let parsed_id = NodeId::from_str(id)?;
+        let signatories = get_ctx()
+            .company_service
+            .list_signatories(&parsed_id)
+            .await?;
         let signatories: Vec<SignatoryResponse> = signatories
             .into_iter()
             .map(|c| c.try_into())
@@ -106,7 +116,11 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "CompanyWeb")]
     pub async fn detail(&self, id: &str) -> Result<JsValue> {
-        let company = get_ctx().company_service.get_company_by_id(id).await?;
+        let parsed_id = NodeId::from_str(id)?;
+        let company = get_ctx()
+            .company_service
+            .get_company_by_id(&parsed_id)
+            .await?;
         let res = serde_wasm_bindgen::to_value::<CompanyWeb>(&company.into())?;
         Ok(res)
     }

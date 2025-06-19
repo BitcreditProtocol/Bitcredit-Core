@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use log::debug;
 use std::sync::Arc;
 
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -20,7 +20,7 @@ pub trait SearchServiceApi: ServiceTraitBounds {
         search_term: &str,
         currency: &str,
         item_types: &[GeneralSearchFilterItemType],
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<GeneralSearchResult>;
 }
 
@@ -56,7 +56,7 @@ impl SearchServiceApi for SearchService {
         search_term: &str,
         currency: &str,
         item_types: &[GeneralSearchFilterItemType],
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<GeneralSearchResult> {
         debug!("search for {search_term}, with {currency} and {item_types:?}");
         let search_term_lc = search_term.to_lowercase();

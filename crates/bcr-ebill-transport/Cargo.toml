@@ -23,6 +23,7 @@ async-broadcast.workspace = true
 
 [dev-dependencies]
 mockall = "0.13.1"
+bitcoin.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

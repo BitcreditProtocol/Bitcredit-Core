@@ -21,20 +21,6 @@ pub fn validate_bill_issue(data: &BillIssueData) -> Result<(u64, BillType), Vali
         util::validate_file_upload_id(Some(file_upload_id))?;
     }
 
-    if util::crypto::validate_pub_key(&data.drawee).is_err() {
-        return Err(ValidationError::InvalidSecp256k1Key(data.drawee.clone()));
-    }
-
-    if util::crypto::validate_pub_key(&data.payee).is_err() {
-        return Err(ValidationError::InvalidSecp256k1Key(data.payee.clone()));
-    }
-
-    if util::crypto::validate_pub_key(&data.drawer_public_data.node_id()).is_err() {
-        return Err(ValidationError::InvalidSecp256k1Key(
-            data.drawer_public_data.node_id().clone(),
-        ));
-    }
-
     // anon users can't issue bill
     if let BillParticipant::Anon(_) = data.drawer_public_data {
         return Err(ValidationError::DrawerIsNotBillIssuer);
@@ -591,8 +577,8 @@ mod tests {
         },
         contact::{BillIdentParticipant, BillParticipant},
         tests::tests::{
-            OTHER_TEST_PUB_KEY_SECP, OTHER_VALID_PAYMENT_ADDRESS_TESTNET, TEST_BILL_ID,
-            TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP, VALID_PAYMENT_ADDRESS_TESTNET, valid_address,
+            OTHER_VALID_PAYMENT_ADDRESS_TESTNET, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
+            node_id_test, node_id_test_other, private_key_test, valid_address,
             valid_bill_identified_participant, valid_bill_participant,
             valid_other_bill_identified_participant, valid_other_bill_participant,
         },
@@ -612,8 +598,8 @@ mod tests {
             city_of_issuing: "Vienna".into(),
             issue_date: "2025-08-12".into(),
             maturity_date: "2025-11-12".into(),
-            drawee: TEST_PUB_KEY_SECP.into(),
-            payee: OTHER_TEST_PUB_KEY_SECP.into(),
+            drawee: node_id_test(),
+            payee: node_id_test_other(),
             sum: "500".into(),
             currency: "sat".into(),
             country_of_payment: "FR".into(),
@@ -621,7 +607,7 @@ mod tests {
             language: "de".into(),
             file_upload_ids: vec![],
             drawer_public_data: BillParticipant::Ident(valid_bill_identified_participant()),
-            drawer_keys: BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            drawer_keys: BcrKeys::from_private_key(&private_key_test()).unwrap(),
             timestamp: 1731593928,
             blank_issue: false,
         }
@@ -641,10 +627,7 @@ mod tests {
     #[case::maturity_date_before_now( BillIssueData { maturity_date: "2004-01-12".into(), ..valid_bill_issue_data() }, ValidationError::MaturityDateInThePast)]
     #[case::issue_date_after_maturity_date( BillIssueData { issue_date: "2028-01-12".into(), ..valid_bill_issue_data() }, ValidationError::IssueDateAfterMaturityDate)]
     #[case::invalid_bill_type( BillIssueData { t: 5, ..valid_bill_issue_data() }, ValidationError::InvalidBillType)]
-    #[case::drawee_equals_payee( BillIssueData { drawee: TEST_PUB_KEY_SECP.into(), payee: TEST_PUB_KEY_SECP.into(), ..valid_bill_issue_data() }, ValidationError::DraweeCantBePayee)]
-    #[case::invalid_payee( BillIssueData { payee: "invalidkey".into(), ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
-    #[case::invalid_drawee( BillIssueData { drawee: "invalidkey".into(),  ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
-    #[case::invalid_drawer( BillIssueData { drawer_public_data: BillParticipant::Ident(BillIdentParticipant { node_id: "invalidkey".into(), ..valid_bill_identified_participant() }), ..valid_bill_issue_data() }, ValidationError::InvalidSecp256k1Key("invalidkey".into()))]
+    #[case::drawee_equals_payee( BillIssueData { drawee: node_id_test(), payee: node_id_test(), ..valid_bill_issue_data() }, ValidationError::DraweeCantBePayee)]
     fn test_validate_bill_issue_data_errors(
         #[case] input: BillIssueData,
         #[case] expected: ValidationError,
@@ -655,9 +638,9 @@ mod tests {
     fn valid_bill_blockchain_issue(issue_block_data: BillIssueBlockData) -> BillBlockchain {
         let chain = BillBlockchain::new(
             &issue_block_data,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             now().timestamp() as u64 - 10,
         )
         .unwrap();
@@ -666,12 +649,12 @@ mod tests {
     }
 
     fn keys() -> BcrKeys {
-        BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()
+        BcrKeys::from_private_key(&private_key_test()).unwrap()
     }
 
     fn add_req_to_accept_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_request_to_accept(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRequestToAcceptBlockData {
                 requester: valid_bill_participant().into(),
@@ -696,7 +679,7 @@ mod tests {
         endorser: BillIdentParticipant,
     ) -> BillBlockchain {
         let block = BillBlock::create_block_for_endorse(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillEndorseBlockData {
                 endorser: BillParticipant::Ident(endorser).into(),
@@ -718,7 +701,7 @@ mod tests {
 
     fn add_accept_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_accept(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillAcceptBlockData {
                 accepter: valid_bill_identified_participant().into(),
@@ -739,7 +722,7 @@ mod tests {
 
     fn add_req_to_pay_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_request_to_pay(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRequestToPayBlockData {
                 requester: valid_bill_participant().into(),
@@ -761,7 +744,7 @@ mod tests {
 
     fn add_offer_to_sell_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_offer_to_sell(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillOfferToSellBlockData {
                 buyer: valid_bill_participant().into(),
@@ -786,7 +769,7 @@ mod tests {
 
     fn add_req_to_recourse_accept_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_request_recourse(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRequestRecourseBlockData {
                 recourser: valid_bill_identified_participant().into(),
@@ -811,7 +794,7 @@ mod tests {
 
     fn add_reject_accept_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_reject_to_accept(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRejectBlockData {
                 rejecter: valid_bill_identified_participant().into(),
@@ -832,7 +815,7 @@ mod tests {
 
     fn add_reject_pay_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_reject_to_pay(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRejectBlockData {
                 rejecter: valid_bill_identified_participant().into(),
@@ -853,7 +836,7 @@ mod tests {
 
     fn add_reject_buy_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_reject_to_buy(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRejectToBuyBlockData {
                 rejecter: valid_bill_participant().into(),
@@ -874,7 +857,7 @@ mod tests {
 
     fn add_reject_recourse_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_reject_to_pay_recourse(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRejectBlockData {
                 rejecter: valid_bill_identified_participant().into(),
@@ -895,7 +878,7 @@ mod tests {
 
     fn add_recourse_accept_block(mut chain: BillBlockchain) -> BillBlockchain {
         let block = BillBlock::create_block_for_recourse(
-            TEST_BILL_ID.into(),
+            bill_id_test(),
             chain.get_latest_block(),
             &BillRecourseBlockData {
                 recourser: valid_bill_identified_participant().into(),
@@ -921,16 +904,16 @@ mod tests {
     fn valid_bill_validate_action_data(chain: BillBlockchain) -> BillValidateActionData {
         BillValidateActionData {
             blockchain: chain,
-            drawee_node_id: TEST_PUB_KEY_SECP.into(),
-            payee_node_id: OTHER_TEST_PUB_KEY_SECP.into(),
+            drawee_node_id: node_id_test(),
+            payee_node_id: node_id_test_other(),
             endorsee_node_id: None,
             maturity_date: "2024-11-12".into(),
             bill_keys: BillKeys {
-                private_key: TEST_PRIVATE_KEY_SECP.into(),
-                public_key: TEST_PUB_KEY_SECP.into(),
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
             },
             timestamp: now().timestamp() as u64,
-            signer_node_id: TEST_PUB_KEY_SECP.into(),
+            signer_node_id: node_id_test(),
             bill_action: BillAction::Accept,
             is_paid: false,
         }
@@ -947,7 +930,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::accept(BillValidateActionData { drawee_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::accept(BillValidateActionData { drawee_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
     fn test_validate_bill_accept_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -967,7 +950,7 @@ mod tests {
     #[case::payment_expired_only_recourse(BillValidateActionData { timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
     #[case::accept_already_accepted(BillValidateActionData { ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAlreadyAccepted))]
-    #[case::accept_not_drawee(BillValidateActionData { drawee_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotDrawee))]
+    #[case::accept_not_drawee(BillValidateActionData { drawee_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotDrawee))]
     fn test_validate_bill_accept_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -976,7 +959,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::req_to_accept(BillValidateActionData { bill_action: BillAction::RequestAcceptance, signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_accept(BillValidateActionData { bill_action: BillAction::RequestAcceptance, signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
     fn test_validate_bill_req_to_accept_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -995,7 +978,7 @@ mod tests {
     #[case::rejected_to_pay_only_recourse(BillValidateActionData { bill_action: BillAction::RequestAcceptance, ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RequestAcceptance, timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RequestAcceptance, timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::req_to_accept_not_holder(BillValidateActionData { bill_action: BillAction::RequestAcceptance, signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::req_to_accept_not_holder(BillValidateActionData { bill_action: BillAction::RequestAcceptance, signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
     #[case::req_to_accept_already_accepted(BillValidateActionData { bill_action: BillAction::RequestAcceptance, ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAlreadyAccepted))]
     #[case::req_to_accept_already_req_to_accepted(BillValidateActionData { bill_action: BillAction::RequestAcceptance, ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAlreadyRequestedToAccept))]
     fn test_validate_bill_req_to_accept_errors(
@@ -1006,9 +989,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::req_to_pay(BillValidateActionData { signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: "2022-11-12".into(), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
+    #[case::req_to_pay(BillValidateActionData { signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: "2022-11-12".into(), signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
     fn test_validate_bill_req_to_pay_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1027,7 +1010,7 @@ mod tests {
     #[case::rejected_to_pay_only_recourse(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::req_to_pay_not_holder(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::req_to_pay_not_holder(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
     #[case::req_to_pay_already_req_to_payed(BillValidateActionData { bill_action: BillAction::RequestToPay("sat".into()), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     fn test_validate_bill_req_to_pay_errors(
         #[case] input: BillValidateActionData,
@@ -1037,9 +1020,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::req_to_recourse_not_rejected_but_expired(BillValidateActionData { timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 2), endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
-    #[case::req_to_recourse_not_expired_but_rejected(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_reject_accept_block(add_req_to_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())))) }, Ok(()))]
-    #[case::req_to_recourse_not_req_to_accept_but_rejected(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_reject_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
+    #[case::req_to_recourse_not_rejected_but_expired(BillValidateActionData { timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 2), endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
+    #[case::req_to_recourse_not_expired_but_rejected(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_reject_accept_block(add_req_to_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())))) }, Ok(()))]
+    #[case::req_to_recourse_not_req_to_accept_but_rejected(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_reject_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
     fn test_validate_bill_req_to_recourse_accept_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1054,10 +1037,10 @@ mod tests {
     #[case::active_req_to_pay_blocked(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     #[case::active_offer_to_sell_blocked(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
     #[case::active_recourse_blocked(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::req_to_recourse_not_holder(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Accept), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::req_to_recourse_not_past_endorsee(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::RecourseeNotPastHolder))]
-    #[case::req_to_recourse_not_req_to_accept_or_rejected(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillRequestToAcceptDidNotExpireAndWasNotRejected))]
-    #[case::req_to_recourse_not_expired_or_rejected(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRequestToAcceptDidNotExpireAndWasNotRejected))]
+    #[case::req_to_recourse_not_holder(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Accept), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::req_to_recourse_not_past_endorsee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::RecourseeNotPastHolder))]
+    #[case::req_to_recourse_not_req_to_accept_or_rejected(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillRequestToAcceptDidNotExpireAndWasNotRejected))]
+    #[case::req_to_recourse_not_expired_or_rejected(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRequestToAcceptDidNotExpireAndWasNotRejected))]
     fn test_validate_bill_req_to_recourse_accept_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1066,8 +1049,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::req_to_recourse_rejected(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_reject_pay_block(add_req_to_pay_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())))) }, Ok(()))]
-    #[case::req_to_recourse_expired(BillValidateActionData { timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 2), endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
+    #[case::req_to_recourse_rejected(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_reject_pay_block(add_req_to_pay_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())))) }, Ok(()))]
+    #[case::req_to_recourse_expired(BillValidateActionData { timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 2), endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
     fn test_validate_bill_req_to_recourse_payment_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1082,11 +1065,11 @@ mod tests {
     #[case::active_req_to_pay_blocked(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     #[case::active_offer_to_sell_blocked(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
     #[case::active_recourse_blocked(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::req_to_recourse_not_holder(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::req_to_recourse_not_past_endorsee(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::RecourseeNotPastHolder))]
-    #[case::req_to_recourse_paid(BillValidateActionData { is_paid: true, endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillAlreadyPaid))]
-    #[case::req_to_recourse_not_req_to_pay(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillWasNotRequestedToPay))]
-    #[case::req_to_recourse_not_expired_or_rejected(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::req_to_recourse_not_holder(BillValidateActionData { bill_action: BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::req_to_recourse_not_past_endorsee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::RecourseeNotPastHolder))]
+    #[case::req_to_recourse_paid(BillValidateActionData { is_paid: true, endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillAlreadyPaid))]
+    #[case::req_to_recourse_not_req_to_pay(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillWasNotRequestedToPay))]
+    #[case::req_to_recourse_not_expired_or_rejected(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, "sat".into())), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     fn test_validate_bill_req_to_recourse_payment_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1095,7 +1078,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::recourse(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
+    #[case::recourse(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
     fn test_validate_bill_recourse_payment_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1109,12 +1092,12 @@ mod tests {
     #[case::expired_req_to_recourse_blocked(BillValidateActionData { bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillRequestToRecourseExpired))]
     #[case::active_req_to_pay_blocked(BillValidateActionData { bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     #[case::active_offer_to_sell_blocked(BillValidateActionData { bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
-    #[case::recourse_not_holder(BillValidateActionData { bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::recourse_not_in_recourse(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::BillIsNotRequestedToRecourseAndWaitingForPayment))]
-    #[case::recourse_invalid_data_sum(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 700, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
-    #[case::recourse_invalid_data_currency(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "invalidcurrency".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
-    #[case::recourse_invalid_data_reason(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "sat".into(), RecourseReason::Pay(100, "sat".into())), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
-    #[case::recourse_invalid_data_recoursee(BillValidateActionData { endorsee_node_id: Some(TEST_PUB_KEY_SECP.into()), bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
+    #[case::recourse_not_holder(BillValidateActionData { bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::recourse_not_in_recourse(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::BillIsNotRequestedToRecourseAndWaitingForPayment))]
+    #[case::recourse_invalid_data_sum(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 700, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
+    #[case::recourse_invalid_data_currency(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "invalidcurrency".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
+    #[case::recourse_invalid_data_reason(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::Recourse(valid_other_bill_identified_participant(), 500, "sat".into(), RecourseReason::Pay(100, "sat".into())), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
+    #[case::recourse_invalid_data_recoursee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), bill_action: BillAction::Recourse(valid_bill_identified_participant(), 500, "sat".into(), RecourseReason::Accept), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
     fn test_validate_bill_recourse_payment_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1123,7 +1106,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::mint(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::mint(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_mint_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1143,7 +1126,7 @@ mod tests {
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
     #[case::mint_not_accepted(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillNotAccepted))]
-    #[case::mint_not_holder(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::mint_not_holder(BillValidateActionData { bill_action: BillAction::Mint(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotHolder))]
     fn test_validate_bill_mint_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1152,7 +1135,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::endorse(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::endorse(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
     fn test_validate_bill_endorse_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1171,7 +1154,7 @@ mod tests {
     #[case::rejected_to_pay_only_recourse(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::endorse_not_holder(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::endorse_not_holder(BillValidateActionData { bill_action: BillAction::Endorse(valid_other_bill_participant()), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotHolder))]
     fn test_validate_bill_endorse_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1180,8 +1163,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::offer_to_sell(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) ,bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::offer_to_sell(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) ,bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_offer_to_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1200,7 +1183,7 @@ mod tests {
     #[case::rejected_to_pay_only_recourse(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::offer_to_sell_not_holder(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::offer_to_sell_not_holder(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, "sat".into()), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
     fn test_validate_bill_offer_to_sell_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1209,10 +1192,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::sell(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::sell(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     // minus 8 seconds so timestamp is before offer to sell expiry and after req to pay expiry
     // as every block adds 1 sec to issue block, which is now() - 10
-    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), bill_action: BillAction::Sell(valid_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
+    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), bill_action: BillAction::Sell(valid_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
     fn test_validate_bill_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1230,12 +1213,12 @@ mod tests {
     #[case::rejected_to_pay_only_recourse(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::sell_not_holder(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::sell_not_offered_to_sell(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillIsNotOfferToSellWaitingForPayment))]
-    #[case::sell_invalid_data_sum(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 700, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
-    #[case::sell_invalid_data_currency(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 500, "invalidcurrency".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
-    #[case::sell_invalid_data_buyer(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
-    #[case::sell_invalid_data_payment_address(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), OTHER_VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
+    #[case::sell_not_holder(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::sell_not_offered_to_sell(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillIsNotOfferToSellWaitingForPayment))]
+    #[case::sell_invalid_data_sum(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 700, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
+    #[case::sell_invalid_data_currency(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 500, "invalidcurrency".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
+    #[case::sell_invalid_data_buyer(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
+    #[case::sell_invalid_data_payment_address(BillValidateActionData { bill_action: BillAction::Sell(valid_other_bill_participant(), 500, "sat".into(), OTHER_VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
     fn test_validate_bill_sell_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1264,7 +1247,7 @@ mod tests {
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RejectAcceptance, timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RejectAcceptance, timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
     #[case::reject_to_accept_already_rejected(BillValidateActionData { bill_action: BillAction::RejectAcceptance, ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
-    #[case::reject_to_accept_not_drawee(BillValidateActionData { bill_action: BillAction::RejectAcceptance, signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotDrawee))]
+    #[case::reject_to_accept_not_drawee(BillValidateActionData { bill_action: BillAction::RejectAcceptance, signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotDrawee))]
     #[case::reject_to_accept_accepted(BillValidateActionData { bill_action: BillAction::RejectAcceptance, ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAlreadyAccepted))]
     fn test_validate_bill_reject_accept_errors(
         #[case] input: BillValidateActionData,
@@ -1274,7 +1257,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::reject_to_buy_not_buyer(BillValidateActionData { bill_action: BillAction::RejectBuying, signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::reject_to_buy_not_buyer(BillValidateActionData { bill_action: BillAction::RejectBuying, signer_node_id: node_id_test(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_reject_buying_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1294,7 +1277,7 @@ mod tests {
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RejectBuying, timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
     #[case::reject_to_buy_already_rejected(BillValidateActionData { bill_action: BillAction::RejectBuying, ..valid_bill_validate_action_data(add_reject_buy_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::RequestAlreadyRejected))]
     #[case::reject_to_buy_not_offered_to_sell(BillValidateActionData { bill_action: BillAction::RejectBuying, ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillWasNotOfferedToSell))]
-    #[case::reject_to_buy_not_buyer(BillValidateActionData { bill_action: BillAction::RejectBuying, signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotBuyer))]
+    #[case::reject_to_buy_not_buyer(BillValidateActionData { bill_action: BillAction::RejectBuying, signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotBuyer))]
     fn test_validate_bill_reject_buying_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1323,7 +1306,7 @@ mod tests {
     #[case::payment_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RejectPayment, timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
     #[case::acceptance_expired_only_recourse(BillValidateActionData { bill_action: BillAction::RejectPayment, timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
     #[case::reject_to_pay_already_rejected(BillValidateActionData { bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
-    #[case::reject_to_pay_not_drawee(BillValidateActionData { bill_action: BillAction::RejectPayment, signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotDrawee))]
+    #[case::reject_to_pay_not_drawee(BillValidateActionData { bill_action: BillAction::RejectPayment, signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotDrawee))]
     #[case::reject_to_pay_paid(BillValidateActionData { is_paid: true, bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillAlreadyPaid))]
     #[case::reject_to_pay_not_req_to_pay(BillValidateActionData { bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillWasNotRequestedToPay))]
     #[case::reject_to_pay_expired(BillValidateActionData { timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2), bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
@@ -1335,7 +1318,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::reject_to_recourse(BillValidateActionData { signer_node_id: OTHER_TEST_PUB_KEY_SECP.into(), bill_action: BillAction::RejectPaymentForRecourse, ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::reject_to_recourse(BillValidateActionData { signer_node_id: node_id_test_other(), bill_action: BillAction::RejectPaymentForRecourse, ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_reject_recourse_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1351,7 +1334,7 @@ mod tests {
     #[case::active_req_to_pay_blocked(BillValidateActionData { bill_action: BillAction::RejectBuying, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     #[case::reject_to_recourse_already_rejected(BillValidateActionData { bill_action: BillAction::RejectPaymentForRecourse, ..valid_bill_validate_action_data(add_reject_recourse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToRecourse))]
     #[case::reject_to_recourse_not_req_to_recourse(BillValidateActionData { bill_action: BillAction::RejectPaymentForRecourse, ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillWasNotRequestedToRecourse))]
-    #[case::reject_to_recourse_not_recoursee(BillValidateActionData { bill_action: BillAction::RejectPaymentForRecourse, signer_node_id: TEST_PUB_KEY_SECP.into(), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotRecoursee))]
+    #[case::reject_to_recourse_not_recoursee(BillValidateActionData { bill_action: BillAction::RejectPaymentForRecourse, signer_node_id: node_id_test(), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotRecoursee))]
     #[case::reject_to_recourse_expired(BillValidateActionData { timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 2), bill_action: BillAction::RejectPaymentForRecourse, ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillRequestToRecourseExpired))]
     fn test_validate_bill_reject_recourse_errors(
         #[case] input: BillValidateActionData,

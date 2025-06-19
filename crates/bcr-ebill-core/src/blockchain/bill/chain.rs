@@ -7,6 +7,7 @@ use super::block::{
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
+use crate::NodeId;
 use crate::bill::{BillKeys, Endorsement, LightSignedBy, PastEndorsee, PastPaymentStatus};
 use crate::blockchain::{Block, Blockchain, Error};
 use crate::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
@@ -53,7 +54,7 @@ impl BillBlockchain {
         bill_keys: BcrKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        let genesis_hash = util::base58_encode(bill.id.as_bytes());
+        let genesis_hash = util::base58_encode(bill.id.to_string().as_bytes());
 
         let first_block = BillBlock::create_block_for_issue(
             bill.id.clone(),
@@ -97,7 +98,7 @@ impl BillBlockchain {
     pub fn get_past_sell_payments_for_node_id(
         &self,
         bill_keys: &BillKeys,
-        node_id: &str,
+        node_id: &NodeId,
         timestamp: u64,
     ) -> Result<Vec<(PaymentInfo, PastPaymentStatus, u64)>> {
         let mut result = vec![];
@@ -151,7 +152,7 @@ impl BillBlockchain {
             let block_data_decrypted: BillOfferToSellBlockData =
                 offer_to_sell_block.get_decrypted_block_bytes(bill_keys)?;
 
-            if node_id != block_data_decrypted.seller.node_id() {
+            if *node_id != block_data_decrypted.seller.node_id() {
                 // node id is not beneficiary - skip
                 continue;
             }
@@ -208,7 +209,7 @@ impl BillBlockchain {
     pub fn get_past_recourse_payments_for_node_id(
         &self,
         bill_keys: &BillKeys,
-        node_id: &str,
+        node_id: &NodeId,
         timestamp: u64,
     ) -> Result<Vec<(RecoursePaymentInfo, PastPaymentStatus, u64)>> {
         let mut result = vec![];
@@ -262,7 +263,7 @@ impl BillBlockchain {
             let block_data_decrypted: BillRequestRecourseBlockData =
                 request_to_recourse_block.get_decrypted_block_bytes(bill_keys)?;
 
-            if node_id != block_data_decrypted.recourser.node_id {
+            if *node_id != block_data_decrypted.recourser.node_id {
                 // node id is not beneficiary - skip
                 continue;
             }
@@ -316,12 +317,12 @@ impl BillBlockchain {
 
     /// Checks if the given node_id is a beneficiary of a holder-changing block with a financial
     /// beneficiary (sell, recourse)
-    pub fn is_beneficiary_from_a_block(&self, bill_keys: &BillKeys, node_id: &str) -> bool {
+    pub fn is_beneficiary_from_a_block(&self, bill_keys: &BillKeys, node_id: &NodeId) -> bool {
         self.blocks()
             .iter()
             .filter_map(|b| b.get_beneficiary_from_block(bill_keys).ok())
             .flatten()
-            .any(|s| s == node_id)
+            .any(|s| s == *node_id)
     }
 
     /// Checks if the given node_id is a beneficiary of a request block with a financial
@@ -329,13 +330,13 @@ impl BillBlockchain {
     pub fn is_beneficiary_from_a_request_funds_block(
         &self,
         bill_keys: &BillKeys,
-        node_id: &str,
+        node_id: &NodeId,
     ) -> bool {
         self.blocks()
             .iter()
             .filter_map(|b| b.get_beneficiary_from_request_funds_block(bill_keys).ok())
             .flatten()
-            .any(|s| s == node_id)
+            .any(|s| s == *node_id)
     }
 
     /// Checks if the the chain has Endorse, Mint, or Sell blocks in it
@@ -454,7 +455,7 @@ impl BillBlockchain {
     /// `Vec<String>`:
     /// - A vector containing the unique identifiers of nodes associated with the bill.
     ///
-    pub fn get_all_nodes_from_bill(&self, bill_keys: &BillKeys) -> Result<Vec<String>> {
+    pub fn get_all_nodes_from_bill(&self, bill_keys: &BillKeys) -> Result<Vec<NodeId>> {
         let node_map = self.get_all_nodes_with_added_block_height(bill_keys)?;
         Ok(node_map.keys().cloned().collect())
     }
@@ -467,14 +468,12 @@ impl BillBlockchain {
     pub fn get_all_nodes_with_added_block_height(
         &self,
         bill_keys: &BillKeys,
-    ) -> Result<HashMap<String, usize>> {
-        let mut nodes: HashMap<String, usize> = HashMap::new();
+    ) -> Result<HashMap<NodeId, usize>> {
+        let mut nodes: HashMap<NodeId, usize> = HashMap::new();
         for (height, block) in self.blocks.iter().enumerate() {
             let nodes_in_block = block.get_nodes_from_block(bill_keys)?;
             for node in nodes_in_block {
-                if !nodes.contains_key(&node) && !node.is_empty() {
-                    nodes.insert(node, height + 1);
-                }
+                nodes.entry(node).or_insert_with(|| height + 1);
             }
         }
         Ok(nodes)
@@ -538,9 +537,9 @@ impl BillBlockchain {
     pub fn get_past_endorsees_for_bill(
         &self,
         bill_keys: &BillKeys,
-        current_identity_node_id: &str,
+        current_identity_node_id: &NodeId,
     ) -> Result<Vec<PastEndorsee>> {
-        let mut result: HashMap<String, PastEndorsee> = HashMap::new();
+        let mut result: HashMap<NodeId, PastEndorsee> = HashMap::new();
 
         let mut found_last_endorsing_block_for_node = false;
         // we ignore recourse blocks, since we're only interested in previous endorsees before
@@ -711,21 +710,21 @@ mod tests {
         blockchain::bill::{block::BillOfferToSellBlockData, tests::get_baseline_identity},
         contact::BillIdentParticipant,
         tests::tests::{
-            TEST_BILL_ID, TEST_PRIVATE_KEY_SECP, bill_participant_only_node_id,
-            empty_bitcredit_bill, get_bill_keys, valid_address,
+            bill_id_test, bill_participant_only_node_id, empty_bitcredit_bill, get_bill_keys,
+            private_key_test, valid_address,
         },
     };
 
     fn get_offer_to_sell_block(
-        buyer_node_id: String,
-        seller_node_id: String,
+        buyer_node_id: NodeId,
+        seller_node_id: NodeId,
         previous_block: &BillBlock,
     ) -> BillBlock {
         let buyer = bill_participant_only_node_id(buyer_node_id);
         let seller = bill_participant_only_node_id(seller_node_id);
 
         BillBlock::create_block_for_offer_to_sell(
-            TEST_BILL_ID.to_string(),
+            bill_id_test(),
             previous_block,
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
@@ -739,7 +738,7 @@ mod tests {
             },
             &get_baseline_identity().key_pair,
             None,
-            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap()
@@ -754,7 +753,7 @@ mod tests {
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
@@ -771,12 +770,12 @@ mod tests {
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
         assert!(chain.try_add_block(get_offer_to_sell_block(
-            BcrKeys::new().get_public_key(),
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet),
             identity.identity.node_id,
             chain.get_first_block()
         ),));
@@ -792,11 +791,12 @@ mod tests {
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = BcrKeys::new().get_public_key();
+        let node_id_last_endorsee =
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         assert!(chain.try_add_block(get_offer_to_sell_block(
             node_id_last_endorsee.clone(),
             identity.identity.node_id,
@@ -819,11 +819,12 @@ mod tests {
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = BcrKeys::new().get_public_key();
+        let node_id_last_endorsee =
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         assert!(chain.try_add_block(get_offer_to_sell_block(
             node_id_last_endorsee.clone(),
             identity.identity.node_id,
@@ -848,17 +849,21 @@ mod tests {
         let identity = get_baseline_identity();
         bill.drawer = BillIdentParticipant::new(identity.identity.clone()).unwrap();
         bill.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
-        bill.payee = bill_participant_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = bill_participant_only_node_id(NodeId::new(
+            BcrKeys::new().pub_key(),
+            bitcoin::Network::Testnet,
+        ));
 
         let mut chain = BillBlockchain::new(
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = BcrKeys::new().get_public_key();
+        let node_id_last_endorsee =
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         assert!(chain.try_add_block(get_offer_to_sell_block(
             node_id_last_endorsee.clone(),
             identity.identity.node_id.to_owned(),
@@ -891,12 +896,13 @@ mod tests {
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
         let chain2 = chain.clone();
-        let node_id_last_endorsee = BcrKeys::new().get_public_key();
+        let node_id_last_endorsee =
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         assert!(chain.try_add_block(get_offer_to_sell_block(
             node_id_last_endorsee.clone(),
             identity.identity.node_id,
@@ -917,12 +923,13 @@ mod tests {
             &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
-            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
             1731593928,
         )
         .unwrap();
         let mut chain2 = chain.clone();
-        let node_id_last_endorsee = BcrKeys::new().get_public_key();
+        let node_id_last_endorsee =
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         assert!(chain.try_add_block(get_offer_to_sell_block(
             node_id_last_endorsee.clone(),
             identity.identity.node_id,

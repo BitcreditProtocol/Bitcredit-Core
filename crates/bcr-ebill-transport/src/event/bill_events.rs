@@ -1,5 +1,6 @@
 use bcr_ebill_core::{
-    bill::{BillKeys, BitcreditBill},
+    NodeId,
+    bill::{BillId, BillKeys, BitcreditBill},
     blockchain::{
         Blockchain,
         bill::{BillBlock, BillBlockchain},
@@ -20,10 +21,10 @@ use super::{
 pub struct BillChainEvent {
     pub bill: BitcreditBill,
     chain: BillBlockchain,
-    participants: HashMap<String, usize>,
+    participants: HashMap<NodeId, usize>,
     pub bill_keys: BillKeys,
     new_blocks: bool,
-    sender_node_id: String,
+    sender_node_id: NodeId,
 }
 
 impl BillChainEvent {
@@ -35,7 +36,7 @@ impl BillChainEvent {
         chain: &BillBlockchain,
         bill_keys: &BillKeys,
         new_blocks: bool,
-        sender_node_id: &str,
+        sender_node_id: &NodeId,
     ) -> Result<Self> {
         let participants = chain
             .get_all_nodes_with_added_block_height(bill_keys)
@@ -56,7 +57,7 @@ impl BillChainEvent {
         })
     }
 
-    pub fn sender(&self) -> String {
+    pub fn sender(&self) -> NodeId {
         self.sender_node_id.clone()
     }
 
@@ -69,7 +70,7 @@ impl BillChainEvent {
         self.chain.block_height()
     }
 
-    fn new_participants(&self) -> HashMap<String, usize> {
+    fn new_participants(&self) -> HashMap<NodeId, usize> {
         let block_height = self.chain.block_height();
         self.participants
             .iter()
@@ -83,7 +84,7 @@ impl BillChainEvent {
 
     // Returns all blocks for newly added participants, otherwise just the latest block or no
     // blocks if the node is not a participant.
-    fn get_blocks_for_node(&self, node_id: &str) -> Vec<BillBlock> {
+    fn get_blocks_for_node(&self, node_id: &NodeId) -> Vec<BillBlock> {
         if !self.new_blocks {
             return Vec::new();
         }
@@ -94,7 +95,7 @@ impl BillChainEvent {
         }
     }
 
-    fn get_keys_for_node(&self, node_id: &str) -> Option<BillKeys> {
+    fn get_keys_for_node(&self, node_id: &NodeId) -> Option<BillKeys> {
         if !self.new_blocks {
             return None;
         }
@@ -110,10 +111,10 @@ impl BillChainEvent {
     /// key in the map.
     pub fn generate_action_messages(
         &self,
-        event_overrides: HashMap<String, (BillEventType, ActionType)>,
+        event_overrides: HashMap<NodeId, (BillEventType, ActionType)>,
         event_type: Option<BillEventType>,
         action: Option<ActionType>,
-    ) -> HashMap<String, Event<BillChainEventPayload>> {
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
         let base_event = event_type.unwrap_or(BillEventType::BillBlock);
         self.participants
             .keys()
@@ -152,8 +153,8 @@ impl BillChainEvent {
         }))
     }
 
-    pub fn generate_bill_invite_events(&self) -> HashMap<String, Event<ChainInvite>> {
-        let invite = ChainInvite::bill(self.bill.id.to_owned(), self.bill_keys.clone());
+    pub fn generate_bill_invite_events(&self) -> HashMap<NodeId, Event<ChainInvite>> {
+        let invite = ChainInvite::bill(self.bill.id.to_string(), self.bill_keys.clone());
         self.new_participants()
             .keys()
             .map(|node_id| (node_id.to_owned(), Event::new_invite(invite.clone())))
@@ -166,10 +167,10 @@ impl BillChainEvent {
 /// performed by the receiver and a change in the blockchain. If the
 /// recipient is a new chain participant, the recipient receives the full
 /// chain otherwise just the most recent block.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillChainEventPayload {
     pub event_type: BillEventType,
-    pub bill_id: String,
+    pub bill_id: BillId,
     pub action_type: Option<ActionType>,
     pub sum: Option<u64>,
     pub keys: Option<BillKeys>,

@@ -24,7 +24,7 @@ pub trait IdentityStoreApi: ServiceTraitBounds {
     /// Gets the local key pair
     async fn get_key_pair(&self) -> Result<BcrKeys>;
     /// Gets the local key pair or creates a new one if it doesn't exist.
-    /// The new key pair is saved to the store together with the node id.
+    /// The new key pair is saved to the store together with the pub key
     async fn get_or_create_key_pair(&self) -> Result<BcrKeys>;
     /// Returns the seed phrase that generated the private keys.
     async fn get_seedphrase(&self) -> Result<String>;
