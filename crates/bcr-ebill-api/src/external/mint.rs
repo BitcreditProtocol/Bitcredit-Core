@@ -8,11 +8,12 @@ use bcr_ebill_core::{
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType},
     util::{BcrKeys, date::DateTimeUtc},
 };
+use bcr_wallet_lib::wallet::TokenOperations;
 use bcr_wdc_key_client::KeyClient;
 use bcr_wdc_quote_client::QuoteClient;
 use bcr_wdc_swap_client::SwapClient;
 use bcr_wdc_webapi::quotes::{BillInfo, ResolveOffer, StatusReply};
-use cashu::{ProofsMethods, State, nut00 as cdk00, nut01 as cdk01, nut02 as cdk02};
+use cashu::{ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use reqwest::Url;
 use thiserror::Error;
 
@@ -161,34 +162,28 @@ impl MintClientApi for MintClient {
     async fn check_if_proofs_are_spent(&self, mint_url: &str, proofs: &str) -> Result<bool> {
         let token_mint_url =
             cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
-        let token = cashu::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
+        let token =
+            bcr_wallet_lib::wallet::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
 
-        if let cashu::Token::TokenV3(token_v3) = token {
-            if let Some(token_for_mint) = token_v3
-                .token
-                .into_iter()
-                .find(|t| t.mint == token_mint_url)
-            {
-                let ys = token_for_mint.proofs.ys().map_err(|_| Error::PubKey)?;
-                let proof_states =
-                    self.swap_client(mint_url)?
-                        .check_state(ys)
-                        .await
-                        .map_err(|e| {
-                            log::error!("Error checking if proofs are spent at {mint_url}: {e}");
-                            Error::SwapClient
-                        })?;
-                // all proofs have to be spent
-                let proofs_spent = proof_states
-                    .iter()
-                    .all(|ps| matches!(ps.state, State::Spent));
-                Ok(proofs_spent)
-            } else {
-                Err(Error::InvalidToken.into())
-            }
-        } else {
-            Err(Error::InvalidToken.into())
+        if token_mint_url != token.mint_url() {
+            return Err(Error::InvalidToken.into());
         }
+
+        let ys = token.proofs().ys().map_err(|_| Error::PubKey)?;
+
+        let proof_states = self
+            .swap_client(mint_url)?
+            .check_state(ys)
+            .await
+            .map_err(|e| {
+                log::error!("Error checking if proofs are spent at {mint_url}: {e}");
+                Error::SwapClient
+            })?;
+        // all proofs have to be spent
+        let proofs_spent = proof_states
+            .iter()
+            .all(|ps| matches!(ps.state, State::Spent));
+        Ok(proofs_spent)
     }
 
     async fn mint(
@@ -225,14 +220,14 @@ impl MintClientApi for MintClient {
         })?;
 
         // generate token from proofs
-        let token = cdk00::Token::new(
+        let token = bcr_wallet_lib::wallet::Token::new_credit(
             token_mint_url,
-            proofs,
-            None,
             cashu::CurrencyUnit::Custom(CURRENCY_CRSAT.into()),
+            None,
+            proofs,
         );
 
-        Ok(token.to_v3_string())
+        Ok(token.to_string())
     }
 
     async fn get_keyset_info(&self, mint_url: &str, keyset_id: &str) -> Result<cdk02::KeySet> {

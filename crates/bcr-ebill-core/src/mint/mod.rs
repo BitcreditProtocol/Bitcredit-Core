@@ -46,7 +46,7 @@ pub struct MintOffer {
     pub expiration_timestamp: u64,
     /// The discounted sum the mint offers us
     pub discounted_sum: u64,
-    /// The proofs, encoded as a custom Tokenv3
+    /// The proofs, encoded as a bitcrB token
     pub proofs: Option<String>,
     /// Whether the proofs were spent according to the mint
     pub proofs_spent: bool,
