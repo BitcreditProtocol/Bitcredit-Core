@@ -56,7 +56,7 @@ let config = {
   job_runner_check_interval_seconds: 600,
   // default_mint_url: "http://localhost:4343",
   default_mint_url: "https://wildcat-dev-docker.minibill.tech",
-  default_mint_node_id: "bitcrt02b7102bd5a4a572298f2aa485e86e490881e9ad7906fcae741db141b8ba1e8acc",
+  default_mint_node_id: "bitcrt0323591791ad4c25eb45a707b10aebe0486eb9ec9485985ab5de12a527810bc42b",
   // default_mint_node_id: "bitcrt0372422bfa5c9b60ef2f10ced26e764983b2e675cd7fac374f5f223616530ce3fb", // dev mint
 };
 

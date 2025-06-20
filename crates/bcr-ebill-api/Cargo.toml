@@ -35,6 +35,7 @@ bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "
 bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
 bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
 bcr-wdc-swap-client = { git = "https://github.com/BitcreditProtocol/wildcat", tag = "v0.2.0" }
+bcr-wallet-lib = { git = "https://github.com/BitcreditProtocol/Wallet-Core", rev = "0a974e79d25fd7018a8165d8575cd06a8da9be59"}
 cashu = { version = "0.9", default-features = false }
 rand = { version = "0.8" }
 hex = { version = "0.4" }
