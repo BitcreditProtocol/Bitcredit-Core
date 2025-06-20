@@ -15,7 +15,7 @@ use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::sync::Arc;
 
 use super::BillChainEventProcessorApi;
@@ -31,6 +31,14 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         blocks: Vec<BillBlock>,
         keys: Option<BillKeys>,
     ) -> Result<()> {
+        // check that incoming bills are of the same network that we use
+        if bill_id.network() != self.bitcoin_network {
+            warn!("Received bill blocks for bill {bill_id} for a different network");
+            return Err(Error::Blockchain(format!(
+                "Received bill blocks for bill {bill_id} for a different network"
+            )));
+        }
+
         if let Ok(existing_chain) = self.bill_blockchain_store.get_chain(bill_id).await {
             self.add_bill_blocks(bill_id, existing_chain, blocks).await
         } else {
@@ -53,6 +61,7 @@ pub struct BillChainEventProcessor {
     bill_store: Arc<dyn BillStoreApi>,
     transport: Arc<dyn NotificationJsonTransportApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    bitcoin_network: bitcoin::Network,
 }
 
 impl BillChainEventProcessor {
@@ -61,16 +70,24 @@ impl BillChainEventProcessor {
         bill_store: Arc<dyn BillStoreApi>,
         transport: Arc<dyn NotificationJsonTransportApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+        bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
             bill_blockchain_store,
             bill_store,
             transport,
             nostr_contact_store,
+            bitcoin_network,
         }
     }
 
     pub async fn ensure_nostr_contact(&self, node_id: &NodeId) {
+        // check that the given node id is from the configured network
+        if node_id.network() != self.bitcoin_network {
+            warn!("Tried to ensure nostr contact for a different network {node_id}");
+            return;
+        }
+
         // we already have the contact in the store, no need to resolve it
         if let Ok(Some(_)) = self.nostr_contact_store.by_node_id(node_id).await {
             return;
@@ -395,6 +412,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
     }
 
@@ -449,6 +467,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         handler
@@ -509,6 +528,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         let result = handler
@@ -551,6 +571,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         let result = handler
@@ -629,6 +650,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         handler
@@ -686,6 +708,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         let result = handler
@@ -749,6 +772,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         let result = handler
@@ -803,6 +827,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            bitcoin::Network::Testnet,
         );
 
         let result = handler
@@ -810,6 +835,26 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fails_to_add_block_for_bill_id_from_different_network() {
+        let (bill_chain_store, bill_store, transport, contact_store) = create_mocks();
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+        );
+        let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+
+        let result = handler
+            .process_chain_data(&mainnet_bill_id, vec![], None)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.as_ref().unwrap_err().to_string().contains("network"));
     }
 
     pub fn get_test_bitcredit_bill(

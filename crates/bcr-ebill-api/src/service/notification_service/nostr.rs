@@ -595,9 +595,9 @@ async fn handle_direct_message<T: NostrSigner>(
 ) -> Result<()> {
     if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
         let sender_npub = sender.to_bech32();
-        let sender_node_id = sender.to_hex();
+        let sender_pub_key = sender.to_hex();
         trace!(
-            "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id}) on client {client_id}"
+            "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}"
         );
         handle_event(envelope, client_id, event_handlers, event).await?;
     }

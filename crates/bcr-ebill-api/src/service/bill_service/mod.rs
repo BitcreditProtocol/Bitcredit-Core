@@ -6459,4 +6459,293 @@ pub mod tests {
             .await;
         assert!(res.is_ok());
     }
+
+    #[tokio::test]
+    async fn wrong_network_failures() {
+        let participant =
+            BillParticipant::Ident(bill_identified_participant_only_node_id(node_id_test()));
+        let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        let mainnet_participant = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            mainnet_node_id.clone(),
+        ));
+        let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        let identity = get_baseline_identity();
+        let ctx = get_ctx();
+        let service = get_service(ctx);
+
+        assert!(matches!(
+            service
+                .get_combined_bitcoin_key_for_bill(&mainnet_bill_id, &participant, &BcrKeys::new())
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_combined_bitcoin_key_for_bill(
+                    &bill_id_test(),
+                    &mainnet_participant,
+                    &BcrKeys::new()
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .get_detail(
+                    &mainnet_bill_id,
+                    &identity.identity,
+                    &node_id_test(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_detail(
+                    &bill_id_test(),
+                    &identity.identity,
+                    &mainnet_node_id,
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service.get_bill_keys(&mainnet_bill_id).await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+
+        assert!(matches!(
+            service
+                .check_payment_for_bill(&mainnet_bill_id, &identity.identity)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .check_offer_to_sell_payment_for_bill(&mainnet_bill_id, &identity)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .check_recourse_payment_for_bill(&mainnet_bill_id, &identity)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_past_endorsees(&mainnet_bill_id, &node_id_test())
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_past_endorsees(&bill_id_test(), &mainnet_node_id)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .get_past_payments(&mainnet_bill_id, &participant, &BcrKeys::new(), 1731593928)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_past_payments(
+                    &bill_id_test(),
+                    &mainnet_participant,
+                    &BcrKeys::new(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .get_endorsements(&mainnet_bill_id, &node_id_test())
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_endorsements(&bill_id_test(), &mainnet_node_id)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .request_to_mint(
+                    &mainnet_bill_id,
+                    &node_id_test(),
+                    &participant,
+                    &BcrKeys::new(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .request_to_mint(
+                    &bill_id_test(),
+                    &mainnet_node_id,
+                    &participant,
+                    &BcrKeys::new(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .request_to_mint(
+                    &bill_id_test(),
+                    &node_id_test(),
+                    &mainnet_participant,
+                    &BcrKeys::new(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .get_mint_state(&mainnet_bill_id, &node_id_test())
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .get_mint_state(&bill_id_test(), &mainnet_node_id)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service.cancel_request_to_mint("", &mainnet_node_id).await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .check_mint_state(&mainnet_bill_id, &node_id_test())
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .check_mint_state(&bill_id_test(), &mainnet_node_id)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .accept_mint_offer("", &mainnet_participant, &BcrKeys::new(), 1731593928)
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service.reject_mint_offer("", &mainnet_node_id).await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        // issue
+        assert!(matches!(
+            service
+                .issue_new_bill(BillIssueData {
+                    t: 2,
+                    country_of_issuing: String::from("UK"),
+                    city_of_issuing: String::from("London"),
+                    issue_date: String::from("2030-01-01"),
+                    maturity_date: String::from("2030-04-01"),
+                    drawee: mainnet_node_id.clone(),
+                    payee: node_id_test(),
+                    sum: String::from("100"),
+                    currency: String::from("sat"),
+                    country_of_payment: String::from("AT"),
+                    city_of_payment: String::from("Vienna"),
+                    language: String::from("en-UK"),
+                    file_upload_ids: vec!["some_file_id".to_string()],
+                    drawer_public_data: participant.clone(),
+                    drawer_keys: BcrKeys::new(),
+                    timestamp: 1731593928,
+                    blank_issue: false,
+                })
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .issue_new_bill(BillIssueData {
+                    t: 2,
+                    country_of_issuing: String::from("UK"),
+                    city_of_issuing: String::from("London"),
+                    issue_date: String::from("2030-01-01"),
+                    maturity_date: String::from("2030-04-01"),
+                    drawee: node_id_test(),
+                    payee: mainnet_node_id.clone(),
+                    sum: String::from("100"),
+                    currency: String::from("sat"),
+                    country_of_payment: String::from("AT"),
+                    city_of_payment: String::from("Vienna"),
+                    language: String::from("en-UK"),
+                    file_upload_ids: vec!["some_file_id".to_string()],
+                    drawer_public_data: participant.clone(),
+                    drawer_keys: BcrKeys::new(),
+                    timestamp: 1731593928,
+                    blank_issue: false,
+                })
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .issue_new_bill(BillIssueData {
+                    t: 2,
+                    country_of_issuing: String::from("UK"),
+                    city_of_issuing: String::from("London"),
+                    issue_date: String::from("2030-01-01"),
+                    maturity_date: String::from("2030-04-01"),
+                    drawee: node_id_test(),
+                    payee: node_id_test(),
+                    sum: String::from("100"),
+                    currency: String::from("sat"),
+                    country_of_payment: String::from("AT"),
+                    city_of_payment: String::from("Vienna"),
+                    language: String::from("en-UK"),
+                    file_upload_ids: vec!["some_file_id".to_string()],
+                    drawer_public_data: mainnet_participant.clone(),
+                    drawer_keys: BcrKeys::new(),
+                    timestamp: 1731593928,
+                    blank_issue: false,
+                })
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        // execute bill action
+        assert!(matches!(
+            service
+                .execute_bill_action(
+                    &mainnet_bill_id,
+                    BillAction::Accept,
+                    &participant,
+                    &BcrKeys::new(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .execute_bill_action(
+                    &bill_id_test(),
+                    BillAction::Accept,
+                    &mainnet_participant,
+                    &BcrKeys::new(),
+                    1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+    }
 }

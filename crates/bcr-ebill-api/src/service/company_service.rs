@@ -8,6 +8,7 @@ use crate::blockchain::identity::{
     IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
     IdentityRemoveSignatoryBlockData,
 };
+use crate::data::validate_node_id_network;
 use crate::data::{
     File, OptionalPostalAddress, PostalAddress,
     company::{Company, CompanyKeys},
@@ -185,6 +186,7 @@ impl ServiceTraitBounds for CompanyService {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompanyServiceApi for CompanyService {
     async fn list_signatories(&self, id: &NodeId) -> Result<Vec<Contact>> {
+        validate_node_id_network(id)?;
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
         }
@@ -215,6 +217,7 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, CompanyKeys)> {
+        validate_node_id_network(id)?;
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
         }
@@ -224,6 +227,7 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_by_id(&self, id: &NodeId) -> Result<Company> {
+        validate_node_id_network(id)?;
         let (company, _keys) = self.get_company_and_keys_by_id(id).await?;
         Ok(company)
     }
@@ -363,6 +367,7 @@ impl CompanyServiceApi for CompanyService {
         timestamp: u64,
     ) -> Result<()> {
         debug!("editing company with id: {id}");
+        validate_node_id_network(id)?;
         if !self.store.exists(id).await {
             debug!("company with id {id} does not exist");
             return Err(super::Error::NotFound);
@@ -528,6 +533,8 @@ impl CompanyServiceApi for CompanyService {
             "adding signatory {} to company with id: {id}",
             &signatory_node_id
         );
+        validate_node_id_network(id)?;
+        validate_node_id_network(&signatory_node_id)?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -611,6 +618,8 @@ impl CompanyServiceApi for CompanyService {
             "removing signatory {} from company with id: {id}",
             &signatory_node_id
         );
+        validate_node_id_network(id)?;
+        validate_node_id_network(&signatory_node_id)?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -700,6 +709,7 @@ impl CompanyServiceApi for CompanyService {
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for company with id: {id}",);
+        validate_node_id_network(id)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
@@ -2143,5 +2153,70 @@ pub mod tests {
         let res = service.list_signatories(&node_id_test()).await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn wrong_network_failures() {
+        let (
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+        ) = get_storages();
+        let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+        );
+        assert!(service.list_signatories(&mainnet_node_id).await.is_err());
+        assert!(
+            service
+                .get_company_and_keys_by_id(&mainnet_node_id)
+                .await
+                .is_err()
+        );
+        assert!(service.get_company_by_id(&mainnet_node_id).await.is_err());
+        assert!(
+            service
+                .edit_company(
+                    &mainnet_node_id,
+                    None,
+                    None,
+                    OptionalPostalAddress::empty(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    1731593928
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .add_signatory(
+                    &mainnet_node_id.clone(),
+                    mainnet_node_id.clone(),
+                    1731593928
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .remove_signatory(&mainnet_node_id.clone(), mainnet_node_id, 1731593928)
+                .await
+                .is_err()
+        );
     }
 }

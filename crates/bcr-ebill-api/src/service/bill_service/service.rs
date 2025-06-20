@@ -14,6 +14,7 @@ use crate::data::{
     contact::{BillIdentParticipant, ContactType},
     identity::Identity,
 };
+use crate::data::{validate_bill_id_network, validate_node_id_network};
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
@@ -665,6 +666,7 @@ impl BillServiceApi for BillService {
         _currency: &str,
         current_identity_node_id: &NodeId,
     ) -> Result<BillsBalanceOverview> {
+        validate_node_id_network(current_identity_node_id)?;
         let bills = self.get_bills(current_identity_node_id).await?;
 
         let mut payer_sum = 0;
@@ -708,6 +710,7 @@ impl BillServiceApi for BillService {
         debug!(
             "searching bills with {search_term:?} from {date_range_from:?} to {date_range_to:?} and {role:?}"
         );
+        validate_node_id_network(current_identity_node_id)?;
         let bills = self.get_bills(current_identity_node_id).await?;
         let mut result = vec![];
 
@@ -774,6 +777,7 @@ impl BillServiceApi for BillService {
         &self,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<BitcreditBillResult>> {
+        validate_node_id_network(current_identity_node_id)?;
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
         let current_timestamp = util::date::now().timestamp() as u64;
@@ -851,6 +855,8 @@ impl BillServiceApi for BillService {
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -880,6 +886,8 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
         current_timestamp: u64,
     ) -> Result<BitcreditBillResult> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(current_identity_node_id)?;
         let res = self
             .get_full_bill(
                 bill_id,
@@ -901,6 +909,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BillKeys> {
+        validate_bill_id_network(bill_id)?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -918,6 +927,7 @@ impl BillServiceApi for BillService {
         bill_private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {} for bill with id: {bill_id}", file.name);
+        validate_bill_id_network(bill_id)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
             let file_bytes = self
@@ -955,6 +965,8 @@ impl BillServiceApi for BillService {
             "Executing bill action {:?} for bill {bill_id}",
             &bill_action
         );
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&signer_public_data.node_id())?;
         // fetch data
         let identity = self.identity_store.get_full().await?;
         let contacts = self.contact_store.get_map().await?;
@@ -1032,6 +1044,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn check_payment_for_bill(&self, bill_id: &BillId, identity: &Identity) -> Result<()> {
+        validate_bill_id_network(bill_id)?;
         let bill_ids_waiting_for_payment = self.store.get_bill_ids_waiting_for_payment().await?;
 
         if bill_ids_waiting_for_payment.iter().any(|id| id == bill_id) {
@@ -1066,6 +1079,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         identity: &IdentityWithAll,
     ) -> Result<()> {
+        validate_bill_id_network(bill_id)?;
         let bill_ids_waiting_for_offer_to_sell_payment =
             self.store.get_bill_ids_waiting_for_sell_payment().await?;
         let now = external::time::TimeApi::get_atomic_time().await.timestamp;
@@ -1112,6 +1126,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         identity: &IdentityWithAll,
     ) -> Result<()> {
+        validate_bill_id_network(bill_id)?;
         let bill_ids_waiting_for_recourse_payment = self
             .store
             .get_bill_ids_waiting_for_recourse_payment()
@@ -1164,6 +1179,8 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<PastEndorsee>> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(current_identity_node_id)?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -1195,6 +1212,8 @@ impl BillServiceApi for BillService {
         caller_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Vec<PastPaymentResult>> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -1354,6 +1373,8 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<Endorsement>> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(current_identity_node_id)?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -1391,6 +1412,9 @@ impl BillServiceApi for BillService {
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<()> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&signer_public_data.node_id())?;
+        validate_node_id_network(mint_node_id)?;
         debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
         let mint_cfg = &get_config().mint_config;
         // make sure the mint is a valid one - currently just checks it against the default mint
@@ -1526,6 +1550,8 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<MintRequestState>> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(current_identity_node_id)?;
         let requests = self
             .mint_store
             .get_requests_for_bill(current_identity_node_id, bill_id)
@@ -1562,6 +1588,7 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to cancel request to mint {mint_request_id}");
+        validate_node_id_network(current_identity_node_id)?;
         let req = self
             .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
             .await?;
@@ -1593,6 +1620,8 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("checking mint requests for bill {bill_id}");
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(current_identity_node_id)?;
         let requests = self
             .mint_store
             .get_requests_for_bill(current_identity_node_id, bill_id)
@@ -1637,6 +1666,7 @@ impl BillServiceApi for BillService {
         let currency = CURRENCY_SAT.to_string(); // default to sat for now
         let identity = self.identity_store.get().await?;
         debug!("trying to accept offer from request to mint {mint_request_id}");
+        validate_node_id_network(&signer_public_data.node_id())?;
         let req = self
             .get_req_to_mint_for_node_id(mint_request_id, &signer_public_data.node_id())
             .await?;
@@ -1703,6 +1733,7 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to reject offer from request to mint {mint_request_id}");
+        validate_node_id_network(current_identity_node_id)?;
         let req = self
             .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
             .await?;

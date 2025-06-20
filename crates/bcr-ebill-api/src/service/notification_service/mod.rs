@@ -141,6 +141,7 @@ pub async fn create_nostr_consumer(
         bill_store.clone(),
         transport.clone(),
         nostr_contact_store,
+        get_config().bitcoin_network(),
     ));
 
     // on startup, we make sure the configured default mint exists
