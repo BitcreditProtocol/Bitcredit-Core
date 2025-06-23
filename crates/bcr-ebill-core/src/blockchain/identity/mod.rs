@@ -7,6 +7,7 @@ use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use log::error;
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,7 @@ pub enum IdentityOpCode {
 #[derive(BorshSerialize)]
 pub struct IdentityBlockDataToHash {
     id: u64,
+    plaintext_hash: String,
     previous_hash: String,
     data: String,
     timestamp: u64,
@@ -34,6 +36,7 @@ pub struct IdentityBlockDataToHash {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityBlock {
     pub id: u64,
+    pub plaintext_hash: String,
     pub hash: String,
     pub timestamp: u64,
     pub data: String,
@@ -144,6 +147,10 @@ impl Block for IdentityBlock {
         &self.op_code
     }
 
+    fn plaintext_hash(&self) -> &str {
+        &self.plaintext_hash
+    }
+
     fn hash(&self) -> &str {
         &self.hash
     }
@@ -168,9 +175,32 @@ impl Block for IdentityBlock {
         true
     }
 
+    fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool {
+        match util::base58_decode(&self.data) {
+            Ok(decoded) => match util::crypto::decrypt_ecies(&decoded, private_key) {
+                Ok(decrypted) => self.plaintext_hash() == util::sha256_hash(&decrypted),
+                Err(e) => {
+                    error!(
+                        "Decrypt Error while validating plaintext hash for id {}: {e}",
+                        self.id()
+                    );
+                    false
+                }
+            },
+            Err(e) => {
+                error!(
+                    "Decode Error while validating plaintext hash for id {}: {e}",
+                    self.id()
+                );
+                false
+            }
+        }
+    }
+
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
         IdentityBlockDataToHash {
             id: self.id(),
+            plaintext_hash: self.plaintext_hash().to_owned(),
             previous_hash: self.previous_hash().to_owned(),
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
@@ -188,9 +218,11 @@ impl IdentityBlock {
         op_code: IdentityOpCode,
         keys: &BcrKeys,
         timestamp: u64,
+        plaintext_hash: String,
     ) -> Result<Self> {
         let hash = Self::calculate_hash(IdentityBlockDataToHash {
             id,
+            plaintext_hash: plaintext_hash.clone(),
             previous_hash: previous_hash.clone(),
             data: data.clone(),
             timestamp,
@@ -201,6 +233,7 @@ impl IdentityBlock {
 
         Ok(Self {
             id,
+            plaintext_hash,
             hash,
             timestamp,
             previous_hash,
@@ -218,6 +251,7 @@ impl IdentityBlock {
         timestamp: u64,
     ) -> Result<Self> {
         let identity_bytes = to_vec(identity)?;
+        let plaintext_hash = Self::calculate_plaintext_hash(identity)?;
 
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &identity_bytes,
@@ -231,6 +265,7 @@ impl IdentityBlock {
             IdentityOpCode::Create,
             keys,
             timestamp,
+            plaintext_hash,
         )
     }
 
@@ -338,6 +373,7 @@ impl IdentityBlock {
         op_code: IdentityOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
+        let plaintext_hash = Self::calculate_plaintext_hash(data)?;
 
         let encrypted_data =
             util::base58_encode(&util::crypto::encrypt_ecies(&bytes, &keys.pub_key())?);
@@ -349,6 +385,7 @@ impl IdentityBlock {
             op_code,
             keys,
             timestamp,
+            plaintext_hash,
         )?;
 
         if !new_block.validate_with_previous(previous_block) {
@@ -393,6 +430,19 @@ impl IdentityBlockchain {
 mod tests {
     use super::*;
     use crate::tests::tests::{bill_id_test, empty_identity, node_id_test, valid_optional_address};
+
+    #[test]
+    fn test_plaintext_hash() {
+        let identity = empty_identity();
+        let keys = BcrKeys::new();
+
+        let chain = IdentityBlockchain::new(&identity.into(), &keys, 1731593928);
+        assert!(chain.is_ok());
+        assert!(chain.as_ref().unwrap().is_chain_valid());
+        assert!(
+            chain.as_ref().unwrap().blocks()[0].validate_plaintext_hash(&keys.get_private_key())
+        );
+    }
 
     #[test]
     fn create_and_check_validity() {
@@ -503,5 +553,8 @@ mod tests {
 
         assert_eq!(chain.blocks().len(), 7);
         assert!(chain.is_chain_valid());
+        for block in chain.blocks() {
+            assert!(block.validate_plaintext_hash(&keys.get_private_key()));
+        }
     }
 }

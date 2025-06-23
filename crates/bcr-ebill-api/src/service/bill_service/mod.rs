@@ -2393,12 +2393,13 @@ pub mod tests {
                 bill_id_test(),
                 123456,
                 "prevhash".to_string(),
-                "hash".to_string(),
+                "data".to_string(),
                 BillOpCode::Accept,
                 &keys,
                 None,
                 &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                 1731593928,
+                "plain text hash".to_string(),
             )
             .unwrap(),
         );

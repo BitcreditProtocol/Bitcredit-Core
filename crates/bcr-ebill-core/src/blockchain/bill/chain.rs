@@ -150,7 +150,7 @@ impl BillBlockchain {
         for sell_pair in sell_pairs {
             let offer_to_sell_block = sell_pair.0;
             let block_data_decrypted: BillOfferToSellBlockData =
-                offer_to_sell_block.get_decrypted_block_bytes(bill_keys)?;
+                offer_to_sell_block.get_decrypted_block(bill_keys)?;
 
             if *node_id != block_data_decrypted.seller.node_id() {
                 // node id is not beneficiary - skip
@@ -261,7 +261,7 @@ impl BillBlockchain {
         for recourse_pair in recourse_pairs {
             let request_to_recourse_block = recourse_pair.0;
             let block_data_decrypted: BillRequestRecourseBlockData =
-                request_to_recourse_block.get_decrypted_block_bytes(bill_keys)?;
+                request_to_recourse_block.get_decrypted_block(bill_keys)?;
 
             if *node_id != block_data_decrypted.recourser.node_id {
                 // node id is not beneficiary - skip
@@ -379,7 +379,7 @@ impl BillBlockchain {
                 }
 
                 let block_data_decrypted: BillRequestRecourseBlockData =
-                    last_version_block.get_decrypted_block_bytes(bill_keys)?;
+                    last_version_block.get_decrypted_block(bill_keys)?;
                 return Ok(RecourseWaitingForPayment::Yes(Box::new(
                     RecoursePaymentInfo {
                         recoursee: block_data_decrypted.recoursee,
@@ -417,7 +417,7 @@ impl BillBlockchain {
                 }
 
                 let block_data_decrypted: BillOfferToSellBlockData =
-                    last_version_block_offer_to_sell.get_decrypted_block_bytes(bill_keys)?;
+                    last_version_block_offer_to_sell.get_decrypted_block(bill_keys)?;
                 return Ok(OfferToSellWaitingForPayment::Yes(Box::new(PaymentInfo {
                     buyer: block_data_decrypted.buyer.into(),
                     seller: block_data_decrypted.seller.into(),
@@ -444,7 +444,7 @@ impl BillBlockchain {
     pub fn get_first_version_bill(&self, bill_keys: &BillKeys) -> Result<BillIssueBlockData> {
         let first_block_data = &self.get_first_block();
         let bill_first_version: BillIssueBlockData =
-            first_block_data.get_decrypted_block_bytes(bill_keys)?;
+            first_block_data.get_decrypted_block(bill_keys)?;
         Ok(bill_first_version)
     }
 
@@ -638,7 +638,7 @@ impl BillBlockchain {
             Some((
                 endorse_block_encrypted.id,
                 endorse_block_encrypted
-                    .get_decrypted_block_bytes::<BillEndorseBlockData>(bill_keys)?
+                    .get_decrypted_block::<BillEndorseBlockData>(bill_keys)?
                     .endorsee,
             ))
         } else {
@@ -650,7 +650,7 @@ impl BillBlockchain {
             Some((
                 mint_block_encrypted.id,
                 mint_block_encrypted
-                    .get_decrypted_block_bytes::<BillMintBlockData>(bill_keys)?
+                    .get_decrypted_block::<BillMintBlockData>(bill_keys)?
                     .endorsee,
             ))
         } else {
@@ -662,7 +662,7 @@ impl BillBlockchain {
             Some((
                 sell_block_encrypted.id,
                 sell_block_encrypted
-                    .get_decrypted_block_bytes::<BillSellBlockData>(bill_keys)?
+                    .get_decrypted_block::<BillSellBlockData>(bill_keys)?
                     .buyer,
             ))
         } else {
@@ -675,7 +675,7 @@ impl BillBlockchain {
                 recourse_block_encrypted.id,
                 BillParticipantBlockData::Ident(
                     recourse_block_encrypted
-                        .get_decrypted_block_bytes::<BillRecourseBlockData>(bill_keys)?
+                        .get_decrypted_block::<BillRecourseBlockData>(bill_keys)?
                         .recoursee,
                 ),
             ))

@@ -4,10 +4,10 @@ use async_trait::async_trait;
 use bcr_ebill_core::Validate;
 use bcr_ebill_core::bill::BillValidateActionData;
 use bcr_ebill_core::bill::{BillId, BillKeys};
-use bcr_ebill_core::blockchain::Blockchain;
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
+use bcr_ebill_core::blockchain::{Block, Blockchain};
 use bcr_ebill_core::nostr_contact::HandshakeStatus;
 use bcr_ebill_core::nostr_contact::NostrContact;
 use bcr_ebill_core::nostr_contact::TrustLevel;
@@ -191,6 +191,13 @@ impl BillChainEventProcessor {
             );
             return Ok(false);
         }
+        // validate plaintext hash
+        if !block.validate_plaintext_hash(&bill_keys.private_key) {
+            error!("Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash");
+            return Err(Error::Blockchain(format!(
+                "Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash"
+            )));
+        }
         // create a clone of the chain for validating the bill action later, since the chain
         // will be mutated with the integrity checks
         let chain_clone_for_validation = chain.clone();
@@ -258,6 +265,13 @@ impl BillChainEventProcessor {
         debug!("adding new chain for bill {bill_id}");
         // issue block was validate in get_valid_chain
         let issue_block = chain.get_first_block().to_owned();
+        // validate plaintext hash
+        if !issue_block.validate_plaintext_hash(&keys.private_key) {
+            error!("Newly received chain issue block has invalid plaintext hash");
+            return Err(Error::Blockchain(
+                "Newly received chain issue block has invalid plaintext hash".to_string(),
+            ));
+        }
         // create a chain that starts from issue, to simulate adding blocks and validating them
         let mut chain_starting_at_issue =
             match BillBlockchain::new_from_blocks(vec![issue_block.clone()]) {
