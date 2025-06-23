@@ -1,5 +1,6 @@
 # 0.3.17
 
+* Changed minted proofs token format from cashu Token v3 to BitcrB (v4)
 * Use NodeId, PublicKey, SecretKey and BillId types internally instead of strings (fully breaking)
     * This breaks all existing databases, since the node ids and bill ids now have the format `prefix|network|pubkey`- example: `bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f`
     * The `prefix` is `bitcr`
