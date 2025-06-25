@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{
     constants::{
-        DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PREVIOUS_HASH, DB_PUBLIC_KEY, DB_SIGNATURE,
-        DB_TABLE, DB_TIMESTAMP,
+        DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PLAINTEXT_HASH, DB_PREVIOUS_HASH,
+        DB_PUBLIC_KEY, DB_SIGNATURE, DB_TABLE, DB_TIMESTAMP,
     },
     identity::IdentityChainStoreApi,
 };
@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
                                     block_id: $block_id,
+                                    plaintext_hash: $plaintext_hash,
                                     hash: $hash,
                                     previous_hash: $previous_hash,
                                     signature: $signature,
@@ -46,6 +47,7 @@ impl SurrealIdentityChainStore {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_BLOCK_ID, entity.block_id)?;
+        bindings.add(DB_PLAINTEXT_HASH, entity.plaintext_hash)?;
         bindings.add(DB_HASH, entity.hash)?;
         bindings.add(DB_PREVIOUS_HASH, entity.previous_hash)?;
         bindings.add(DB_SIGNATURE, entity.signature)?;
@@ -153,6 +155,7 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityBlockDb {
     pub block_id: u64,
+    pub plaintext_hash: String,
     pub hash: String,
     pub previous_hash: String,
     pub signature: String,
@@ -166,6 +169,7 @@ impl From<IdentityBlockDb> for IdentityBlock {
     fn from(value: IdentityBlockDb) -> Self {
         Self {
             id: value.block_id,
+            plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
             data: value.data,
@@ -181,6 +185,7 @@ impl From<&IdentityBlock> for IdentityBlockDb {
     fn from(value: &IdentityBlock) -> Self {
         Self {
             block_id: value.id,
+            plaintext_hash: value.plaintext_hash.clone(),
             hash: value.hash.clone(),
             previous_hash: value.previous_hash.clone(),
             signature: value.signature.clone(),

@@ -32,6 +32,7 @@ use std::str::FromStr;
 pub struct BillBlock {
     pub bill_id: BillId,
     pub id: u64,
+    pub plaintext_hash: String,
     pub hash: String,
     pub previous_hash: String,
     pub timestamp: u64,
@@ -45,6 +46,7 @@ pub struct BillBlock {
 pub struct BillBlockDataToHash {
     pub bill_id: BillId,
     id: u64,
+    plaintext_hash: String,
     previous_hash: String,
     data: String,
     timestamp: u64,
@@ -697,6 +699,10 @@ impl Block for BillBlock {
         &self.op_code
     }
 
+    fn plaintext_hash(&self) -> &str {
+        &self.plaintext_hash
+    }
+
     fn hash(&self) -> &str {
         &self.hash
     }
@@ -721,10 +727,52 @@ impl Block for BillBlock {
         true
     }
 
+    /// We validate the plaintext hash against the plaintext data from the BillBlockData wrapper
+    fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool {
+        match util::base58_decode(&self.data) {
+            Ok(decoded_wrapper) => match from_slice::<BillBlockData>(&decoded_wrapper) {
+                Ok(data_wrapper) => match util::base58_decode(&data_wrapper.data) {
+                    Ok(decoded) => match util::crypto::decrypt_ecies(&decoded, private_key) {
+                        Ok(decrypted) => self.plaintext_hash() == util::sha256_hash(&decrypted),
+                        Err(e) => {
+                            error!(
+                                "Decrypt Error while validating plaintext hash for id {}: {e}",
+                                self.id()
+                            );
+                            false
+                        }
+                    },
+                    Err(e) => {
+                        error!(
+                            "Decode Error while validating plaintext hash for id {}: {e}",
+                            self.id()
+                        );
+                        false
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "Wrapper Deserialize Error while validating plaintext hash for id {}: {e}",
+                        self.id()
+                    );
+                    false
+                }
+            },
+            Err(e) => {
+                error!(
+                    "Wrapper Decode Error while validating plaintext hash for id {}: {e}",
+                    self.id()
+                );
+                false
+            }
+        }
+    }
+
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
         BillBlockDataToHash {
             bill_id: self.bill_id.clone(),
             id: self.id(),
+            plaintext_hash: self.plaintext_hash().to_owned(),
             previous_hash: self.previous_hash().to_owned(),
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
@@ -758,6 +806,7 @@ impl BillBlock {
         company_keys: Option<&BcrKeys>,
         bill_keys: &BcrKeys,
         timestamp: u64,
+        plaintext_hash: String,
     ) -> Result<Self> {
         // The order here is important: identity -> company -> bill
         let mut keys: Vec<secp256k1::SecretKey> = vec![];
@@ -771,6 +820,7 @@ impl BillBlock {
         let hash = Self::calculate_hash(BillBlockDataToHash {
             bill_id: bill_id.clone(),
             id,
+            plaintext_hash: plaintext_hash.clone(),
             previous_hash: previous_hash.clone(),
             data: data.clone(),
             timestamp,
@@ -782,6 +832,7 @@ impl BillBlock {
         Ok(Self {
             bill_id,
             id,
+            plaintext_hash,
             hash,
             timestamp,
             previous_hash,
@@ -801,6 +852,7 @@ impl BillBlock {
         bill_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Self> {
+        let plaintext_hash = Self::calculate_plaintext_hash(bill)?;
         let key_bytes = to_vec(&bill_keys.get_private_key_string())?;
         // If drawer is a company, use drawer_company_keys for encryption
         let encrypted_key = match drawer_company_keys {
@@ -814,8 +866,10 @@ impl BillBlock {
             )?),
         };
 
+        let issue_data_bytes = to_vec(bill)?;
+
         let encrypted_and_hashed_bill_data = util::base58_encode(&util::crypto::encrypt_ecies(
-            &to_vec(bill)?,
+            &issue_data_bytes,
             &bill_keys.pub_key(),
         )?);
 
@@ -835,6 +889,7 @@ impl BillBlock {
             drawer_company_keys,
             bill_keys,
             timestamp,
+            plaintext_hash,
         )
     }
 
@@ -1149,6 +1204,7 @@ impl BillBlock {
         op_code: BillOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
+        let plaintext_hash = Self::calculate_plaintext_hash(data)?;
         // encrypt data using the bill pub key
         let encrypted_data =
             util::base58_encode(&util::crypto::encrypt_ecies(&bytes, &bill_keys.pub_key())?);
@@ -1186,6 +1242,7 @@ impl BillBlock {
             company_keys,
             bill_keys,
             timestamp,
+            plaintext_hash,
         )?;
 
         if !new_block.validate_with_previous(previous_block) {
@@ -1194,8 +1251,8 @@ impl BillBlock {
         Ok(new_block)
     }
 
-    /// Decrypts the block data using the bill's private key, returning the raw bytes
-    pub fn get_decrypted_block_bytes<T: borsh::BorshDeserialize>(
+    /// Decrypts the block data using the bill's private key, returning the deserialized data
+    pub fn get_decrypted_block<T: borsh::BorshDeserialize>(
         &self,
         bill_keys: &BillKeys,
     ) -> Result<T> {
@@ -1221,69 +1278,69 @@ impl BillBlock {
         let mut nodes = HashSet::new();
         match self.op_code {
             Issue => {
-                let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let bill: BillIssueBlockData = self.get_decrypted_block(bill_keys)?;
                 nodes.insert(bill.drawer.node_id);
                 nodes.insert(bill.payee.node_id().to_owned());
                 nodes.insert(bill.drawee.node_id);
             }
             Endorse => {
                 let block_data_decrypted: BillEndorseBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.endorsee.node_id());
                 nodes.insert(block_data_decrypted.endorser.node_id());
             }
             Mint => {
                 let block_data_decrypted: BillMintBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.endorsee.node_id());
                 nodes.insert(block_data_decrypted.endorser.node_id());
             }
             RequestToAccept => {
                 let block_data_decrypted: BillRequestToAcceptBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.requester.node_id());
             }
             Accept => {
                 let block_data_decrypted: BillAcceptBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.accepter.node_id);
             }
             RequestToPay => {
                 let block_data_decrypted: BillRequestToPayBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.requester.node_id());
             }
             OfferToSell => {
                 let block_data_decrypted: BillOfferToSellBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.buyer.node_id());
                 nodes.insert(block_data_decrypted.seller.node_id());
             }
             Sell => {
                 let block_data_decrypted: BillSellBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.buyer.node_id());
                 nodes.insert(block_data_decrypted.seller.node_id());
             }
             RejectToAccept | RejectToPay | RejectToPayRecourse => {
                 let block_data_decrypted: BillRejectBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.rejecter.node_id);
             }
             RejectToBuy => {
                 let block_data_decrypted: BillRejectToBuyBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.rejecter.node_id());
             }
             RequestRecourse => {
                 let block_data_decrypted: BillRequestRecourseBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.recourser.node_id);
                 nodes.insert(block_data_decrypted.recoursee.node_id);
             }
             Recourse => {
                 let block_data_decrypted: BillRecourseBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                    self.get_decrypted_block(bill_keys)?;
                 nodes.insert(block_data_decrypted.recourser.node_id);
                 nodes.insert(block_data_decrypted.recoursee.node_id);
             }
@@ -1296,11 +1353,11 @@ impl BillBlock {
     pub fn get_beneficiary_from_block(&self, bill_keys: &BillKeys) -> Result<Option<NodeId>> {
         match self.op_code {
             Sell => {
-                let block: BillSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillSellBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(block.seller.node_id()))
             }
             Recourse => {
-                let block: BillRecourseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(block.recourser.node_id))
             }
             _ => Ok(None),
@@ -1315,16 +1372,15 @@ impl BillBlock {
     ) -> Result<Option<NodeId>> {
         match self.op_code {
             OfferToSell => {
-                let block: BillOfferToSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillOfferToSellBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(block.seller.node_id()))
             }
             RequestRecourse => {
-                let block: BillRequestRecourseBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillRequestRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(block.recourser.node_id))
             }
             RequestToPay => {
-                let block: BillRequestToPayBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillRequestToPayBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(block.requester.node_id()))
             }
             _ => Ok(None),
@@ -1336,7 +1392,7 @@ impl BillBlock {
     pub fn get_holder_from_block(&self, bill_keys: &BillKeys) -> Result<Option<HolderFromBlock>> {
         match self.op_code {
             Issue => {
-                let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let bill: BillIssueBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: bill.payee,
                     signer: BillParticipantBlockData::Ident(bill.drawer),
@@ -1344,7 +1400,7 @@ impl BillBlock {
                 }))
             }
             Endorse => {
-                let block: BillEndorseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillEndorseBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: block.endorsee,
                     signer: block.endorser,
@@ -1352,7 +1408,7 @@ impl BillBlock {
                 }))
             }
             Mint => {
-                let block: BillMintBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillMintBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: block.endorsee,
                     signer: block.endorser,
@@ -1360,7 +1416,7 @@ impl BillBlock {
                 }))
             }
             Sell => {
-                let block: BillSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillSellBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: block.buyer,
                     signer: block.seller,
@@ -1368,7 +1424,7 @@ impl BillBlock {
                 }))
             }
             Recourse => {
-                let block: BillRecourseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let block: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: BillParticipantBlockData::Ident(block.recoursee),
                     signer: BillParticipantBlockData::Ident(block.recourser),
@@ -1387,12 +1443,12 @@ impl BillBlock {
     ) -> Result<(NodeId, Option<BillAction>)> {
         let (signer, signatory, bill_action) = match self.op_code {
             Issue => {
-                let data: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillIssueBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (data.drawer.node_id, data.signatory.map(|s| s.node_id), None)
             }
             Endorse => {
-                let data: BillEndorseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillEndorseBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.endorser.node_id(),
@@ -1401,7 +1457,7 @@ impl BillBlock {
                 )
             }
             Mint => {
-                let data: BillMintBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillMintBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.endorser.node_id(),
@@ -1414,8 +1470,7 @@ impl BillBlock {
                 )
             }
             RequestToAccept => {
-                let data: BillRequestToAcceptBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRequestToAcceptBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.requester.node_id(),
@@ -1424,7 +1479,7 @@ impl BillBlock {
                 )
             }
             Accept => {
-                let data: BillAcceptBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillAcceptBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.accepter.node_id,
@@ -1433,7 +1488,7 @@ impl BillBlock {
                 )
             }
             RequestToPay => {
-                let data: BillRequestToPayBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRequestToPayBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.requester.node_id(),
@@ -1442,7 +1497,7 @@ impl BillBlock {
                 )
             }
             OfferToSell => {
-                let data: BillOfferToSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillOfferToSellBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.seller.node_id(),
@@ -1455,7 +1510,7 @@ impl BillBlock {
                 )
             }
             Sell => {
-                let data: BillSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillSellBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.seller.node_id(),
@@ -1469,7 +1524,7 @@ impl BillBlock {
                 )
             }
             RejectToAccept => {
-                let data: BillRejectBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRejectBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.rejecter.node_id,
@@ -1478,7 +1533,7 @@ impl BillBlock {
                 )
             }
             RejectToBuy => {
-                let data: BillRejectToBuyBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRejectToBuyBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.rejecter.node_id(),
@@ -1487,7 +1542,7 @@ impl BillBlock {
                 )
             }
             RejectToPay => {
-                let data: BillRejectBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRejectBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.rejecter.node_id,
@@ -1496,7 +1551,7 @@ impl BillBlock {
                 )
             }
             RejectToPayRecourse => {
-                let data: BillRejectBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRejectBlockData = self.get_decrypted_block(bill_keys)?;
                 data.validate()?;
                 (
                     data.rejecter.node_id,
@@ -1505,8 +1560,7 @@ impl BillBlock {
                 )
             }
             RequestRecourse => {
-                let data: BillRequestRecourseBlockData =
-                    self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRequestRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 let reason = match data.recourse_reason {
                     BillRecourseReasonBlockData::Pay => {
                         RecourseReason::Pay(data.sum, data.currency.clone())
@@ -1521,7 +1575,7 @@ impl BillBlock {
                 )
             }
             Recourse => {
-                let data: BillRecourseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                let data: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 let reason = match data.recourse_reason {
                     BillRecourseReasonBlockData::Pay => {
                         RecourseReason::Pay(data.sum, data.currency.clone())
@@ -1624,6 +1678,24 @@ pub mod tests {
     }
 
     #[test]
+    fn test_plaintext_hash() {
+        let bill = empty_bitcredit_bill();
+        let bill_keys = BcrKeys::new();
+        let block = BillBlock::create_block_for_issue(
+            bill_id_test(),
+            String::from("genesis"),
+            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BcrKeys::new(),
+            None,
+            &bill_keys,
+            1731593928,
+        )
+        .unwrap();
+        assert!(block.verify());
+        assert!(block.validate_plaintext_hash(&bill_keys.get_private_key()));
+    }
+
+    #[test]
     fn signature_can_be_verified() {
         let block = BillBlock::new(
             bill_id_test(),
@@ -1635,6 +1707,7 @@ pub mod tests {
             None,
             &BcrKeys::new(),
             1731593928,
+            String::from("some plaintext hash"),
         )
         .unwrap();
         assert!(block.verify());
@@ -2101,6 +2174,7 @@ pub mod tests {
             NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet)
         );
         assert!(issue_result.as_ref().unwrap().1.is_none());
+        assert!(issue_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let endorse_block = BillBlock::create_block_for_endorse(
             bill_id_test(),
@@ -2128,6 +2202,7 @@ pub mod tests {
             endorse_result.as_ref().unwrap().1,
             Some(BillAction::Endorse(_))
         ));
+        assert!(endorse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let mint_block = BillBlock::create_block_for_mint(
             bill_id_test(),
@@ -2157,6 +2232,7 @@ pub mod tests {
             mint_result.as_ref().unwrap().1,
             Some(BillAction::Mint(_, _, _))
         ));
+        assert!(mint_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let req_to_accept_block = BillBlock::create_block_for_request_to_accept(
             bill_id_test(),
@@ -2183,6 +2259,7 @@ pub mod tests {
             req_to_accept_result.as_ref().unwrap().1,
             Some(BillAction::RequestAcceptance)
         ));
+        assert!(req_to_accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let req_to_pay_block = BillBlock::create_block_for_request_to_pay(
             bill_id_test(),
@@ -2210,6 +2287,7 @@ pub mod tests {
             req_to_pay_result.as_ref().unwrap().1,
             Some(BillAction::RequestToPay(_))
         ));
+        assert!(req_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let accept_block = BillBlock::create_block_for_accept(
             bill_id_test(),
@@ -2236,6 +2314,7 @@ pub mod tests {
             accept_result.as_ref().unwrap().1,
             Some(BillAction::Accept)
         ));
+        assert!(accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let offer_to_sell_block = BillBlock::create_block_for_offer_to_sell(
             bill_id_test(),
@@ -2266,6 +2345,7 @@ pub mod tests {
             offer_to_sell_result.as_ref().unwrap().1,
             Some(BillAction::OfferToSell(_, _, _))
         ));
+        assert!(offer_to_sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let sell_block = BillBlock::create_block_for_sell(
             bill_id_test(),
@@ -2296,6 +2376,7 @@ pub mod tests {
             sell_result.as_ref().unwrap().1,
             Some(BillAction::Sell(_, _, _, _))
         ));
+        assert!(sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_accept_block = BillBlock::create_block_for_reject_to_accept(
             bill_id_test(),
@@ -2322,6 +2403,7 @@ pub mod tests {
             reject_to_accept_result.as_ref().unwrap().1,
             Some(BillAction::RejectAcceptance)
         ));
+        assert!(reject_to_accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_buy_block = BillBlock::create_block_for_reject_to_buy(
             bill_id_test(),
@@ -2348,6 +2430,7 @@ pub mod tests {
             reject_to_buy_result.as_ref().unwrap().1,
             Some(BillAction::RejectBuying)
         ));
+        assert!(reject_to_buy_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_pay_block = BillBlock::create_block_for_reject_to_pay(
             bill_id_test(),
@@ -2374,6 +2457,7 @@ pub mod tests {
             reject_to_pay_result.as_ref().unwrap().1,
             Some(BillAction::RejectPayment)
         ));
+        assert!(reject_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_pay_recourse_block = BillBlock::create_block_for_reject_to_pay_recourse(
             bill_id_test(),
@@ -2401,6 +2485,7 @@ pub mod tests {
             reject_to_pay_recourse_result.as_ref().unwrap().1,
             Some(BillAction::RejectPaymentForRecourse)
         ));
+        assert!(reject_to_pay_recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let request_recourse_block = BillBlock::create_block_for_request_recourse(
             bill_id_test(),
@@ -2431,6 +2516,7 @@ pub mod tests {
             request_recourse_result.as_ref().unwrap().1,
             Some(BillAction::RequestRecourse(_, _))
         ));
+        assert!(request_recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let recourse_block = BillBlock::create_block_for_recourse(
             bill_id_test(),
@@ -2461,6 +2547,7 @@ pub mod tests {
             recourse_result.as_ref().unwrap().1,
             Some(BillAction::Recourse(_, _, _, _))
         ));
+        assert!(recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
     }
 
     #[test]
@@ -2511,6 +2598,7 @@ pub mod tests {
             NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet)
         );
         assert!(issue_result.as_ref().unwrap().1.is_none());
+        assert!(issue_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let endorse_block = BillBlock::create_block_for_endorse(
             bill_id_test(),
@@ -2541,6 +2629,7 @@ pub mod tests {
             endorse_result.as_ref().unwrap().1,
             Some(BillAction::Endorse(_))
         ));
+        assert!(endorse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let mint_block = BillBlock::create_block_for_mint(
             bill_id_test(),
@@ -2573,6 +2662,7 @@ pub mod tests {
             mint_result.as_ref().unwrap().1,
             Some(BillAction::Mint(_, _, _))
         ));
+        assert!(mint_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let req_to_accept_block = BillBlock::create_block_for_request_to_accept(
             bill_id_test(),
@@ -2602,6 +2692,7 @@ pub mod tests {
             req_to_accept_result.as_ref().unwrap().1,
             Some(BillAction::RequestAcceptance)
         ));
+        assert!(req_to_accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let req_to_pay_block = BillBlock::create_block_for_request_to_pay(
             bill_id_test(),
@@ -2632,6 +2723,7 @@ pub mod tests {
             req_to_pay_result.as_ref().unwrap().1,
             Some(BillAction::RequestToPay(_))
         ));
+        assert!(req_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let accept_block = BillBlock::create_block_for_accept(
             bill_id_test(),
@@ -2661,6 +2753,7 @@ pub mod tests {
             accept_result.as_ref().unwrap().1,
             Some(BillAction::Accept)
         ));
+        assert!(accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let offer_to_sell_block = BillBlock::create_block_for_offer_to_sell(
             bill_id_test(),
@@ -2694,6 +2787,7 @@ pub mod tests {
             offer_to_sell_result.as_ref().unwrap().1,
             Some(BillAction::OfferToSell(_, _, _))
         ));
+        assert!(offer_to_sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let sell_block = BillBlock::create_block_for_sell(
             bill_id_test(),
@@ -2727,6 +2821,7 @@ pub mod tests {
             sell_result.as_ref().unwrap().1,
             Some(BillAction::Sell(_, _, _, _))
         ));
+        assert!(sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_accept_block = BillBlock::create_block_for_reject_to_accept(
             bill_id_test(),
@@ -2756,6 +2851,7 @@ pub mod tests {
             reject_to_accept_result.as_ref().unwrap().1,
             Some(BillAction::RejectAcceptance)
         ));
+        assert!(reject_to_accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_buy_block = BillBlock::create_block_for_reject_to_buy(
             bill_id_test(),
@@ -2785,6 +2881,7 @@ pub mod tests {
             reject_to_buy_result.as_ref().unwrap().1,
             Some(BillAction::RejectBuying)
         ));
+        assert!(reject_to_buy_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_pay_block = BillBlock::create_block_for_reject_to_pay(
             bill_id_test(),
@@ -2814,6 +2911,7 @@ pub mod tests {
             reject_to_pay_result.as_ref().unwrap().1,
             Some(BillAction::RejectPayment)
         ));
+        assert!(reject_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let reject_to_pay_recourse_block = BillBlock::create_block_for_reject_to_pay_recourse(
             bill_id_test(),
@@ -2844,6 +2942,7 @@ pub mod tests {
             reject_to_pay_recourse_result.as_ref().unwrap().1,
             Some(BillAction::RejectPaymentForRecourse)
         ));
+        assert!(reject_to_pay_recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let request_recourse_block = BillBlock::create_block_for_request_recourse(
             bill_id_test(),
@@ -2877,6 +2976,7 @@ pub mod tests {
             request_recourse_result.as_ref().unwrap().1,
             Some(BillAction::RequestRecourse(_, _))
         ));
+        assert!(request_recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
         let recourse_block = BillBlock::create_block_for_recourse(
             bill_id_test(),
@@ -2910,6 +3010,7 @@ pub mod tests {
             recourse_result.as_ref().unwrap().1,
             Some(BillAction::Recourse(_, _, _, _))
         ));
+        assert!(recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
     }
 
     #[test]

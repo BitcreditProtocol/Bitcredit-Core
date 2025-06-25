@@ -112,6 +112,7 @@ pub trait Block {
     fn id(&self) -> u64;
     fn timestamp(&self) -> u64;
     fn op_code(&self) -> &Self::OpCode;
+    fn plaintext_hash(&self) -> &str;
     fn hash(&self) -> &str;
     fn previous_hash(&self) -> &str;
     fn data(&self) -> &str;
@@ -119,6 +120,13 @@ pub trait Block {
     fn public_key(&self) -> &PublicKey;
     fn validate(&self) -> bool;
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash;
+    fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool;
+
+    /// Calculates the plaintext hash over the unencrypted data of the block
+    fn calculate_plaintext_hash<T: BorshSerialize>(block_data: &T) -> Result<String> {
+        let serialized = to_vec(&block_data)?;
+        Ok(util::sha256_hash(&serialized))
+    }
 
     /// Calculates the hash over the data to hash for this block
     fn calculate_hash(block_data_to_hash: Self::BlockDataToHash) -> Result<String> {

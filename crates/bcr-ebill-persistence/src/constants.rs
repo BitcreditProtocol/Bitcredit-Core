@@ -11,6 +11,7 @@ pub const DB_HANDSHAKE_STATUS: &str = "handshake_status";
 pub const DB_TRUST_LEVEL: &str = "trust_level";
 
 pub const DB_BLOCK_ID: &str = "block_id";
+pub const DB_PLAINTEXT_HASH: &str = "plaintext_hash";
 pub const DB_HASH: &str = "hash";
 pub const DB_PREVIOUS_HASH: &str = "previous_hash";
 pub const DB_SIGNATURE: &str = "signature";

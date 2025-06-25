@@ -5,8 +5,8 @@ use super::{
 use crate::{
     bill::BillChainStoreApi,
     constants::{
-        DB_BILL_ID, DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PREVIOUS_HASH, DB_PUBLIC_KEY,
-        DB_SIGNATURE, DB_TABLE, DB_TIMESTAMP,
+        DB_BILL_ID, DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PLAINTEXT_HASH, DB_PREVIOUS_HASH,
+        DB_PUBLIC_KEY, DB_SIGNATURE, DB_TABLE, DB_TIMESTAMP,
     },
 };
 use async_trait::async_trait;
@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
                                     bill_id: $bill_id,
                                     block_id: $block_id,
+                                    plaintext_hash: $plaintext_hash,
                                     hash: $hash,
                                     previous_hash: $previous_hash,
                                     signature: $signature,
@@ -49,6 +50,7 @@ impl SurrealBillChainStore {
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_BILL_ID, entity.bill_id)?;
         bindings.add(DB_BLOCK_ID, entity.block_id)?;
+        bindings.add(DB_PLAINTEXT_HASH, entity.plaintext_hash)?;
         bindings.add(DB_HASH, entity.hash)?;
         bindings.add(DB_PREVIOUS_HASH, entity.previous_hash)?;
         bindings.add(DB_SIGNATURE, entity.signature)?;
@@ -176,6 +178,7 @@ impl BillChainStoreApi for SurrealBillChainStore {
 pub struct BillBlockDb {
     pub bill_id: BillId,
     pub block_id: u64,
+    pub plaintext_hash: String,
     pub hash: String,
     pub previous_hash: String,
     pub signature: String,
@@ -190,6 +193,7 @@ impl From<BillBlockDb> for BillBlock {
         Self {
             bill_id: value.bill_id,
             id: value.block_id,
+            plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
             data: value.data,
@@ -206,6 +210,7 @@ impl From<&BillBlock> for BillBlockDb {
         Self {
             bill_id: value.bill_id.clone(),
             block_id: value.id,
+            plaintext_hash: value.plaintext_hash.clone(),
             hash: value.hash.clone(),
             previous_hash: value.previous_hash.clone(),
             signature: value.signature.clone(),

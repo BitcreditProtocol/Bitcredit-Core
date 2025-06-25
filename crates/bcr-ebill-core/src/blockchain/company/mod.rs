@@ -8,8 +8,9 @@ use crate::{
     File, OptionalPostalAddress, PostalAddress,
     company::{Company, CompanyKeys},
 };
-use borsh::to_vec;
+use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use log::error;
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +27,7 @@ pub enum CompanyOpCode {
 pub struct CompanyBlockDataToHash {
     company_id: NodeId,
     id: u64,
+    plaintext_hash: String,
     previous_hash: String,
     data: String,
     timestamp: u64,
@@ -54,6 +56,7 @@ pub struct CompanyBlockData {
 pub struct CompanyBlock {
     pub company_id: NodeId,
     pub id: u64,
+    pub plaintext_hash: String,
     pub hash: String,
     pub timestamp: u64,
     pub data: String,
@@ -145,6 +148,10 @@ impl Block for CompanyBlock {
         &self.op_code
     }
 
+    fn plaintext_hash(&self) -> &str {
+        &self.plaintext_hash
+    }
+
     fn hash(&self) -> &str {
         &self.hash
     }
@@ -169,10 +176,52 @@ impl Block for CompanyBlock {
         true
     }
 
+    /// We validate the plaintext hash against the plaintext data from the CompanyBlockData wrapper
+    fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool {
+        match util::base58_decode(&self.data) {
+            Ok(decoded_wrapper) => match from_slice::<CompanyBlockData>(&decoded_wrapper) {
+                Ok(data_wrapper) => match util::base58_decode(&data_wrapper.data) {
+                    Ok(decoded) => match util::crypto::decrypt_ecies(&decoded, private_key) {
+                        Ok(decrypted) => self.plaintext_hash() == util::sha256_hash(&decrypted),
+                        Err(e) => {
+                            error!(
+                                "Decrypt Error while validating plaintext hash for id {}: {e}",
+                                self.id()
+                            );
+                            false
+                        }
+                    },
+                    Err(e) => {
+                        error!(
+                            "Decode Error while validating plaintext hash for id {}: {e}",
+                            self.id()
+                        );
+                        false
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "Wrapper Deserialize Error while validating plaintext hash for id {}: {e}",
+                        self.id()
+                    );
+                    false
+                }
+            },
+            Err(e) => {
+                error!(
+                    "Wrapper Decode Error while validating plaintext hash for id {}: {e}",
+                    self.id()
+                );
+                false
+            }
+        }
+    }
+
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
         CompanyBlockDataToHash {
             company_id: self.company_id.clone(),
             id: self.id(),
+            plaintext_hash: self.plaintext_hash().to_owned(),
             previous_hash: self.previous_hash().to_owned(),
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
@@ -195,6 +244,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         timestamp: u64,
+        plaintext_hash: String,
     ) -> Result<Self> {
         // The order here is important: identity -> company
         let keys: Vec<secp256k1::SecretKey> = vec![
@@ -206,6 +256,7 @@ impl CompanyBlock {
         let hash = Self::calculate_hash(CompanyBlockDataToHash {
             company_id: company_id.clone(),
             id,
+            plaintext_hash: plaintext_hash.clone(),
             previous_hash: previous_hash.clone(),
             data: data.clone(),
             timestamp,
@@ -218,6 +269,7 @@ impl CompanyBlock {
         Ok(Self {
             company_id,
             id,
+            plaintext_hash,
             hash,
             timestamp,
             previous_hash,
@@ -238,6 +290,7 @@ impl CompanyBlock {
         timestamp: u64,
     ) -> Result<Self> {
         let company_bytes = to_vec(company)?;
+        let plaintext_hash = Self::calculate_plaintext_hash(company)?;
         // encrypt data using company pub key
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &company_bytes,
@@ -266,6 +319,7 @@ impl CompanyBlock {
             identity_keys,
             company_keys,
             timestamp,
+            plaintext_hash,
         )
     }
 
@@ -365,6 +419,7 @@ impl CompanyBlock {
         op_code: CompanyOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
+        let plaintext_hash = Self::calculate_plaintext_hash(data)?;
         // encrypt data using the company pub key
         let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &bytes,
@@ -400,6 +455,7 @@ impl CompanyBlock {
             identity_keys,
             company_keys,
             timestamp,
+            plaintext_hash,
         )?;
 
         if !new_block.validate_with_previous(previous_block) {
@@ -504,6 +560,24 @@ mod tests {
             ),
         )
     }
+
+    #[test]
+    fn test_plaintext_hash() {
+        let (_id, (company, company_keys)) = get_baseline_company_data();
+
+        let chain = CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(company),
+            &BcrKeys::new(),
+            &company_keys,
+            1731593928,
+        );
+        assert!(chain.is_ok());
+        assert!(chain.as_ref().unwrap().is_chain_valid());
+        assert!(
+            chain.as_ref().unwrap().blocks()[0].validate_plaintext_hash(&company_keys.private_key)
+        );
+    }
+
     #[test]
     fn create_and_check_validity() {
         let (_id, (company, company_keys)) = get_baseline_company_data();
@@ -605,6 +679,11 @@ mod tests {
         assert!(new_chain_from_empty_blocks.is_err());
 
         let blocks = chain.blocks();
+
+        for block in blocks {
+            assert!(block.validate_plaintext_hash(&company_keys.private_key));
+        }
+
         let new_chain_from_blocks = CompanyBlockchain::new_from_blocks(blocks.to_owned());
         assert!(new_chain_from_blocks.is_ok());
         assert!(new_chain_from_blocks.as_ref().unwrap().is_chain_valid());
