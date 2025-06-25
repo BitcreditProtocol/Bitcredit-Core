@@ -1,3 +1,4 @@
+use super::BillChainEventProcessorApi;
 use super::NotificationHandlerApi;
 use crate::BillChainEventPayload;
 use crate::EventType;
@@ -5,10 +6,10 @@ use crate::{Error, Event, EventEnvelope, PushApi, Result};
 use async_trait::async_trait;
 use bcr_ebill_core::NodeId;
 use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::notification::BillEventType;
 use bcr_ebill_core::notification::{Notification, NotificationType};
 use bcr_ebill_persistence::NotificationStoreApi;
-use bcr_ebill_persistence::bill::BillChainStoreApi;
 use log::{debug, error, trace, warn};
 use std::sync::Arc;
 
@@ -16,19 +17,19 @@ use std::sync::Arc;
 pub struct BillActionEventHandler {
     notification_store: Arc<dyn NotificationStoreApi>,
     push_service: Arc<dyn PushApi>,
-    chain_store: Arc<dyn BillChainStoreApi>,
+    processor: Arc<dyn BillChainEventProcessorApi>,
 }
 
 impl BillActionEventHandler {
     pub fn new(
         notification_store: Arc<dyn NotificationStoreApi>,
         push_service: Arc<dyn PushApi>,
-        chain_store: Arc<dyn BillChainStoreApi>,
+        processor: Arc<dyn BillChainEventProcessorApi>,
     ) -> Self {
         Self {
             notification_store,
             push_service,
-            chain_store,
+            processor,
         }
     }
 
@@ -36,6 +37,7 @@ impl BillActionEventHandler {
         &self,
         event: &BillChainEventPayload,
         node_id: &NodeId,
+        npub: nostr::PublicKey,
     ) -> Result<()> {
         trace!("creating notification {event:?} for {node_id}");
         // no action no notification required
@@ -43,8 +45,11 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
-        // we dont have this chain so skip event
-        if self.chain_store.get_chain(&event.bill_id).await.is_err() {
+        // we dont have this chain or the sender is not part of the chain so skip event
+        if !self
+            .validate_chain_event_and_sender(&event.bill_id, npub)
+            .await
+        {
             return Ok(());
         }
 
@@ -97,6 +102,21 @@ impl BillActionEventHandler {
         }
         Ok(())
     }
+
+    async fn validate_chain_event_and_sender(
+        &self,
+        bill_id: &BillId,
+        npub: nostr::PublicKey,
+    ) -> bool {
+        if let Ok(valid) = self
+            .processor
+            .validate_chain_event_and_sender(bill_id, npub)
+            .await
+        {
+            return valid;
+        }
+        false
+    }
 }
 
 impl ServiceTraitBounds for BillActionEventHandler {}
@@ -112,11 +132,14 @@ impl NotificationHandlerApi for BillActionEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
-        _: Box<nostr::Event>,
+        evt: Box<nostr::Event>,
     ) -> Result<()> {
         debug!("incoming bill chain event for {node_id}");
         if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
-            if let Err(e) = self.create_notification(&decoded.data, node_id).await {
+            if let Err(e) = self
+                .create_notification(&decoded.data, node_id, evt.pubkey)
+                .await
+            {
                 error!("Failed to create notification for bill event: {}", e);
             }
         } else {
@@ -159,11 +182,11 @@ mod tests {
     use std::str::FromStr;
 
     use bcr_ebill_core::{PublicKey, bill::BillId, notification::ActionType};
-    use mockall::predicate::eq;
+    use mockall::predicate::{always, eq};
 
-    use crate::handler::test_utils::{
-        MockBillChainStore, MockNotificationStore, MockPushService, get_genesis_chain,
-        get_test_nostr_event,
+    use crate::handler::{
+        MockBillChainEventProcessorApi,
+        test_utils::{MockNotificationStore, MockPushService, get_test_nostr_event},
     };
 
     use super::*;
@@ -180,18 +203,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_notification_for_unknown_chain() {
-        let (mut notification_store, mut push_service, mut chain_store) = create_mocks();
+        let (mut notification_store, mut push_service, mut chain_processor) = create_mocks();
 
         // no bill chain
-        chain_store
-            .expect_get_chain()
-            .with(eq(bill_id_test()))
-            .returning(|_| {
-                Err(bcr_ebill_persistence::Error::NoSuchEntity(
-                    "id".to_owned(),
-                    "block".to_owned(),
-                ))
-            });
+        chain_processor
+            .expect_validate_chain_event_and_sender()
+            .with(eq(bill_id_test()), always())
+            .returning(|_, _| Ok(false));
 
         // not look for currently active notification
         notification_store.expect_get_latest_by_reference().never();
@@ -205,7 +223,7 @@ mod tests {
         let handler = BillActionEventHandler::new(
             Arc::new(notification_store),
             Arc::new(push_service),
-            Arc::new(chain_store),
+            Arc::new(chain_processor),
         );
 
         let event = Event::new(
@@ -230,7 +248,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_creates_no_notification_for_non_action_event() {
-        let (mut notification_store, mut push_service, chain_store) = create_mocks();
+        let (mut notification_store, mut push_service, chain_processor) = create_mocks();
 
         // look for currently active notification
         notification_store.expect_get_latest_by_reference().never();
@@ -244,7 +262,7 @@ mod tests {
         let handler = BillActionEventHandler::new(
             Arc::new(notification_store),
             Arc::new(push_service),
-            Arc::new(chain_store),
+            Arc::new(chain_processor),
         );
         let event = Event::new(
             EventType::Bill,
@@ -268,13 +286,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_creates_notification_for_simple_action_event() {
-        let (mut notification_store, mut push_service, mut chain_store) = create_mocks();
+        let (mut notification_store, mut push_service, mut chain_processor) = create_mocks();
 
-        // given bill chain
-        chain_store
-            .expect_get_chain()
-            .with(eq(bill_id_test()))
-            .returning(|_| Ok(get_genesis_chain(None)));
+        // given bill chain valid
+        chain_processor
+            .expect_validate_chain_event_and_sender()
+            .with(eq(bill_id_test()), always())
+            .returning(|_, _| Ok(true));
 
         // look for currently active notification
         notification_store
@@ -299,7 +317,7 @@ mod tests {
         let handler = BillActionEventHandler::new(
             Arc::new(notification_store),
             Arc::new(push_service),
-            Arc::new(chain_store),
+            Arc::new(chain_processor),
         );
         let event = Event::new(
             EventType::Bill,
@@ -337,11 +355,15 @@ mod tests {
             .unwrap()
     }
 
-    fn create_mocks() -> (MockNotificationStore, MockPushService, MockBillChainStore) {
+    fn create_mocks() -> (
+        MockNotificationStore,
+        MockPushService,
+        MockBillChainEventProcessorApi,
+    ) {
         (
             MockNotificationStore::new(),
             MockPushService::new(),
-            MockBillChainStore::new(),
+            MockBillChainEventProcessorApi::new(),
         )
     }
 }

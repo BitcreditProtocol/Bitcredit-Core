@@ -60,6 +60,14 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         blocks: Vec<BillBlock>,
         keys: Option<BillKeys>,
     ) -> Result<()>;
+
+    /// Validates that a given bill id is relevant for us, and if so also checks that the sender
+    /// of the event is part of the chain this event is for.
+    async fn validate_chain_event_and_sender(
+        &self,
+        bill_id: &BillId,
+        sender: nostr::PublicKey,
+    ) -> Result<bool>;
 }
 
 #[cfg(test)]

@@ -53,6 +53,28 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             }
         }
     }
+
+    async fn validate_chain_event_and_sender(
+        &self,
+        bill_id: &BillId,
+        sender: nostr::PublicKey,
+    ) -> Result<bool> {
+        if let (Ok(bill_keys), Ok(chain)) = (
+            self.bill_store.get_keys(bill_id).await,
+            self.bill_blockchain_store.get_chain(bill_id).await,
+        ) {
+            let participants = chain
+                .get_all_nodes_from_bill(&bill_keys)
+                .map_err(|e| Error::Blockchain(e.to_string()))?
+                .iter()
+                .map(|p| p.npub())
+                .collect::<Vec<nostr::PublicKey>>();
+
+            Ok(participants.contains(&sender))
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 #[derive(Clone)]

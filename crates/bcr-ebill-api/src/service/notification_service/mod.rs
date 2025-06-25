@@ -158,7 +158,7 @@ pub async fn create_nostr_consumer(
         Box::new(BillActionEventHandler::new(
             notification_store,
             push_service,
-            bill_blockchain_store.clone(),
+            processor.clone(),
         )),
         Box::new(BillInviteEventHandler::new(
             transport.clone(),
