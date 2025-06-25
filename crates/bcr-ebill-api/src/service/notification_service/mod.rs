@@ -137,7 +137,7 @@ pub async fn create_nostr_consumer(
     };
 
     let processor = Arc::new(BillChainEventProcessor::new(
-        bill_blockchain_store,
+        bill_blockchain_store.clone(),
         bill_store.clone(),
         transport.clone(),
         nostr_contact_store,
@@ -158,7 +158,7 @@ pub async fn create_nostr_consumer(
         Box::new(BillActionEventHandler::new(
             notification_store,
             push_service,
-            processor.clone(),
+            bill_blockchain_store.clone(),
         )),
         Box::new(BillInviteEventHandler::new(
             transport.clone(),
