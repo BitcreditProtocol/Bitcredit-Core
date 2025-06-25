@@ -429,8 +429,8 @@ mod tests {
     use crate::{
         handler::test_utils::{
             MockBillChainStore, MockBillStore, MockNostrContactStore, bill_id_test, empty_address,
-            get_baseline_identity, get_bill_keys, get_genesis_chain, get_test_bitcredit_bill,
-            node_id_test, node_id_test_other, private_key_test,
+            get_baseline_bill, get_baseline_identity, get_bill_keys, get_genesis_chain,
+            get_test_bitcredit_bill, node_id_test, node_id_test_other, private_key_test,
         },
         transport::NostrContactData,
     };
@@ -449,6 +449,71 @@ mod tests {
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
+    }
+
+    #[tokio::test]
+    async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
+        let keys = BcrKeys::new().get_nostr_keys();
+        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+
+        bill_store
+            .expect_get_keys()
+            .with(eq(bill_id_test()))
+            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(bill_id_test()))
+            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+        );
+
+        let valid = handler
+            .validate_chain_event_and_sender(&bill_id_test(), keys.public_key())
+            .await
+            .expect("Event should be handled");
+        assert!(!valid);
+    }
+
+    #[tokio::test]
+    async fn test_validate_chain_event_and_sender() {
+        let bill = get_baseline_bill(&bill_id_test());
+        let node_id = node_id_test();
+        let npub = node_id.npub();
+
+        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+
+        bill_store
+            .expect_get_keys()
+            .with(eq(bill_id_test()))
+            .returning(move |_| Ok(get_bill_keys()));
+
+        let chain = get_genesis_chain(Some(bill.clone()));
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(bill_id_test()))
+            .returning(move |_| Ok(chain.clone()));
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+        );
+
+        let valid = handler
+            .validate_chain_event_and_sender(&bill_id_test(), npub)
+            .await
+            .expect("Event should be handled");
+
+        assert!(valid);
     }
 
     #[tokio::test]
