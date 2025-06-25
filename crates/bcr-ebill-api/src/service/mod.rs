@@ -31,7 +31,7 @@ pub enum Error {
 
     /// errors stemming from handling bills
     #[error("Bill service error: {0}")]
-    BillService(#[from] bill_service::error::Error),
+    BillService(#[from] bill_service::Error),
 
     /// errors stemming from crypto utils
     #[error("Crypto util error: {0}")]

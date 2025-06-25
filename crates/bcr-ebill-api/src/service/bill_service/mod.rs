@@ -20,14 +20,16 @@ use mockall::automock;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, error::Error>;
+pub use service::BillService;
 
 mod blocks;
 mod data_fetching;
-pub mod error;
+mod error;
 mod issue;
 mod payment;
 mod propagation;
-pub mod service;
+mod service;
+mod sharing;
 #[cfg(test)]
 pub mod test_utils;
 

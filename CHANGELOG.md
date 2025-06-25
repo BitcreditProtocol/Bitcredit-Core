@@ -2,6 +2,8 @@
 
 * Add `plaintext_hash` to Identity, Company and Bill Blocks, which is a hash over the plaintext data
     * (breaks all chains in the DB)
+* Add functionality for sharing a bill with an external party, encrypted, hashed, and signed, with the plaintext block data
+* Change visibility of `bill_service::error` and `bill_service::service` to private, moving the used types to `bill_service`
 
 # 0.3.17
 

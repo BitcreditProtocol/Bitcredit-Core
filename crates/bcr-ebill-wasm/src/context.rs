@@ -4,7 +4,7 @@ use bcr_ebill_api::{
     Config, DbContext,
     external::{bitcoin::BitcoinClient, file_storage::FileStorageClient, mint::MintClient},
     service::{
-        bill_service::{BillServiceApi, service::BillService},
+        bill_service::{BillService, BillServiceApi},
         company_service::{CompanyService, CompanyServiceApi},
         contact_service::{ContactService, ContactServiceApi},
         file_upload_service::{FileUploadService, FileUploadServiceApi},
