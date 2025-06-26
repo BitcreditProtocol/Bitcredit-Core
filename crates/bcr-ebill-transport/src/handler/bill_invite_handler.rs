@@ -166,7 +166,6 @@ impl BillInviteEventHandler {
     }
 }
 
-#[allow(dead_code)]
 // Will build up as many chains as needed for the Nostr chain structure. This does not look into
 // the actual blockchain, but will build the chains just from Nostr metadata.
 fn collect_event_chains(
@@ -278,8 +277,10 @@ impl EventContainer {
     }
 
     fn is_child_of(&self, event_id: &EventId) -> bool {
-        let compare = Some(event_id.to_owned());
-        self.root_id == compare || self.reply_id == compare
+        match self.reply_id {
+            Some(id) => &id == event_id,
+            None => self.root_id.filter(|i| i == event_id).is_some(),
+        }
     }
 
     fn with_children(self, children: Vec<EventContainer>) -> Self {
@@ -293,7 +294,7 @@ impl EventContainer {
         }
     }
 
-    // given all markers rcursively resolves all children
+    // given all markers recursively resolves all children
     fn resolve_children(self, markers: &[EventContainer]) -> Self {
         let mut children = Vec::new();
         markers
@@ -349,5 +350,315 @@ impl EventContainer {
             payload: self.event.clone(),
             valid,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        handler::{
+            MockBillChainEventProcessorApi,
+            test_utils::{
+                MockNostrChainEventStore, bill_id_test, get_bill_keys, get_genesis_chain,
+                node_id_test, private_key_test,
+            },
+        },
+        transport::{MockNotificationJsonTransportApi, create_public_chain_event},
+    };
+
+    use super::*;
+    use bcr_ebill_core::{blockchain::Blockchain, util::crypto::BcrKeys};
+    use mockall::predicate::eq;
+
+    #[test]
+    fn test_single_block() {
+        let (keys, chain) = generate_test_chain(1, false);
+        let chains = collect_event_chains(
+            &chain,
+            &bill_id_test().to_string(),
+            BlockchainType::Bill,
+            &keys,
+        );
+        assert_eq!(chains.len(), 1, "should contain a single valid chain");
+        let result_chain = chains.first().unwrap();
+        assert_eq!(result_chain.len(), 1, "chain should contain a single event");
+    }
+
+    #[test]
+    fn test_multiple_valid_blocks() {
+        let (keys, chain) = generate_test_chain(3, false);
+        let chains = collect_event_chains(
+            &chain,
+            &bill_id_test().to_string(),
+            BlockchainType::Bill,
+            &keys,
+        );
+
+        assert_eq!(chains.len(), 1, "should contain a single valid chain");
+        let result_chain = chains.first().unwrap();
+        assert_eq!(result_chain.len(), 3, "chain should contain 3 events");
+    }
+
+    #[test]
+    fn test_multiple_chains() {
+        let (keys, chain) = generate_test_chain(3, true);
+        let chains = collect_event_chains(
+            &chain,
+            &bill_id_test().to_string(),
+            BlockchainType::Bill,
+            &keys,
+        );
+
+        assert_eq!(chains.len(), 2, "should contain two valid chains");
+        for chain in chains {
+            assert_eq!(chain.len(), 3, "chain should contain 3 events");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_single_event_chain_invite() {
+        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+
+        let node_id = node_id_test();
+        let (_, chain) = generate_test_chain(1, false);
+
+        // get events from nostr
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(chain.clone()));
+
+        // process blocks
+        processor
+            .expect_process_chain_data()
+            .withf(|bill_id, blocks, keys| {
+                bill_id == &bill_id_test()
+                    && blocks.len() == 1
+                    && keys.clone().unwrap().public_key.to_string()
+                        == get_bill_keys().public_key.to_string()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // store events
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(1);
+
+        let event = generate_test_event(&BcrKeys::new(), None, None, 1);
+        let invite = Event::new_invite(ChainInvite::bill(
+            bill_id_test().to_string(),
+            get_bill_keys(),
+        ))
+        .try_into()
+        .expect("failed to create envelope");
+
+        let handler = BillInviteEventHandler::new(
+            Arc::new(transport),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+        handler
+            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .await
+            .expect("failed to process chain invite event");
+    }
+
+    #[tokio::test]
+    async fn test_process_single_chain_invite() {
+        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+
+        let node_id = node_id_test();
+        let (_, chain) = generate_test_chain(3, false);
+
+        // get events from nostr
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(chain.clone()));
+
+        // process blocks
+        processor
+            .expect_process_chain_data()
+            .withf(|bill_id, blocks, keys| {
+                bill_id == &bill_id_test()
+                    && blocks.len() == 3
+                    && keys.clone().unwrap().public_key.to_string()
+                        == get_bill_keys().public_key.to_string()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // store events
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(3);
+
+        let event = generate_test_event(&BcrKeys::new(), None, None, 1);
+        let invite = Event::new_invite(ChainInvite::bill(
+            bill_id_test().to_string(),
+            get_bill_keys(),
+        ))
+        .try_into()
+        .expect("failed to create envelope");
+
+        let handler = BillInviteEventHandler::new(
+            Arc::new(transport),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+        handler
+            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .await
+            .expect("failed to process chain invite event");
+    }
+
+    #[tokio::test]
+    async fn test_process_multiple_chains_invite() {
+        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+
+        let node_id = node_id_test();
+        let (_, chain) = generate_test_chain(3, true);
+
+        // get events from nostr
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(chain.clone()));
+
+        // process blocks
+        processor
+            .expect_process_chain_data()
+            .withf(|bill_id, blocks, keys| {
+                bill_id == &bill_id_test()
+                    && blocks.len() == 3
+                    && keys.clone().unwrap().public_key.to_string()
+                        == get_bill_keys().public_key.to_string()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // store valid events
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(|e| e.valid)
+            .returning(|_| Ok(()))
+            .times(3);
+
+        // store invalid events
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(|e| !e.valid)
+            .returning(|_| Ok(()))
+            .times(1);
+
+        let event = generate_test_event(&BcrKeys::new(), None, None, 1);
+        let invite = Event::new_invite(ChainInvite::bill(
+            bill_id_test().to_string(),
+            get_bill_keys(),
+        ))
+        .try_into()
+        .expect("failed to create envelope");
+
+        let handler = BillInviteEventHandler::new(
+            Arc::new(transport),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+        handler
+            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .await
+            .expect("failed to process chain invite event");
+    }
+
+    fn get_mocks() -> (
+        MockNotificationJsonTransportApi,
+        MockBillChainEventProcessorApi,
+        MockNostrChainEventStore,
+    ) {
+        (
+            MockNotificationJsonTransportApi::new(),
+            MockBillChainEventProcessorApi::new(),
+            MockNostrChainEventStore::new(),
+        )
+    }
+
+    // generates event chains. If invalid blocks is enabled chains of size 3 will have two equal
+    // valid chains. From there on len even gives one valid and N - 2 invalid (shorter) chains.
+    // Uneven give two valid (equal len) and N - 1 invalid chains.
+    fn generate_test_chain(len: usize, invalid_blocks: bool) -> (BcrKeys, Vec<nostr::Event>) {
+        let keys = BcrKeys::from_private_key(&private_key_test())
+            .expect("failed to generate keys from private key");
+        let mut result = Vec::new();
+
+        let root = generate_test_event(&keys, None, None, 1);
+        result.push(root.clone());
+
+        let mut parent = root.clone();
+        for idx in 1..len {
+            let child =
+                generate_test_event(&keys, Some(parent.clone()), Some(root.clone()), idx + 1);
+            result.push(child.clone());
+            // produce some side chain
+            if invalid_blocks && idx % 2 == 0 {
+                let invalid =
+                    generate_test_event(&keys, Some(parent.clone()), Some(root.clone()), idx + 1);
+                result.push(invalid);
+            }
+            parent = child;
+        }
+
+        (keys, result)
+    }
+
+    #[allow(dead_code)]
+    fn print_chains(chains: Vec<Vec<EventContainer>>) {
+        for (idx, chain) in chains.iter().enumerate() {
+            println!("CHAIN: {idx}");
+            for (edx, evt) in chain.iter().enumerate() {
+                println!(
+                    "Evt {edx}: {:?} {:?} {:?} {}",
+                    evt.root_id,
+                    evt.event.id,
+                    evt.reply_id,
+                    evt.children.len()
+                );
+            }
+        }
+    }
+
+    fn generate_test_event(
+        keys: &BcrKeys,
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        height: usize,
+    ) -> nostr::Event {
+        create_public_chain_event(
+            &bill_id_test().to_string(),
+            generate_test_block(height),
+            1000,
+            BlockchainType::Bill,
+            keys.clone(),
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
+    fn generate_test_block(block_height: usize) -> EventEnvelope {
+        let block = get_genesis_chain(None)
+            .blocks()
+            .first()
+            .expect("could not get block")
+            .clone();
+
+        Event::new_chain(BillBlockEvent {
+            bill_id: bill_id_test(),
+            block: block.clone(),
+            block_height,
+        })
+        .try_into()
+        .expect("could not create envelope")
     }
 }

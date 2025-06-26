@@ -25,7 +25,6 @@ pub use bill_invite_handler::BillInviteEventHandler;
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
 
 /// Handle an event when we receive it from a channel.
-#[allow(dead_code)]
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -47,7 +46,6 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
 }
 
 /// Generalizes the actual handling and validation of a bill block event.
-#[allow(dead_code)]
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
