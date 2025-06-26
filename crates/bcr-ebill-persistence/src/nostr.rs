@@ -157,7 +157,6 @@ pub struct NostrChainEvent {
     /// The event as we received it via nostr.
     pub payload: Event,
     /// We consider this event as part of the valid chain
-    #[serde(default)]
     pub valid: bool,
 }
 
