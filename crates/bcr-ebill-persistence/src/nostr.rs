@@ -156,6 +156,9 @@ pub struct NostrChainEvent {
     pub time: u64,
     /// The event as we received it via nostr.
     pub payload: Event,
+    /// We consider this event as part of the valid chain
+    #[serde(default)]
+    pub valid: bool,
 }
 
 impl NostrChainEvent {

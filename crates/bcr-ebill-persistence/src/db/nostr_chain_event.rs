@@ -176,6 +176,9 @@ pub struct NostrChainEventDb {
     pub time: u64,
     /// The event as we received it via nostr.
     pub payload: Event,
+    /// We consider this event as part of the valid chain
+    #[serde(default)]
+    pub valid: bool,
 }
 
 impl From<NostrChainEvent> for NostrChainEventDb {
@@ -192,6 +195,7 @@ impl From<NostrChainEvent> for NostrChainEventDb {
             received: event.received,
             time: event.time,
             payload: event.payload,
+            valid: event.valid,
         }
     }
 }
@@ -210,6 +214,7 @@ impl From<NostrChainEventDb> for NostrChainEvent {
             received: db.received,
             time: db.time,
             payload: db.payload,
+            valid: db.valid,
         }
     }
 }
@@ -404,6 +409,7 @@ mod tests {
             received: now().timestamp() as u64,
             time: now().timestamp() as u64,
             payload: get_test_event(),
+            valid: true,
         }
     }
 

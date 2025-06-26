@@ -143,7 +143,7 @@ impl BillInviteEventHandler {
 
         // first store the inserted valid blocks
         for (idx, inserted) in inserted_chain.iter().enumerate() {
-            let data = inserted.as_chain_store_event(chain_id, chain_type, idx + 1);
+            let data = inserted.as_chain_store_event(chain_id, chain_type, idx + 1, true);
             to_insert.insert(data.event_id.to_owned(), data);
         }
 
@@ -151,7 +151,7 @@ impl BillInviteEventHandler {
         for chain in chains {
             for (idx, data) in chain.iter().enumerate() {
                 if !to_insert.contains_key(&data.event.id.to_string()) {
-                    let data = data.as_chain_store_event(chain_id, chain_type, idx + 1);
+                    let data = data.as_chain_store_event(chain_id, chain_type, idx + 1, false);
                     to_insert.insert(data.event_id.to_owned(), data);
                 }
             }
@@ -333,6 +333,7 @@ impl EventContainer {
         chain_id: &str,
         chain_type: BlockchainType,
         block_height: usize,
+        valid: bool,
     ) -> NostrChainEvent {
         NostrChainEvent {
             event_id: self.event.id.to_string(),
@@ -346,6 +347,7 @@ impl EventContainer {
             received: now().timestamp() as u64,
             time: self.event.created_at.as_u64(),
             payload: self.event.clone(),
+            valid,
         }
     }
 }

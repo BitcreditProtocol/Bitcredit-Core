@@ -206,6 +206,7 @@ impl DefaultNotificationService {
                         received: block_event.data.block.timestamp,
                         time: event.created_at.as_u64(),
                         payload: event,
+                        valid: true,
                     })
                     .await
                     .map_err(|_| {
