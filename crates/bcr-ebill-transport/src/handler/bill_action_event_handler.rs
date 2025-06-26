@@ -45,7 +45,7 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
-        // we dont have this chain or the sender is not part of the chain so skip event
+        // we don't have this chain or the sender is not part of the chain so skip event
         if !self
             .validate_chain_event_and_sender(&event.bill_id, npub)
             .await
