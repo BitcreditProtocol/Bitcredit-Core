@@ -83,7 +83,7 @@ impl NotificationFilter {
         if filters.is_empty() {
             filters
         } else {
-            format!("WHERE {}", filters)
+            format!("WHERE {filters}")
         }
     }
 

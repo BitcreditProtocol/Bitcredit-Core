@@ -210,7 +210,7 @@ impl BitcoinClientApi for BitcoinClient {
 
     fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String {
         let btc_sum = util::currency::sat_to_btc(sum);
-        let link = format!("bitcoin:{}?amount={}&message={}", address, btc_sum, message);
+        let link = format!("bitcoin:{address}?amount={btc_sum}&message={message}");
         link
     }
 

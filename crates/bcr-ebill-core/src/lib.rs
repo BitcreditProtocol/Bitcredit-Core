@@ -616,6 +616,6 @@ pub enum ValidationError {
 
 impl From<crate::blockchain::Error> for ValidationError {
     fn from(e: crate::blockchain::Error) -> Self {
-        ValidationError::Blockchain(format!("Blockchain error: {}", e))
+        ValidationError::Blockchain(format!("Blockchain error: {e}"))
     }
 }

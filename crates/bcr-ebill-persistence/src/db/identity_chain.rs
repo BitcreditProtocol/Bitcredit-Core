@@ -99,13 +99,12 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
                         BEGIN TRANSACTION;
                         LET $blocks = (RETURN count(SELECT * FROM type::table($table)));
                         IF $blocks = 0 AND $block_id = 1 {{
-                            {}
+                            {CREATE_BLOCK_QUERY}
                         }} ELSE {{
                             THROW "invalid block - not the first block";
                         }};
                         COMMIT TRANSACTION;
-                    "#,
-                        CREATE_BLOCK_QUERY
+                    "#
                     );
                     self.create_block(&query, entity).await.map_err(|e| {
                         log::error!("Create Identity Block: {e}");
@@ -133,13 +132,12 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
                     BEGIN TRANSACTION;
                     LET $latest_block = (SELECT block_id, hash FROM type::table($table) ORDER BY block_id DESC LIMIT 1)[0];
                     IF $latest_block.block_id + 1 = $block_id AND $latest_block.hash = $previous_hash {{
-                        {}
+                        {CREATE_BLOCK_QUERY}
                     }} ELSE {{
                         THROW "invalid block";
                     }};
                     COMMIT TRANSACTION;
-                "#,
-                    CREATE_BLOCK_QUERY
+                "#
                 );
                 self.create_block(&query, entity).await.map_err(|e| {
                     log::error!("Create Identity Block: {e}");
