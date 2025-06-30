@@ -25,7 +25,6 @@ pub use bill_invite_handler::BillInviteEventHandler;
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
 
 /// Handle an event when we receive it from a channel.
-#[allow(dead_code)]
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -47,7 +46,6 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
 }
 
 /// Generalizes the actual handling and validation of a bill block event.
-#[allow(dead_code)]
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -60,6 +58,14 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         blocks: Vec<BillBlock>,
         keys: Option<BillKeys>,
     ) -> Result<()>;
+
+    /// Validates that a given bill id is relevant for us, and if so also checks that the sender
+    /// of the event is part of the chain this event is for.
+    async fn validate_chain_event_and_sender(
+        &self,
+        bill_id: &BillId,
+        sender: nostr::PublicKey,
+    ) -> Result<bool>;
 }
 
 #[cfg(test)]
@@ -201,15 +207,20 @@ mod tests {
     }
 }
 
+#[allow(dead_code)]
 #[cfg(test)]
 mod test_utils {
+
     use async_trait::async_trait;
     use bcr_ebill_core::{
-        NodeId, ServiceTraitBounds,
-        bill::{BillId, BillKeys, BitcreditBillResult},
-        blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
+        NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
+        bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult},
+        blockchain::bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
+        contact::{BillIdentParticipant, BillParticipant, ContactType},
+        identity::{Identity, IdentityType, IdentityWithAll},
         nostr_contact::NostrPublicKey,
         notification::{ActionType, Notification, NotificationType},
+        util::BcrKeys,
     };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result,
@@ -219,7 +230,7 @@ mod test_utils {
     };
     use mockall::mock;
     use nostr::event::EventBuilder;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, str::FromStr};
 
     use crate::PushApi;
 
@@ -365,5 +376,156 @@ mod test_utils {
         EventBuilder::text_note("message")
             .sign_with_keys(&nostr::key::Keys::generate())
             .expect("Could not create nostr test event")
+    }
+
+    pub fn get_test_bitcredit_bill(
+        id: &BillId,
+        payer: &BillIdentParticipant,
+        payee: &BillIdentParticipant,
+        drawer: Option<&BillIdentParticipant>,
+        endorsee: Option<&BillIdentParticipant>,
+    ) -> BitcreditBill {
+        let mut bill = empty_bitcredit_bill();
+        bill.id = id.to_owned();
+        bill.payee = BillParticipant::Ident(payee.clone());
+        bill.drawee = payer.clone();
+        if let Some(drawer) = drawer {
+            bill.drawer = drawer.clone();
+        }
+        bill.endorsee = endorsee.map(|e| BillParticipant::Ident(e.to_owned()));
+        bill
+    }
+    pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
+        let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
+        BillBlockchain::new(
+            &BillIssueBlockData::from(bill, None, 1731593928),
+            get_baseline_identity().key_pair,
+            None,
+            BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            1731593928,
+        )
+        .unwrap()
+    }
+    pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
+        let mut bill = empty_bitcredit_bill();
+        let keys = BcrKeys::new();
+
+        bill.maturity_date = "2099-10-15".to_string();
+        let mut payee = empty_bill_identified_participant();
+        payee.name = "payee".to_owned();
+        payee.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        bill.payee = BillParticipant::Ident(payee);
+        bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        bill.id = bill_id.to_owned();
+        bill
+    }
+    pub fn empty_bitcredit_bill() -> BitcreditBill {
+        BitcreditBill {
+            id: bill_id_test(),
+            country_of_issuing: "AT".to_string(),
+            city_of_issuing: "Vienna".to_string(),
+            drawee: empty_bill_identified_participant(),
+            drawer: empty_bill_identified_participant(),
+            payee: BillParticipant::Ident(empty_bill_identified_participant()),
+            endorsee: None,
+            currency: "sat".to_string(),
+            sum: 500,
+            maturity_date: "2099-11-12".to_string(),
+            issue_date: "2099-08-12".to_string(),
+            city_of_payment: "Vienna".to_string(),
+            country_of_payment: "AT".to_string(),
+            language: "DE".to_string(),
+            files: vec![],
+        }
+    }
+
+    pub fn get_bill_keys() -> BillKeys {
+        BillKeys {
+            private_key: private_key_test().to_owned(),
+            public_key: node_id_test().pub_key(),
+        }
+    }
+
+    pub fn get_baseline_identity() -> IdentityWithAll {
+        let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
+        let mut identity = empty_identity();
+        identity.name = "drawer".to_owned();
+        identity.node_id = node_id_test();
+        identity.postal_address.country = Some("AT".to_owned());
+        identity.postal_address.city = Some("Vienna".to_owned());
+        identity.postal_address.address = Some("Hayekweg 5".to_owned());
+        IdentityWithAll {
+            identity,
+            key_pair: keys,
+        }
+    }
+    pub fn empty_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
+            t: ContactType::Person,
+            node_id: node_id_test(),
+            name: "some name".to_string(),
+            postal_address: empty_address(),
+            email: None,
+            nostr_relays: vec![],
+        }
+    }
+    pub fn empty_address() -> PostalAddress {
+        PostalAddress {
+            country: "AT".to_string(),
+            city: "Vienna".to_string(),
+            zip: None,
+            address: "Some address".to_string(),
+        }
+    }
+    pub fn empty_identity() -> Identity {
+        Identity {
+            t: IdentityType::Ident,
+            node_id: node_id_test(),
+            name: "some name".to_string(),
+            email: Some("some@example.com".to_string()),
+            postal_address: empty_optional_address(),
+            date_of_birth: None,
+            country_of_birth: None,
+            city_of_birth: None,
+            identification_number: None,
+            nostr_relays: vec![],
+            profile_picture_file: None,
+            identity_document_file: None,
+        }
+    }
+
+    pub fn empty_optional_address() -> OptionalPostalAddress {
+        OptionalPostalAddress {
+            country: None,
+            city: None,
+            zip: None,
+            address: None,
+        }
+    }
+
+    // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
+    pub fn bill_id_test() -> BillId {
+        BillId::new(
+            PublicKey::from_str(
+                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    pub fn private_key_test() -> SecretKey {
+        SecretKey::from_str("d1ff7427912d3b81743d3b67ffa1e65df2156d3dab257316cbc8d0f35eeeabe9")
+            .unwrap()
+    }
+
+    pub fn node_id_test() -> NodeId {
+        NodeId::from_str("bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
+
+    pub fn node_id_test_other() -> NodeId {
+        NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
+            .unwrap()
     }
 }

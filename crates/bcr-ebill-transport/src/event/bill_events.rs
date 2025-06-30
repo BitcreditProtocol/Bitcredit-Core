@@ -29,8 +29,7 @@ pub struct BillChainEvent {
 
 impl BillChainEvent {
     /// Create a new BillChainEvent instance. New blocks indicate whether the given chain contains
-    /// new blocks for the bill. If new_blocks is false events will be populated without a block
-    /// and keys.
+    /// new blocks for the bill. If new_blocks is false just action notifications will be sent.
     pub fn new(
         bill: &BitcreditBill,
         chain: &BillBlockchain,
@@ -82,32 +81,8 @@ impl BillChainEvent {
             .collect()
     }
 
-    // Returns all blocks for newly added participants, otherwise just the latest block or no
-    // blocks if the node is not a participant.
-    fn get_blocks_for_node(&self, node_id: &NodeId) -> Vec<BillBlock> {
-        if !self.new_blocks {
-            return Vec::new();
-        }
-        match self.participants.get(node_id) {
-            Some(height) if *height == self.chain.block_height() => self.chain.blocks().clone(),
-            Some(_) => vec![self.latest_block()],
-            _ => Vec::new(),
-        }
-    }
-
-    fn get_keys_for_node(&self, node_id: &NodeId) -> Option<BillKeys> {
-        if !self.new_blocks {
-            return None;
-        }
-        match self.participants.get(node_id) {
-            Some(height) if *height == self.chain.block_height() => Some(self.bill_keys.clone()),
-            _ => None,
-        }
-    }
-
-    /// Generates bill block events for all participants in the chain. Individual node_ids can be
-    /// assigned a specific event and action type by providing an override. If include_blocks is
-    /// false, the blocks list will be empty in the generated events. The recipient node_id is the
+    /// Generates bill action events for all participants in the chain. Individual node_ids can be
+    /// assigned a specific event and action type by providing an override. The recipient node_id is the
     /// key in the map.
     pub fn generate_action_messages(
         &self,
@@ -132,8 +107,6 @@ impl BillChainEvent {
                             bill_id: self.bill.id.to_owned(),
                             action_type: override_action.or(action.clone()),
                             sum: Some(self.bill.sum),
-                            blocks: self.get_blocks_for_node(node_id),
-                            keys: self.get_keys_for_node(node_id),
                         },
                     ),
                 )
@@ -173,6 +146,4 @@ pub struct BillChainEventPayload {
     pub bill_id: BillId,
     pub action_type: Option<ActionType>,
     pub sum: Option<u64>,
-    pub keys: Option<BillKeys>,
-    pub blocks: Vec<BillBlock>,
 }

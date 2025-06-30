@@ -24,6 +24,7 @@ const BLOCK_HASH: &str = "block_hash";
 const BLOCK_HEIGHT: &str = "block_height";
 const ROOT_ID: &str = "root_id";
 const EVENT_ID: &str = "event_id";
+const VALID: &str = "valid";
 
 impl SurrealNostrChainEventStore {
     const TABLE: &'static str = "nostr_chain_event";
@@ -33,7 +34,7 @@ impl SurrealNostrChainEventStore {
         Self { db }
     }
 
-    async fn find_all_chain_events(
+    async fn find_all_valid_chain_events(
         &self,
         chain_id: String,
         chain_type: BlockchainType,
@@ -45,7 +46,7 @@ impl SurrealNostrChainEventStore {
 
         let result: Vec<NostrChainEventDb> = self.db
                 .query(format!(
-                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} ORDER BY {BLOCK_HEIGHT} DESC"
+                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {VALID} = true ORDER BY {BLOCK_HEIGHT} DESC"
                 ).as_str(), bindings)
                 .await?;
         Ok(result)
@@ -65,7 +66,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
         chain_type: BlockchainType,
     ) -> Result<Vec<NostrChainEvent>> {
         let result: Vec<NostrChainEventDb> = self
-            .find_all_chain_events(chain_id.to_owned(), chain_type)
+            .find_all_valid_chain_events(chain_id.to_owned(), chain_type)
             .await?;
         Ok(result.into_iter().map(Into::into).collect())
     }
@@ -79,7 +80,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
         chain_type: BlockchainType,
     ) -> Result<Vec<NostrChainEvent>> {
         let result: Vec<NostrChainEventDb> = self
-            .find_all_chain_events(chain_id.to_owned(), chain_type)
+            .find_all_valid_chain_events(chain_id.to_owned(), chain_type)
             .await?;
         // Find the highest block_height
         let max_height = result.first().map(|e| e.block_height);
@@ -144,7 +145,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
 
         let result: Vec<NostrChainEventDb> = self.db
                 .query(format!(
-                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {EVENT_ID} = {ROOT_ID}"
+                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {EVENT_ID} = {ROOT_ID} AND {VALID} = true"
                 ).as_str(), bindings)
                 .await?;
         Ok(result.first().map(|r| r.to_owned().into()))
@@ -176,6 +177,8 @@ pub struct NostrChainEventDb {
     pub time: u64,
     /// The event as we received it via nostr.
     pub payload: Event,
+    /// We consider this event as part of the valid chain
+    pub valid: bool,
 }
 
 impl From<NostrChainEvent> for NostrChainEventDb {
@@ -192,6 +195,7 @@ impl From<NostrChainEvent> for NostrChainEventDb {
             received: event.received,
             time: event.time,
             payload: event.payload,
+            valid: event.valid,
         }
     }
 }
@@ -210,6 +214,7 @@ impl From<NostrChainEventDb> for NostrChainEvent {
             received: db.received,
             time: db.time,
             payload: db.payload,
+            valid: db.valid,
         }
     }
 }
@@ -332,6 +337,9 @@ mod tests {
         let child = get_child_event("child_event", 2, "child_hash", &root, None);
         let target1 = get_child_event("child_event_a", 3, "child_hash_a", &root, Some(&child));
         let target2 = get_child_event("child_event_b", 3, "child_hash_b", &root, Some(&child));
+        let mut invalid = get_child_event("child_event_c", 3, "child_hash_c", &root, Some(&child));
+        invalid.valid = false;
+
         store
             .add_chain_event(root)
             .await
@@ -349,10 +357,17 @@ mod tests {
             .await
             .expect("target event creation failed");
 
+        store
+            .add_chain_event(invalid)
+            .await
+            .expect("failed to add invalid event");
+
         let all = store
             .find_chain_events("chain_id", BlockchainType::Bill)
             .await
             .expect("could not find all events");
+
+        // result should not include invalid event
         assert_eq!(all.len(), 4);
     }
     async fn get_store(db: &str) -> SurrealNostrChainEventStore {
@@ -404,6 +419,7 @@ mod tests {
             received: now().timestamp() as u64,
             time: now().timestamp() as u64,
             payload: get_test_event(),
+            valid: true,
         }
     }
 

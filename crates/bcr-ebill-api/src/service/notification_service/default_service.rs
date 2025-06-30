@@ -206,6 +206,7 @@ impl DefaultNotificationService {
                         received: block_event.data.block.timestamp,
                         time: event.created_at.as_u64(),
                         payload: event,
+                        valid: true,
                     })
                     .await
                     .map_err(|_| {
@@ -406,8 +407,6 @@ impl NotificationServiceApi for DefaultNotificationService {
             bill_id: bill.id.clone(),
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum),
-            keys: None,
-            blocks: vec![],
         });
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             node.send_private_event(mint, event.try_into()?).await?;
@@ -451,8 +450,6 @@ impl NotificationServiceApi for DefaultNotificationService {
                     bill_id: bill_id.to_owned(),
                     action_type: Some(ActionType::CheckBill),
                     sum,
-                    keys: None,
-                    blocks: vec![],
                 };
                 for (_, recipient) in unique {
                     let event = Event::new_bill(payload.clone());
