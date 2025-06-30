@@ -1,4 +1,4 @@
-# 0.3.18
+# 0.4.0
 
 * Add `plaintext_hash` to Identity, Company and Bill Blocks, which is a hash over the plaintext data
     * (breaks all chains in the DB)
