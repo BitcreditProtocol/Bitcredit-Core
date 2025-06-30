@@ -1,5 +1,6 @@
 # 0.4.0
 
+* Switch to new chain transport leveraging public Nostr threads
 * Add `plaintext_hash` to Identity, Company and Bill Blocks, which is a hash over the plaintext data
     * (breaks all chains in the DB)
 * Add functionality for sharing a bill with an external party, encrypted, hashed, and signed, with the plaintext block data
