@@ -8,8 +8,8 @@ license.workspace = true
 doctest = false
 
 [dependencies]
-bcr-ebill-core = { path = "../bcr-ebill-core" }
-bcr-ebill-persistence = { path = "../bcr-ebill-persistence" }
+bcr-ebill-core.workspace = true
+bcr-ebill-persistence.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,7 +23,7 @@ async-broadcast.workspace = true
 bitcoin.workspace = true
 
 [dev-dependencies]
-mockall = "0.13.1"
+mockall.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

@@ -44,6 +44,9 @@ jobs:
       - name: Add fmt
         run: rustup component add rustfmt
 
+      - name: Add cargo deny
+        run: cargo install cargo-deny
+
       - name: Check formatting
         run: cargo fmt -- --check
 
@@ -74,6 +77,10 @@ jobs:
           cargo clippy
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+
+      - name: Cargo deny
+        run: cargo deny check
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
