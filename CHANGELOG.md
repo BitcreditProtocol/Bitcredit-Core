@@ -4,6 +4,7 @@
     * (breaks all chains in the DB)
 * Add functionality for sharing a bill with an external party, encrypted, hashed, and signed, with the plaintext block data
 * Change visibility of `bill_service::error` and `bill_service::service` to private, moving the used types to `bill_service`
+* Add cargo deny
 
 # 0.3.17
 

@@ -54,3 +54,9 @@ rstest = "0.25.0"
 secp256k1 = { version = "0.29" }
 reqwest = { version = "0.12", default-features = false }
 miniscript = { version = "12.3" }
+base64 = "0.22"
+mockall = "0.13.1"
+bcr-ebill-core = { path = "./crates/bcr-ebill-core" }
+bcr-ebill-persistence = { path = "./crates/bcr-ebill-persistence" }
+bcr-ebill-transport = { path = "./crates/bcr-ebill-transport" }
+surrealdb = { version = "2.3", default-features = false }

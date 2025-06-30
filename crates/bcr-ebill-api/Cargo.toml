@@ -25,9 +25,9 @@ nostr-sdk.workspace = true
 nostr.workspace = true
 futures.workspace = true
 infer = { version = "0.19.0", default-features = false }
-bcr-ebill-core = { path = "../bcr-ebill-core" }
-bcr-ebill-persistence = { path = "../bcr-ebill-persistence" }
-bcr-ebill-transport = { path = "../bcr-ebill-transport" }
+bcr-ebill-core.workspace = true
+bcr-ebill-persistence.workspace = true
+bcr-ebill-transport.workspace = true
 tokio.workspace = true
 tokio_with_wasm.workspace = true
 secp256k1.workspace = true
@@ -48,7 +48,7 @@ reqwest = { workspace = true, features = ["json"] }
 reqwest = { workspace = true, features = ["default", "json"] }
 
 [dev-dependencies]
-mockall = "0.13.1"
+mockall.workspace = true
 nostr-relay-builder = "0.42"
 tokio.workspace = true
 async-broadcast.workspace = true
