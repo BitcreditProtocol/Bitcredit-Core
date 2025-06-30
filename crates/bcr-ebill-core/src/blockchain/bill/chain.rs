@@ -1,9 +1,10 @@
 use super::super::Result;
 use super::PaymentInfo;
 use super::block::{
-    BillBlock, BillEndorseBlockData, BillIdentParticipantBlockData, BillIssueBlockData,
-    BillMintBlockData, BillOfferToSellBlockData, BillParticipantBlockData, BillRecourseBlockData,
-    BillRequestRecourseBlockData, BillSellBlockData,
+    BillAcceptBlockData, BillBlock, BillEndorseBlockData, BillIdentParticipantBlockData,
+    BillIssueBlockData, BillMintBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
+    BillRecourseBlockData, BillRejectBlockData, BillRequestRecourseBlockData,
+    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
@@ -15,6 +16,7 @@ use crate::contact::{
     BillParticipant, ContactType, LightBillIdentParticipant, LightBillParticipant,
 };
 use crate::util::{self, BcrKeys};
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,7 +29,13 @@ pub struct BillParties {
     pub endorsee: Option<BillParticipantBlockData>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+pub struct BillBlockPlaintextWrapper {
+    pub block: BillBlock,
+    pub plaintext_data_bytes: Vec<u8>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockchain {
     blocks: Vec<BillBlock>,
 }
@@ -701,6 +709,81 @@ impl BillBlockchain {
             endorsee: last_endorsee,
         })
     }
+
+    /// For each block, adds the decrypted and serialized plaintext data next to it
+    /// This is an expensive operation, since it deserialized, decrypts and reserializes the block data
+    /// validating the integrity of the data at the end
+    pub fn get_chain_with_plaintext_block_data(
+        &self,
+        bill_keys: &BillKeys,
+    ) -> Result<Vec<BillBlockPlaintextWrapper>> {
+        let mut result = Vec::with_capacity(self.blocks().len());
+        for block in self.blocks.iter() {
+            let plaintext_data_bytes = match block.op_code() {
+                BillOpCode::Issue => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillIssueBlockData>(bill_keys)?)?
+                }
+                BillOpCode::Accept => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillAcceptBlockData>(bill_keys)?)?
+                }
+                BillOpCode::Endorse => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillEndorseBlockData>(bill_keys)?)?
+                }
+                BillOpCode::RequestToAccept => borsh::to_vec(
+                    &block.get_decrypted_block::<BillRequestToAcceptBlockData>(bill_keys)?,
+                )?,
+                BillOpCode::RequestToPay => borsh::to_vec(
+                    &block.get_decrypted_block::<BillRequestToPayBlockData>(bill_keys)?,
+                )?,
+                BillOpCode::OfferToSell => borsh::to_vec(
+                    &block.get_decrypted_block::<BillOfferToSellBlockData>(bill_keys)?,
+                )?,
+                BillOpCode::Sell => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillSellBlockData>(bill_keys)?)?
+                }
+                BillOpCode::Mint => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillMintBlockData>(bill_keys)?)?
+                }
+                BillOpCode::RejectToAccept => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
+                }
+                BillOpCode::RejectToPay => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
+                }
+                BillOpCode::RejectToBuy => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
+                }
+                BillOpCode::RejectToPayRecourse => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
+                }
+                BillOpCode::RequestRecourse => borsh::to_vec(
+                    &block.get_decrypted_block::<BillRequestRecourseBlockData>(bill_keys)?,
+                )?,
+                BillOpCode::Recourse => {
+                    borsh::to_vec(&block.get_decrypted_block::<BillRecourseBlockData>(bill_keys)?)?
+                }
+            };
+
+            if block.plaintext_hash != util::sha256_hash(&plaintext_data_bytes) {
+                return Err(Error::BlockInvalid);
+            }
+
+            result.push(BillBlockPlaintextWrapper {
+                block: block.clone(),
+                plaintext_data_bytes,
+            });
+        }
+
+        // Validate the chain from the wrapper
+        BillBlockchain::new_from_blocks(
+            result
+                .iter()
+                .map(|wrapper| wrapper.block.to_owned())
+                .collect::<Vec<BillBlock>>(),
+        )?;
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -868,7 +951,7 @@ mod tests {
             node_id_last_endorsee.clone(),
             identity.identity.node_id.to_owned(),
             chain.get_first_block()
-        ),));
+        )));
 
         let keys = get_bill_keys();
         let result = chain.get_all_nodes_from_bill(&keys);
@@ -941,5 +1024,42 @@ mod tests {
         assert!(!result.is_empty());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 2);
+    }
+
+    #[test]
+    fn test_get_serialized_chain_with_plaintext() {
+        let bill = empty_bitcredit_bill();
+        let bill_id = bill.id.clone();
+        let bill_keys = get_bill_keys();
+        let identity = get_baseline_identity();
+        let mut chain = BillBlockchain::new(
+            &BillIssueBlockData::from(bill, None, 1731593928),
+            identity.key_pair,
+            None,
+            BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let node_id_last_endorsee =
+            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        assert!(chain.try_add_block(get_offer_to_sell_block(
+            node_id_last_endorsee.clone(),
+            identity.identity.node_id.to_owned(),
+            chain.get_first_block()
+        )));
+
+        let chain_with_plaintext = chain.get_chain_with_plaintext_block_data(&bill_keys);
+        assert!(chain_with_plaintext.is_ok());
+        assert_eq!(chain_with_plaintext.as_ref().unwrap().len(), 2);
+
+        let first = chain_with_plaintext.as_ref().unwrap()[0].clone();
+        let decrypted_block_data: BillIssueBlockData =
+            borsh::from_slice(&first.plaintext_data_bytes).unwrap();
+        assert_eq!(decrypted_block_data.id, bill_id);
+
+        let second = chain_with_plaintext.as_ref().unwrap()[1].clone();
+        let decrypted_block_data: BillOfferToSellBlockData =
+            borsh::from_slice(&second.plaintext_data_bytes).unwrap();
+        assert_eq!(decrypted_block_data.buyer.node_id(), node_id_last_endorsee);
     }
 }

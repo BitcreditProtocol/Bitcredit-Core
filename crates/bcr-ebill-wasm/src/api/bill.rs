@@ -12,7 +12,7 @@ use bcr_ebill_api::{
         identity::IdentityType,
     },
     external,
-    service::{Error, bill_service::error::Error as BillServiceError},
+    service::{Error, bill_service::Error as BillServiceError},
     util::{
         self, BcrKeys, ValidationError, currency,
         file::{UploadFileHandler, detect_content_type_for_bytes},

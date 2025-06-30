@@ -610,3 +610,15 @@ pub struct PastPaymentDataRecourse {
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BillToShareWithExternalParty {
+    /// The bill id
+    pub bill_id: BillId,
+    /// The base58 encoded, encrypted BillBlockPlaintextWrapper of the bill
+    pub data: String,
+    /// The hash over the unencrypted data
+    pub hash: String,
+    /// The signature over the hash by the sharer of the bill
+    pub signature: String,
+}

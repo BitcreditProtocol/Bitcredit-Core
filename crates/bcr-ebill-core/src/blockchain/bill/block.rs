@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BillBlock {
     pub bill_id: BillId,
     pub id: u64,
@@ -37,6 +37,10 @@ pub struct BillBlock {
     pub previous_hash: String,
     pub timestamp: u64,
     pub data: String,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
     pub public_key: PublicKey,
     pub signature: String,
     pub op_code: BillOpCode,
