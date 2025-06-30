@@ -72,13 +72,10 @@ impl BillActionEventHandler {
                     .mark_as_done(&currently_active.id)
                     .await
                 {
-                    error!(
-                        "Failed to mark currently active notification as done: {}",
-                        e
-                    );
+                    error!("Failed to mark currently active notification as done: {e}");
                 }
             }
-            Err(e) => error!("Failed to get latest notification by reference: {}", e),
+            Err(e) => error!("Failed to get latest notification by reference: {e}"),
             Ok(None) => {}
         }
         // save new notification to database
@@ -86,7 +83,7 @@ impl BillActionEventHandler {
             .add(notification.clone())
             .await
             .map_err(|e| {
-                error!("Failed to save new notification to database: {}", e);
+                error!("Failed to save new notification to database: {e}");
                 Error::Persistence("Failed to save new notification to database".to_string())
             })?;
 
@@ -97,7 +94,7 @@ impl BillActionEventHandler {
                 self.push_service.send(notification).await;
             }
             Err(e) => {
-                error!("Failed to serialize notification for push service: {}", e);
+                error!("Failed to serialize notification for push service: {e}");
             }
         }
         Ok(())
@@ -140,7 +137,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
                 .create_notification(&decoded.data, node_id, evt.pubkey)
                 .await
             {
-                error!("Failed to create notification for bill event: {}", e);
+                error!("Failed to create notification for bill event: {e}");
             }
         } else {
             warn!("Could not decode event to BillChainEventPayload {event:?}");

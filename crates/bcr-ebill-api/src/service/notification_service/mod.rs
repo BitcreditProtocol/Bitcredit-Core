@@ -40,10 +40,7 @@ pub async fn create_nostr_clients(
 ) -> Result<Vec<Arc<NostrClient>>> {
     // primary identity is required to launch
     let keys = identity_store.get_or_create_key_pair().await.map_err(|e| {
-        error!(
-            "Failed to get or create nostr key pair for nostr client: {}",
-            e
-        );
+        error!("Failed to get or create nostr key pair for nostr client: {e}");
         Error::Crypto("Failed to get or create nostr key pair".to_string())
     })?;
     let nostr_name = match identity_store.get().await {
@@ -62,7 +59,7 @@ pub async fn create_nostr_clients(
     let companies = match company_store.get_all().await {
         Ok(companies) => companies,
         Err(e) => {
-            error!("Failed to get companies for nostr client: {}", e);
+            error!("Failed to get companies for nostr client: {e}");
             HashMap::new()
         }
     };

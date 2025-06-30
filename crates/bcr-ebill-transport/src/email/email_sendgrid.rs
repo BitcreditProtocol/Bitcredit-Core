@@ -36,7 +36,7 @@ impl SendgridTransport {
             .json(&message)
             .bearer_auth(&self.config.api_key);
         let _ = request.send().await.map_err(|e| {
-            error!("Failed to send email: {}", e);
+            error!("Failed to send email: {e}");
             Error::Network("Failed to send email".to_string())
         })?;
         Ok(())

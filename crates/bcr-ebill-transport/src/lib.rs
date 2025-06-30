@@ -40,10 +40,7 @@ pub enum Error {
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
-        Error::Message(format!(
-            "Failed to serialize/unserialize json message: {}",
-            e
-        ))
+        Error::Message(format!("Failed to serialize/unserialize json message: {e}"))
     }
 }
 

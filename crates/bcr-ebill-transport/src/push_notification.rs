@@ -54,7 +54,7 @@ impl PushApi for PushService {
         match self.sender.broadcast(value).await {
             Ok(_) => {}
             Err(err) => {
-                trace!("Error sending push message: {}", err);
+                trace!("Error sending push message: {err}");
             }
         }
     }
