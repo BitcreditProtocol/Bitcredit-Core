@@ -99,7 +99,7 @@ pub async fn initialize_api(
     let keys = db.identity_store.get_or_create_key_pair().await?;
 
     let node_id = NodeId::new(keys.pub_key(), api_config.bitcoin_network());
-    info!("Initialized WASM API {}", VERSION);
+    info!("Initialized WASM API {VERSION}");
     info!("Local node id: {node_id}");
     info!("Local npub: {:?}", node_id.npub());
     info!("Local npub as hex: {}", node_id.npub().to_hex());

@@ -111,7 +111,7 @@ pub enum Error {
 
 impl From<surrealdb::Error> for Error {
     fn from(e: surrealdb::Error) -> Self {
-        Error::SurrealConnection(format!("SurrealDB connection error: {}", e))
+        Error::SurrealConnection(format!("SurrealDB connection error: {e}"))
     }
 }
 

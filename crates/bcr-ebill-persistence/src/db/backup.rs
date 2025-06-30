@@ -71,7 +71,7 @@ impl BackupStoreApi for SurrealBackupStore {
         let _ = self
             .db()
             .await?
-            .query(format!("REMOVE DATABASE {}", name))
+            .query(format!("REMOVE DATABASE {name}"))
             .await?;
         Ok(())
     }

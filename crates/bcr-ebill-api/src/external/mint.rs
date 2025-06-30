@@ -238,7 +238,7 @@ impl MintClientApi for MintClient {
     async fn get_keyset_info(&self, mint_url: &str, keyset_id: &str) -> Result<cdk02::KeySet> {
         let base = reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?;
         let url = base
-            .join(&format!("/v1/keys/{}", keyset_id))
+            .join(&format!("/v1/keys/{keyset_id}"))
             .expect("keys relative path");
         let res = reqwest::Client::new().get(url).send().await.map_err(|e| {
             log::error!("Error getting keyset info from mint {mint_url}: {e}");

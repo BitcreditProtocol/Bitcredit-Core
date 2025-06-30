@@ -55,7 +55,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
         debug!("incoming bill chain event for {node_id}");
         if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.bill_store.get_keys(&decoded.data.bill_id).await {
-                if let Err(e) = self
+                let valid = self
                     .processor
                     .process_chain_data(
                         &decoded.data.bill_id,
@@ -63,17 +63,17 @@ impl NotificationHandlerApi for BillChainEventHandler {
                         Some(keys.clone()),
                     )
                     .await
-                {
-                    error!("Failed to process chain data: {e}");
-                } else {
-                    self.store_event(
-                        original_event,
-                        decoded.data.block_height,
-                        &decoded.data.block.hash,
-                        &decoded.data.bill_id.to_string(),
-                    )
-                    .await?;
-                }
+                    .inspect_err(|e| error!("Received invalid block {e}"))
+                    .is_ok();
+
+                self.store_event(
+                    original_event,
+                    decoded.data.block_height,
+                    &decoded.data.block.hash,
+                    &decoded.data.bill_id.to_string(),
+                    valid,
+                )
+                .await?;
             } else {
                 trace!("no keys for incoming bill block");
             }
@@ -91,6 +91,7 @@ impl BillChainEventHandler {
         block_height: usize,
         block_hash: &str,
         chain_id: &str,
+        valid: bool,
     ) -> Result<()> {
         let (root, reply) = root_and_reply_id(&event);
         if let Err(e) = self
@@ -109,6 +110,7 @@ impl BillChainEventHandler {
                 received: now().timestamp() as u64,
                 time: event.created_at.as_u64(),
                 payload: *event.clone(),
+                valid,
             })
             .await
         {

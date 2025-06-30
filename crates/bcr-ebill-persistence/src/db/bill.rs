@@ -51,7 +51,7 @@ impl BillStoreApi for SurrealBillStore {
             .map(|id| {
                 (
                     SurrealBillStore::CACHE_TABLE.to_owned(),
-                    format!("{}{}", id, identity_node_id),
+                    format!("{id}{identity_node_id}"),
                 )
                     .into()
             })
@@ -76,7 +76,7 @@ impl BillStoreApi for SurrealBillStore {
     ) -> Result<Option<BitcreditBillResult>> {
         let result: Option<BitcreditBillResultDb> = self
             .db
-            .select_one(Self::CACHE_TABLE, format!("{}{}", id, identity_node_id))
+            .select_one(Self::CACHE_TABLE, format!("{id}{identity_node_id}"))
             .await?;
         match result {
             None => Ok(None),
@@ -96,11 +96,7 @@ impl BillStoreApi for SurrealBillStore {
         let entity: BitcreditBillResultDb = (bill, identity_node_id).into();
         let _: Option<BitcreditBillResultDb> = self
             .db
-            .upsert(
-                Self::CACHE_TABLE,
-                format!("{}{}", id, identity_node_id),
-                entity,
-            )
+            .upsert(Self::CACHE_TABLE, format!("{id}{identity_node_id}"), entity)
             .await?;
         Ok(())
     }

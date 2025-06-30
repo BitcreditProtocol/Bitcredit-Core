@@ -40,7 +40,7 @@ pub struct FileUploadStore {
 /// exists and returns the full path.
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn file_storage_path(data_dir: &str, path: &str) -> Result<String> {
-    let directory = format!("{}/{}", data_dir, path);
+    let directory = format!("{data_dir}/{path}");
     if !Path::new(&directory).exists() {
         tokio::fs::create_dir_all(&directory).await?;
     }

@@ -120,8 +120,7 @@ impl DefaultNotificationService {
                         .await
                     {
                         error!(
-                            "Failed to send block notification, will add it to retry queue: {}",
-                            e
+                            "Failed to send block notification, will add it to retry queue: {e}"
                         );
                         let queue_message = NostrQueuedMessage {
                             id: uuid::Uuid::new_v4().to_string(),
@@ -134,18 +133,15 @@ impl DefaultNotificationService {
                             .add_message(queue_message, Self::NOSTR_MAX_RETRIES)
                             .await
                         {
-                            error!("Failed to add block notification to retry queue: {}", e);
+                            error!("Failed to add block notification to retry queue: {e}");
                         }
                     }
                 } else {
-                    warn!(
-                        "Failed to find recipient in contacts for node_id: {}",
-                        node_id
-                    );
+                    warn!("Failed to find recipient in contacts for node_id: {node_id}");
                 }
             }
         } else {
-            warn!("No transport node found for sender node_id: {}", sender);
+            warn!("No transport node found for sender node_id: {sender}");
         }
         Ok(())
     }
@@ -206,6 +202,7 @@ impl DefaultNotificationService {
                         received: block_event.data.block.timestamp,
                         time: event.created_at.as_u64(),
                         payload: event,
+                        valid: true,
                     })
                     .await
                     .map_err(|_| {
@@ -263,8 +260,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
 
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -277,8 +274,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -294,8 +291,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -308,8 +305,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -322,8 +319,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -336,8 +333,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&bill.sender(), all_events).await?;
         self.send_bill_chain_events(bill).await?;
+        self.send_all_events(&bill.sender(), all_events).await?;
         Ok(())
     }
 
@@ -354,8 +351,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -372,8 +369,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -390,8 +387,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
             None,
         );
-        self.send_all_events(&event.sender(), all_events).await?;
         self.send_bill_chain_events(event).await?;
+        self.send_all_events(&event.sender(), all_events).await?;
         Ok(())
     }
 
@@ -406,8 +403,6 @@ impl NotificationServiceApi for DefaultNotificationService {
             bill_id: bill.id.clone(),
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum),
-            keys: None,
-            blocks: vec![],
         });
         if let Some(node) = self.notification_transport.get(sender_node_id) {
             node.send_private_event(mint, event.try_into()?).await?;
@@ -451,8 +446,6 @@ impl NotificationServiceApi for DefaultNotificationService {
                     bill_id: bill_id.to_owned(),
                     action_type: Some(ActionType::CheckBill),
                     sum,
-                    keys: None,
-                    blocks: vec![],
                 };
                 for (_, recipient) in unique {
                     let event = Event::new_bill(payload.clone());
@@ -479,8 +472,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 Some(BillEventType::BillBlock),
                 None,
             );
-            self.send_all_events(&event.sender(), all_events).await?;
             self.send_bill_chain_events(event).await?;
+            self.send_all_events(&event.sender(), all_events).await?;
         }
         Ok(())
     }
@@ -503,7 +496,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             validate_node_id_network(node_id)?;
         }
         let result = self.notification_store.list(filter).await.map_err(|e| {
-            error!("Failed to get client notifications: {}", e);
+            error!("Failed to get client notifications: {e}");
             Error::Persistence("Failed to get client notifications".to_string())
         })?;
         Ok(result)
@@ -515,7 +508,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             .mark_as_done(notification_id)
             .await
             .map_err(|e| {
-                error!("Failed to mark notification as done: {}", e);
+                error!("Failed to mark notification as done: {e}");
                 Error::Persistence("Failed to mark notification as done".to_string())
             })?;
         Ok(())
@@ -559,10 +552,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             .bill_notification_sent(bill_id, block_height, action)
             .await
             .map_err(|e| {
-                error!(
-                    "Failed to check if bill notification was already sent: {}",
-                    e
-                );
+                error!("Failed to check if bill notification was already sent: {e}");
                 Error::Persistence(
                     "Failed to check if bill notification was already sent".to_string(),
                 )
@@ -581,7 +571,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             .set_bill_notification_sent(bill_id, block_height, action)
             .await
             .map_err(|e| {
-                error!("Failed to mark bill notification as sent: {}", e);
+                error!("Failed to mark bill notification as sent: {e}");
                 Error::Persistence("Failed to mark bill notification as sent".to_string())
             })?;
         Ok(())
@@ -604,21 +594,21 @@ impl NotificationServiceApi for DefaultNotificationService {
                     )
                     .await
                 {
-                    error!("Failed to send retry message: {}", e);
+                    error!("Failed to send retry message: {e}");
                     failed_ids.push(queued_message.id.clone());
                 } else if let Err(e) = self
                     .queued_message_store
                     .succeed_retry(&queued_message.id)
                     .await
                 {
-                    error!("Failed to mark retry message as sent: {}", e);
+                    error!("Failed to mark retry message as sent: {e}");
                 }
             }
         }
 
         for failed in failed_ids {
             if let Err(e) = self.queued_message_store.fail_retry(&failed).await {
-                error!("Failed to store failed retry attemt: {}", e);
+                error!("Failed to store failed retry attemt: {e}");
             }
         }
         Ok(())
@@ -1249,6 +1239,21 @@ mod tests {
         mock.expect_get_sender_node_id().returning(node_id_test);
 
         mock.expect_send_private_event()
+            .withf(move |_, e| {
+                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                r.is_ok()
+            })
+            .returning(|_, _| Ok(()));
+
+        mock.expect_send_public_chain_event()
+            .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()));
+
+        let mock_event_store = setup_event_store_expectations(
+            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            &bill.id,
+        );
+
+        mock.expect_send_private_event()
             .returning(|_, _| Ok(()))
             .once();
 
@@ -1258,21 +1263,6 @@ mod tests {
                 r.is_err()
             })
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
-
-        mock.expect_send_public_chain_event()
-            .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()));
-
-        mock.expect_send_private_event()
-            .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
-                r.is_ok()
-            })
-            .returning(|_, _| Ok(()));
-
-        let mock_event_store = setup_event_store_expectations(
-            chain.get_latest_block().previous_hash.to_owned().as_str(),
-            &bill.id,
-        );
 
         let mut queue_mock = MockNostrQueuedMessageStore::new();
         queue_mock

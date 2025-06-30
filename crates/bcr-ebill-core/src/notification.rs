@@ -64,7 +64,7 @@ pub enum NotificationType {
 
 impl Display for NotificationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{:?}", self).as_str())
+        f.write_str(format!("{self:?}").as_str())
     }
 }
 
