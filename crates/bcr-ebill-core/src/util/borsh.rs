@@ -19,3 +19,23 @@ pub fn deserialize_pubkey<R: Read>(
         .map_err(|e| borsh::io::Error::new(ErrorKind::InvalidInput, e))?;
     Ok(pubkey)
 }
+
+pub fn serialize_vec_url<W: std::io::Write>(
+    vec: &[url::Url],
+    writer: &mut W,
+) -> std::io::Result<()> {
+    let url_strs: Vec<String> = vec.iter().map(|u| u.to_string()).collect();
+    borsh::BorshSerialize::serialize(&url_strs, writer)?;
+    Ok(())
+}
+
+pub fn deserialize_vec_url<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec<url::Url>> {
+    let url_strs: Vec<String> = borsh::BorshDeserialize::deserialize_reader(reader)?;
+    url_strs
+        .into_iter()
+        .map(|s| {
+            url::Url::from_str(&s)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        })
+        .collect()
+}

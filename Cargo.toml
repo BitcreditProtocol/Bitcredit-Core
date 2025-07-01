@@ -60,3 +60,4 @@ bcr-ebill-core = { path = "./crates/bcr-ebill-core" }
 bcr-ebill-persistence = { path = "./crates/bcr-ebill-persistence" }
 bcr-ebill-transport = { path = "./crates/bcr-ebill-transport" }
 surrealdb = { version = "2.3", default-features = false }
+url = {version = "2.5"}

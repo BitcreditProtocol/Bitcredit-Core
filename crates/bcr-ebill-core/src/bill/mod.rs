@@ -1,5 +1,12 @@
 use std::str::FromStr;
 
+use super::{
+    File, PostalAddress,
+    contact::{
+        BillIdentParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
+    },
+    notification::Notification,
+};
 use crate::{
     ID_PREFIX, NETWORK_MAINNET, NETWORK_REGTEST, NETWORK_TESTNET, NETWORK_TESTNET4, NodeId,
     ValidationError,
@@ -8,14 +15,7 @@ use crate::{
     network_char,
     util::{self, BcrKeys},
 };
-
-use super::{
-    File, PostalAddress,
-    contact::{
-        BillIdentParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
-    },
-    notification::Notification,
-};
+use borsh::{BorshDeserialize, BorshSerialize};
 use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 
@@ -110,7 +110,7 @@ impl<'de> serde::Deserialize<'de> for BillId {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(d)?;
+        let s = <std::string::String as serde::Deserialize>::deserialize(d)?;
         BillId::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
@@ -611,14 +611,26 @@ pub struct PastPaymentDataRecourse {
     pub status: PastPaymentStatus,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillToShareWithExternalParty {
     /// The bill id
     pub bill_id: BillId,
     /// The base58 encoded, encrypted BillBlockPlaintextWrapper of the bill
     pub data: String,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_vec_url",
+        deserialize_with = "crate::util::borsh::deserialize_vec_url"
+    )]
+    /// The file urls of bill files, encrypted with the receiver's key, uploaded to Nostr
+    pub file_urls: Vec<url::Url>,
     /// The hash over the unencrypted data
     pub hash: String,
     /// The signature over the hash by the sharer of the bill
     pub signature: String,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
+    /// The receiver's pub key
+    pub receiver: PublicKey,
 }
