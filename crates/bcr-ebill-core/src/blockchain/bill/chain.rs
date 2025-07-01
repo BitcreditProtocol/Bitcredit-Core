@@ -21,7 +21,7 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BillParties {
     pub drawee: BillIdentParticipantBlockData,
     pub drawer: BillIdentParticipantBlockData,
@@ -33,6 +33,122 @@ pub struct BillParties {
 pub struct BillBlockPlaintextWrapper {
     pub block: BillBlock,
     pub plaintext_data_bytes: Vec<u8>,
+}
+
+impl BillBlockPlaintextWrapper {
+    pub fn get_bill_data(&self) -> Result<BillIssueBlockData> {
+        if matches!(self.block.op_code(), BillOpCode::Issue) {
+            let issue_data: BillIssueBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+            Ok(issue_data)
+        } else {
+            Err(Error::BlockInvalid)
+        }
+    }
+}
+
+pub fn get_bill_parties_from_chain_with_plaintext(
+    chain_with_plaintext: &[BillBlockPlaintextWrapper],
+) -> Result<BillParties> {
+    let chain = BillBlockchain::new_from_blocks(
+        chain_with_plaintext
+            .iter()
+            .map(|wrapper| wrapper.block.to_owned())
+            .collect::<Vec<BillBlock>>(),
+    )?;
+
+    let bill_first_version = chain_with_plaintext
+        .first()
+        .ok_or(Error::BlockchainInvalid)?
+        .get_bill_data()?;
+
+    let last_version_block_endorse = if let Some(endorse_block_encrypted) =
+        chain.get_last_version_block_with_op_code(BillOpCode::Endorse)
+    {
+        let block_id = endorse_block_encrypted.id;
+        let endorse_plaintext_wrapper = chain_with_plaintext
+            .iter()
+            .find(|wrapper| wrapper.block.id() == block_id)
+            .ok_or(Error::BlockInvalid)?;
+        Some((
+            block_id,
+            borsh::from_slice::<BillEndorseBlockData>(
+                &endorse_plaintext_wrapper.plaintext_data_bytes,
+            )?
+            .endorsee,
+        ))
+    } else {
+        None
+    };
+    let last_version_block_mint = if let Some(mint_block_encrypted) =
+        chain.get_last_version_block_with_op_code(BillOpCode::Mint)
+    {
+        let block_id = mint_block_encrypted.id;
+        let mint_plaintext_wrapper = chain_with_plaintext
+            .iter()
+            .find(|wrapper| wrapper.block.id() == block_id)
+            .ok_or(Error::BlockInvalid)?;
+        Some((
+            block_id,
+            borsh::from_slice::<BillMintBlockData>(&mint_plaintext_wrapper.plaintext_data_bytes)?
+                .endorsee,
+        ))
+    } else {
+        None
+    };
+    let last_version_block_sell = if let Some(sell_block_encrypted) =
+        chain.get_last_version_block_with_op_code(BillOpCode::Sell)
+    {
+        let block_id = sell_block_encrypted.id;
+        let sell_plaintext_wrapper = chain_with_plaintext
+            .iter()
+            .find(|wrapper| wrapper.block.id() == block_id)
+            .ok_or(Error::BlockInvalid)?;
+        Some((
+            block_id,
+            borsh::from_slice::<BillSellBlockData>(&sell_plaintext_wrapper.plaintext_data_bytes)?
+                .buyer,
+        ))
+    } else {
+        None
+    };
+    let last_version_block_recourse = if let Some(recourse_block_encrypted) =
+        chain.get_last_version_block_with_op_code(BillOpCode::Recourse)
+    {
+        let block_id = recourse_block_encrypted.id;
+        let recourse_plaintext_wrapper = chain_with_plaintext
+            .iter()
+            .find(|wrapper| wrapper.block.id() == block_id)
+            .ok_or(Error::BlockInvalid)?;
+        Some((
+            block_id,
+            BillParticipantBlockData::Ident(
+                borsh::from_slice::<BillRecourseBlockData>(
+                    &recourse_plaintext_wrapper.plaintext_data_bytes,
+                )?
+                .recoursee,
+            ),
+        ))
+    } else {
+        None
+    };
+
+    let last_endorsee = vec![
+        last_version_block_endorse,
+        last_version_block_mint,
+        last_version_block_sell,
+        last_version_block_recourse,
+    ]
+    .into_iter()
+    .flatten()
+    .max_by_key(|(id, _)| *id)
+    .map(|b| b.1);
+
+    Ok(BillParties {
+        drawee: bill_first_version.drawee.to_owned(),
+        drawer: bill_first_version.drawer.to_owned(),
+        payee: bill_first_version.payee.to_owned(),
+        endorsee: last_endorsee,
+    })
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
@@ -790,11 +906,15 @@ impl BillBlockchain {
 mod tests {
     use super::*;
     use crate::{
-        blockchain::bill::{block::BillOfferToSellBlockData, tests::get_baseline_identity},
+        blockchain::bill::{
+            block::{BillOfferToSellBlockData, BillRecourseReasonBlockData},
+            tests::get_baseline_identity,
+        },
         contact::BillIdentParticipant,
         tests::tests::{
-            bill_id_test, bill_participant_only_node_id, empty_bitcredit_bill, get_bill_keys,
-            private_key_test, valid_address,
+            VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
+            bill_participant_only_node_id, empty_bitcredit_bill, get_bill_keys, private_key_test,
+            valid_address,
         },
     };
 
@@ -1029,37 +1149,205 @@ mod tests {
     #[test]
     fn test_get_serialized_chain_with_plaintext() {
         let bill = empty_bitcredit_bill();
+        let bill_maturity_date = bill.maturity_date.clone();
+        let bill_sum = bill.sum;
         let bill_id = bill.id.clone();
         let bill_keys = get_bill_keys();
         let identity = get_baseline_identity();
         let mut chain = BillBlockchain::new(
             &BillIssueBlockData::from(bill, None, 1731593928),
-            identity.key_pair,
+            identity.key_pair.clone(),
             None,
             BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee =
-            NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
-        assert!(chain.try_add_block(get_offer_to_sell_block(
-            node_id_last_endorsee.clone(),
+        let signer = bill_identified_participant_only_node_id(NodeId::new(
+            identity.key_pair.pub_key(),
+            bitcoin::Network::Testnet,
+        ));
+        let other_party = bill_identified_participant_only_node_id(NodeId::new(
+            BcrKeys::new().pub_key(),
+            bitcoin::Network::Testnet,
+        ));
+        let offer_to_sell = get_offer_to_sell_block(
+            other_party.node_id.clone(),
             identity.identity.node_id.to_owned(),
-            chain.get_first_block()
-        )));
+            chain.get_first_block(),
+        );
+        assert!(chain.try_add_block(offer_to_sell.clone()));
+        assert_eq!(
+            chain
+                .get_bill_parties(
+                    &bill_keys,
+                    &chain.get_first_version_bill(&bill_keys).unwrap(),
+                )
+                .unwrap(),
+            get_bill_parties_from_chain_with_plaintext(
+                chain
+                    .get_chain_with_plaintext_block_data(&bill_keys)
+                    .as_ref()
+                    .unwrap()
+            )
+            .unwrap()
+        );
+        let sell = BillBlock::create_block_for_sell(
+            bill_id.clone(),
+            &offer_to_sell,
+            &BillSellBlockData {
+                seller: BillParticipant::Ident(signer.clone()).into(),
+                buyer: BillParticipant::Ident(other_party.clone()).into(),
+                sum: 5000,
+                currency: "sat".to_string(),
+                payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                signatory: None,
+                signing_timestamp: 1731593929,
+                signing_address: Some(signer.postal_address.clone()),
+            },
+            &identity.key_pair,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
+            1731593929,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(sell.clone()));
+        assert_eq!(
+            chain
+                .get_bill_parties(
+                    &bill_keys,
+                    &chain.get_first_version_bill(&bill_keys).unwrap(),
+                )
+                .unwrap(),
+            get_bill_parties_from_chain_with_plaintext(
+                chain
+                    .get_chain_with_plaintext_block_data(&bill_keys)
+                    .as_ref()
+                    .unwrap()
+            )
+            .unwrap()
+        );
+        let endorse = BillBlock::create_block_for_endorse(
+            bill_id.clone(),
+            &sell,
+            &BillEndorseBlockData {
+                endorser: BillParticipant::Ident(other_party.clone()).into(),
+                endorsee: BillParticipant::Ident(signer.clone()).into(),
+                signatory: None,
+                signing_timestamp: 1731593930,
+                signing_address: Some(signer.postal_address.clone()),
+            },
+            &identity.key_pair,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
+            1731593930,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(endorse.clone()));
+        assert_eq!(
+            chain
+                .get_bill_parties(
+                    &bill_keys,
+                    &chain.get_first_version_bill(&bill_keys).unwrap(),
+                )
+                .unwrap(),
+            get_bill_parties_from_chain_with_plaintext(
+                chain
+                    .get_chain_with_plaintext_block_data(&bill_keys)
+                    .as_ref()
+                    .unwrap()
+            )
+            .unwrap()
+        );
+        let mint = BillBlock::create_block_for_mint(
+            bill_id.clone(),
+            &endorse,
+            &BillMintBlockData {
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipant::Ident(other_party.clone()).into(),
+                sum: 5000,
+                currency: "sat".to_string(),
+                signatory: None,
+                signing_timestamp: 1731593931,
+                signing_address: Some(signer.postal_address.clone()),
+            },
+            &identity.key_pair,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
+            1731593931,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(mint.clone()));
+        assert_eq!(
+            chain
+                .get_bill_parties(
+                    &bill_keys,
+                    &chain.get_first_version_bill(&bill_keys).unwrap(),
+                )
+                .unwrap(),
+            get_bill_parties_from_chain_with_plaintext(
+                chain
+                    .get_chain_with_plaintext_block_data(&bill_keys)
+                    .as_ref()
+                    .unwrap()
+            )
+            .unwrap()
+        );
+        let recourse = BillBlock::create_block_for_recourse(
+            bill_id.clone(),
+            &mint,
+            &BillRecourseBlockData {
+                recourser: other_party.clone().into(),
+                recoursee: signer.clone().into(),
+                sum: 15000,
+                currency: "sat".to_string(),
+                recourse_reason: BillRecourseReasonBlockData::Pay,
+                signatory: None,
+                signing_timestamp: 1731593932,
+                signing_address: signer.postal_address.clone(),
+            },
+            &identity.key_pair,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
+            1731593932,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(recourse.clone()));
 
         let chain_with_plaintext = chain.get_chain_with_plaintext_block_data(&bill_keys);
         assert!(chain_with_plaintext.is_ok());
-        assert_eq!(chain_with_plaintext.as_ref().unwrap().len(), 2);
+        assert_eq!(chain_with_plaintext.as_ref().unwrap().len(), 6);
 
         let first = chain_with_plaintext.as_ref().unwrap()[0].clone();
         let decrypted_block_data: BillIssueBlockData =
             borsh::from_slice(&first.plaintext_data_bytes).unwrap();
         assert_eq!(decrypted_block_data.id, bill_id);
+        let bill_data = chain_with_plaintext.as_ref().unwrap()[0]
+            .clone()
+            .get_bill_data()
+            .unwrap();
+        assert_eq!(bill_data.id, bill_id);
+        assert_eq!(bill_data.sum, bill_sum);
+        assert_eq!(bill_data.maturity_date, bill_maturity_date);
 
         let second = chain_with_plaintext.as_ref().unwrap()[1].clone();
         let decrypted_block_data: BillOfferToSellBlockData =
             borsh::from_slice(&second.plaintext_data_bytes).unwrap();
-        assert_eq!(decrypted_block_data.buyer.node_id(), node_id_last_endorsee);
+        assert_eq!(decrypted_block_data.buyer.node_id(), other_party.node_id);
+
+        assert_eq!(
+            chain
+                .get_bill_parties(
+                    &bill_keys,
+                    &chain.get_first_version_bill(&bill_keys).unwrap(),
+                )
+                .unwrap(),
+            get_bill_parties_from_chain_with_plaintext(
+                chain
+                    .get_chain_with_plaintext_block_data(&bill_keys)
+                    .as_ref()
+                    .unwrap()
+            )
+            .unwrap()
+        );
     }
 }

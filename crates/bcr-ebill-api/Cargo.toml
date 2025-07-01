@@ -39,7 +39,7 @@ bcr-wallet-lib = { git = "https://github.com/BitcreditProtocol/Wallet-Core", rev
 cashu = { version = "0.9", default-features = false }
 rand = { version = "0.8" }
 hex = { version = "0.4" }
-url = {version = "2.5"}
+url.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

@@ -18,6 +18,7 @@ impl BillService {
         bill_id: &BillId,
         external_party_pub_key: &PublicKey,
         sharer_keys: &BcrKeys,
+        file_urls: &[url::Url],
     ) -> Result<BillToShareWithExternalParty> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
@@ -33,8 +34,10 @@ impl BillService {
         let result = BillToShareWithExternalParty {
             bill_id: bill_id.to_owned(),
             data: encoded,
+            file_urls: file_urls.to_owned(),
             hash,
             signature,
+            receiver: external_party_pub_key.to_owned(),
         };
         Ok(result)
     }
@@ -85,13 +88,14 @@ pub mod tests {
         let service = get_service(ctx);
 
         let result = service
-            .share_bill_with_external_party(&bill_id, &external_party_pub_key, &sharer_keys)
+            .share_bill_with_external_party(&bill_id, &external_party_pub_key, &sharer_keys, &[])
             .await;
         assert!(result.is_ok());
 
         // Receiver side
         let unwrapped = result.unwrap().clone();
         assert_eq!(unwrapped.bill_id, bill_id);
+        assert_eq!(unwrapped.receiver, external_party_pub_key);
         let data = unwrapped.data;
         let hash = unwrapped.hash;
         let signature = unwrapped.signature;
