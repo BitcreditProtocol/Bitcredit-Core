@@ -3,12 +3,11 @@ use std::str::FromStr;
 use crate::util;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    PostalAddress, SecretKey, ServiceTraitBounds,
-    bill::BitcreditBill,
+    NodeId, PostalAddress, SecretKey, ServiceTraitBounds,
+    bill::{BillId, BitcreditBill},
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType},
     util::{BcrKeys, date::DateTimeUtc},
 };
-use bcr_wallet_lib::wallet::TokenOperations;
 use bcr_wdc_key_client::KeyClient;
 use bcr_wdc_quote_client::QuoteClient;
 use bcr_wdc_swap_client::SwapClient;
@@ -81,7 +80,12 @@ use mockall::automock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait MintClientApi: ServiceTraitBounds {
     /// Check if the given proofs were already spent
-    async fn check_if_proofs_are_spent(&self, mint_url: &str, proofs: &str) -> Result<bool>;
+    async fn check_if_proofs_are_spent(
+        &self,
+        mint_url: &str,
+        proofs: &str,
+        keyset_id: &str,
+    ) -> Result<bool>;
     /// Mint and return encoded token
     async fn mint(
         &self,
@@ -159,7 +163,12 @@ impl MintClient {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl MintClientApi for MintClient {
-    async fn check_if_proofs_are_spent(&self, mint_url: &str, proofs: &str) -> Result<bool> {
+    async fn check_if_proofs_are_spent(
+        &self,
+        mint_url: &str,
+        proofs: &str,
+        keyset_id: &str,
+    ) -> Result<bool> {
         let token_mint_url =
             cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
         let token =
@@ -169,7 +178,25 @@ impl MintClientApi for MintClient {
             return Err(Error::InvalidToken.into());
         }
 
-        let ys = token.proofs().ys().map_err(|_| Error::PubKey)?;
+        let keyset_id_parsed = cdk02::Id::from_str(keyset_id).map_err(|e| {
+            log::error!("Error parsing keyset id {keyset_id} for {mint_url}: {e}");
+            Error::InvalidKeySetId
+        })?;
+
+        let keyset_info = self
+            .key_client(mint_url)?
+            .keyset_info(keyset_id_parsed)
+            .await
+            .map_err(|e| {
+                log::error!("Error getting keyset info from {mint_url}: {e}");
+                Error::KeyClient
+            })?;
+
+        let ys = token
+            .proofs(&[keyset_info])
+            .map_err(|_| Error::InvalidToken)?
+            .ys()
+            .map_err(|_| Error::PubKey)?;
 
         let proof_states = self
             .swap_client(mint_url)?
@@ -230,7 +257,7 @@ impl MintClientApi for MintClient {
 
         // generate token from proofs
         let token =
-            bcr_wallet_lib::wallet::Token::new_credit(token_mint_url, currency, None, proofs);
+            bcr_wallet_lib::wallet::Token::new_bitcr(token_mint_url, proofs, None, currency);
 
         Ok(token.to_string())
     }
@@ -263,7 +290,7 @@ impl MintClientApi for MintClient {
         files: &[Url],
     ) -> Result<String> {
         let bill_info = BillInfo {
-            id: bill.id.clone().to_string(),
+            id: map_bill_id(bill.id.clone()),
             drawee: map_bill_ident_participant(bill.drawee.to_owned()),
             drawer: map_bill_ident_participant(bill.drawer.to_owned()),
             payee: map_bill_participant(bill.payee.to_owned()),
@@ -454,7 +481,7 @@ fn map_bill_anon_participant(
     ident: BillAnonParticipant,
 ) -> bcr_wdc_webapi::bill::BillAnonParticipant {
     bcr_wdc_webapi::bill::BillAnonParticipant {
-        node_id: ident.node_id.to_string(),
+        node_id: map_node_id(ident.node_id),
         email: ident.email,
         nostr_relays: ident.nostr_relays,
     }
@@ -465,7 +492,7 @@ fn map_bill_ident_participant(
 ) -> bcr_wdc_webapi::bill::BillIdentParticipant {
     bcr_wdc_webapi::bill::BillIdentParticipant {
         t: map_contact_type(ident.t),
-        node_id: ident.node_id.to_string(),
+        node_id: map_node_id(ident.node_id),
         name: ident.name,
         postal_address: map_postal_address(ident.postal_address),
         email: ident.email,
@@ -488,4 +515,12 @@ fn map_postal_address(pa: PostalAddress) -> bcr_wdc_webapi::identity::PostalAddr
         zip: pa.zip,
         address: pa.address,
     }
+}
+
+fn map_bill_id(bill_id: BillId) -> bcr_wdc_webapi::bill::BillId {
+    bcr_wdc_webapi::bill::BillId::from_str(&bill_id.to_string()).expect("is a bill id")
+}
+
+fn map_node_id(node_id: NodeId) -> bcr_wdc_webapi::bill::NodeId {
+    bcr_wdc_webapi::bill::NodeId::from_str(&node_id.to_string()).expect("is a node id")
 }

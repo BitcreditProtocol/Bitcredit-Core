@@ -1,3 +1,8 @@
+# 0.4.1
+
+* Add file and pub key to bill to share with external party and add accessors to extract data
+* Upgrade wildcat and wallet-core dependencies
+
 # 0.4.0
 
 * Switch to new chain transport leveraging public Nostr threads
