@@ -11,6 +11,7 @@ use crate::Result;
 
 use super::{Event, blockchain_event::CompanyBlockEvent};
 
+#[derive(Clone, Debug)]
 pub struct CompanyChainEvent {
     pub company: Company,
     chain: CompanyBlockchain,

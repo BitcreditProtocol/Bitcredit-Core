@@ -9,9 +9,11 @@ use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType}
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
 };
+use bcr_ebill_transport::event::company_events::CompanyChainEvent;
+use bcr_ebill_transport::event::identity_events::IdentityChainEvent;
 use bcr_ebill_transport::transport::NostrContactData;
 use bcr_ebill_transport::{BillChainEvent, BillChainEventPayload, Error, Event, EventEnvelope};
-use log::{error, warn};
+use log::{error, info, warn};
 
 use super::NotificationJsonTransportApi;
 use super::{NotificationServiceApi, Result};
@@ -107,7 +109,7 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn send_all_events(
+    async fn send_all_bill_events(
         &self,
         sender: &NodeId,
         events: HashMap<NodeId, Event<BillChainEventPayload>>,
@@ -242,6 +244,18 @@ impl DefaultNotificationService {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationServiceApi for DefaultNotificationService {
+    /// Sent when an identity chain is created or updated
+    async fn send_identity_chain_events(&self, events: &IdentityChainEvent) -> Result<()> {
+        info!("sending identity chain events with {events:#?}");
+        Ok(())
+    }
+
+    /// Sent when a company chain is created or updated
+    async fn send_company_chain_events(&self, events: &CompanyChainEvent) -> Result<()> {
+        info!("sending company chain events with {events:#?}");
+        Ok(())
+    }
+
     async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()> {
         let event_type = BillEventType::BillSigned;
 
@@ -261,7 +275,8 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
 
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -275,7 +290,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -292,7 +308,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -306,7 +323,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -320,7 +338,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -334,7 +353,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(bill).await?;
-        self.send_all_events(&bill.sender(), all_events).await?;
+        self.send_all_bill_events(&bill.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -352,7 +372,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -370,7 +391,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -388,7 +410,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -422,7 +445,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 Some(rejected_action),
             );
 
-            self.send_all_events(&event.sender(), all_events).await?;
+            self.send_all_bill_events(&event.sender(), all_events)
+                .await?;
         }
         Ok(())
     }
@@ -473,7 +497,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 None,
             );
             self.send_bill_chain_events(event).await?;
-            self.send_all_events(&event.sender(), all_events).await?;
+            self.send_all_bill_events(&event.sender(), all_events)
+                .await?;
         }
         Ok(())
     }

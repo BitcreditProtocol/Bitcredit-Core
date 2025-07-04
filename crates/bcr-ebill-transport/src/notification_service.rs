@@ -1,4 +1,11 @@
-use crate::{Result, event::bill_events::BillChainEvent, transport::NostrContactData};
+use crate::{
+    Result,
+    event::{
+        bill_events::BillChainEvent, company_events::CompanyChainEvent,
+        identity_events::IdentityChainEvent,
+    },
+    transport::NostrContactData,
+};
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::{
@@ -21,6 +28,10 @@ impl ServiceTraitBounds for MockNotificationServiceApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationServiceApi: ServiceTraitBounds {
+    /// Sent when an identity chain is created or updated
+    async fn send_identity_chain_events(&self, events: &IdentityChainEvent) -> Result<()>;
+    /// Sent when a company chain is created or updated
+    async fn send_company_chain_events(&self, events: &CompanyChainEvent) -> Result<()>;
     /// Sent when: A bill is signed by: Drawer
     /// Receiver: Payer, Action: AcceptBill
     /// Receiver: Payee, Action: CheckBill

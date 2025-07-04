@@ -12,6 +12,7 @@ use crate::Result;
 
 use super::{Event, blockchain_event::IdentityBlockEvent};
 
+#[derive(Clone, Debug)]
 pub struct IdentityChainEvent {
     pub identity: Identity,
     chain: IdentityBlockchain,
