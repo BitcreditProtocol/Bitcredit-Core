@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError};
+use bcr_ebill_transport::NotificationServiceApi;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -102,6 +103,7 @@ pub struct IdentityService {
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     file_upload_client: Arc<dyn FileStorageClientApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
+    notification_service: Arc<dyn NotificationServiceApi>,
 }
 
 impl IdentityService {
@@ -110,12 +112,14 @@ impl IdentityService {
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
+        notification_service: Arc<dyn NotificationServiceApi>,
     ) -> Self {
         Self {
             store,
             file_upload_store,
             file_upload_client,
             blockchain_store,
+            notification_service,
         }
     }
 
@@ -627,7 +631,7 @@ mod tests {
         external::file_storage::MockFileStorageClientApi,
         tests::tests::{
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            empty_identity, empty_optional_address, init_test_cfg,
+            MockNotificationService, empty_identity, empty_optional_address, init_test_cfg,
         },
     };
     use mockall::predicate::eq;
@@ -638,6 +642,7 @@ mod tests {
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
+            Arc::new(MockNotificationService::new()),
         )
     }
 
@@ -650,6 +655,7 @@ mod tests {
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(mock_chain_storage),
+            Arc::new(MockNotificationService::new()),
         )
     }
 
