@@ -373,8 +373,8 @@ pub mod tests {
 
         #[async_trait]
         impl NotificationServiceApi for NotificationService {
-            async fn send_identity_chain_events(&self, events: &IdentityChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_company_chain_events(&self, events: &CompanyChainEvent) -> bcr_ebill_transport::Result<()>;
+            async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> bcr_ebill_transport::Result<()>;
+            async fn send_company_chain_events(&self, events: CompanyChainEvent) -> bcr_ebill_transport::Result<()>;
             async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
             async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
             async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;

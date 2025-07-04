@@ -29,9 +29,9 @@ impl ServiceTraitBounds for MockNotificationServiceApi {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationServiceApi: ServiceTraitBounds {
     /// Sent when an identity chain is created or updated
-    async fn send_identity_chain_events(&self, events: &IdentityChainEvent) -> Result<()>;
+    async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
     /// Sent when a company chain is created or updated
-    async fn send_company_chain_events(&self, events: &CompanyChainEvent) -> Result<()>;
+    async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
     /// Sent when: A bill is signed by: Drawer
     /// Receiver: Payer, Action: AcceptBill
     /// Receiver: Payee, Action: CheckBill

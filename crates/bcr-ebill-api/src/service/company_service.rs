@@ -29,6 +29,8 @@ use async_trait::async_trait;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError};
 use bcr_ebill_transport::NotificationServiceApi;
+use bcr_ebill_transport::event::company_events::CompanyChainEvent;
+use bcr_ebill_transport::event::identity_events::IdentityChainEvent;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -182,6 +184,18 @@ impl CompanyService {
             nostr_hash: nostr_hash.to_string(),
         })
     }
+
+    async fn populate_block(
+        &self,
+        company: &Company,
+        chain: &CompanyBlockchain,
+        keys: &CompanyKeys,
+    ) -> Result<()> {
+        self.notification_service
+            .send_company_chain_events(CompanyChainEvent::new(company, chain, keys, true))
+            .await?;
+        Ok(())
+    }
 }
 
 impl ServiceTraitBounds for CompanyService {}
@@ -333,7 +347,20 @@ impl CompanyServiceApi for CompanyService {
         self.company_blockchain_store
             .add_block(&id, create_company_block)
             .await?;
+
+        let company_chain = self.company_blockchain_store.get_chain(&id).await?;
+        self.populate_block(&company, &company_chain, &company_keys)
+            .await?;
+
         self.identity_blockchain_store.add_block(&new_block).await?;
+        self.notification_service
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &full_identity.identity,
+                &new_block,
+                &full_identity.key_pair,
+            ))
+            .await?;
+
         debug!("company with id {id} created");
 
         // TODO NOSTR: create company topic and subscribe to it
@@ -512,6 +539,10 @@ impl CompanyServiceApi for CompanyService {
         self.company_blockchain_store
             .add_block(id, &new_block)
             .await?;
+        let company_chain = self.company_blockchain_store.get_chain(id).await?;
+        self.populate_block(&company, &company_chain, &company_keys)
+            .await?;
+
         debug!("company with id {id} updated");
 
         if let Some(upload_id) = logo_file_upload_id {
@@ -598,9 +629,21 @@ impl CompanyServiceApi for CompanyService {
         self.company_blockchain_store
             .add_block(id, &new_block)
             .await?;
+        let company_chain = self.company_blockchain_store.get_chain(id).await?;
+        self.populate_block(&company, &company_chain, &company_keys)
+            .await?;
+
         self.identity_blockchain_store
             .add_block(&new_identity_block)
             .await?;
+        self.notification_service
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &full_identity.identity,
+                &new_identity_block,
+                &full_identity.key_pair,
+            ))
+            .await?;
+
         debug!(
             "added signatory {} to company with id: {id}",
             &signatory_node_id
@@ -684,8 +727,19 @@ impl CompanyServiceApi for CompanyService {
         self.company_blockchain_store
             .add_block(id, &new_block)
             .await?;
+        let company_chain = self.company_blockchain_store.get_chain(id).await?;
+        self.populate_block(&company, &company_chain, &company_keys)
+            .await?;
+
         self.identity_blockchain_store
             .add_block(&new_identity_block)
+            .await?;
+        self.notification_service
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &full_identity.identity,
+                &new_identity_block,
+                &full_identity.key_pair,
+            ))
             .await?;
 
         // TODO NOSTR: propagate block to company topic
@@ -838,8 +892,11 @@ pub mod tests {
     }
 
     pub fn get_valid_company_block() -> CompanyBlock {
-        let (_id, (company, company_keys)) = get_baseline_company_data();
+        get_valid_company_chain().get_latest_block().to_owned()
+    }
 
+    fn get_valid_company_chain() -> CompanyBlockchain {
+        let (_id, (company, company_keys)) = get_baseline_company_data();
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(company),
             &BcrKeys::new(),
@@ -847,8 +904,6 @@ pub mod tests {
             1731593928,
         )
         .unwrap()
-        .get_latest_block()
-        .to_owned()
     }
 
     #[tokio::test]
@@ -1021,7 +1076,7 @@ pub mod tests {
             contact_store,
             mut identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut notification,
         ) = get_storages();
         company_chain_store
             .expect_add_block()
@@ -1062,6 +1117,20 @@ pub mod tests {
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
+        // sends identity block
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        // sends company block
+        notification
+            .expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
 
         let service = get_service(
             storage,
@@ -1169,7 +1238,7 @@ pub mod tests {
             contact_store,
             identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut notification,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -1177,6 +1246,16 @@ pub mod tests {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        // sends company block
+        notification
+            .expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+
         let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
@@ -1405,7 +1484,7 @@ pub mod tests {
             mut contact_store,
             mut identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut notification,
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
@@ -1419,6 +1498,15 @@ pub mod tests {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        // sends company block
+        notification
+            .expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
         let signatory_node_id_clone = signatory_node_id.clone();
         contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
@@ -1453,6 +1541,11 @@ pub mod tests {
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
+        // sends identity block
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
         let service = get_service(
             storage,
             file_upload_store,
@@ -1703,7 +1796,7 @@ pub mod tests {
             contact_store,
             mut identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut notification,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -1743,6 +1836,20 @@ pub mod tests {
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
+        // sends identity block
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        // sends company block
+        notification
+            .expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
         let service = get_service(
             storage,
             file_upload_store,
@@ -1806,7 +1913,7 @@ pub mod tests {
             contact_store,
             mut identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut notification,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -1814,6 +1921,15 @@ pub mod tests {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        // sends company block
+        notification
+            .expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
         company_chain_store.expect_remove().returning(|_| Ok(()));
         storage.expect_exists().returning(|_| true);
         let keys_clone = keys.clone();
@@ -1858,6 +1974,11 @@ pub mod tests {
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
+        // sends identity block
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
         let service = get_service(
             storage,
             file_upload_store,

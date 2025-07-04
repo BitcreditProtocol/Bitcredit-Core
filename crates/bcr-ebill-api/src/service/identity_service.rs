@@ -17,6 +17,7 @@ use bcr_ebill_core::identity::validation::{validate_create_identity, validate_up
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError};
 use bcr_ebill_transport::NotificationServiceApi;
+use bcr_ebill_transport::event::identity_events::IdentityChainEvent;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -162,6 +163,18 @@ impl IdentityService {
             hash: file_hash,
             nostr_hash: nostr_hash.to_string(),
         })
+    }
+
+    async fn populate_block(
+        &self,
+        identity: &Identity,
+        block: &IdentityBlock,
+        keys: &BcrKeys,
+    ) -> Result<()> {
+        self.notification_service
+            .send_identity_chain_events(IdentityChainEvent::new(identity, block, keys))
+            .await?;
+        Ok(())
     }
 }
 
@@ -319,8 +332,8 @@ impl IdentityServiceApi for IdentityService {
             timestamp,
         )?;
         self.blockchain_store.add_block(&new_block).await?;
-
         self.store.save(&identity).await?;
+        self.populate_block(&identity, &new_block, &keys).await?;
         debug!("updated identity");
         Ok(())
     }
@@ -425,6 +438,8 @@ impl IdentityServiceApi for IdentityService {
 
         // persist the identity in the DB
         self.store.save(&identity).await?;
+        self.populate_block(&identity, first_block, &keys).await?;
+
         debug!("created identity");
         Ok(())
     }
@@ -528,8 +543,8 @@ impl IdentityServiceApi for IdentityService {
             timestamp,
         )?;
         self.blockchain_store.add_block(&new_block).await?;
-
         self.store.save(&identity).await?;
+        self.populate_block(&identity, &new_block, &keys).await?;
         debug!("deanonymized identity");
         Ok(())
     }
@@ -649,13 +664,14 @@ mod tests {
     fn get_service_with_chain_storage(
         mock_storage: MockIdentityStoreApiMock,
         mock_chain_storage: MockIdentityChainStoreApiMock,
+        notification: MockNotificationService,
     ) -> IdentityService {
         IdentityService::new(
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(mock_chain_storage),
-            Arc::new(MockNotificationService::new()),
+            Arc::new(notification),
         )
     }
 
@@ -672,8 +688,13 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
+        let mut notification = MockNotificationService::new();
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .create_identity(
                 IdentityType::Ident,
@@ -697,6 +718,7 @@ mod tests {
     async fn create_anon_identity_baseline() {
         init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
+
         storage
             .expect_get_or_create_key_pair()
             .returning(|| Ok(BcrKeys::new()));
@@ -706,8 +728,13 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
+        let mut notification = MockNotificationService::new();
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .create_identity(
                 IdentityType::Anon,
@@ -755,8 +782,13 @@ mod tests {
                     .clone(),
             )
         });
+        let mut notification = MockNotificationService::new();
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .deanonymize_identity(
                 IdentityType::Ident,
@@ -795,8 +827,10 @@ mod tests {
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
+        let mut notification = MockNotificationService::new();
+        notification.expect_send_identity_chain_events().never();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .deanonymize_identity(
                 IdentityType::Anon,
@@ -838,8 +872,10 @@ mod tests {
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
+        let mut notification = MockNotificationService::new();
+        notification.expect_send_identity_chain_events().never();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .deanonymize_identity(
                 IdentityType::Ident,
@@ -886,8 +922,13 @@ mod tests {
             )
         });
         chain_storage.expect_add_block().returning(|_| Ok(()));
+        let mut notification = MockNotificationService::new();
+        notification
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .update_identity(
                 Some("new_name".to_string()),
@@ -963,9 +1004,14 @@ mod tests {
                     .clone(),
             )
         });
-        chain_storage.expect_add_block().returning(|_| Ok(()));
+        chain_storage
+            .expect_add_block()
+            .returning(|_| Ok(()))
+            .once();
+        let mut notification = MockNotificationService::new();
+        notification.expect_send_identity_chain_events().never();
 
-        let service = get_service_with_chain_storage(storage, chain_storage);
+        let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .update_identity(
                 Some("new_name".to_string()),

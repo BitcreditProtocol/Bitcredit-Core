@@ -245,13 +245,13 @@ impl DefaultNotificationService {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationServiceApi for DefaultNotificationService {
     /// Sent when an identity chain is created or updated
-    async fn send_identity_chain_events(&self, events: &IdentityChainEvent) -> Result<()> {
+    async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()> {
         info!("sending identity chain events with {events:#?}");
         Ok(())
     }
 
     /// Sent when a company chain is created or updated
-    async fn send_company_chain_events(&self, events: &CompanyChainEvent) -> Result<()> {
+    async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()> {
         info!("sending company chain events with {events:#?}");
         Ok(())
     }

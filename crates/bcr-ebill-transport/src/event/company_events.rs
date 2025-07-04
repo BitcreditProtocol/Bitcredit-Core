@@ -7,8 +7,6 @@ use bcr_ebill_core::{
     company::{Company, CompanyKeys},
 };
 
-use crate::Result;
-
 use super::{Event, blockchain_event::CompanyBlockEvent};
 
 #[derive(Clone, Debug)]
@@ -28,14 +26,14 @@ impl CompanyChainEvent {
         chain: &CompanyBlockchain,
         keys: &CompanyKeys,
         new_blocks: bool,
-    ) -> Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             company: company.clone(),
             chain: chain.clone(),
             keys: keys.clone(),
             new_blocks,
             sender_node_id: company.id.to_owned(),
-        })
+        }
     }
 
     pub fn sender(&self) -> NodeId {
