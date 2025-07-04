@@ -148,33 +148,42 @@ impl DefaultNotificationService {
         Ok(())
     }
 
+    async fn find_root_and_previous_event(
+        &self,
+        previous_hash: &str,
+        chain_id: &str,
+        chain_type: BlockchainType,
+    ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
+        // find potential previous block event
+        let previous_event = self
+            .chain_event_store
+            .find_by_block_hash(previous_hash)
+            .await
+            .map_err(|_| Error::Persistence("failed to read from chain events".to_owned()))?;
+
+        // if there is a previous and it is not the root event, also get the root event
+        let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
+            self.chain_event_store
+                .find_root_event(chain_id, chain_type)
+                .await
+                .map_err(|_| Error::Persistence("failed to read from chain events".to_owned()))?
+        } else {
+            previous_event.clone()
+        };
+        Ok((previous_event, root_event))
+    }
+
     // sends all required bill chain events like public bill data and bill invites
     async fn send_bill_chain_events(&self, events: &BillChainEvent) -> Result<()> {
         if let Some(node) = self.notification_transport.get(&events.sender()) {
             if let Some(block_event) = events.generate_blockchain_message() {
-                // find potential previous block event
-                let previous_event = self
-                    .chain_event_store
-                    .find_by_block_hash(&block_event.data.block.previous_hash)
-                    .await
-                    .map_err(|_| {
-                        Error::Persistence("failed to read from chain events".to_owned())
-                    })?;
-
-                // if there is a previous and it is not the root event, also get the root event
-                let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
-                    self.chain_event_store
-                        .find_root_event(
-                            &block_event.data.bill_id.to_string(),
-                            BlockchainType::Bill,
-                        )
-                        .await
-                        .map_err(|_| {
-                            Error::Persistence("failed to read from chain events".to_owned())
-                        })?
-                } else {
-                    previous_event.clone()
-                };
+                let (previous_event, root_event) = self
+                    .find_root_and_previous_event(
+                        &block_event.data.block.previous_hash,
+                        &block_event.data.bill_id.to_string(),
+                        BlockchainType::Bill,
+                    )
+                    .await?;
 
                 // now send the event
                 let event = node
@@ -189,27 +198,16 @@ impl DefaultNotificationService {
                     )
                     .await?;
 
-                self.chain_event_store
-                    .add_chain_event(NostrChainEvent {
-                        event_id: event.id.to_string(),
-                        root_id: root_event
-                            .map(|e| e.event_id.to_string())
-                            .unwrap_or(event.id.to_string()),
-                        reply_id: previous_event.map(|e| e.event_id.to_string()),
-                        author: event.pubkey.to_string(),
-                        chain_id: block_event.data.bill_id.to_string(),
-                        chain_type: BlockchainType::Bill,
-                        block_height: events.block_height(),
-                        block_hash: block_event.data.block.hash.to_owned(),
-                        received: block_event.data.block.timestamp,
-                        time: event.created_at.as_u64(),
-                        payload: event,
-                        valid: true,
-                    })
-                    .await
-                    .map_err(|_| {
-                        Error::Persistence("failed to write to chain events".to_owned())
-                    })?;
+                self.add_chain_event(
+                    &event,
+                    &root_event,
+                    &previous_event,
+                    &block_event.data.bill_id.to_string(),
+                    BlockchainType::Bill,
+                    block_event.data.block.id as usize,
+                    &block_event.data.block.hash,
+                )
+                .await?;
             }
 
             let invites = events.generate_bill_invite_events();
@@ -222,6 +220,39 @@ impl DefaultNotificationService {
                 }
             }
         }
+        Ok(())
+    }
+
+    async fn add_chain_event(
+        &self,
+        event: &nostr::event::Event,
+        root: &Option<NostrChainEvent>,
+        previous: &Option<NostrChainEvent>,
+        chain_id: &str,
+        chain_type: BlockchainType,
+        block_height: usize,
+        block_hash: &str,
+    ) -> Result<()> {
+        self.chain_event_store
+            .add_chain_event(NostrChainEvent {
+                event_id: event.id.to_string(),
+                root_id: root
+                    .clone()
+                    .map(|e| e.event_id.to_string())
+                    .unwrap_or(event.id.to_string()),
+                reply_id: previous.clone().map(|e| e.event_id.to_string()),
+                author: event.pubkey.to_string(),
+                chain_id: chain_id.to_string(),
+                chain_type,
+                block_height,
+                block_hash: block_hash.to_owned(),
+                received: event.created_at.as_u64(),
+                time: event.created_at.as_u64(),
+                payload: event.clone(),
+                valid: true,
+            })
+            .await
+            .map_err(|_| Error::Persistence("failed to write to chain events".to_owned()))?;
         Ok(())
     }
 
@@ -247,12 +278,90 @@ impl NotificationServiceApi for DefaultNotificationService {
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()> {
         info!("sending identity chain events with {events:#?}");
+        if let Some(node) = self.notification_transport.get(&events.sender()) {
+            if let Some(event) = events.generate_blockchain_message() {
+                let (previous_event, root_event) = self
+                    .find_root_and_previous_event(
+                        &event.data.block.previous_hash,
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Identity,
+                    )
+                    .await?;
+                // now send the event
+                let nostr_event = node
+                    .send_public_chain_event(
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Identity,
+                        event.data.block.timestamp,
+                        events.keys.clone(),
+                        event.clone().try_into()?,
+                        previous_event.clone().map(|e| e.payload),
+                        root_event.clone().map(|e| e.payload),
+                    )
+                    .await?;
+                self.add_chain_event(
+                    &nostr_event,
+                    &root_event,
+                    &previous_event,
+                    &event.data.node_id.to_string(),
+                    BlockchainType::Bill,
+                    event.data.block.id as usize,
+                    &event.data.block.hash,
+                )
+                .await?;
+            }
+        } else {
+            error!(
+                "could not find transport instance for sender node {}",
+                events.sender()
+            );
+        }
+
         Ok(())
     }
 
     /// Sent when a company chain is created or updated
     async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()> {
         info!("sending company chain events with {events:#?}");
+        if let Some(node) = self.notification_transport.get(&events.sender()) {
+            if let Some(event) = events.generate_blockchain_message() {
+                let (previous_event, root_event) = self
+                    .find_root_and_previous_event(
+                        &event.data.block.previous_hash,
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Identity,
+                    )
+                    .await?;
+                // now send the event
+                let nostr_event = node
+                    .send_public_chain_event(
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Identity,
+                        event.data.block.timestamp,
+                        events.keys.clone().try_into()?,
+                        event.clone().try_into()?,
+                        previous_event.clone().map(|e| e.payload),
+                        root_event.clone().map(|e| e.payload),
+                    )
+                    .await?;
+                self.add_chain_event(
+                    &nostr_event,
+                    &root_event,
+                    &previous_event,
+                    &event.data.node_id.to_string(),
+                    BlockchainType::Bill,
+                    event.data.block.id as usize,
+                    &event.data.block.hash,
+                )
+                .await?;
+            }
+        } else {
+            error!(
+                "could not find transport instance for sender node {}",
+                events.sender()
+            );
+        }
+
         Ok(())
     }
 
