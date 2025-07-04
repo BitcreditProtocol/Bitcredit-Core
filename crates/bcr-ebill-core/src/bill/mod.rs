@@ -15,7 +15,6 @@ use crate::{
     network_char,
     util::{self, BcrKeys},
 };
-use borsh::{BorshDeserialize, BorshSerialize};
 use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 
@@ -609,28 +608,4 @@ pub struct PastPaymentDataRecourse {
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
-pub struct BillToShareWithExternalParty {
-    /// The bill id
-    pub bill_id: BillId,
-    /// The base58 encoded, encrypted BillBlockPlaintextWrapper of the bill
-    pub data: String,
-    #[borsh(
-        serialize_with = "crate::util::borsh::serialize_vec_url",
-        deserialize_with = "crate::util::borsh::deserialize_vec_url"
-    )]
-    /// The file urls of bill files, encrypted with the receiver's key, uploaded to Nostr
-    pub file_urls: Vec<url::Url>,
-    /// The hash over the unencrypted data
-    pub hash: String,
-    /// The signature over the hash by the sharer of the bill
-    pub signature: String,
-    #[borsh(
-        serialize_with = "crate::util::borsh::serialize_pubkey",
-        deserialize_with = "crate::util::borsh::deserialize_pubkey"
-    )]
-    /// The receiver's pub key
-    pub receiver: PublicKey,
 }

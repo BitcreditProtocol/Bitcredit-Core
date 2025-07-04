@@ -409,7 +409,11 @@ impl BillService {
                         if let Some(proofs) = offer.proofs {
                             match self
                                 .mint_client
-                                .check_if_proofs_are_spent(&mint_cfg.default_mint_url, &proofs)
+                                .check_if_proofs_are_spent(
+                                    &mint_cfg.default_mint_url,
+                                    &proofs,
+                                    &offer.keyset_id,
+                                )
                                 .await
                             {
                                 Ok(spent) => {

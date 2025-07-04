@@ -29,7 +29,6 @@ mod issue;
 mod payment;
 mod propagation;
 mod service;
-mod sharing;
 #[cfg(test)]
 pub mod test_utils;
 
@@ -6364,6 +6363,7 @@ pub mod tests {
                 id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
                 unit: cashu::CurrencyUnit::Sat,
                 keys: cashu::Keys::new(std::collections::BTreeMap::default()),
+                final_expiry: None,
             })
         });
         ctx.mint_client
@@ -6421,11 +6421,12 @@ pub mod tests {
                 id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
                 unit: cashu::CurrencyUnit::Sat,
                 keys: cashu::Keys::new(std::collections::BTreeMap::default()),
+                final_expiry: None,
             })
         });
         ctx.mint_client
             .expect_check_if_proofs_are_spent()
-            .returning(|_, _| Ok(true));
+            .returning(|_, _, _| Ok(true));
         ctx.mint_store
             .expect_set_proofs_to_spent_for_offer()
             .returning(|_| Ok(()));
