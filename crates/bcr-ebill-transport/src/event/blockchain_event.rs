@@ -1,7 +1,7 @@
 use bcr_ebill_core::{
-    PublicKey, SecretKey,
+    NodeId, PublicKey, SecretKey,
     bill::{BillId, BillKeys},
-    blockchain::{BlockchainType, bill::BillBlock},
+    blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
     util::BcrKeys,
 };
@@ -56,10 +56,26 @@ pub struct ChainKeys {
     pub public_key: PublicKey,
 }
 
-/// The encrypted BCR payload contained in a public block Nostr event.
+/// The encrypted BCR bill payload contained in a public block Nostr event.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockEvent {
     pub bill_id: BillId,
     pub block_height: usize,
     pub block: BillBlock,
+}
+
+/// The encrypted BCR identity payload contained in a public block Nostr event.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IdentityBlockEvent {
+    pub node_id: NodeId,
+    pub block_height: usize,
+    pub block: IdentityBlock,
+}
+///
+/// The encrypted BCR company payload contained in a public block Nostr event.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CompanyBlockEvent {
+    pub node_id: NodeId,
+    pub block_height: usize,
+    pub block: CompanyBlock,
 }

@@ -16,7 +16,7 @@ use nostr::{
 
 use crate::{
     Error, Event, EventEnvelope, EventType, NotificationJsonTransportApi, Result,
-    event::bill_blockchain_event::{BillBlockEvent, ChainInvite, ChainKeys},
+    event::blockchain_event::{BillBlockEvent, ChainInvite, ChainKeys},
     transport::{decrypt_public_chain_event, unwrap_public_chain_event},
 };
 

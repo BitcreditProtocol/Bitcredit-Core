@@ -1,5 +1,7 @@
-pub mod bill_blockchain_event;
 pub mod bill_events;
+pub mod blockchain_event;
+pub mod company_events;
+pub mod identity_events;
 
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -14,6 +16,10 @@ pub enum EventType {
     BillChain,
     /// Private Bill invites with keys
     BillChainInvite,
+    /// Public identity events
+    IdentityChain,
+    /// Public company chain events
+    CompanyChain,
 }
 
 impl EventType {
@@ -22,6 +28,8 @@ impl EventType {
             EventType::Bill,
             EventType::BillChain,
             EventType::BillChainInvite,
+            EventType::IdentityChain,
+            EventType::CompanyChain,
         ]
     }
 }
@@ -52,6 +60,14 @@ impl<T: Serialize> Event<T> {
 
     pub fn new_chain(data: T) -> Self {
         Self::new(EventType::BillChain, data)
+    }
+
+    pub fn new_identity_chain(data: T) -> Self {
+        Self::new(EventType::IdentityChain, data)
+    }
+
+    pub fn new_company_chain(data: T) -> Self {
+        Self::new(EventType::CompanyChain, data)
     }
 
     pub fn new_invite(data: T) -> Self {

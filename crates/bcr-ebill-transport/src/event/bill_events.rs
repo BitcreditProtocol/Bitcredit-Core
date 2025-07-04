@@ -15,7 +15,7 @@ use crate::{Error, Result};
 
 use super::{
     Event, EventType,
-    bill_blockchain_event::{BillBlockEvent, ChainInvite},
+    blockchain_event::{BillBlockEvent, ChainInvite},
 };
 
 pub struct BillChainEvent {

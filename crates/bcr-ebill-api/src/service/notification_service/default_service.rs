@@ -642,7 +642,7 @@ mod tests {
         HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel,
     };
     use bcr_ebill_core::util::{BcrKeys, date::now};
-    use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
+    use bcr_ebill_transport::event::blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
     use std::sync::Arc;
