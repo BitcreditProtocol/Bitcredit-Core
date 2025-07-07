@@ -287,7 +287,7 @@ impl NotificationServiceApi for DefaultNotificationService {
                         BlockchainType::Identity,
                     )
                     .await?;
-                // now send the event
+                // send the event
                 let nostr_event = node
                     .send_public_chain_event(
                         &event.data.node_id.to_string(),
@@ -299,12 +299,13 @@ impl NotificationServiceApi for DefaultNotificationService {
                         root_event.clone().map(|e| e.payload),
                     )
                     .await?;
+                // and store the event locally
                 self.add_chain_event(
                     &nostr_event,
                     &root_event,
                     &previous_event,
                     &event.data.node_id.to_string(),
-                    BlockchainType::Bill,
+                    BlockchainType::Identity,
                     event.data.block.id as usize,
                     &event.data.block.hash,
                 )
@@ -329,14 +330,14 @@ impl NotificationServiceApi for DefaultNotificationService {
                     .find_root_and_previous_event(
                         &event.data.block.previous_hash,
                         &event.data.node_id.to_string(),
-                        BlockchainType::Identity,
+                        BlockchainType::Company,
                     )
                     .await?;
-                // now send the event
+                // send the event
                 let nostr_event = node
                     .send_public_chain_event(
                         &event.data.node_id.to_string(),
-                        BlockchainType::Identity,
+                        BlockchainType::Company,
                         event.data.block.timestamp,
                         events.keys.clone().try_into()?,
                         event.clone().try_into()?,
@@ -344,12 +345,13 @@ impl NotificationServiceApi for DefaultNotificationService {
                         root_event.clone().map(|e| e.payload),
                     )
                     .await?;
+                // and store the event locally
                 self.add_chain_event(
                     &nostr_event,
                     &root_event,
                     &previous_event,
                     &event.data.node_id.to_string(),
-                    BlockchainType::Bill,
+                    BlockchainType::Company,
                     event.data.block.id as usize,
                     &event.data.block.hash,
                 )
