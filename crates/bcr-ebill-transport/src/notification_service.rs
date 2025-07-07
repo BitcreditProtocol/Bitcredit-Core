@@ -7,13 +7,13 @@ use crate::{
     transport::NostrContactData,
 };
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::{
     NodeId,
     bill::{BillId, BitcreditBill},
     contact::{BillIdentParticipant, BillParticipant},
     notification::{ActionType, Notification},
 };
+use bcr_ebill_core::{ServiceTraitBounds, company::Company, util::BcrKeys};
 use bcr_ebill_persistence::notification::NotificationFilter;
 #[cfg(test)]
 use mockall::automock;
@@ -28,6 +28,8 @@ impl ServiceTraitBounds for MockNotificationServiceApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationServiceApi: ServiceTraitBounds {
+    /// Adds a new transport client for a company if it does not already exist
+    async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
     /// Sent when a company chain is created or updated

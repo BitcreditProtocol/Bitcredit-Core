@@ -6,7 +6,7 @@ use super::{Event, blockchain_event::IdentityBlockEvent};
 
 #[derive(Clone, Debug)]
 pub struct IdentityChainEvent {
-    identity: Identity,
+    pub identity: Identity,
     block: IdentityBlock,
     pub keys: BcrKeys,
     sender_node_id: NodeId,

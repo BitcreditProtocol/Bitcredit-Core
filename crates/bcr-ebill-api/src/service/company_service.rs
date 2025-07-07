@@ -348,6 +348,11 @@ impl CompanyServiceApi for CompanyService {
             .add_block(&id, create_company_block)
             .await?;
 
+        let bcr_keys: BcrKeys = company_keys.clone().try_into()?;
+        self.notification_service
+            .add_company_transport(&company, &bcr_keys)
+            .await?;
+
         let company_chain = self.company_blockchain_store.get_chain(&id).await?;
         self.populate_block(&company, &company_chain, &company_keys)
             .await?;
@@ -1125,6 +1130,11 @@ pub mod tests {
         company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        // adds company client
+        notification
+            .expect_add_company_transport()
+            .returning(|_, _| Ok(()))
             .once();
         // sends company block
         notification
