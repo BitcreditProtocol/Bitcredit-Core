@@ -4,7 +4,7 @@ use super::block::{
     BillAcceptBlockData, BillBlock, BillEndorseBlockData, BillIdentParticipantBlockData,
     BillIssueBlockData, BillMintBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
     BillRecourseBlockData, BillRejectBlockData, BillRequestRecourseBlockData,
-    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData, HolderFromBlock,
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
@@ -44,8 +44,55 @@ impl BillBlockPlaintextWrapper {
             Err(Error::BlockInvalid)
         }
     }
+
+    pub fn get_holder(&self) -> Result<Option<HolderFromBlock>> {
+        match self.block.op_code() {
+            BillOpCode::Issue => {
+                let bill: BillIssueBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                Ok(Some(HolderFromBlock {
+                    holder: bill.payee,
+                    signer: BillParticipantBlockData::Ident(bill.drawer),
+                    signatory: bill.signatory,
+                }))
+            }
+            BillOpCode::Endorse => {
+                let block: BillEndorseBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                Ok(Some(HolderFromBlock {
+                    holder: block.endorsee,
+                    signer: block.endorser,
+                    signatory: block.signatory,
+                }))
+            }
+            BillOpCode::Mint => {
+                let block: BillMintBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                Ok(Some(HolderFromBlock {
+                    holder: block.endorsee,
+                    signer: block.endorser,
+                    signatory: block.signatory,
+                }))
+            }
+            BillOpCode::Sell => {
+                let block: BillSellBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                Ok(Some(HolderFromBlock {
+                    holder: block.buyer,
+                    signer: block.seller,
+                    signatory: block.signatory,
+                }))
+            }
+            BillOpCode::Recourse => {
+                let block: BillRecourseBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                Ok(Some(HolderFromBlock {
+                    holder: BillParticipantBlockData::Ident(block.recoursee),
+                    signer: BillParticipantBlockData::Ident(block.recourser),
+                    signatory: block.signatory,
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
+/// Gets bill parties from blocks with their plaintext data
 pub fn get_bill_parties_from_chain_with_plaintext(
     chain_with_plaintext: &[BillBlockPlaintextWrapper],
 ) -> Result<BillParties> {
@@ -149,6 +196,26 @@ pub fn get_bill_parties_from_chain_with_plaintext(
         payee: bill_first_version.payee.to_owned(),
         endorsee: last_endorsee,
     })
+}
+
+/// Gets endorsees from blocks with their plaintext data
+pub fn get_endorsees_from_chain_with_plaintext(
+    chain_with_plaintext: &[BillBlockPlaintextWrapper],
+) -> Vec<BillParticipant> {
+    let mut result: Vec<BillParticipant> = vec![];
+    // iterate from the front to the back, collecting all endorsement blocks
+    for block_wrapper in chain_with_plaintext.iter() {
+        // we ignore issue blocks, since we are only interested in endorsements
+        if block_wrapper.block.op_code == BillOpCode::Issue {
+            continue;
+        }
+        if let Ok(Some(holder_from_block)) = block_wrapper.get_holder() {
+            let holder = holder_from_block.holder;
+            result.push(holder.into());
+        }
+    }
+
+    result
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
@@ -1349,5 +1416,15 @@ mod tests {
             )
             .unwrap()
         );
+
+        assert_eq!(
+            chain.get_endorsees_for_bill(&bill_keys),
+            get_endorsees_from_chain_with_plaintext(
+                chain
+                    .get_chain_with_plaintext_block_data(&bill_keys)
+                    .as_ref()
+                    .unwrap()
+            )
+        )
     }
 }

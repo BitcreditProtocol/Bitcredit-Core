@@ -1,3 +1,7 @@
+# 0.4.2
+
+* Add logic to get endorsees from plaintext chain
+
 # 0.4.1
 
 * Add file and pub key to bill to share with external party and add accessors to extract data
