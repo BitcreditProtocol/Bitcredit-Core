@@ -20,6 +20,8 @@ pub enum EventType {
     IdentityChain,
     /// Public company chain events
     CompanyChain,
+    /// Private company invites with keys
+    CompanyChainInvite,
 }
 
 impl EventType {
@@ -58,7 +60,7 @@ impl<T: Serialize> Event<T> {
         Self::new(EventType::Bill, data)
     }
 
-    pub fn new_chain(data: T) -> Self {
+    pub fn new_bill_chain(data: T) -> Self {
         Self::new(EventType::BillChain, data)
     }
 
@@ -70,8 +72,11 @@ impl<T: Serialize> Event<T> {
         Self::new(EventType::CompanyChain, data)
     }
 
-    pub fn new_invite(data: T) -> Self {
+    pub fn new_bill_invite(data: T) -> Self {
         Self::new(EventType::BillChainInvite, data)
+    }
+    pub fn new_company_invite(data: T) -> Self {
+        Self::new(EventType::CompanyChainInvite, data)
     }
 }
 

@@ -7,13 +7,17 @@ use bcr_ebill_core::{
     company::{Company, CompanyKeys},
 };
 
-use super::{Event, blockchain_event::CompanyBlockEvent};
+use super::{
+    Event,
+    blockchain_event::{ChainInvite, CompanyBlockEvent},
+};
 
 #[derive(Clone, Debug)]
 pub struct CompanyChainEvent {
     pub company: Company,
     chain: CompanyBlockchain,
     pub keys: CompanyKeys,
+    new_signatory: Option<NodeId>,
     new_blocks: bool,
     sender_node_id: NodeId,
 }
@@ -25,12 +29,14 @@ impl CompanyChainEvent {
         company: &Company,
         chain: &CompanyBlockchain,
         keys: &CompanyKeys,
+        new_signatory: Option<NodeId>,
         new_blocks: bool,
     ) -> Self {
         Self {
             company: company.clone(),
             chain: chain.clone(),
             keys: keys.clone(),
+            new_signatory,
             new_blocks,
             sender_node_id: company.id.to_owned(),
         }
@@ -59,5 +65,14 @@ impl CompanyChainEvent {
             block_height: self.block_height(),
             block: self.latest_block(),
         }))
+    }
+
+    pub fn generate_company_invite_message(&self) -> Option<(NodeId, Event<ChainInvite>)> {
+        if let Some(node_id) = self.new_signatory.as_ref() {
+            let invite = ChainInvite::company(self.company.id.to_string(), self.keys.clone());
+            Some((node_id.clone(), Event::new_company_invite(invite)))
+        } else {
+            None
+        }
     }
 }

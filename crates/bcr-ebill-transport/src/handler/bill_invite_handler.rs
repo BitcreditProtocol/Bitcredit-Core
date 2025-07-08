@@ -446,7 +446,7 @@ mod tests {
             .times(1);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
-        let invite = Event::new_invite(ChainInvite::bill(
+        let invite = Event::new_bill_invite(ChainInvite::bill(
             bill_id_test().to_string(),
             get_bill_keys(),
         ))
@@ -495,7 +495,7 @@ mod tests {
             .times(3);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
-        let invite = Event::new_invite(ChainInvite::bill(
+        let invite = Event::new_bill_invite(ChainInvite::bill(
             bill_id_test().to_string(),
             get_bill_keys(),
         ))
@@ -552,7 +552,7 @@ mod tests {
             .times(1);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
-        let invite = Event::new_invite(ChainInvite::bill(
+        let invite = Event::new_bill_invite(ChainInvite::bill(
             bill_id_test().to_string(),
             get_bill_keys(),
         ))
@@ -653,7 +653,7 @@ mod tests {
             .expect("could not get block")
             .clone();
 
-        Event::new_chain(BillBlockEvent {
+        Event::new_bill_chain(BillBlockEvent {
             bill_id: bill_id_test(),
             block: block.clone(),
             block_height,

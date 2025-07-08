@@ -119,7 +119,7 @@ impl BillChainEvent {
         if !self.new_blocks {
             return None;
         }
-        Some(Event::new_chain(BillBlockEvent {
+        Some(Event::new_bill_chain(BillBlockEvent {
             bill_id: self.bill.id.to_owned(),
             block_height: self.block_height(),
             block: self.latest_block(),
@@ -130,7 +130,7 @@ impl BillChainEvent {
         let invite = ChainInvite::bill(self.bill.id.to_string(), self.bill_keys.clone());
         self.new_participants()
             .keys()
-            .map(|node_id| (node_id.to_owned(), Event::new_invite(invite.clone())))
+            .map(|node_id| (node_id.to_owned(), Event::new_bill_invite(invite.clone())))
             .collect()
     }
 }

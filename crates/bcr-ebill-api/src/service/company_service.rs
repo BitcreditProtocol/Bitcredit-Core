@@ -190,9 +190,16 @@ impl CompanyService {
         company: &Company,
         chain: &CompanyBlockchain,
         keys: &CompanyKeys,
+        new_signatory: Option<NodeId>,
     ) -> Result<()> {
         self.notification_service
-            .send_company_chain_events(CompanyChainEvent::new(company, chain, keys, true))
+            .send_company_chain_events(CompanyChainEvent::new(
+                company,
+                chain,
+                keys,
+                new_signatory,
+                true,
+            ))
             .await?;
         Ok(())
     }
@@ -354,7 +361,7 @@ impl CompanyServiceApi for CompanyService {
             .await?;
 
         let company_chain = self.company_blockchain_store.get_chain(&id).await?;
-        self.populate_block(&company, &company_chain, &company_keys)
+        self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
         self.identity_blockchain_store.add_block(&new_block).await?;
@@ -545,7 +552,7 @@ impl CompanyServiceApi for CompanyService {
             .add_block(id, &new_block)
             .await?;
         let company_chain = self.company_blockchain_store.get_chain(id).await?;
-        self.populate_block(&company, &company_chain, &company_keys)
+        self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
         debug!("company with id {id} updated");
@@ -635,8 +642,13 @@ impl CompanyServiceApi for CompanyService {
             .add_block(id, &new_block)
             .await?;
         let company_chain = self.company_blockchain_store.get_chain(id).await?;
-        self.populate_block(&company, &company_chain, &company_keys)
-            .await?;
+        self.populate_block(
+            &company,
+            &company_chain,
+            &company_keys,
+            Some(signatory_node_id.clone()),
+        )
+        .await?;
 
         self.identity_blockchain_store
             .add_block(&new_identity_block)
@@ -733,7 +745,7 @@ impl CompanyServiceApi for CompanyService {
             .add_block(id, &new_block)
             .await?;
         let company_chain = self.company_blockchain_store.get_chain(id).await?;
-        self.populate_block(&company, &company_chain, &company_keys)
+        self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
         self.identity_blockchain_store
