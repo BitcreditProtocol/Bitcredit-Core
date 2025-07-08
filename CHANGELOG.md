@@ -1,6 +1,7 @@
 # 0.4.2
 
 * Add logic to get endorsees from plaintext chain
+* Use new payload for requesting to mint (Breaking - has to be coordinated with Wildcat deployment of [this PR](https://github.com/BitcreditProtocol/Wildcat/pull/260))
 
 # 0.4.1
 

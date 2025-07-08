@@ -34,6 +34,7 @@ use bcr_ebill_core::bill::{
     PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
 };
 use bcr_ebill_core::blockchain::bill::block::BillParticipantBlockData;
+use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
 use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
@@ -1497,16 +1498,17 @@ impl BillServiceApi for BillService {
         };
 
         // Send request to mint to mint
-        let endorsees = blockchain.get_endorsees_for_bill(&bill_keys);
+        let bill_to_share = create_bill_to_share_with_external_party(
+            bill_id,
+            &blockchain,
+            &bill_keys,
+            &mint_anon_participant.node_id().pub_key(),
+            signer_keys,
+            &file_urls_for_mint,
+        )?;
         let mint_request_id = self
             .mint_client
-            .enquire_mint_quote(
-                &mint_cfg.default_mint_url,
-                signer_keys,
-                &bill,
-                &endorsees,
-                &file_urls_for_mint,
-            )
+            .enquire_mint_quote(&mint_cfg.default_mint_url, bill_to_share, signer_keys)
             .await?;
 
         // Store request to mint
