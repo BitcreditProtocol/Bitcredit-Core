@@ -125,7 +125,7 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn add_compay_client(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
+    async fn add_company_client(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         let config = get_config();
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
 
@@ -333,7 +333,7 @@ impl DefaultNotificationService {
 impl NotificationServiceApi for DefaultNotificationService {
     /// Adds a new transport client for a company if it does not already exist
     async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
-        self.add_compay_client(company, keys).await
+        self.add_company_client(company, keys).await
     }
 
     /// Sent when an identity chain is created or updated

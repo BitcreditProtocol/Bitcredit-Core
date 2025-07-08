@@ -60,7 +60,7 @@ impl CompanyChainEvent {
         if !self.new_blocks {
             return None;
         }
-        Some(Event::new_identity_chain(CompanyBlockEvent {
+        Some(Event::new_company_chain(CompanyBlockEvent {
             node_id: self.company.id.clone(),
             block_height: self.block_height(),
             block: self.latest_block(),
