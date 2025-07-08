@@ -424,6 +424,14 @@ impl NotificationServiceApi for DefaultNotificationService {
                 )
                 .await?;
             }
+
+            // handle potential invite for new signatory
+            if let Some((recipient, invite)) = events.generate_company_invite_message() {
+                if let Some(identity) = self.resolve_identity(&recipient).await {
+                    node.send_private_event(&identity, invite.try_into()?)
+                        .await?;
+                }
+            }
         } else {
             error!(
                 "could not find transport instance for sender node {}",
