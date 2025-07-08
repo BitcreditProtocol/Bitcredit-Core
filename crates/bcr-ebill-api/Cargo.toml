@@ -31,10 +31,10 @@ bcr-ebill-transport.workspace = true
 tokio.workspace = true
 tokio_with_wasm.workspace = true
 secp256k1.workspace = true
-bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "15b9a36d7663a592ccc0287d87f8d72746fc2d99" }
-bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "15b9a36d7663a592ccc0287d87f8d72746fc2d99" }
-bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "15b9a36d7663a592ccc0287d87f8d72746fc2d99" }
-bcr-wdc-swap-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "15b9a36d7663a592ccc0287d87f8d72746fc2d99" }
+bcr-wdc-webapi = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "d121a5abc87c15ec364536c18b71d941fcaaee21" }
+bcr-wdc-quote-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "d121a5abc87c15ec364536c18b71d941fcaaee21" }
+bcr-wdc-key-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "d121a5abc87c15ec364536c18b71d941fcaaee21" }
+bcr-wdc-swap-client = { git = "https://github.com/BitcreditProtocol/wildcat", rev = "d121a5abc87c15ec364536c18b71d941fcaaee21" }
 bcr-wallet-lib = { git = "https://github.com/BitcreditProtocol/Wallet-Core", rev = "f5a1ed4f52f5852bab27ec67996c2f2c8d16c6dd" }
 cashu = { version = "0.11", default-features = false }
 rand = { version = "0.8" }
