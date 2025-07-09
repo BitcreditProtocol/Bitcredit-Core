@@ -82,6 +82,7 @@ impl Context {
             db.file_upload_store.clone(),
             file_upload_client.clone(),
             db.identity_chain_store.clone(),
+            notification_service.clone(),
         );
 
         let company_service = CompanyService::new(
@@ -92,6 +93,7 @@ impl Context {
             db.contact_store,
             db.identity_chain_store,
             db.company_chain_store,
+            notification_service.clone(),
         );
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 

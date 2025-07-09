@@ -9,7 +9,7 @@ use bcr_ebill_transport::{
         decrypt_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
     },
 };
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use nostr::signer::NostrSigner;
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
@@ -538,12 +538,12 @@ impl NostrConsumer {
                                         }
                                         Kind::RelayList => {
                                             // we have not subscribed to relaylist events yet
-                                            info!("Received relay list: {event:?}");
+                                            debug!("Received relay list from: {}", event.pubkey);
                                             (true, 0u64)
                                         }
                                         Kind::Metadata => {
                                             // we have not subscribed to metadata events yet
-                                            info!("Received metadata: {event:?}");
+                                            debug!("Received metadata from: {}", event.pubkey);
                                             (true, 0u64)
                                         }
                                         _ => (true, 0u64),

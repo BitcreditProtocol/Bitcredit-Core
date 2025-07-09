@@ -35,7 +35,9 @@ pub mod tests {
         notification::NotificationFilter,
     };
     use bcr_ebill_transport::{
-        BillChainEvent, NotificationServiceApi, chain_keys::ChainKeyServiceApi,
+        BillChainEvent, NotificationServiceApi,
+        chain_keys::ChainKeyServiceApi,
+        event::{company_events::CompanyChainEvent, identity_events::IdentityChainEvent},
         transport::NostrContactData,
     };
     use std::path::Path;
@@ -371,6 +373,9 @@ pub mod tests {
 
         #[async_trait]
         impl NotificationServiceApi for NotificationService {
+            async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> bcr_ebill_transport::Result<()>;
+            async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> bcr_ebill_transport::Result<()>;
+            async fn send_company_chain_events(&self, events: CompanyChainEvent) -> bcr_ebill_transport::Result<()>;
             async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
             async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
             async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;

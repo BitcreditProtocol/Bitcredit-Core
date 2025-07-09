@@ -5,15 +5,21 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::blockchain::BlockchainType;
+use bcr_ebill_core::company::Company;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
+use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
 };
+use bcr_ebill_transport::event::company_events::CompanyChainEvent;
+use bcr_ebill_transport::event::identity_events::IdentityChainEvent;
 use bcr_ebill_transport::transport::NostrContactData;
 use bcr_ebill_transport::{BillChainEvent, BillChainEventPayload, Error, Event, EventEnvelope};
-use log::{error, warn};
+use log::{debug, error, warn};
+use serde_json::Value;
+use tokio::sync::Mutex;
 
-use super::NotificationJsonTransportApi;
+use super::{NostrClient, NostrConfig, NotificationJsonTransportApi};
 use super::{NotificationServiceApi, Result};
 use crate::data::{
     bill::BitcreditBill,
@@ -21,6 +27,7 @@ use crate::data::{
     notification::{Notification, NotificationType},
 };
 use crate::data::{validate_bill_id_network, validate_node_id_network};
+use crate::get_config;
 use crate::persistence::notification::{NotificationFilter, NotificationStoreApi};
 use crate::service::contact_service::ContactServiceApi;
 use bcr_ebill_core::notification::{ActionType, BillEventType};
@@ -30,7 +37,7 @@ use bcr_ebill_core::{NodeId, PostalAddress, ServiceTraitBounds};
 /// send events via json and email transports.
 #[allow(dead_code)]
 pub struct DefaultNotificationService {
-    notification_transport: HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>,
+    notification_transport: Mutex<HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>>,
     notification_store: Arc<dyn NotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
@@ -52,11 +59,14 @@ impl DefaultNotificationService {
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         nostr_relays: Vec<String>,
     ) -> Self {
-        Self {
-            notification_transport: notification_transport
+        let transports: Mutex<HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>> = Mutex::new(
+            notification_transport
                 .into_iter()
                 .map(|t| (t.get_sender_node_id(), t))
                 .collect(),
+        );
+        Self {
+            notification_transport: transports,
             notification_store,
             contact_service,
             queued_message_store,
@@ -65,8 +75,16 @@ impl DefaultNotificationService {
         }
     }
 
-    fn get_local_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        if self.notification_transport.contains_key(node_id) {
+    async fn get_node_transport(
+        &self,
+        node_id: &NodeId,
+    ) -> Option<Arc<dyn NotificationJsonTransportApi>> {
+        let transports = self.notification_transport.lock().await;
+        transports.get(node_id).cloned()
+    }
+
+    async fn get_local_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
+        if self.get_node_transport(node_id).await.is_some() {
             Some(BillParticipant::Ident(BillIdentParticipant {
                 // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
                 t: ContactType::Person,
@@ -82,7 +100,7 @@ impl DefaultNotificationService {
     }
 
     async fn resolve_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        match self.get_local_identity(node_id) {
+        match self.get_local_identity(node_id).await {
             Some(id) => Some(id),
             None => {
                 if let Ok(Some(identity)) =
@@ -107,12 +125,37 @@ impl DefaultNotificationService {
         }
     }
 
-    async fn send_all_events(
+    async fn add_company_client(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
+        let config = get_config();
+        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+
+        let mut transports = self.notification_transport.lock().await;
+        if transports.contains_key(&node_id) {
+            debug!("transport for node {node_id} already present");
+            return Ok(());
+        }
+
+        let nostr_config = NostrConfig::new(
+            keys.clone(),
+            config.nostr_config.relays.clone(),
+            company.name.clone(),
+            false,
+            node_id.clone(),
+        );
+
+        if let Ok(client) = NostrClient::new(&nostr_config).await {
+            debug!("added nostr client for {}", &nostr_config.get_npub());
+            transports.insert(node_id, Arc::new(client));
+        }
+        Ok(())
+    }
+
+    async fn send_all_bill_events(
         &self,
         sender: &NodeId,
         events: HashMap<NodeId, Event<BillChainEventPayload>>,
     ) -> Result<()> {
-        if let Some(node) = self.notification_transport.get(sender) {
+        if let Some(node) = self.get_node_transport(sender).await {
             for (node_id, event_to_process) in events.into_iter() {
                 if let Some(identity) = self.resolve_identity(&node_id).await {
                     if let Err(e) = node
@@ -122,19 +165,12 @@ impl DefaultNotificationService {
                         error!(
                             "Failed to send block notification, will add it to retry queue: {e}"
                         );
-                        let queue_message = NostrQueuedMessage {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            sender_id: sender.to_owned(),
-                            node_id: node_id.to_owned(),
-                            payload: serde_json::to_value(event_to_process)?,
-                        };
-                        if let Err(e) = self
-                            .queued_message_store
-                            .add_message(queue_message, Self::NOSTR_MAX_RETRIES)
-                            .await
-                        {
-                            error!("Failed to add block notification to retry queue: {e}");
-                        }
+                        self.queue_retry_message(
+                            sender,
+                            &node_id,
+                            serde_json::to_value(event_to_process)?,
+                        )
+                        .await?;
                     }
                 } else {
                     warn!("Failed to find recipient in contacts for node_id: {node_id}");
@@ -146,33 +182,64 @@ impl DefaultNotificationService {
         Ok(())
     }
 
+    async fn queue_retry_message(
+        &self,
+        sender: &NodeId,
+        recipient: &NodeId,
+        payload: Value,
+    ) -> Result<()> {
+        let queue_message = NostrQueuedMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            sender_id: sender.to_owned(),
+            node_id: recipient.to_owned(),
+            payload,
+        };
+        if let Err(e) = self
+            .queued_message_store
+            .add_message(queue_message, Self::NOSTR_MAX_RETRIES)
+            .await
+        {
+            error!("Failed to add send nostr event to retry queue: {e}");
+        }
+        Ok(())
+    }
+
+    async fn find_root_and_previous_event(
+        &self,
+        previous_hash: &str,
+        chain_id: &str,
+        chain_type: BlockchainType,
+    ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
+        // find potential previous block event
+        let previous_event = self
+            .chain_event_store
+            .find_by_block_hash(previous_hash)
+            .await
+            .map_err(|_| Error::Persistence("failed to read from chain events".to_owned()))?;
+
+        // if there is a previous and it is not the root event, also get the root event
+        let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
+            self.chain_event_store
+                .find_root_event(chain_id, chain_type)
+                .await
+                .map_err(|_| Error::Persistence("failed to read from chain events".to_owned()))?
+        } else {
+            previous_event.clone()
+        };
+        Ok((previous_event, root_event))
+    }
+
     // sends all required bill chain events like public bill data and bill invites
     async fn send_bill_chain_events(&self, events: &BillChainEvent) -> Result<()> {
-        if let Some(node) = self.notification_transport.get(&events.sender()) {
+        if let Some(node) = self.get_node_transport(&events.sender()).await {
             if let Some(block_event) = events.generate_blockchain_message() {
-                // find potential previous block event
-                let previous_event = self
-                    .chain_event_store
-                    .find_by_block_hash(&block_event.data.block.previous_hash)
-                    .await
-                    .map_err(|_| {
-                        Error::Persistence("failed to read from chain events".to_owned())
-                    })?;
-
-                // if there is a previous and it is not the root event, also get the root event
-                let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
-                    self.chain_event_store
-                        .find_root_event(
-                            &block_event.data.bill_id.to_string(),
-                            BlockchainType::Bill,
-                        )
-                        .await
-                        .map_err(|_| {
-                            Error::Persistence("failed to read from chain events".to_owned())
-                        })?
-                } else {
-                    previous_event.clone()
-                };
+                let (previous_event, root_event) = self
+                    .find_root_and_previous_event(
+                        &block_event.data.block.previous_hash,
+                        &block_event.data.bill_id.to_string(),
+                        BlockchainType::Bill,
+                    )
+                    .await?;
 
                 // now send the event
                 let event = node
@@ -187,27 +254,16 @@ impl DefaultNotificationService {
                     )
                     .await?;
 
-                self.chain_event_store
-                    .add_chain_event(NostrChainEvent {
-                        event_id: event.id.to_string(),
-                        root_id: root_event
-                            .map(|e| e.event_id.to_string())
-                            .unwrap_or(event.id.to_string()),
-                        reply_id: previous_event.map(|e| e.event_id.to_string()),
-                        author: event.pubkey.to_string(),
-                        chain_id: block_event.data.bill_id.to_string(),
-                        chain_type: BlockchainType::Bill,
-                        block_height: events.block_height(),
-                        block_hash: block_event.data.block.hash.to_owned(),
-                        received: block_event.data.block.timestamp,
-                        time: event.created_at.as_u64(),
-                        payload: event,
-                        valid: true,
-                    })
-                    .await
-                    .map_err(|_| {
-                        Error::Persistence("failed to write to chain events".to_owned())
-                    })?;
+                self.add_chain_event(
+                    &event,
+                    &root_event,
+                    &previous_event,
+                    &block_event.data.bill_id.to_string(),
+                    BlockchainType::Bill,
+                    block_event.data.block.id as usize,
+                    &block_event.data.block.hash,
+                )
+                .await?;
             }
 
             let invites = events.generate_bill_invite_events();
@@ -223,13 +279,46 @@ impl DefaultNotificationService {
         Ok(())
     }
 
+    async fn add_chain_event(
+        &self,
+        event: &nostr::event::Event,
+        root: &Option<NostrChainEvent>,
+        previous: &Option<NostrChainEvent>,
+        chain_id: &str,
+        chain_type: BlockchainType,
+        block_height: usize,
+        block_hash: &str,
+    ) -> Result<()> {
+        self.chain_event_store
+            .add_chain_event(NostrChainEvent {
+                event_id: event.id.to_string(),
+                root_id: root
+                    .clone()
+                    .map(|e| e.event_id.to_string())
+                    .unwrap_or(event.id.to_string()),
+                reply_id: previous.clone().map(|e| e.event_id.to_string()),
+                author: event.pubkey.to_string(),
+                chain_id: chain_id.to_string(),
+                chain_type,
+                block_height,
+                block_hash: block_hash.to_owned(),
+                received: event.created_at.as_u64(),
+                time: event.created_at.as_u64(),
+                payload: event.clone(),
+                valid: true,
+            })
+            .await
+            .map_err(|_| Error::Persistence("failed to write to chain events".to_owned()))?;
+        Ok(())
+    }
+
     async fn send_retry_message(
         &self,
         sender: &NodeId,
         node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
-        if let Some(node) = self.notification_transport.get(sender) {
+        if let Some(node) = self.get_node_transport(sender).await {
             if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
             {
                 node.send_private_event(&identity, message).await?;
@@ -242,6 +331,117 @@ impl DefaultNotificationService {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationServiceApi for DefaultNotificationService {
+    /// Adds a new transport client for a company if it does not already exist
+    async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
+        self.add_company_client(company, keys).await
+    }
+
+    /// Sent when an identity chain is created or updated
+    async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()> {
+        debug!(
+            "sending identity chain events for node: {}",
+            events.identity.node_id
+        );
+        if let Some(node) = self.get_node_transport(&events.sender()).await {
+            if let Some(event) = events.generate_blockchain_message() {
+                let (previous_event, root_event) = self
+                    .find_root_and_previous_event(
+                        &event.data.block.previous_hash,
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Identity,
+                    )
+                    .await?;
+                // send the event
+                let nostr_event = node
+                    .send_public_chain_event(
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Identity,
+                        event.data.block.timestamp,
+                        events.keys.clone(),
+                        event.clone().try_into()?,
+                        previous_event.clone().map(|e| e.payload),
+                        root_event.clone().map(|e| e.payload),
+                    )
+                    .await?;
+                // and store the event locally
+                self.add_chain_event(
+                    &nostr_event,
+                    &root_event,
+                    &previous_event,
+                    &event.data.node_id.to_string(),
+                    BlockchainType::Identity,
+                    event.data.block.id as usize,
+                    &event.data.block.hash,
+                )
+                .await?;
+            }
+        } else {
+            error!(
+                "could not find transport instance for sender node {}",
+                events.sender()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Sent when a company chain is created or updated
+    async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()> {
+        debug!(
+            "sending company chain events for company id: {}",
+            events.company.id
+        );
+        if let Some(node) = self.get_node_transport(&events.sender()).await {
+            if let Some(event) = events.generate_blockchain_message() {
+                let (previous_event, root_event) = self
+                    .find_root_and_previous_event(
+                        &event.data.block.previous_hash,
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Company,
+                    )
+                    .await?;
+                // send the event
+                let nostr_event = node
+                    .send_public_chain_event(
+                        &event.data.node_id.to_string(),
+                        BlockchainType::Company,
+                        event.data.block.timestamp,
+                        events.keys.clone().try_into()?,
+                        event.clone().try_into()?,
+                        previous_event.clone().map(|e| e.payload),
+                        root_event.clone().map(|e| e.payload),
+                    )
+                    .await?;
+                // and store the event locally
+                self.add_chain_event(
+                    &nostr_event,
+                    &root_event,
+                    &previous_event,
+                    &event.data.node_id.to_string(),
+                    BlockchainType::Company,
+                    event.data.block.id as usize,
+                    &event.data.block.hash,
+                )
+                .await?;
+            }
+
+            // handle potential invite for new signatory
+            if let Some((recipient, invite)) = events.generate_company_invite_message() {
+                if let Some(identity) = self.resolve_identity(&recipient).await {
+                    node.send_private_event(&identity, invite.try_into()?)
+                        .await?;
+                }
+            }
+        } else {
+            error!(
+                "could not find transport instance for sender node {}",
+                events.sender()
+            );
+        }
+
+        Ok(())
+    }
+
     async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()> {
         let event_type = BillEventType::BillSigned;
 
@@ -261,7 +461,8 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
 
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -275,7 +476,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -292,7 +494,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -306,7 +509,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -320,7 +524,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -334,7 +539,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(bill).await?;
-        self.send_all_events(&bill.sender(), all_events).await?;
+        self.send_all_bill_events(&bill.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -352,7 +558,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -370,7 +577,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -388,7 +596,8 @@ impl NotificationServiceApi for DefaultNotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_events(&event.sender(), all_events).await?;
+        self.send_all_bill_events(&event.sender(), all_events)
+            .await?;
         Ok(())
     }
 
@@ -404,7 +613,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum),
         });
-        if let Some(node) = self.notification_transport.get(sender_node_id) {
+        if let Some(node) = self.get_node_transport(sender_node_id).await {
             node.send_private_event(mint, event.try_into()?).await?;
         }
         Ok(())
@@ -422,7 +631,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 Some(rejected_action),
             );
 
-            self.send_all_events(&event.sender(), all_events).await?;
+            self.send_all_bill_events(&event.sender(), all_events)
+                .await?;
         }
         Ok(())
     }
@@ -435,7 +645,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
     ) -> Result<()> {
-        if let Some(node) = self.notification_transport.get(sender_node_id) {
+        if let Some(node) = self.get_node_transport(sender_node_id).await {
             if let Some(event_type) = timed_out_action.get_timeout_event_type() {
                 // only send to a recipient once
                 let unique: HashMap<NodeId, BillParticipant> =
@@ -473,7 +683,8 @@ impl NotificationServiceApi for DefaultNotificationService {
                 None,
             );
             self.send_bill_chain_events(event).await?;
-            self.send_all_events(&event.sender(), all_events).await?;
+            self.send_all_bill_events(&event.sender(), all_events)
+                .await?;
         }
         Ok(())
     }
@@ -616,8 +827,9 @@ impl NotificationServiceApi for DefaultNotificationService {
 
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
         validate_node_id_network(node_id)?;
+        let transports = self.notification_transport.lock().await;
         // take any transport - doesn't matter
-        if let Some((_node, transport)) = self.notification_transport.iter().next() {
+        if let Some((_node, transport)) = transports.iter().nth(0) {
             let res = transport.resolve_contact(node_id).await?;
             Ok(res)
         } else {
@@ -642,7 +854,7 @@ mod tests {
         HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel,
     };
     use bcr_ebill_core::util::{BcrKeys, date::now};
-    use bcr_ebill_transport::event::bill_blockchain_event::ChainInvite;
+    use bcr_ebill_transport::event::blockchain_event::ChainInvite;
     use bcr_ebill_transport::{EventEnvelope, EventType, PushApi};
     use mockall::{mock, predicate::eq};
     use std::sync::Arc;

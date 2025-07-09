@@ -1,7 +1,7 @@
 use super::BillChainEventProcessorApi;
 use super::NotificationHandlerApi;
 use crate::EventType;
-use crate::event::bill_blockchain_event::BillBlockEvent;
+use crate::event::blockchain_event::BillBlockEvent;
 use crate::transport::root_and_reply_id;
 use crate::{Event, EventEnvelope, Result};
 use async_trait::async_trait;
