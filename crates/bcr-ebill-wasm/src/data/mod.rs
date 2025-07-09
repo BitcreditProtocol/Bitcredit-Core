@@ -244,6 +244,15 @@ pub struct BinaryFileResponse {
     pub content_type: String,
 }
 
+/// Just a wrapper struct to allow setting a content disposition header
+#[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct Base64FileResponse {
+    pub data: String,
+    pub name: String,
+    pub content_type: String,
+}
+
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct UploadFile {

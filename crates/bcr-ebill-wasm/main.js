@@ -334,14 +334,8 @@ async function fetchTempFile() {
 async function fetchContactFile() {
   let node_id = document.getElementById("contact_id").value;
   let file_name = document.getElementById("contact_file_name").value;
-  let file = await contactApi.file(node_id, file_name);
-  let file_bytes = file.data;
-  let arr = new Uint8Array(file_bytes);
-  let blob = new Blob([arr], { type: file.content_type });
-  let url = URL.createObjectURL(blob);
-
-  console.log("file", file, url, blob);
-  document.getElementById("attached_file").src = url;
+  let file = await contactApi.file_base64(node_id, file_name);
+  document.getElementById("attached_file").src = `data:${file.content_type};base64,${file.data}`;
 }
 
 async function switchIdentity() {
