@@ -3,8 +3,9 @@ use std::str::FromStr;
 use crate::data::contact::{
     ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload, NewContactPayload,
 };
-use crate::data::{BinaryFileResponse, UploadFile, UploadFileResponse};
+use crate::data::{Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse};
 use crate::{Result, context::get_ctx};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::data::contact::ContactType;
 use bcr_ebill_api::data::{NodeId, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_api::service;
@@ -15,6 +16,30 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 pub struct Contact;
 
+async fn get_file(node_id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
+    let parsed_node_id = NodeId::from_str(node_id)?;
+    let contact = get_ctx()
+        .contact_service
+        .get_contact(&parsed_node_id)
+        .await?; // check if contact exists
+
+    let private_key = get_ctx()
+        .identity_service
+        .get_full_identity()
+        .await?
+        .key_pair
+        .get_private_key();
+
+    let file_bytes = get_ctx()
+        .contact_service
+        .open_and_decrypt_file(contact, &parsed_node_id, file_name, &private_key)
+        .await?;
+    let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(
+        service::Error::Validation(ValidationError::InvalidContentType),
+    )?;
+    Ok((file_bytes, content_type))
+}
+
 #[wasm_bindgen]
 impl Contact {
     #[wasm_bindgen]
@@ -24,30 +49,21 @@ impl Contact {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, node_id: &str, file_name: &str) -> Result<JsValue> {
-        let parsed_node_id = NodeId::from_str(node_id)?;
-        let contact = get_ctx()
-            .contact_service
-            .get_contact(&parsed_node_id)
-            .await?; // check if contact exists
-
-        let private_key = get_ctx()
-            .identity_service
-            .get_full_identity()
-            .await?
-            .key_pair
-            .get_private_key();
-
-        let file_bytes = get_ctx()
-            .contact_service
-            .open_and_decrypt_file(contact, &parsed_node_id, file_name, &private_key)
-            .await?;
-
-        let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(
-            service::Error::Validation(ValidationError::InvalidContentType),
-        )?;
-
+        let (file_bytes, content_type) = get_file(node_id, file_name).await?;
         let res = serde_wasm_bindgen::to_value(&BinaryFileResponse {
             data: file_bytes,
+            name: file_name.to_owned(),
+            content_type,
+        })?;
+        Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "Base64FileResponse")]
+    pub async fn file_base64(&self, node_id: &str, file_name: &str) -> Result<JsValue> {
+        let (file_bytes, content_type) = get_file(node_id, file_name).await?;
+
+        let res = serde_wasm_bindgen::to_value(&Base64FileResponse {
+            data: STANDARD.encode(&file_bytes),
             name: file_name.to_owned(),
             content_type,
         })?;

@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use super::Result;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
     data::{NodeId, OptionalPostalAddress, PostalAddress},
     external,
@@ -16,13 +17,36 @@ use wasm_bindgen::prelude::*;
 use crate::{
     context::get_ctx,
     data::{
-        BinaryFileResponse, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         company::{
             AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload,
             EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
         },
     },
 };
+
+async fn get_file(id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
+    let parsed_id = NodeId::from_str(id)?;
+    let company = get_ctx()
+        .company_service
+        .get_company_by_id(&parsed_id)
+        .await?; // check if company exists
+    let private_key = get_ctx()
+        .identity_service
+        .get_full_identity()
+        .await?
+        .key_pair
+        .get_private_key();
+
+    let file_bytes = get_ctx()
+        .company_service
+        .open_and_decrypt_file(company, &parsed_id, file_name, &private_key)
+        .await?;
+
+    let content_type = detect_content_type_for_bytes(&file_bytes)
+        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+    Ok((file_bytes, content_type))
+}
 
 #[wasm_bindgen]
 pub struct Company;
@@ -36,28 +60,21 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, id: &str, file_name: &str) -> Result<JsValue> {
-        let parsed_id = NodeId::from_str(id)?;
-        let company = get_ctx()
-            .company_service
-            .get_company_by_id(&parsed_id)
-            .await?; // check if company exists
-        let private_key = get_ctx()
-            .identity_service
-            .get_full_identity()
-            .await?
-            .key_pair
-            .get_private_key();
-
-        let file_bytes = get_ctx()
-            .company_service
-            .open_and_decrypt_file(company, &parsed_id, file_name, &private_key)
-            .await?;
-
-        let content_type = detect_content_type_for_bytes(&file_bytes)
-            .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
-
+        let (file_bytes, content_type) = get_file(id, file_name).await?;
         let res = serde_wasm_bindgen::to_value(&BinaryFileResponse {
             data: file_bytes,
+            name: file_name.to_owned(),
+            content_type,
+        })?;
+        Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "Base64FileResponse")]
+    pub async fn file_base64(&self, id: &str, file_name: &str) -> Result<JsValue> {
+        let (file_bytes, content_type) = get_file(id, file_name).await?;
+
+        let res = serde_wasm_bindgen::to_value(&Base64FileResponse {
+            data: STANDARD.encode(&file_bytes),
             name: file_name.to_owned(),
             content_type,
         })?;

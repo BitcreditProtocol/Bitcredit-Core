@@ -1,3 +1,7 @@
+# 0.4.3
+
+* Add endpoints to fetch files as base64 for identity, contacts, companies and bills
+
 # 0.4.2
 
 * Add logic to get endorsees from plaintext chain

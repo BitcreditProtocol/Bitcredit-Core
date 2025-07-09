@@ -2,13 +2,14 @@ use crate::{
     Result,
     context::get_ctx,
     data::{
-        BinaryFileResponse, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         identity::{
             ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
             SwitchIdentity,
         },
     },
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
     data::{
         NodeId, OptionalPostalAddress,
@@ -23,6 +24,21 @@ use bcr_ebill_api::{
     },
 };
 use wasm_bindgen::prelude::*;
+
+async fn get_file(file_name: &str) -> Result<(Vec<u8>, String)> {
+    let identity = get_ctx().identity_service.get_full_identity().await?;
+    let private_key = identity.key_pair.get_private_key();
+    let id = identity.identity.node_id.clone();
+
+    let file_bytes = get_ctx()
+        .identity_service
+        .open_and_decrypt_file(identity.identity, &id, file_name, &private_key)
+        .await?;
+
+    let content_type = detect_content_type_for_bytes(&file_bytes)
+        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+    Ok((file_bytes, content_type))
+}
 
 /// A structure describing the currently selected identity between the personal and multiple
 /// possible company identities
@@ -44,20 +60,21 @@ impl Identity {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn file(&self, file_name: &str) -> Result<JsValue> {
-        let identity = get_ctx().identity_service.get_full_identity().await?;
-        let private_key = identity.key_pair.get_private_key();
-        let id = identity.identity.node_id.clone();
-
-        let file_bytes = get_ctx()
-            .identity_service
-            .open_and_decrypt_file(identity.identity, &id, file_name, &private_key)
-            .await?;
-
-        let content_type = detect_content_type_for_bytes(&file_bytes)
-            .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
-
+        let (file_bytes, content_type) = get_file(file_name).await?;
         let res = serde_wasm_bindgen::to_value(&BinaryFileResponse {
             data: file_bytes,
+            name: file_name.to_owned(),
+            content_type,
+        })?;
+        Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "Base64FileResponse")]
+    pub async fn file_base64(&self, file_name: &str) -> Result<JsValue> {
+        let (file_bytes, content_type) = get_file(file_name).await?;
+
+        let res = serde_wasm_bindgen::to_value(&Base64FileResponse {
+            data: STANDARD.encode(&file_bytes),
             name: file_name.to_owned(),
             content_type,
         })?;
