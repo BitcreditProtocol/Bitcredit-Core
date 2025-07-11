@@ -383,6 +383,12 @@ impl NotificationJsonTransportApi for NostrClient {
             .fetch_events(chain_filter(id, chain_type), Some(SortOrder::Asc), None)
             .await?)
     }
+
+    async fn add_contact_subscription(&self, node_id: &NodeId) -> Result<()> {
+        debug!("adding nostr subscription for contact {node_id}");
+        self.subscribe(Filter::new().author(node_id.npub())).await?;
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

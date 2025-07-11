@@ -66,6 +66,8 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
         id: &str,
         chain_type: BlockchainType,
     ) -> Result<Vec<Event>>;
+    /// Adds a new Nostr subscription on the primary client for an added contact
+    async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
