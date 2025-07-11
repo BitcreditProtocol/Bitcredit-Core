@@ -1,19 +1,17 @@
 use std::str::FromStr;
 
-use crate::util;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    NodeId, PostalAddress, SecretKey, ServiceTraitBounds,
-    bill::{BillId, BitcreditBill},
-    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType},
+    SecretKey, ServiceTraitBounds,
+    bill::BillId,
+    blockchain::bill::BillToShareWithExternalParty,
     util::{BcrKeys, date::DateTimeUtc},
 };
 use bcr_wdc_key_client::KeyClient;
 use bcr_wdc_quote_client::QuoteClient;
 use bcr_wdc_swap_client::SwapClient;
-use bcr_wdc_webapi::quotes::{BillInfo, ResolveOffer, StatusReply};
+use bcr_wdc_webapi::quotes::{ResolveOffer, StatusReply};
 use cashu::{ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
-use reqwest::Url;
 use thiserror::Error;
 
 /// Generic result type
@@ -103,10 +101,8 @@ pub trait MintClientApi: ServiceTraitBounds {
     async fn enquire_mint_quote(
         &self,
         mint_url: &str,
+        bill_to_share: BillToShareWithExternalParty,
         requester_keys: &BcrKeys,
-        bill: &BitcreditBill,
-        endorsees: &[BillParticipant],
-        files: &[Url],
     ) -> Result<String>;
     /// Look up a quote for a mint
     async fn lookup_quote_for_mint(
@@ -284,31 +280,17 @@ impl MintClientApi for MintClient {
     async fn enquire_mint_quote(
         &self,
         mint_url: &str,
+        bill_to_share: BillToShareWithExternalParty,
         requester_keys: &BcrKeys,
-        bill: &BitcreditBill,
-        endorsees: &[BillParticipant],
-        files: &[Url],
     ) -> Result<String> {
-        let bill_info = BillInfo {
-            id: map_bill_id(bill.id.clone()),
-            drawee: map_bill_ident_participant(bill.drawee.to_owned()),
-            drawer: map_bill_ident_participant(bill.drawer.to_owned()),
-            payee: map_bill_participant(bill.payee.to_owned()),
-            endorsees: endorsees
-                .iter()
-                .map(|e| map_bill_participant(e.to_owned()))
-                .collect(),
-            sum: bill.sum,
-            maturity_date: util::date::date_string_to_rfc3339(&bill.maturity_date)
-                .map_err(|_| Error::InvalidDate)?,
-            file_urls: files.to_owned(),
-        };
+        let shared_bill = map_shared_bill(bill_to_share);
+
         let public_key = cdk01::PublicKey::from_hex(requester_keys.get_public_key())
             .map_err(|_| Error::PubKey)?;
 
         let mint_request_id = self
             .quote_client(mint_url)?
-            .enquire(bill_info, public_key, &requester_keys.get_key_pair())
+            .enquire(shared_bill, public_key, &requester_keys.get_key_pair())
             .await
             .map_err(|e| {
                 log::error!("Error enquiring to mint {mint_url}: {e}");
@@ -463,64 +445,19 @@ impl From<StatusReply> for QuoteStatusReply {
     }
 }
 
-// These are needed for now, because we use different `bcr-ebill-core` versions in wildcat and here
-// this should be remediated, once we're stable on both sides
-
-fn map_bill_participant(part: BillParticipant) -> bcr_wdc_webapi::bill::BillParticipant {
-    match part {
-        BillParticipant::Ident(data) => {
-            bcr_wdc_webapi::bill::BillParticipant::Ident(map_bill_ident_participant(data))
-        }
-        BillParticipant::Anon(data) => {
-            bcr_wdc_webapi::bill::BillParticipant::Anon(map_bill_anon_participant(data))
-        }
-    }
-}
-
-fn map_bill_anon_participant(
-    ident: BillAnonParticipant,
-) -> bcr_wdc_webapi::bill::BillAnonParticipant {
-    bcr_wdc_webapi::bill::BillAnonParticipant {
-        node_id: map_node_id(ident.node_id),
-        email: ident.email,
-        nostr_relays: ident.nostr_relays,
-    }
-}
-
-fn map_bill_ident_participant(
-    ident: BillIdentParticipant,
-) -> bcr_wdc_webapi::bill::BillIdentParticipant {
-    bcr_wdc_webapi::bill::BillIdentParticipant {
-        t: map_contact_type(ident.t),
-        node_id: map_node_id(ident.node_id),
-        name: ident.name,
-        postal_address: map_postal_address(ident.postal_address),
-        email: ident.email,
-        nostr_relays: ident.nostr_relays,
-    }
-}
-
-fn map_contact_type(ct: ContactType) -> bcr_wdc_webapi::contact::ContactType {
-    match ct {
-        ContactType::Person => bcr_wdc_webapi::contact::ContactType::Person,
-        ContactType::Company => bcr_wdc_webapi::contact::ContactType::Company,
-        ContactType::Anon => bcr_wdc_webapi::contact::ContactType::Anon,
-    }
-}
-
-fn map_postal_address(pa: PostalAddress) -> bcr_wdc_webapi::identity::PostalAddress {
-    bcr_wdc_webapi::identity::PostalAddress {
-        country: pa.country,
-        city: pa.city,
-        zip: pa.zip,
-        address: pa.address,
+fn map_shared_bill(
+    bill_to_share: BillToShareWithExternalParty,
+) -> bcr_wdc_webapi::quotes::SharedBill {
+    bcr_wdc_webapi::quotes::SharedBill {
+        bill_id: map_bill_id(bill_to_share.bill_id),
+        data: bill_to_share.data,
+        file_urls: bill_to_share.file_urls,
+        hash: bill_to_share.hash,
+        signature: bill_to_share.signature,
+        receiver: bill_to_share.receiver,
     }
 }
 
 fn map_bill_id(bill_id: BillId) -> bcr_wdc_webapi::bill::BillId {
     bcr_wdc_webapi::bill::BillId::from_str(&bill_id.to_string()).expect("is a bill id")
-}
-
-fn map_node_id(node_id: NodeId) -> bcr_wdc_webapi::bill::NodeId {
-    bcr_wdc_webapi::bill::NodeId::from_str(&node_id.to_string()).expect("is a node id")
 }
