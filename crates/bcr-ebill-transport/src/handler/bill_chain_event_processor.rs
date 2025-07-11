@@ -121,26 +121,27 @@ impl BillChainEventProcessor {
                 .iter()
                 .map(|r| r.as_str().to_owned())
                 .collect();
-            if let Err(e) = self
-                .nostr_contact_store
-                .upsert(&NostrContact {
+            self.upsert_contact(
+                node_id,
+                &NostrContact {
                     npub: node_id.npub(),
                     name: contact.metadata.name,
                     relays,
                     trust_level: TrustLevel::Participant,
                     handshake_status: HandshakeStatus::None,
-                })
-                .await
-            {
-                error!("Failed to save nostr contact information for node_id {node_id}: {e}");
-            }
-            if let Err(e) = self.transport.add_contact_subscription(node_id).await {
-                error!(
-                    "Failed to add nostr contact subscription for contact node_id {node_id}: {e}"
-                );
-            }
+                },
+            )
+            .await;
         } else {
             info!("Could not resolve nostr contact information for node_id {node_id}");
+        }
+    }
+
+    async fn upsert_contact(&self, node_id: &NodeId, contact: &NostrContact) {
+        if let Err(e) = self.nostr_contact_store.upsert(contact).await {
+            error!("Failed to save nostr contact information for node_id {node_id}: {e}");
+        } else if let Err(e) = self.transport.add_contact_subscription(node_id).await {
+            error!("Failed to add nostr contact subscription for contact node_id {node_id}: {e}");
         }
     }
 
