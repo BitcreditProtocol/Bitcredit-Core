@@ -2,8 +2,10 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, bill::BillId, blockchain::BlockchainType, util::BcrKeys};
-use bcr_ebill_persistence::bill::BillStoreApi;
+use bcr_ebill_core::{
+    NodeId, ServiceTraitBounds, bill::BillId, blockchain::BlockchainType, util::BcrKeys,
+};
+use bcr_ebill_persistence::{bill::BillStoreApi, company::CompanyStoreApi};
 use log::warn;
 
 /// Resolver for generic chain keys that are needed to decrypt
@@ -22,11 +24,15 @@ pub trait ChainKeyServiceApi: ServiceTraitBounds {
 #[derive(Clone)]
 pub struct ChainKeyService {
     bill_store: Arc<dyn BillStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
 }
 
 impl ChainKeyService {
-    pub fn new(bill_store: Arc<dyn BillStoreApi>) -> Self {
-        Self { bill_store }
+    pub fn new(bill_store: Arc<dyn BillStoreApi>, company_store: Arc<dyn CompanyStoreApi>) -> Self {
+        Self {
+            bill_store,
+            company_store,
+        }
     }
 }
 
@@ -47,6 +53,19 @@ impl ChainKeyServiceApi for ChainKeyService {
                     Ok(keys) => Some(keys.try_into()?),
                     Err(e) => {
                         warn!("failed to get bill keys for {chain_id} with {e}");
+                        None
+                    }
+                }
+            }
+            BlockchainType::Company => {
+                match self
+                    .company_store
+                    .get_key_pair(&NodeId::from_str(chain_id)?)
+                    .await
+                {
+                    Ok(keys) => Some(keys.try_into()?),
+                    Err(e) => {
+                        warn!("failed to get company keys for {chain_id} with {e}");
                         None
                     }
                 }
