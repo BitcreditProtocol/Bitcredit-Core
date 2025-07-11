@@ -27,7 +27,7 @@ use nostr::{
 use crate::{Error, Result, event::EventEnvelope};
 
 // A bit abitrary. This is to protect our client from beeing overwhelmed by spam. The downside is
-// that we will not be able to extract a chain even if there arehttps://github.com/BitcreditProtocol/Bitcredit-Core/issues/583 valid blocks on the relay.
+// that we will not be able to extract a chain even if there are valid blocks on the relay.
 const CHAIN_EVENT_LIMIT: usize = 1000;
 
 #[cfg(test)]
