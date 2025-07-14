@@ -1,5 +1,5 @@
 use bcr_ebill_core::{
-    blockchain::{BlockchainType, bill::BillBlock},
+    blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     util::{BcrKeys, date::now},
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;
@@ -10,7 +10,7 @@ use nostr::{
 
 use crate::{
     Error, Result,
-    event::blockchain_event::BillBlockEvent,
+    event::blockchain_event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
     transport::{decrypt_public_chain_event, unwrap_public_chain_event},
 };
 
@@ -48,8 +48,8 @@ pub fn ids_and_markers(
     chain_type: BlockchainType,
     keys: &BcrKeys,
 ) -> Option<EventContainer> {
-    if let Ok((block, height)) = decrypt_block(event.clone(), chain_id, chain_type, keys) {
-        let mut result = EventContainer::new(event.clone(), None, None, block, height);
+    if let Ok(block) = decrypt_block(event.clone(), chain_id, chain_type, keys) {
+        let mut result = EventContainer::new(event.clone(), None, None, block);
         event.tags.filter_standardized(TagKind::e()).for_each(|t| {
             if let TagStandard::Event {
                 event_id, marker, ..
@@ -73,12 +73,22 @@ pub fn decrypt_block(
     chain_id: &str,
     chain_type: BlockchainType,
     keys: &BcrKeys,
-) -> Result<(BillBlock, usize)> {
+) -> Result<BlockData> {
     if let Ok(Some(payload)) = unwrap_public_chain_event(Box::new(event.clone())) {
         if (payload.id == chain_id) && (payload.chain_type == chain_type) {
             let decrypted = decrypt_public_chain_event(&payload.payload, keys)?;
-            let event: BillBlockEvent = serde_json::from_value(decrypted.data)?;
-            Ok((event.block, event.block_height))
+            let data = match chain_type {
+                BlockchainType::Bill => {
+                    BlockData::Bill(serde_json::from_value::<BillBlockEvent>(decrypted.data)?.block)
+                }
+                BlockchainType::Identity => BlockData::Identity(
+                    serde_json::from_value::<IdentityBlockEvent>(decrypted.data)?.block,
+                ),
+                BlockchainType::Company => BlockData::Company(
+                    serde_json::from_value::<CompanyBlockEvent>(decrypted.data)?.block,
+                ),
+            };
+            Ok(data)
         } else {
             Err(Error::Blockchain(format!(
                 "Invalid blockchain event {} {} expected {chain_id} {chain_type}",
@@ -92,14 +102,38 @@ pub fn decrypt_block(
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum BlockData {
+    Bill(BillBlock),
+    Identity(IdentityBlock),
+    Company(CompanyBlock),
+}
+
+impl BlockData {
+    pub fn get_block_height(&self) -> u64 {
+        match self {
+            BlockData::Bill(block) => block.id,
+            BlockData::Identity(block) => block.id,
+            BlockData::Company(block) => block.id,
+        }
+    }
+    pub fn get_block_hash(&self) -> String {
+        match self {
+            BlockData::Bill(block) => block.hash.clone(),
+            BlockData::Identity(block) => block.hash.clone(),
+            BlockData::Company(block) => block.hash.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct EventContainer {
     pub event: nostr_sdk::Event,
     pub root_id: Option<EventId>,
     pub reply_id: Option<EventId>,
     pub children: Vec<EventContainer>,
-    pub block: BillBlock,
-    pub block_height: usize,
+    pub block: BlockData,
+    pub block_height: u64,
 }
 
 impl EventContainer {
@@ -107,9 +141,9 @@ impl EventContainer {
         event: nostr_sdk::Event,
         root_id: Option<EventId>,
         reply_id: Option<EventId>,
-        block: BillBlock,
-        block_height: usize,
+        block: BlockData,
     ) -> Self {
+        let block_height = block.get_block_height();
         Self {
             event,
             root_id,
@@ -192,7 +226,7 @@ impl EventContainer {
             chain_id: chain_id.to_string(),
             chain_type,
             block_height,
-            block_hash: self.block.hash.to_string(),
+            block_hash: self.block.get_block_hash(),
             received: now().timestamp() as u64,
             time: self.event.created_at.as_u64(),
             payload: self.event.clone(),

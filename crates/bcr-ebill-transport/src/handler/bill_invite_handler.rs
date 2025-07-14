@@ -13,7 +13,7 @@ use log::{debug, error, warn};
 use crate::{
     Event, EventEnvelope, EventType, NotificationJsonTransportApi, Result,
     event::blockchain_event::{ChainInvite, ChainKeys},
-    handler::public_chain_helpers::EventContainer,
+    handler::public_chain_helpers::{BlockData, EventContainer},
 };
 
 use super::{
@@ -58,7 +58,13 @@ impl NotificationHandlerApi for BillInviteEventHandler {
             {
                 // We try to add shorter and shorter chains until we have a success
                 for data in chain_data.iter() {
-                    let blocks = data.iter().map(|d| d.block.clone()).collect();
+                    let blocks = data
+                        .iter()
+                        .filter_map(|d| match d.block.clone() {
+                            BlockData::Bill(block) => Some(block),
+                            _ => None,
+                        })
+                        .collect();
                     if !data.is_empty()
                         && self
                             .processor
