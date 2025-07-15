@@ -78,7 +78,9 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         registration_number: Option<String>,
         registration_date: Option<String>,
         logo_file_upload_id: Option<String>,
+        ignore_logo_file_upload_id: bool,
         proof_of_registration_file_upload_id: Option<String>,
+        ignore_proof_of_registration_file_upload_id: bool,
         timestamp: u64,
     ) -> Result<()>;
 
@@ -406,7 +408,9 @@ impl CompanyServiceApi for CompanyService {
         registration_number: Option<String>,
         registration_date: Option<String>,
         logo_file_upload_id: Option<String>,
+        ignore_logo_file_upload_id: bool,
         proof_of_registration_file_upload_id: Option<String>,
+        ignore_proof_of_registration_file_upload_id: bool,
         timestamp: u64,
     ) -> Result<()> {
         debug!("editing company with id: {id}");
@@ -489,35 +493,53 @@ impl CompanyServiceApi for CompanyService {
             changed = true;
         }
 
-        if !changed
-            && logo_file_upload_id.is_none()
+        // remove the logo
+        if !ignore_logo_file_upload_id && logo_file_upload_id.is_none() {
+            company.logo_file = None;
+            changed = true;
+        }
+
+        // remove the proof of registration
+        if !ignore_proof_of_registration_file_upload_id
             && proof_of_registration_file_upload_id.is_none()
         {
+            company.proof_of_registration_file = None;
+            changed = true;
+        }
+
+        if !changed {
             return Ok(());
         }
 
         let (logo_file, proof_of_registration_file) = match nostr_relays.first() {
             Some(nostr_relay) => {
-                let logo_file = self
-                    .process_upload_file(
+                let logo_file = if ignore_logo_file_upload_id {
+                    None
+                } else {
+                    self.process_upload_file(
                         &logo_file_upload_id,
                         id,
                         &full_identity.key_pair.pub_key(),
                         nostr_relay,
                     )
-                    .await?;
+                    .await?
+                };
                 // only override the picture, if there is a new one
                 if logo_file.is_some() {
                     company.logo_file = logo_file.clone();
                 }
-                let proof_of_registration_file = self
-                    .process_upload_file(
+
+                let proof_of_registration_file = if ignore_proof_of_registration_file_upload_id {
+                    None
+                } else {
+                    self.process_upload_file(
                         &proof_of_registration_file_upload_id,
                         id,
                         &full_identity.key_pair.pub_key(),
                         nostr_relay,
                     )
-                    .await?;
+                    .await?
+                };
                 // only override the document, if there is a new one
                 if proof_of_registration_file.is_some() {
                     company.proof_of_registration_file = proof_of_registration_file.clone();
@@ -1330,7 +1352,9 @@ pub mod tests {
                 None,
                 None,
                 Some("some_file_id".to_string()),
+                false,
                 None,
+                true,
                 1731593928,
             )
             .await;
@@ -1371,7 +1395,9 @@ pub mod tests {
                 None,
                 None,
                 None,
+                true,
                 None,
+                true,
                 1731593928,
             )
             .await;
@@ -1424,7 +1450,9 @@ pub mod tests {
                 None,
                 None,
                 None,
+                true,
                 None,
+                true,
                 1731593928,
             )
             .await;
@@ -1489,7 +1517,9 @@ pub mod tests {
                 None,
                 None,
                 None,
+                true,
                 None,
+                true,
                 1731593928,
             )
             .await;
@@ -2403,7 +2433,9 @@ pub mod tests {
                     None,
                     None,
                     None,
+                    true,
                     None,
+                    true,
                     1731593928
                 )
                 .await

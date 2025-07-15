@@ -64,7 +64,9 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         city_of_birth_or_registration: Option<String>,
         identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,
+        ignore_avatar_file_upload_id: bool,
         proof_document_file_upload_id: Option<String>,
+        ignore_proof_document_file_upload_id: bool,
     ) -> Result<()>;
 
     /// Adds a new contact
@@ -254,7 +256,9 @@ impl ContactServiceApi for ContactService {
         city_of_birth_or_registration: Option<String>,
         identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,
+        ignore_avatar_file_upload_id: bool,
         proof_document_file_upload_id: Option<String>,
+        ignore_proof_document_file_upload_id: bool,
     ) -> Result<()> {
         debug!("updating contact with node_id: {node_id}");
         validate_node_id_network(node_id)?;
@@ -345,37 +349,51 @@ impl ContactServiceApi for ContactService {
                 &mut changed,
             );
 
-            if !changed
-                && avatar_file_upload_id.is_none()
-                && proof_document_file_upload_id.is_none()
-            {
+            // remove the avatar
+            if !ignore_avatar_file_upload_id && avatar_file_upload_id.is_none() {
+                contact.avatar_file = None;
+                changed = true;
+            }
+
+            // remove the proof document
+            if !ignore_proof_document_file_upload_id && proof_document_file_upload_id.is_none() {
+                contact.proof_document_file = None;
+                changed = true;
+            }
+
+            if !changed {
                 return Ok(());
             }
 
             if let Some(nostr_relay) = nostr_relays.first() {
-                let avatar_file = self
-                    .process_upload_file(
-                        &avatar_file_upload_id,
-                        node_id,
-                        &identity_public_key,
-                        nostr_relay,
-                    )
-                    .await?;
-                // only override the picture, if there is a new one
-                if avatar_file.is_some() {
-                    contact.avatar_file = avatar_file;
+                if !ignore_avatar_file_upload_id {
+                    let avatar_file = self
+                        .process_upload_file(
+                            &avatar_file_upload_id,
+                            node_id,
+                            &identity_public_key,
+                            nostr_relay,
+                        )
+                        .await?;
+                    // only override the picture, if there is a new one
+                    if avatar_file.is_some() {
+                        contact.avatar_file = avatar_file;
+                    }
                 }
-                let proof_document_file = self
-                    .process_upload_file(
-                        &proof_document_file_upload_id,
-                        node_id,
-                        &identity_public_key,
-                        nostr_relay,
-                    )
-                    .await?;
-                // only override the document, if there is a new one
-                if proof_document_file.is_some() {
-                    contact.proof_document_file = proof_document_file;
+
+                if !ignore_proof_document_file_upload_id {
+                    let proof_document_file = self
+                        .process_upload_file(
+                            &proof_document_file_upload_id,
+                            node_id,
+                            &identity_public_key,
+                            nostr_relay,
+                        )
+                        .await?;
+                    // only override the document, if there is a new one
+                    if proof_document_file.is_some() {
+                        contact.proof_document_file = proof_document_file;
+                    }
                 }
             };
         }
@@ -812,7 +830,9 @@ pub mod tests {
                     None,
                     None,
                     None,
-                    None
+                    true,
+                    None,
+                    true,
                 )
                 .await
                 .is_err()
@@ -909,7 +929,9 @@ pub mod tests {
             None,
             None,
             None,
+            true,
             None,
+            true,
         )
         .await;
         assert!(result.is_ok());

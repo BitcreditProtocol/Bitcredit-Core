@@ -22,6 +22,7 @@ use crate::{
             AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload,
             EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
         },
+        has_field,
     },
 };
 
@@ -182,6 +183,11 @@ impl Company {
         &self,
         #[wasm_bindgen(unchecked_param_type = "EditCompanyPayload")] payload: JsValue,
     ) -> Result<()> {
+        // if it's not there, we ignore it, if it's set to undefined, we remove
+        let has_logo_file_upload_id = has_field(&payload, "logo_file_upload_id");
+        let has_proof_of_registration_file_upload_id =
+            has_field(&payload, "proof_of_registration_file_upload_id");
+
         let company_payload: EditCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
         validate_file_upload_id(company_payload.logo_file_upload_id.as_deref())?;
         validate_file_upload_id(
@@ -210,7 +216,9 @@ impl Company {
                 company_payload.registration_number,
                 company_payload.registration_date,
                 company_payload.logo_file_upload_id,
+                !has_logo_file_upload_id,
                 company_payload.proof_of_registration_file_upload_id,
+                !has_proof_of_registration_file_upload_id,
                 timestamp,
             )
             .await?;
