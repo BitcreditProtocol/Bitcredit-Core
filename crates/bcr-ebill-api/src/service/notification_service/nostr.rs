@@ -716,6 +716,7 @@ mod tests {
     use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
+    use bcr_ebill_persistence::NostrEventOffset;
     use bcr_ebill_transport::handler::NotificationHandlerApi;
     use bcr_ebill_transport::{Event, EventEnvelope, EventType};
     use mockall::predicate;
@@ -723,7 +724,6 @@ mod tests {
 
     use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig, NostrConsumer};
-    use crate::persistence::nostr::NostrEventOffset;
     use crate::service::{
         contact_service::MockContactServiceApi,
         notification_service::{NotificationJsonTransportApi, test_utils::*},

@@ -1,6 +1,6 @@
-use crate::NotificationJsonTransportApi;
 use crate::{Error, Result};
 use async_trait::async_trait;
+use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
 use bcr_ebill_core::bill::BillValidateActionData;
 use bcr_ebill_core::bill::{BillId, BillKeys};
@@ -8,17 +8,12 @@ use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::blockchain::{Block, Blockchain};
-use bcr_ebill_core::nostr_contact::HandshakeStatus;
-use bcr_ebill_core::nostr_contact::NostrContact;
-use bcr_ebill_core::nostr_contact::TrustLevel;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
-use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 
-use super::BillChainEventProcessorApi;
+use super::{BillChainEventProcessorApi, NostrContactProcessorApi};
 
 impl ServiceTraitBounds for BillChainEventProcessor {}
 
@@ -81,8 +76,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
 pub struct BillChainEventProcessor {
     bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     bill_store: Arc<dyn BillStoreApi>,
-    transport: Arc<dyn NotificationJsonTransportApi>,
-    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -90,58 +84,14 @@ impl BillChainEventProcessor {
     pub fn new(
         bill_blockchain_store: Arc<dyn BillChainStoreApi>,
         bill_store: Arc<dyn BillStoreApi>,
-        transport: Arc<dyn NotificationJsonTransportApi>,
-        nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+        nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
             bill_blockchain_store,
             bill_store,
-            transport,
-            nostr_contact_store,
+            nostr_contact_processor,
             bitcoin_network,
-        }
-    }
-
-    pub async fn ensure_nostr_contact(&self, node_id: &NodeId) {
-        // check that the given node id is from the configured network
-        if node_id.network() != self.bitcoin_network {
-            warn!("Tried to ensure nostr contact for a different network {node_id}");
-            return;
-        }
-
-        // we already have the contact in the store, no need to resolve it
-        if let Ok(Some(_)) = self.nostr_contact_store.by_node_id(node_id).await {
-            return;
-        }
-        // Let's try to get some details and add the contact
-        if let Ok(Some(contact)) = self.transport.resolve_contact(node_id).await {
-            let relays = contact
-                .relays
-                .iter()
-                .map(|r| r.as_str().to_owned())
-                .collect();
-            self.upsert_contact(
-                node_id,
-                &NostrContact {
-                    npub: node_id.npub(),
-                    name: contact.metadata.name,
-                    relays,
-                    trust_level: TrustLevel::Participant,
-                    handshake_status: HandshakeStatus::None,
-                },
-            )
-            .await;
-        } else {
-            info!("Could not resolve nostr contact information for node_id {node_id}");
-        }
-    }
-
-    async fn upsert_contact(&self, node_id: &NodeId, contact: &NostrContact) {
-        if let Err(e) = self.nostr_contact_store.upsert(contact).await {
-            error!("Failed to save nostr contact information for node_id {node_id}: {e}");
-        } else if let Err(e) = self.transport.add_contact_subscription(node_id).await {
-            error!("Failed to add nostr contact subscription for contact node_id {node_id}: {e}");
         }
     }
 
@@ -191,7 +141,9 @@ impl BillChainEventProcessor {
                 .get_all_nodes_from_bill(&bill_keys)
                 .unwrap_or_default();
             for node_id in node_ids {
-                self.ensure_nostr_contact(&node_id).await
+                self.nostr_contact_processor
+                    .ensure_nostr_contact(&node_id)
+                    .await
             }
         }
         Ok(())
@@ -291,7 +243,7 @@ impl BillChainEventProcessor {
     async fn add_new_chain(&self, blocks: Vec<BillBlock>, keys: &BillKeys) -> Result<()> {
         let (bill_id, bill_first_version, chain) = self.get_valid_chain(blocks, keys)?;
         debug!("adding new chain for bill {bill_id}");
-        // issue block was validate in get_valid_chain
+        // issue block was validated in get_valid_chain
         let issue_block = chain.get_first_block().to_owned();
         // validate plaintext hash
         if !issue_block.validate_plaintext_hash(&keys.private_key) {
@@ -333,7 +285,9 @@ impl BillChainEventProcessor {
         // ensure that we have all nostr contacts for the bill participants
         let node_ids = chain.get_all_nodes_from_bill(keys).unwrap_or_default();
         for node_id in node_ids {
-            self.ensure_nostr_contact(&node_id).await
+            self.nostr_contact_processor
+                .ensure_nostr_contact(&node_id)
+                .await
         }
 
         Ok(())
@@ -423,6 +377,7 @@ impl BillChainEventProcessor {
 #[cfg(test)]
 mod tests {
     use bcr_ebill_core::{
+        NodeId,
         blockchain::bill::block::{
             BillEndorseBlockData, BillParticipantBlockData, BillRejectBlockData,
         },
@@ -430,29 +385,25 @@ mod tests {
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
-    use nostr::nips::nip01::Metadata;
 
-    use crate::{
-        handler::test_utils::{
-            MockBillChainStore, MockBillStore, MockNostrContactStore, bill_id_test, empty_address,
-            get_baseline_bill, get_baseline_identity, get_bill_keys, get_genesis_chain,
-            get_test_bitcredit_bill, node_id_test, node_id_test_other, private_key_test,
+    use crate::handler::{
+        MockNostrContactProcessorApi,
+        test_utils::{
+            MockBillChainStore, MockBillStore, bill_id_test, empty_address, get_baseline_bill,
+            get_baseline_identity, get_bill_keys, get_genesis_chain, get_test_bitcredit_bill,
+            node_id_test, node_id_test_other, private_key_test,
         },
-        transport::NostrContactData,
     };
-
-    use crate::transport::MockNotificationJsonTransportApi;
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (bill_chain_store, bill_store, transport, contact_store) = create_mocks();
+        let (bill_chain_store, bill_store, contact) = create_mocks();
         BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
     }
@@ -460,7 +411,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -475,8 +426,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -493,7 +443,7 @@ mod tests {
         let node_id = node_id_test();
         let npub = node_id.npub();
 
-        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -509,8 +459,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -532,8 +481,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, mut transport, mut contact_store) =
-            create_mocks();
+        let (mut bill_chain_store, mut bill_store, mut contact) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -552,33 +500,13 @@ mod tests {
             .times(1)
             .returning(move |_, _| Ok(()));
 
-        // If we don't have the contact in the store, we will try to resolve it via Nostr
-        contact_store.expect_by_node_id().returning(|_| Ok(None));
-
-        // If we get data it should be stored to the store
-        transport.expect_resolve_contact().returning(|_| {
-            Ok(Some(NostrContactData {
-                metadata: Metadata {
-                    name: Some("name".to_string()),
-                    ..Default::default()
-                },
-                relays: vec![],
-            }))
-        });
-
         // Store new contact
-        contact_store.expect_upsert().returning(|_| Ok(()));
-
-        // Subscribe to contact
-        transport
-            .expect_add_contact_subscription()
-            .returning(|_| Ok(()));
+        contact.expect_ensure_nostr_contact().returning(|_| ());
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -616,7 +544,7 @@ mod tests {
         .unwrap();
         assert!(chain.try_add_block(block));
 
-        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -638,8 +566,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -661,7 +588,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -681,8 +608,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -722,7 +648,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, transport, mut contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, mut contact) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -747,21 +673,12 @@ mod tests {
             .times(1)
             .returning(move |_, _| Ok(()));
 
-        contact_store.expect_by_node_id().returning(move |_| {
-            Ok(Some(NostrContact {
-                npub: node_id_test().npub(),
-                name: Some("name".to_string()),
-                relays: vec!["wws://some.example.com".to_string()],
-                trust_level: TrustLevel::Participant,
-                handshake_status: HandshakeStatus::None,
-            }))
-        });
+        contact.expect_ensure_nostr_contact().returning(|_| ());
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -795,7 +712,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store.expect_get_keys().returning(|_| {
@@ -818,8 +735,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -859,7 +775,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store.expect_get_keys().returning(|_| {
@@ -882,8 +798,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -924,7 +839,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, bill_store, transport, contact_store) = create_mocks();
+        let (mut bill_chain_store, bill_store, contact) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -937,8 +852,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
 
@@ -951,12 +865,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_block_for_bill_id_from_different_network() {
-        let (bill_chain_store, bill_store, transport, contact_store) = create_mocks();
+        let (bill_chain_store, bill_store, contact) = create_mocks();
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
+            Arc::new(contact),
             bitcoin::Network::Testnet,
         );
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
@@ -972,14 +885,12 @@ mod tests {
     fn create_mocks() -> (
         MockBillChainStore,
         MockBillStore,
-        MockNotificationJsonTransportApi,
-        MockNostrContactStore,
+        MockNostrContactProcessorApi,
     ) {
         (
             MockBillChainStore::new(),
             MockBillStore::new(),
-            MockNotificationJsonTransportApi::new(),
-            MockNostrContactStore::new(),
+            MockNostrContactProcessorApi::new(),
         )
     }
 }

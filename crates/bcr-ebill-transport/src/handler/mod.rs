@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
-    blockchain::bill::BillBlock,
+    blockchain::{bill::BillBlock, company::CompanyBlock},
+    company::CompanyKeys,
 };
 use log::trace;
 #[cfg(test)]
@@ -15,14 +16,18 @@ mod bill_action_event_handler;
 mod bill_chain_event_handler;
 mod bill_chain_event_processor;
 mod bill_invite_handler;
+mod company_chain_event_processor;
 mod company_invite_handler;
+mod nostr_contact_processor;
 mod public_chain_helpers;
 
 pub use bill_action_event_handler::BillActionEventHandler;
 pub use bill_chain_event_handler::BillChainEventHandler;
 pub use bill_chain_event_processor::BillChainEventProcessor;
 pub use bill_invite_handler::BillInviteEventHandler;
+pub use company_chain_event_processor::CompanyChainEventProcessor;
 pub use company_invite_handler::CompanyInviteEventHandler;
+pub use nostr_contact_processor::NostrContactProcessor;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -73,6 +78,45 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockBillChainEventProcessorApi {}
+
+/// Generalizes the handling and validation of a bill block event.
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
+    /// Processes the chain data for given bill id, some blocks and an otptional key that will be
+    /// present when we are joining a new chain.
+    async fn process_chain_data(
+        &self,
+        bill_id: &NodeId,
+        blocks: Vec<CompanyBlock>,
+        keys: Option<CompanyKeys>,
+    ) -> Result<()>;
+
+    /// Validates that a given bill id is relevant for us, and if so also checks that the sender
+    /// of the event is part of the chain this event is for.
+    async fn validate_chain_event_and_sender(
+        &self,
+        bill_id: &NodeId,
+        sender: nostr::PublicKey,
+    ) -> Result<bool>;
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockCompanyChainEventProcessorApi {}
+
+/// Generalizes the handling of other Nostr identities.
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NostrContactProcessorApi: ServiceTraitBounds {
+    /// Ensures that a given node id is in or Nostr contacts. If not it will be added
+    /// with data fetched from Nostr relays.
+    async fn ensure_nostr_contact(&self, node_id: &NodeId);
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockNostrContactProcessorApi {}
 
 /// Logs all events that are received and registered in the event_types.
 pub struct LoggingEventHandler {

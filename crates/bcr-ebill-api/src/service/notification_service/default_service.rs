@@ -914,10 +914,10 @@ mod tests {
     };
     use super::*;
     use crate::tests::tests::{
-        MockBillChainStoreApiMock, MockBillStoreApiMock, MockChainKeyService,
-        MockNostrChainEventStore, MockNostrContactStore, MockNostrEventOffsetStoreApiMock,
+        MockChainKeyService, MockNostrChainEventStore, MockNostrContactStore,
         MockNostrQueuedMessageStore, MockNotificationStoreApiMock, TEST_NODE_ID_SECP_AS_NPUB_HEX,
-        bill_id_test, node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+        bill_id_test, get_mock_db_ctx, node_id_test, node_id_test_other, node_id_test_other2,
+        private_key_test,
     };
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -2179,11 +2179,7 @@ mod tests {
     async fn test_create_nostr_consumer() {
         let clients = vec![Arc::new(get_mock_nostr_client().await)];
         let contact_service = Arc::new(MockContactServiceApi::new());
-        let store = Arc::new(MockNostrEventOffsetStoreApiMock::new());
-        let notification_store = Arc::new(MockNotificationStoreApiMock::new());
         let push_service = Arc::new(MockPushService::new());
-        let bill_store = Arc::new(MockBillStoreApiMock::new());
-        let bill_blockchain_store = Arc::new(MockBillChainStoreApiMock::new());
         let mut nostr_contact_store = MockNostrContactStore::new();
         nostr_contact_store.expect_by_node_id().returning(|_| {
             Ok(Some(NostrContact {
@@ -2194,19 +2190,14 @@ mod tests {
                 handshake_status: HandshakeStatus::None,
             }))
         });
-        let chain_key_store = Arc::new(MockChainKeyService::new());
-        let chain_event_store = Arc::new(MockNostrChainEventStore::new());
+        let chain_key_service = Arc::new(MockChainKeyService::new());
+        let mock_db_context = get_mock_db_ctx(Some(nostr_contact_store));
         let _ = create_nostr_consumer(
             clients,
             contact_service,
-            store,
-            notification_store,
             push_service,
-            bill_blockchain_store,
-            bill_store,
-            Arc::new(nostr_contact_store),
-            chain_key_store,
-            chain_event_store,
+            chain_key_service,
+            mock_db_context,
         )
         .await;
     }

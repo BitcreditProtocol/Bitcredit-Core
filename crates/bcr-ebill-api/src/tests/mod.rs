@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
-    use crate::{CONFIG, MintConfig, NostrConfig, data::bill::BillKeys};
+    use crate::{CONFIG, DbContext, MintConfig, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
@@ -40,11 +40,11 @@ pub mod tests {
         event::{company_events::CompanyChainEvent, identity_events::IdentityChainEvent},
         transport::NostrContactData,
     };
-    use std::path::Path;
     use std::{
         collections::{HashMap, HashSet},
         str::FromStr,
     };
+    use std::{path::Path, sync::Arc};
 
     // Need to wrap mocks, because traits are in a different crate
     mockall::mock! {
@@ -448,6 +448,26 @@ pub mod tests {
             ) -> bcr_ebill_transport::Result<()>;
             async fn send_retry_messages(&self) -> bcr_ebill_transport::Result<()>;
             async fn resolve_contact(&self, node_id: &NodeId) -> bcr_ebill_transport::Result<Option<NostrContactData>>;
+        }
+    }
+
+    pub fn get_mock_db_ctx(nostr_contact_store: Option<MockNostrContactStore>) -> DbContext {
+        DbContext {
+            contact_store: Arc::new(MockContactStoreApiMock::new()),
+            bill_store: Arc::new(MockBillStoreApiMock::new()),
+            bill_blockchain_store: Arc::new(MockBillChainStoreApiMock::new()),
+            identity_store: Arc::new(MockIdentityStoreApiMock::new()),
+            identity_chain_store: Arc::new(MockIdentityChainStoreApiMock::new()),
+            company_chain_store: Arc::new(MockCompanyChainStoreApiMock::new()),
+            company_store: Arc::new(MockCompanyStoreApiMock::new()),
+            file_upload_store: Arc::new(MockFileUploadStoreApiMock::new()),
+            nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApiMock::new()),
+            notification_store: Arc::new(MockNotificationStoreApiMock::new()),
+            backup_store: Arc::new(MockBackupStoreApiMock::new()),
+            queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
+            nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
+            mint_store: Arc::new(MockMintStore::new()),
+            nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
         }
     }
 

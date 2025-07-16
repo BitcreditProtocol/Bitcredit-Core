@@ -38,6 +38,7 @@ pub struct Context {
 
 impl Context {
     pub async fn new(cfg: Config, db: DbContext) -> Result<Self> {
+        let db_ctx = db.clone();
         let file_upload_client = Arc::new(FileStorageClient::new());
         let contact_service = Arc::new(ContactService::new(
             db.contact_store.clone(),
@@ -106,14 +107,9 @@ impl Context {
         let nostr_consumer = create_nostr_consumer(
             nostr_clients.clone(),
             contact_service.clone(),
-            db.nostr_event_offset_store.clone(),
-            db.notification_store.clone(),
             push_service.clone(),
-            db.bill_blockchain_store.clone(),
-            db.bill_store.clone(),
-            db.nostr_contact_store.clone(),
             chain_key_service.clone(),
-            db.nostr_chain_event_store.clone(),
+            db_ctx.clone(),
         )
         .await?;
 

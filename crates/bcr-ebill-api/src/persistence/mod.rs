@@ -30,7 +30,6 @@ pub use bcr_ebill_persistence::contact;
 pub use bcr_ebill_persistence::db;
 pub use bcr_ebill_persistence::file_upload;
 pub use bcr_ebill_persistence::identity;
-pub use bcr_ebill_persistence::nostr;
 pub use bcr_ebill_persistence::notification;
 
 /// A container for all persistence related dependencies.

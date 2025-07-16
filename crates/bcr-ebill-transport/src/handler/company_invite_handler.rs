@@ -1,20 +1,29 @@
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{cmp::Reverse, collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType, util::BcrKeys};
+use bcr_ebill_core::{
+    NodeId, ServiceTraitBounds,
+    blockchain::{BlockchainType, company::CompanyBlock},
+    company::CompanyKeys,
+    util::BcrKeys,
+};
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, warn};
 
 use crate::{
     Event, EventEnvelope, EventType, NotificationJsonTransportApi, Result,
     event::blockchain_event::{ChainInvite, ChainKeys},
-    handler::public_chain_helpers::EventContainer,
+    handler::public_chain_helpers::{BlockData, EventContainer},
 };
 
-use super::{NotificationHandlerApi, public_chain_helpers::collect_event_chains};
+use super::{
+    CompanyChainEventProcessorApi, NotificationHandlerApi,
+    public_chain_helpers::collect_event_chains,
+};
 
 pub struct CompanyInviteEventHandler {
     transport: Arc<dyn NotificationJsonTransportApi>,
+    processor: Arc<dyn CompanyChainEventProcessorApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
@@ -38,7 +47,7 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                 .resolve_public_chain(&decoded.data.chain_id, decoded.data.chain_type)
                 .await?;
 
-            let inserted_chain: Vec<EventContainer> = Vec::new();
+            let mut inserted_chain: Vec<EventContainer> = Vec::new();
             if let Ok(chain_data) = self
                 .resolve_chain_data(
                     &decoded.data.keys,
@@ -51,25 +60,31 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                 // We try to add shorter and shorter chains until we have a success
                 for data in chain_data.iter() {
                     debug!("Processing company chain data with block {data:#?}");
-                    // let blocks = data.iter().map(|d| d.block.clone()).collect();
-                    // debug!("Processing chain data with {} blocks", blocks.len());
-                    // if !data.is_empty()
-                    //     && self
-                    //         .processor
-                    //         .process_chain_data(
-                    //             &BillId::from_str(&decoded.data.chain_id)?,
-                    //             blocks,
-                    //             Some(BillKeys {
-                    //                 public_key: decoded.data.keys.public_key.to_owned(),
-                    //                 private_key: decoded.data.keys.private_key.to_owned(),
-                    //             }),
-                    //         )
-                    //         .await
-                    //         .is_ok()
-                    // {
-                    //     inserted_chain = data.to_owned();
-                    //     break;
-                    // }
+                    let blocks: Vec<CompanyBlock> = data
+                        .iter()
+                        .filter_map(|d| match d.block.clone() {
+                            BlockData::Company(block) => Some(block),
+                            _ => None,
+                        })
+                        .collect();
+                    debug!("Processing company chain data with {} blocks", blocks.len());
+                    if !data.is_empty()
+                        && self
+                            .processor
+                            .process_chain_data(
+                                &NodeId::from_str(&decoded.data.chain_id)?,
+                                blocks,
+                                Some(CompanyKeys {
+                                    public_key: decoded.data.keys.public_key.to_owned(),
+                                    private_key: decoded.data.keys.private_key.to_owned(),
+                                }),
+                            )
+                            .await
+                            .is_ok()
+                    {
+                        inserted_chain = data.to_owned();
+                        break;
+                    }
                 }
                 // we are onboarded to the chain so store all Nostr chain data also the invalid one
                 if let Err(e) = self
@@ -84,10 +99,10 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                     error!("Error storing chain events: {e}");
                 }
             } else {
-                error!("Could not extract chain data for invite event {event:?}");
+                error!("Could not extract chain data for company invite event {event:?}");
             }
         } else {
-            warn!("Could not decode event to ChainInvite {event:?}");
+            warn!("Could not decode event to company ChainInvite {event:?}");
         }
         Ok(())
     }
@@ -98,10 +113,12 @@ impl ServiceTraitBounds for CompanyInviteEventHandler {}
 impl CompanyInviteEventHandler {
     pub fn new(
         transport: Arc<dyn NotificationJsonTransportApi>,
+        processor: Arc<dyn CompanyChainEventProcessorApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     ) -> Self {
         Self {
             transport,
+            processor,
             chain_event_store,
         }
     }
