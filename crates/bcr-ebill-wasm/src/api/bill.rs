@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use super::Result;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
     data::{
         NodeId,
@@ -25,7 +26,7 @@ use crate::{
     api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
-        BinaryFileResponse, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
             AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillIdResponse,
             BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
@@ -41,6 +42,44 @@ use crate::{
 };
 
 use super::identity::get_current_identity;
+
+async fn get_attachment(bill_id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
+    let parsed_bill_id = BillId::from_str(bill_id)?;
+    let current_timestamp = util::date::now().timestamp() as u64;
+    let identity = get_ctx().identity_service.get_identity().await?;
+    // get bill
+    let bill = get_ctx()
+        .bill_service
+        .get_detail(
+            &parsed_bill_id,
+            &identity,
+            &get_current_identity_node_id().await?,
+            current_timestamp,
+        )
+        .await?;
+
+    // check if this file even exists on the bill
+    let file = match bill.data.files.iter().find(|f| f.name == file_name) {
+        Some(f) => f,
+        None => {
+            return Err(bcr_ebill_api::service::bill_service::Error::NotFound.into());
+        }
+    };
+
+    // fetch the attachment
+    let keys = get_ctx()
+        .bill_service
+        .get_bill_keys(&parsed_bill_id)
+        .await?;
+    let file_bytes = get_ctx()
+        .bill_service
+        .open_and_decrypt_attached_file(&parsed_bill_id, file, &keys.private_key)
+        .await?;
+
+    let content_type = detect_content_type_for_bytes(&file_bytes)
+        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+    Ok((file_bytes, content_type))
+}
 
 #[wasm_bindgen]
 pub struct Bill;
@@ -111,43 +150,20 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
     pub async fn attachment(&self, bill_id: &str, file_name: &str) -> Result<JsValue> {
-        let parsed_bill_id = BillId::from_str(bill_id)?;
-        let current_timestamp = util::date::now().timestamp() as u64;
-        let identity = get_ctx().identity_service.get_identity().await?;
-        // get bill
-        let bill = get_ctx()
-            .bill_service
-            .get_detail(
-                &parsed_bill_id,
-                &identity,
-                &get_current_identity_node_id().await?,
-                current_timestamp,
-            )
-            .await?;
-
-        // check if this file even exists on the bill
-        let file = match bill.data.files.iter().find(|f| f.name == file_name) {
-            Some(f) => f,
-            None => {
-                return Err(bcr_ebill_api::service::bill_service::Error::NotFound.into());
-            }
-        };
-
-        // fetch the attachment
-        let keys = get_ctx()
-            .bill_service
-            .get_bill_keys(&parsed_bill_id)
-            .await?;
-        let file_bytes = get_ctx()
-            .bill_service
-            .open_and_decrypt_attached_file(&parsed_bill_id, file, &keys.private_key)
-            .await?;
-
-        let content_type = detect_content_type_for_bytes(&file_bytes)
-            .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
-
+        let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
         let res = serde_wasm_bindgen::to_value(&BinaryFileResponse {
             data: file_bytes,
+            name: file_name.to_owned(),
+            content_type,
+        })?;
+        Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "Base64FileResponse")]
+    pub async fn attachment_base64(&self, bill_id: &str, file_name: &str) -> Result<JsValue> {
+        let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
+        let res = serde_wasm_bindgen::to_value(&Base64FileResponse {
+            data: STANDARD.encode(&file_bytes),
             name: file_name.to_owned(),
             content_type,
         })?;

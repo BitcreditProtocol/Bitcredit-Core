@@ -56,8 +56,8 @@ let config = {
   job_runner_check_interval_seconds: 600,
   // default_mint_url: "http://localhost:4343",
   default_mint_url: "https://wildcat-dev-docker.minibill.tech",
-  // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
-  default_mint_node_id: "bitcrt0372422bfa5c9b60ef2f10ced26e764983b2e675cd7fac374f5f223616530ce3fb", // dev mint
+// default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
+  default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
 };
 
 async function start() {
@@ -334,14 +334,8 @@ async function fetchTempFile() {
 async function fetchContactFile() {
   let node_id = document.getElementById("contact_id").value;
   let file_name = document.getElementById("contact_file_name").value;
-  let file = await contactApi.file(node_id, file_name);
-  let file_bytes = file.data;
-  let arr = new Uint8Array(file_bytes);
-  let blob = new Blob([arr], { type: file.content_type });
-  let url = URL.createObjectURL(blob);
-
-  console.log("file", file, url, blob);
-  document.getElementById("attached_file").src = url;
+  let file = await contactApi.file_base64(node_id, file_name);
+  document.getElementById("attached_file").src = `data:${file.content_type};base64,${file.data}`;
 }
 
 async function switchIdentity() {
@@ -523,11 +517,8 @@ async function fetchBillFile() {
   let detail = await billApi.detail(bill_id);
 
   if (detail.data.files.length > 0) {
-    let file = await billApi.attachment(bill_id, detail.data.files[0].name);
-    let file_bytes = file.data;
-    let arr = new Uint8Array(file_bytes);
-    let blob = new Blob([arr], { type: file.content_type });
-    document.getElementById("bill_attached_file").src = URL.createObjectURL(blob);
+    let file = await billApi.attachment_base64(bill_id, detail.data.files[0].name);
+    document.getElementById("bill_attached_file").src = `data:${file.content_type};base64,${file.data}`;
   } else {
       console.log("Bill has no file");
   }
