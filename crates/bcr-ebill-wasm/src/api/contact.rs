@@ -3,7 +3,9 @@ use std::str::FromStr;
 use crate::data::contact::{
     ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload, NewContactPayload,
 };
-use crate::data::{Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse};
+use crate::data::{
+    Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
+};
 use crate::{Result, context::get_ctx};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::data::contact::ContactType;
@@ -177,6 +179,11 @@ impl Contact {
         &self,
         #[wasm_bindgen(unchecked_param_type = "EditContactPayload")] payload: JsValue,
     ) -> Result<()> {
+        // if it's not there, we ignore it, if it's set to undefined, we remove
+        let has_avatar_file_upload_id = has_field(&payload, "avatar_file_upload_id");
+        let has_proof_document_file_upload_id =
+            has_field(&payload, "proof_document_file_upload_id");
+
         let contact_payload: EditContactPayload = serde_wasm_bindgen::from_value(payload)?;
         validate_file_upload_id(contact_payload.avatar_file_upload_id.as_deref())?;
         validate_file_upload_id(contact_payload.proof_document_file_upload_id.as_deref())?;
@@ -192,7 +199,9 @@ impl Contact {
                 contact_payload.city_of_birth_or_registration,
                 contact_payload.identification_number,
                 contact_payload.avatar_file_upload_id,
+                !has_avatar_file_upload_id,
                 contact_payload.proof_document_file_upload_id,
+                !has_proof_document_file_upload_id,
             )
             .await?;
         Ok(())

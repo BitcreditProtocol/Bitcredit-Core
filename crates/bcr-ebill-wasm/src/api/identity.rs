@@ -2,7 +2,7 @@ use crate::{
     Result,
     context::get_ctx,
     data::{
-        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
         identity::{
             ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
             SwitchIdentity,
@@ -192,6 +192,12 @@ impl Identity {
         &self,
         #[wasm_bindgen(unchecked_param_type = "ChangeIdentityPayload")] payload: JsValue,
     ) -> Result<()> {
+        // if it's not there, we ignore it, if it's set to undefined, we remove
+        let has_profile_picture_file_upload_id =
+            has_field(&payload, "profile_picture_file_upload_id");
+        let has_identity_document_file_upload_id =
+            has_field(&payload, "identity_document_file_upload_id");
+
         let identity_payload: ChangeIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
 
         validate_file_upload_id(identity_payload.profile_picture_file_upload_id.as_deref())?;
@@ -221,7 +227,9 @@ impl Identity {
                 identity_payload.city_of_birth,
                 identity_payload.identification_number,
                 identity_payload.profile_picture_file_upload_id,
+                !has_profile_picture_file_upload_id,
                 identity_payload.identity_document_file_upload_id,
+                !has_identity_document_file_upload_id,
                 timestamp,
             )
             .await?;

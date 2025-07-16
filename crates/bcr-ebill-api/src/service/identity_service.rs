@@ -35,7 +35,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
+        ignore_profile_picture_file_upload_id: bool,
         identity_document_file_upload_id: Option<String>,
+        ignore_identity_document_file_upload_id: bool,
         timestamp: u64,
     ) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
@@ -198,7 +200,9 @@ impl IdentityServiceApi for IdentityService {
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
+        ignore_profile_picture_file_upload_id: bool,
         identity_document_file_upload_id: Option<String>,
+        ignore_identity_document_file_upload_id: bool,
         timestamp: u64,
     ) -> Result<()> {
         debug!("updating identity");
@@ -279,37 +283,53 @@ impl IdentityServiceApi for IdentityService {
                 &mut changed,
             );
 
-            if !changed
-                && profile_picture_file_upload_id.is_none()
+            // remove the profile picture
+            if !ignore_profile_picture_file_upload_id && profile_picture_file_upload_id.is_none() {
+                identity.profile_picture_file = None;
+                changed = true;
+            }
+
+            // remove the identity document
+            if !ignore_identity_document_file_upload_id
                 && identity_document_file_upload_id.is_none()
             {
+                identity.identity_document_file = None;
+                changed = true;
+            }
+
+            if !changed {
                 return Ok(());
             }
 
             if let Some(nostr_relay) = nostr_relays.first() {
-                profile_picture_file = self
-                    .process_upload_file(
-                        &profile_picture_file_upload_id,
-                        &identity.node_id,
-                        &keys.pub_key(),
-                        nostr_relay,
-                    )
-                    .await?;
-                // only override the picture, if there is a new one
-                if profile_picture_file.is_some() {
-                    identity.profile_picture_file = profile_picture_file.clone();
+                if !ignore_profile_picture_file_upload_id {
+                    profile_picture_file = self
+                        .process_upload_file(
+                            &profile_picture_file_upload_id,
+                            &identity.node_id,
+                            &keys.pub_key(),
+                            nostr_relay,
+                        )
+                        .await?;
+                    // only override the picture, if there is a new one
+                    if profile_picture_file.is_some() {
+                        identity.profile_picture_file = profile_picture_file.clone();
+                    }
                 }
-                identity_document_file = self
-                    .process_upload_file(
-                        &identity_document_file_upload_id,
-                        &identity.node_id,
-                        &keys.pub_key(),
-                        nostr_relay,
-                    )
-                    .await?;
-                // only override the document, if there is a new one
-                if identity_document_file.is_some() {
-                    identity.identity_document_file = identity_document_file.clone();
+
+                if !ignore_identity_document_file_upload_id {
+                    identity_document_file = self
+                        .process_upload_file(
+                            &identity_document_file_upload_id,
+                            &identity.node_id,
+                            &keys.pub_key(),
+                            nostr_relay,
+                        )
+                        .await?;
+                    // only override the document, if there is a new one
+                    if identity_document_file.is_some() {
+                        identity.identity_document_file = identity_document_file.clone();
+                    }
                 }
             };
         }
@@ -939,7 +959,9 @@ mod tests {
                 None,
                 None,
                 None,
+                true,
                 None,
+                true,
                 1731593928,
             )
             .await;
@@ -971,7 +993,9 @@ mod tests {
                 None,
                 None,
                 None,
+                true,
                 None,
+                true,
                 1731593928,
             )
             .await;
@@ -1022,7 +1046,9 @@ mod tests {
                 None,
                 None,
                 None,
+                true,
                 None,
+                true,
                 1731593928,
             )
             .await;

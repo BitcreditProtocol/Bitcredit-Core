@@ -294,3 +294,7 @@ impl From<UploadFileResult> for UploadFileResponse {
         }
     }
 }
+
+pub fn has_field(js_value: &JsValue, field: &str) -> bool {
+    js_sys::Reflect::has(js_value, &JsValue::from_str(field)).unwrap_or(false)
+}

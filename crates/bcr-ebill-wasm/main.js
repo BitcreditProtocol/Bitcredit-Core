@@ -6,6 +6,7 @@ document.getElementById("company_create").addEventListener("click", createCompan
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
 document.getElementById("fetch_contacts").addEventListener("click", fetchContacts);
+document.getElementById("remove_contact_avatar").addEventListener("click", removeContactAvatar);
 document.getElementById("delete_contact").addEventListener("click", deleteContact);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
@@ -570,6 +571,14 @@ function measure(promiseFunction) {
 async function fetchContacts() {
   let measured = measure(async () => {
     return await contactApi.list();
+  });
+  await measured();
+}
+
+async function removeContactAvatar() {
+  let node_id = document.getElementById("node_id_contact").value;
+  let measured = measure(async () => {
+    return await contactApi.edit({ node_id: node_id, avatar_file_upload_id: undefined, postal_address: {} });
   });
   await measured();
 }
