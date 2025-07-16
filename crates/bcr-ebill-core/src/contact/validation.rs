@@ -25,13 +25,18 @@ pub fn validate_create_contact(
             // only node id and name need to be set
         }
         ContactType::Person | ContactType::Company => {
-            // email and address need to be set
+            // email and address need to be set and not blank
             if let Some(pa) = postal_address {
                 pa.validate()?;
             } else {
                 return Err(ValidationError::FieldEmpty(Field::Address));
             }
-            if email.is_none() {
+
+            if let Some(set_email) = email {
+                if set_email.trim().is_empty() {
+                    return Err(ValidationError::FieldEmpty(Field::Email));
+                }
+            } else {
                 return Err(ValidationError::FieldEmpty(Field::Email));
             }
             util::validate_file_upload_id(avatar_file_upload_id.as_deref())?;
@@ -99,6 +104,7 @@ mod tests {
     #[case::invalid_node_id(ContactType::Anon, node_id_regtest(), "some name", &None, &None, &None, &None, ValidationError::InvalidNodeId)]
     #[case::invalid_name(ContactType::Anon, node_id_test(), "", &None, &None, &None, &None, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_email(ContactType::Person, node_id_test(), "some name", &None, &Some(valid_address()), &None, &None, ValidationError::FieldEmpty(Field::Email))]
+    #[case::invalid_email_blank(ContactType::Person, node_id_test(), "some name", &Some("".into()), &Some(valid_address()), &None, &None, ValidationError::FieldEmpty(Field::Email))]
     #[case::invalid_address(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &None, &None, &None, ValidationError::FieldEmpty(Field::Address))]
     #[case::blank_city(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { city: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::City))]
     #[case::blank_country(ContactType::Person, node_id_test(), "some name", &Some("mail@mail.com".into()), &Some(PostalAddress { country: "".into(), ..valid_address()}), &None, &None, ValidationError::FieldEmpty(Field::Country))]
