@@ -19,8 +19,12 @@ pub fn validate_create_identity(
             // only node id and name need to be set
         }
         IdentityType::Ident => {
-            // email needs to be set
-            if email.is_none() {
+            // email needs to be set and not blank
+            if let Some(set_email) = email {
+                if set_email.trim().is_empty() {
+                    return Err(ValidationError::FieldEmpty(Field::Email));
+                }
+            } else {
                 return Err(ValidationError::FieldEmpty(Field::Email));
             }
             postal_address.validate()?;
@@ -85,6 +89,7 @@ mod tests {
     #[rstest]
     #[case::invalid_name(IdentityType::Anon, "", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Name))]
     #[case::ident_no_email(IdentityType::Ident, "some name", &None, &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
+    #[case::ident_blank_email(IdentityType::Ident, "some name", &Some("".into()), &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
     #[case::ident_blank_address(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, zip: None, address: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
     #[case::ident_blank_city(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, address: None, zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
     #[case::ident_blank_country(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { address: None, city: None, zip: None, country: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Country))]
