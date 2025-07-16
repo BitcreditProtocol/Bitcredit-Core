@@ -4,6 +4,8 @@ use std::{ffi::OsStr, path::Path};
 #[cfg(test)]
 use mockall::automock;
 
+use crate::constants::{MAX_DOCUMENT_FILE_SIZE_BYTES, MAX_PICTURE_FILE_SIZE_BYTES};
+
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait UploadFileHandler: Send + Sync {
@@ -14,13 +16,35 @@ pub trait UploadFileHandler: Send + Sync {
     /// Returns the name for an uploaded file
     fn name(&self) -> Option<String>;
     /// Returns the file length for an uploaded file
-    fn len(&self) -> u64;
+    fn len(&self) -> usize;
     /// Returns whether it's empty
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
     /// detects the content type of the file by checking the first bytes
     async fn detect_content_type(&self) -> std::io::Result<Option<String>>;
+}
+
+/// The different types of files we have in the system
+pub enum UploadFileType {
+    Document,
+    Picture,
+}
+
+impl UploadFileType {
+    pub fn check_file_size(&self, bytes_len: usize) -> bool {
+        match self {
+            UploadFileType::Document => bytes_len <= MAX_DOCUMENT_FILE_SIZE_BYTES,
+            UploadFileType::Picture => bytes_len <= MAX_PICTURE_FILE_SIZE_BYTES,
+        }
+    }
+
+    pub fn max_file_size(&self) -> usize {
+        match self {
+            UploadFileType::Document => MAX_DOCUMENT_FILE_SIZE_BYTES,
+            UploadFileType::Picture => MAX_PICTURE_FILE_SIZE_BYTES,
+        }
+    }
 }
 
 /// Function to sanitize the filename by removing unwanted characters.

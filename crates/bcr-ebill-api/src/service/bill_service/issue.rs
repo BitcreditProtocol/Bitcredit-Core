@@ -1,5 +1,10 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
-use crate::{data::validate_node_id_network, get_config, util};
+use crate::{
+    constants::MAX_BILL_ATTACHMENTS,
+    data::validate_node_id_network,
+    get_config,
+    util::{self, file::UploadFileType},
+};
 use bcr_ebill_core::{
     File, PublicKey, Validate, ValidationError,
     bill::{
@@ -23,7 +28,14 @@ impl BillService {
         bill_id: &BillId,
         public_key: &PublicKey,
         relay_url: &str,
+        upload_file_type: UploadFileType,
     ) -> Result<File> {
+        // validate file size for upload file type
+        if !upload_file_type.check_file_size(file_bytes.len()) {
+            return Err(Error::Validation(ValidationError::FileIsTooBig(
+                upload_file_type.max_file_size(),
+            )));
+        }
         let file_hash = util::sha256_hash(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
@@ -139,6 +151,10 @@ impl BillService {
             public_key: keys.pub_key(),
         };
 
+        if data.file_upload_ids.len() > MAX_BILL_ATTACHMENTS {
+            return Err(Error::Validation(ValidationError::TooManyFiles));
+        }
+
         let mut bill_files: Vec<File> = vec![];
         if let Some(nostr_relay) = nostr_relays.first() {
             for file_upload_id in data.file_upload_ids.iter() {
@@ -154,6 +170,7 @@ impl BillService {
                         &bill_id,
                         &public_key,
                         nostr_relay,
+                        UploadFileType::Document,
                     )
                     .await?,
                 );

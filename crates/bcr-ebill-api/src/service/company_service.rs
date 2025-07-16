@@ -19,6 +19,7 @@ use crate::get_config;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
 use crate::util::BcrKeys;
+use crate::util::file::UploadFileType;
 use crate::{
     persistence::{
         contact::ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
@@ -152,6 +153,7 @@ impl CompanyService {
         id: &NodeId,
         public_key: &PublicKey,
         relay_url: &str,
+        upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for company {id}: {upload_id:?}");
@@ -160,6 +162,12 @@ impl CompanyService {
                 .read_temp_upload_file(upload_id)
                 .await
                 .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+            // validate file size for upload file type
+            if !upload_file_type.check_file_size(file_bytes.len()) {
+                return Err(crate::service::Error::Validation(
+                    ValidationError::FileIsTooBig(upload_file_type.max_file_size()),
+                ));
+            }
             let file = self
                 .encrypt_and_upload_file(file_name, file_bytes, id, public_key, relay_url)
                 .await?;
@@ -302,6 +310,7 @@ impl CompanyServiceApi for CompanyService {
                         &id,
                         &full_identity.key_pair.pub_key(),
                         nostr_relay,
+                        UploadFileType::Document,
                     )
                     .await?;
 
@@ -311,6 +320,7 @@ impl CompanyServiceApi for CompanyService {
                         &id,
                         &full_identity.key_pair.pub_key(),
                         nostr_relay,
+                        UploadFileType::Picture,
                     )
                     .await?;
                 (proof_of_registration_file, logo_file)
@@ -521,6 +531,7 @@ impl CompanyServiceApi for CompanyService {
                         id,
                         &full_identity.key_pair.pub_key(),
                         nostr_relay,
+                        UploadFileType::Picture,
                     )
                     .await?
                 };
@@ -537,6 +548,7 @@ impl CompanyServiceApi for CompanyService {
                         id,
                         &full_identity.key_pair.pub_key(),
                         nostr_relay,
+                        UploadFileType::Document,
                     )
                     .await?
                 };

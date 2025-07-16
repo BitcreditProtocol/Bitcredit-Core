@@ -1,6 +1,7 @@
 use super::Result;
 use crate::data::validate_node_id_network;
 use crate::external::file_storage::FileStorageClientApi;
+use crate::util::file::UploadFileType;
 use crate::{get_config, util};
 use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
 
@@ -132,6 +133,7 @@ impl IdentityService {
         id: &NodeId,
         public_key: &PublicKey,
         relay_url: &str,
+        upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for identity {id}: {upload_id:?}");
@@ -140,6 +142,12 @@ impl IdentityService {
                 .read_temp_upload_file(upload_id)
                 .await
                 .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+            // validate file size for upload file type
+            if !upload_file_type.check_file_size(file_bytes.len()) {
+                return Err(crate::service::Error::Validation(
+                    ValidationError::FileIsTooBig(upload_file_type.max_file_size()),
+                ));
+            }
             let file = self
                 .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, relay_url)
                 .await?;
@@ -309,6 +317,7 @@ impl IdentityServiceApi for IdentityService {
                             &identity.node_id,
                             &keys.pub_key(),
                             nostr_relay,
+                            UploadFileType::Picture,
                         )
                         .await?;
                     // only override the picture, if there is a new one
@@ -324,6 +333,7 @@ impl IdentityServiceApi for IdentityService {
                             &identity.node_id,
                             &keys.pub_key(),
                             nostr_relay,
+                            UploadFileType::Document,
                         )
                         .await?;
                     // only override the document, if there is a new one
@@ -404,6 +414,7 @@ impl IdentityServiceApi for IdentityService {
                                 &node_id,
                                 &keys.pub_key(),
                                 nostr_relay,
+                                UploadFileType::Picture,
                             )
                             .await?;
 
@@ -413,6 +424,7 @@ impl IdentityServiceApi for IdentityService {
                                 &node_id,
                                 &keys.pub_key(),
                                 nostr_relay,
+                                UploadFileType::Document,
                             )
                             .await?;
                         (profile_picture_file, identity_document_file)
@@ -514,6 +526,7 @@ impl IdentityServiceApi for IdentityService {
                         &existing_identity.node_id,
                         &keys.pub_key(),
                         nostr_relay,
+                        UploadFileType::Picture,
                     )
                     .await?;
 
@@ -523,6 +536,7 @@ impl IdentityServiceApi for IdentityService {
                         &existing_identity.node_id,
                         &keys.pub_key(),
                         nostr_relay,
+                        UploadFileType::Document,
                     )
                     .await?;
                 (profile_picture_file, identity_document_file)

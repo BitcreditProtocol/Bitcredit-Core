@@ -578,8 +578,16 @@ pub enum ValidationError {
     InvalidSecp256k1Key(String),
 
     /// error returned if the file is too big
-    #[error("Maximum file size is {0} bytes")]
+    #[error("Maximum file size for this file type is {0} bytes")]
     FileIsTooBig(usize),
+
+    /// error returned if the file is empty
+    #[error("File is empty (0 bytes)")]
+    FileIsEmpty,
+
+    /// error returned if there are too many bill files
+    #[error("Too many files")]
+    TooManyFiles,
 
     /// error returned if the file name is wrong
     #[error("File name needs to have between 1 and {0} characters")]
