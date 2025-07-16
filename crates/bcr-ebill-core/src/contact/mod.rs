@@ -161,7 +161,7 @@ pub struct BillIdentParticipant {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum LightBillParticipant {
     Anon(LightBillAnonParticipant),
-    Ident(LightBillIdentParticipant),
+    Ident(LightBillIdentParticipantWithAddress),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

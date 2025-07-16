@@ -5,6 +5,7 @@
 * Fix blank email validation for contacts and identities
 * Add different file size limits for pictures (avatar/logo - 20k) and documents (invoices, registration, passport - 1mb) as well as an upper limit for bill files (100)
     * This limit is checked at creation/update time, not at the time of uploading a temporary file
+* Add the address of the signer for the calls to `endorsements` and `past_endorsees`
 
 # 0.4.2
 

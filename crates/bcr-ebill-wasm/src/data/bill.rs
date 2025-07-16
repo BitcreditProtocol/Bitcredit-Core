@@ -851,7 +851,7 @@ impl From<LightBillIdentParticipantWithAddress> for LightBillIdentParticipantWit
 #[tsify(into_wasm_abi)]
 pub enum LightBillParticipantWeb {
     Anon(LightBillAnonParticipantWeb),
-    Ident(LightBillIdentParticipantWeb),
+    Ident(LightBillIdentParticipantWithAddressWeb),
 }
 
 impl From<LightBillParticipant> for LightBillParticipantWeb {
