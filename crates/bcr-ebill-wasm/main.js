@@ -2,6 +2,7 @@ import * as wasm from '../pkg/index.js';
 
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("notif").addEventListener("click", triggerNotif);
+document.getElementById("get_active_notif_status").addEventListener("click", getActiveNotif);
 document.getElementById("company_create").addEventListener("click", createCompany);
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
@@ -587,6 +588,13 @@ async function deleteContact() {
   let node_id = document.getElementById("node_id_contact").value;
   let measured = measure(async () => {
     return await contactApi.remove(node_id);
+  });
+  await measured();
+}
+
+async function getActiveNotif() {
+  let measured = measure(async () => {
+    return await notificationTriggerApi.active_notifications_for_node_ids([]);
   });
   await measured();
 }

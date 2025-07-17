@@ -12,6 +12,11 @@ use bcr_ebill_core::{
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationStoreApi: ServiceTraitBounds {
+    /// Returns node ids with an active notification for the given node ids
+    async fn get_active_status_for_node_ids(
+        &self,
+        node_ids: &[NodeId],
+    ) -> Result<HashMap<NodeId, bool>>;
     /// Stores a new notification into the database
     async fn add(&self, notification: Notification) -> Result<Notification>;
     /// Returns all currently active notifications from the database

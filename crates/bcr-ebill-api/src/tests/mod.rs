@@ -315,6 +315,10 @@ pub mod tests {
 
         #[async_trait]
         impl NotificationStoreApi for NotificationStoreApiMock {
+            async fn get_active_status_for_node_ids(
+                &self,
+                node_ids: &[NodeId],
+            ) -> Result<HashMap<NodeId, bool>>;
             async fn add(&self, notification: Notification) -> Result<Notification>;
             async fn list(&self, filter: NotificationFilter) -> Result<Vec<Notification>>;
             async fn get_latest_by_references(
@@ -426,6 +430,10 @@ pub mod tests {
             async fn mark_notification_as_done(&self, notification_id: &str) -> bcr_ebill_transport::Result<()>;
             async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
             async fn get_active_bill_notifications(&self, bill_ids: &[BillId]) -> HashMap<BillId, Notification>;
+            async fn get_active_notification_status_for_node_ids(
+                &self,
+                node_ids: &[NodeId],
+            ) -> bcr_ebill_transport::Result<HashMap<NodeId, bool>>;
             async fn check_bill_notification_sent(
                 &self,
                 bill_id: &BillId,

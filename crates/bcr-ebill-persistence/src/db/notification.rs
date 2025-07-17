@@ -40,6 +40,39 @@ impl ServiceTraitBounds for SurrealNotificationStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationStoreApi for SurrealNotificationStore {
+    /// Returns node ids with an active notification for the given node ids
+    async fn get_active_status_for_node_ids(
+        &self,
+        node_ids: &[NodeId],
+    ) -> Result<HashMap<NodeId, bool>> {
+        let mut bindings = Bindings::default();
+        bindings.add("table", Self::TABLE)?;
+        bindings.add("node_ids", node_ids.to_owned())?;
+
+        let node_id_filter = if node_ids.is_empty() {
+            ""
+        } else {
+            "and node_id in $node_ids"
+        };
+
+        let result: Vec<NodeIdDb> = self.db.query(&format!("SELECT node_id from notifications where active = true {node_id_filter} GROUP BY node_id"), bindings).await?;
+        let mut res: HashMap<NodeId, bool> = HashMap::new();
+
+        if node_ids.is_empty() {
+            for node_id_db in result {
+                res.insert(node_id_db.node_id.to_owned(), true);
+            }
+        } else {
+            for node_id in node_ids {
+                res.insert(
+                    node_id.to_owned(),
+                    result.iter().any(|n| n.node_id == *node_id),
+                );
+            }
+        }
+        Ok(res)
+    }
+
     /// Stores a new notification into the database
     async fn add(&self, notification: Notification) -> Result<Notification> {
         let id = notification.id.to_owned();
@@ -206,6 +239,11 @@ impl NotificationStoreApi for SurrealNotificationStore {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeIdDb {
+    pub node_id: NodeId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct NotificationDb {
     pub id: Thing,
     pub node_id: Option<NodeId>,
@@ -274,7 +312,7 @@ mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
-        tests::tests::{bill_id_test, bill_id_test_other, node_id_test},
+        tests::tests::{bill_id_test, bill_id_test_other, node_id_test, node_id_test_other},
         util::date::now,
     };
 
@@ -531,6 +569,86 @@ mod tests {
                 "notfication 2 should be done already"
             );
         });
+    }
+
+    #[tokio::test]
+    async fn test_returns_active_status_for_node_ids() {
+        let store = get_store().await;
+        let notification1 = test_notification(&bill_id_test(), Some(test_payload()));
+        let mut notification2 = test_notification(&bill_id_test_other(), Some(test_payload()));
+        notification2.node_id = Some(node_id_test_other());
+        let notification3 = test_general_notification();
+        let _ = store
+            .add(notification1.clone())
+            .await
+            .expect("notification created");
+        let _ = store
+            .add(notification2.clone())
+            .await
+            .expect("notification created");
+        let _ = store
+            .add(notification3.clone())
+            .await
+            .expect("notification created");
+
+        let status = store
+            .get_active_status_for_node_ids(&[])
+            .await
+            .expect("returns status");
+
+        assert_eq!(status.len(), 2, "should have all node ids in list");
+        assert!(status.get(&node_id_test()).unwrap());
+        assert!(status.get(&node_id_test_other()).unwrap());
+
+        let status = store
+            .get_active_status_for_node_ids(&[node_id_test()])
+            .await
+            .expect("returns status");
+
+        assert_eq!(
+            status.len(),
+            1,
+            "should have all given node ids in the list"
+        );
+        assert!(status.get(&node_id_test()).unwrap());
+
+        store
+            .mark_as_done(&notification2.clone().id)
+            .await
+            .expect("notification marked done");
+
+        let status = store
+            .get_active_status_for_node_ids(&[node_id_test_other()])
+            .await
+            .expect("returns status");
+
+        assert_eq!(
+            status.len(),
+            1,
+            "should have all given node ids in the list"
+        );
+        assert!(!status.get(&node_id_test_other()).unwrap());
+
+        let status = store
+            .get_active_status_for_node_ids(&[node_id_test(), node_id_test_other()])
+            .await
+            .expect("returns status");
+
+        assert_eq!(status.len(), 2, "should have all given node ids in list");
+        assert!(status.get(&node_id_test()).unwrap());
+        assert!(!status.get(&node_id_test_other()).unwrap());
+
+        let status = store
+            .get_active_status_for_node_ids(&[])
+            .await
+            .expect("returns status");
+
+        assert_eq!(
+            status.len(),
+            1,
+            "should have all active notif node ids in list"
+        );
+        assert!(status.get(&node_id_test()).unwrap());
     }
 
     fn test_notification(bill_id: &BillId, payload: Option<Value>) -> Notification {
