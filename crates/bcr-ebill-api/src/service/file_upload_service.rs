@@ -1,5 +1,7 @@
 use super::{Error, Result};
-use crate::constants::{MAX_FILE_NAME_CHARACTERS, MAX_FILE_SIZE_BYTES, VALID_FILE_MIME_TYPES};
+use crate::constants::{
+    MAX_DOCUMENT_FILE_SIZE_BYTES, MAX_FILE_NAME_CHARACTERS, VALID_FILE_MIME_TYPES,
+};
 use crate::data::UploadFileResult;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::{persistence, util};
@@ -41,9 +43,13 @@ impl ServiceTraitBounds for FileUploadService {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileUploadServiceApi for FileUploadService {
     async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()> {
-        if file.len() > MAX_FILE_SIZE_BYTES as u64 {
+        if file.is_empty() {
+            return Err(Error::Validation(ValidationError::FileIsEmpty));
+        }
+
+        if file.len() > MAX_DOCUMENT_FILE_SIZE_BYTES {
             return Err(Error::Validation(ValidationError::FileIsTooBig(
-                MAX_FILE_SIZE_BYTES,
+                MAX_DOCUMENT_FILE_SIZE_BYTES,
             )));
         }
 
@@ -232,7 +238,8 @@ mod tests {
     async fn validate_attached_file_checks_file_size() {
         let mut file = MockUploadFileHandler::new();
         file.expect_len()
-            .returning(move || MAX_FILE_SIZE_BYTES as u64 * 2);
+            .returning(move || MAX_DOCUMENT_FILE_SIZE_BYTES * 2);
+        file.expect_is_empty().returning(move || false);
 
         let service = get_service(MockFileUploadStoreApiMock::new());
         let res = service.validate_attached_file(&file).await;
@@ -244,6 +251,7 @@ mod tests {
     async fn validate_attached_file_checks_file_name() {
         let mut file = MockUploadFileHandler::new();
         file.expect_len().returning(move || 100);
+        file.expect_is_empty().returning(move || false);
         file.expect_name().returning(move || None);
 
         let service = get_service(MockFileUploadStoreApiMock::new());
@@ -256,6 +264,7 @@ mod tests {
     async fn validate_attached_file_checks_file_name_empty() {
         let mut file = MockUploadFileHandler::new();
         file.expect_len().returning(move || 100);
+        file.expect_is_empty().returning(move || false);
         file.expect_name().returning(move || Some(String::from("")));
 
         let service = get_service(MockFileUploadStoreApiMock::new());
@@ -270,6 +279,7 @@ mod tests {
         file.expect_len().returning(move || 100);
         file.expect_name()
             .returning(move || Some("abc".repeat(100)));
+        file.expect_is_empty().returning(move || false);
 
         let service = get_service(MockFileUploadStoreApiMock::new());
         let res = service.validate_attached_file(&file).await;
@@ -283,6 +293,7 @@ mod tests {
         file.expect_len().returning(move || 100);
         file.expect_name()
             .returning(move || Some(String::from("goodname")));
+        file.expect_is_empty().returning(move || false);
         file.expect_detect_content_type()
             .returning(move || Err(std::io::Error::other("test error")));
 
@@ -298,8 +309,20 @@ mod tests {
         file.expect_len().returning(move || 100);
         file.expect_name()
             .returning(move || Some(String::from("goodname")));
+        file.expect_is_empty().returning(move || false);
         file.expect_detect_content_type()
             .returning(move || Ok(None));
+
+        let service = get_service(MockFileUploadStoreApiMock::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_empty() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_is_empty().returning(move || true);
 
         let service = get_service(MockFileUploadStoreApiMock::new());
         let res = service.validate_attached_file(&file).await;
@@ -313,6 +336,7 @@ mod tests {
         file.expect_len().returning(move || 100);
         file.expect_name()
             .returning(move || Some(String::from("goodname")));
+        file.expect_is_empty().returning(move || false);
         file.expect_detect_content_type()
             .returning(move || Ok(Some(String::from("invalidfile"))));
 
@@ -326,6 +350,7 @@ mod tests {
     async fn validate_attached_file_checks_valid() {
         let mut file = MockUploadFileHandler::new();
         file.expect_len().returning(move || 100);
+        file.expect_is_empty().returning(move || false);
         file.expect_name()
             .returning(move || Some(String::from("goodname")));
         file.expect_detect_content_type()

@@ -26,6 +26,7 @@ use crate::persistence::contact::ContactStoreApi;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::util::BcrKeys;
+use crate::util::file::UploadFileType;
 use crate::{external, util};
 use async_trait::async_trait;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
@@ -655,6 +656,7 @@ impl BillService {
                     bill_id,
                     &node_id.pub_key(),
                     relay_url,
+                    UploadFileType::Document,
                 )
                 .await?;
             result.push(file_storage::to_url(relay_url, &uploaded_file.nostr_hash)?);

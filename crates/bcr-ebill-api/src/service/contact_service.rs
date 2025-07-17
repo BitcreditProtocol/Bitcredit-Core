@@ -25,7 +25,7 @@ use crate::{
     persistence::{
         contact::ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
     },
-    util,
+    util::{self, file::UploadFileType},
 };
 
 use super::Result;
@@ -156,6 +156,7 @@ impl ContactService {
         id: &NodeId,
         public_key: &PublicKey,
         relay_url: &str,
+        upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for contact {id}: {upload_id:?}");
@@ -164,6 +165,12 @@ impl ContactService {
                 .read_temp_upload_file(upload_id)
                 .await
                 .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+            // validate file size for upload file type
+            if !upload_file_type.check_file_size(file_bytes.len()) {
+                return Err(crate::service::Error::Validation(
+                    ValidationError::FileIsTooBig(upload_file_type.max_file_size()),
+                ));
+            }
             let file = self
                 .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, relay_url)
                 .await?;
@@ -373,6 +380,7 @@ impl ContactServiceApi for ContactService {
                             node_id,
                             &identity_public_key,
                             nostr_relay,
+                            UploadFileType::Picture,
                         )
                         .await?;
                     // only override the picture, if there is a new one
@@ -388,6 +396,7 @@ impl ContactServiceApi for ContactService {
                             node_id,
                             &identity_public_key,
                             nostr_relay,
+                            UploadFileType::Document,
                         )
                         .await?;
                     // only override the document, if there is a new one
@@ -446,6 +455,7 @@ impl ContactServiceApi for ContactService {
                                 node_id,
                                 &identity_public_key,
                                 nostr_relay,
+                                UploadFileType::Picture,
                             )
                             .await?;
 
@@ -455,6 +465,7 @@ impl ContactServiceApi for ContactService {
                                 node_id,
                                 &identity_public_key,
                                 nostr_relay,
+                                UploadFileType::Document,
                             )
                             .await?;
                         (avatar_file, proof_document_file)
@@ -561,6 +572,7 @@ impl ContactServiceApi for ContactService {
                         node_id,
                         &identity_public_key,
                         nostr_relay,
+                        UploadFileType::Picture,
                     )
                     .await?;
 
@@ -570,6 +582,7 @@ impl ContactServiceApi for ContactService {
                         node_id,
                         &identity_public_key,
                         nostr_relay,
+                        UploadFileType::Document,
                     )
                     .await?;
                 (avatar_file, proof_document_file)

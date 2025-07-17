@@ -273,8 +273,8 @@ impl UploadFileHandler for UploadFile {
         Some(self.name.clone())
     }
 
-    fn len(&self) -> u64 {
-        self.data.len() as u64
+    fn len(&self) -> usize {
+        self.data.len()
     }
     async fn detect_content_type(&self) -> std::io::Result<Option<String>> {
         Ok(detect_content_type_for_bytes(&self.data))
