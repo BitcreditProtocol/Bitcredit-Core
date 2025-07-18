@@ -9,6 +9,14 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct NotificationStatusWeb {
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+    pub active: bool,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct NotificationWeb {
     pub id: String,
     #[tsify(type = "string")]

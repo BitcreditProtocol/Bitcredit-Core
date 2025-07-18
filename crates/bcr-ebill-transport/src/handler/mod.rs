@@ -241,6 +241,10 @@ mod test_utils {
 
         #[async_trait]
         impl NotificationStoreApi for NotificationStore {
+            async fn get_active_status_for_node_ids(
+                &self,
+                node_ids: &[NodeId],
+            ) -> Result<HashMap<NodeId, bool>>;
             async fn add(&self, notification: Notification) -> Result<Notification>;
             async fn list(&self, filter: NotificationFilter) -> Result<Vec<Notification>>;
             async fn get_latest_by_references(

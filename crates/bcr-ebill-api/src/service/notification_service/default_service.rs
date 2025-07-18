@@ -750,6 +750,17 @@ impl NotificationServiceApi for DefaultNotificationService {
             .collect()
     }
 
+    async fn get_active_notification_status_for_node_ids(
+        &self,
+        node_ids: &[NodeId],
+    ) -> Result<HashMap<NodeId, bool>> {
+        Ok(self
+            .notification_store
+            .get_active_status_for_node_ids(node_ids)
+            .await
+            .unwrap_or_default())
+    }
+
     async fn check_bill_notification_sent(
         &self,
         bill_id: &BillId,

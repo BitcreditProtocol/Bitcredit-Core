@@ -161,6 +161,11 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         bill_ids: &[BillId],
     ) -> HashMap<BillId, Notification>;
 
+    async fn get_active_notification_status_for_node_ids(
+        &self,
+        node_ids: &[NodeId],
+    ) -> Result<HashMap<NodeId, bool>>;
+
     /// Returns whether a notification was already sent for the given bill id and action
     async fn check_bill_notification_sent(
         &self,
