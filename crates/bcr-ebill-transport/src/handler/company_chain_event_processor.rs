@@ -61,17 +61,21 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         company_id: &NodeId,
         sender: nostr::PublicKey,
     ) -> Result<bool> {
-        let company = self
+        if let Ok(company) = self
             .company_store
             .get(company_id)
             .await
-            .map_err(|e| Error::Persistence(e.to_string()))?;
-        let signers = company
-            .signatories
-            .iter()
-            .map(|s| s.npub())
-            .collect::<Vec<nostr::PublicKey>>();
-        Ok(signers.contains(&sender))
+            .map_err(|e| Error::Persistence(e.to_string()))
+        {
+            let signers = company
+                .signatories
+                .iter()
+                .map(|s| s.npub())
+                .collect::<Vec<nostr::PublicKey>>();
+            Ok(signers.contains(&sender))
+        } else {
+            Ok(false)
+        }
     }
 }
 
@@ -256,3 +260,112 @@ impl CompanyChainEventProcessor {
 }
 
 impl ServiceTraitBounds for CompanyChainEventProcessor {}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bcr_ebill_core::{NodeId, util::BcrKeys};
+    use mockall::predicate::eq;
+
+    use crate::handler::{
+        CompanyChainEventProcessor, CompanyChainEventProcessorApi, MockNostrContactProcessorApi,
+        test_utils::{MockCompanyChainStore, MockCompanyStore, get_company_data, node_id_test},
+    };
+
+    #[tokio::test]
+    async fn test_create_event_handler() {
+        let (chain_store, store, contact) = create_mocks();
+        CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
+        let keys = BcrKeys::new().get_nostr_keys();
+        let (chain_store, mut store, contact) = create_mocks();
+
+        store
+            .expect_get()
+            .with(eq(node_id_test()))
+            .returning(move |_| Err(bcr_ebill_persistence::Error::NoCompanyBlock));
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        let valid = handler
+            .validate_chain_event_and_sender(&node_id_test(), keys.public_key())
+            .await
+            .expect("Event should be handled");
+        assert!(!valid);
+    }
+
+    #[tokio::test]
+    async fn test_validate_chain_event_fails_if_not_signatory() {
+        let keys = BcrKeys::new();
+        let (chain_store, mut store, contact) = create_mocks();
+        let (_, (company, _)) = get_company_data();
+        store
+            .expect_get()
+            .with(eq(node_id_test()))
+            .returning(move |_| Ok(company.clone()));
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        let valid = handler
+            .validate_chain_event_and_sender(&node_id_test(), keys.get_nostr_keys().public_key())
+            .await
+            .expect("Event should be handled");
+        assert!(!valid);
+    }
+
+    #[tokio::test]
+    async fn test_validate_chain_event() {
+        let keys = BcrKeys::new();
+        let (chain_store, mut store, contact) = create_mocks();
+        let (_, (mut company, _)) = get_company_data();
+        company.signatories = vec![NodeId::new(keys.pub_key(), bitcoin::Network::Testnet)];
+        store
+            .expect_get()
+            .with(eq(node_id_test()))
+            .returning(move |_| Ok(company.clone()));
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        let valid = handler
+            .validate_chain_event_and_sender(&node_id_test(), keys.get_nostr_keys().public_key())
+            .await
+            .expect("Event should be handled");
+        assert!(valid);
+    }
+
+    fn create_mocks() -> (
+        MockCompanyChainStore,
+        MockCompanyStore,
+        MockNostrContactProcessorApi,
+    ) {
+        (
+            MockCompanyChainStore::new(),
+            MockCompanyStore::new(),
+            MockNostrContactProcessorApi::new(),
+        )
+    }
+}

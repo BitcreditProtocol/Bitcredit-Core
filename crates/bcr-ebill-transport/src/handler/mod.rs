@@ -90,7 +90,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
     /// present when we are joining a new chain.
     async fn process_chain_data(
         &self,
-        bill_id: &NodeId,
+        node_id: &NodeId,
         blocks: Vec<CompanyBlock>,
         keys: Option<CompanyKeys>,
     ) -> Result<()>;
@@ -99,7 +99,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
     /// of the event is part of the chain this event is for.
     async fn validate_chain_event_and_sender(
         &self,
-        bill_id: &NodeId,
+        node_id: &NodeId,
         sender: nostr::PublicKey,
     ) -> Result<bool>;
 }
@@ -264,7 +264,11 @@ mod test_utils {
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult},
-        blockchain::bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
+        blockchain::{
+            bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
+            company::{CompanyBlock, CompanyBlockchain},
+        },
+        company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         identity::{Identity, IdentityType, IdentityWithAll},
         nostr_contact::NostrPublicKey,
@@ -274,6 +278,7 @@ mod test_utils {
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
+        company::{CompanyChainStoreApi, CompanyStoreApi},
         nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
@@ -395,6 +400,39 @@ mod test_utils {
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 
+        }
+    }
+
+    mock! {
+        pub CompanyStore {}
+
+        impl ServiceTraitBounds for CompanyStore {}
+
+        #[async_trait]
+        impl CompanyStoreApi for CompanyStore {
+            async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
+            async fn exists(&self, id: &NodeId) -> bool;
+            async fn get(&self, id: &NodeId) -> Result<Company>;
+            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>>;
+            async fn insert(&self, data: &Company) -> Result<()>;
+            async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
+            async fn remove(&self, id: &NodeId) -> Result<()>;
+            async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()>;
+            async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys>;
+        }
+    }
+
+    mock! {
+        pub CompanyChainStore {}
+
+        impl ServiceTraitBounds for CompanyChainStore {}
+
+        #[async_trait]
+        impl CompanyChainStoreApi for CompanyChainStore {
+            async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock>;
+            async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
+            async fn remove(&self, id: &NodeId) -> Result<()>;
+            async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
         }
     }
 
@@ -554,6 +592,31 @@ mod test_utils {
             zip: None,
             address: None,
         }
+    }
+
+    pub fn get_company_data() -> (NodeId, (Company, CompanyKeys)) {
+        (
+            node_id_test(),
+            (
+                Company {
+                    id: node_id_test(),
+                    name: "some_name".to_string(),
+                    country_of_registration: Some("AT".to_string()),
+                    city_of_registration: Some("Vienna".to_string()),
+                    postal_address: empty_address(),
+                    email: "company@example.com".to_string(),
+                    registration_number: Some("some_number".to_string()),
+                    registration_date: Some("2012-01-01".to_string()),
+                    proof_of_registration_file: None,
+                    logo_file: None,
+                    signatories: vec![node_id_test()],
+                },
+                CompanyKeys {
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
+                },
+            ),
+        )
     }
 
     // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY

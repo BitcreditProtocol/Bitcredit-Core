@@ -181,7 +181,7 @@ mod tests {
             MockCompanyChainEventProcessorApi,
             public_chain_helpers::collect_event_chains,
             test_utils::{
-                MockNostrChainEventStore, empty_address, get_bill_keys, node_id_test,
+                MockNostrChainEventStore, get_bill_keys, get_company_data, node_id_test,
                 private_key_test,
             },
         },
@@ -498,31 +498,6 @@ mod tests {
         })
         .try_into()
         .expect("could not create envelope")
-    }
-
-    pub fn get_company_data() -> (NodeId, (Company, CompanyKeys)) {
-        (
-            node_id_test(),
-            (
-                Company {
-                    id: node_id_test(),
-                    name: "some_name".to_string(),
-                    country_of_registration: Some("AT".to_string()),
-                    city_of_registration: Some("Vienna".to_string()),
-                    postal_address: empty_address(),
-                    email: "company@example.com".to_string(),
-                    registration_number: Some("some_number".to_string()),
-                    registration_date: Some("2012-01-01".to_string()),
-                    proof_of_registration_file: None,
-                    logo_file: None,
-                    signatories: vec![node_id_test()],
-                },
-                CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
-            ),
-        )
     }
 
     pub fn get_valid_company_chain(company: &Company, keys: &CompanyKeys) -> CompanyBlockchain {
