@@ -29,6 +29,7 @@ pub struct Config {
     pub data_dir: String,
     pub nostr_config: NostrConfig,
     pub mint_config: MintConfig,
+    pub payment_config: PaymentConfig,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -43,6 +44,13 @@ impl Config {
             _ => Network::Testnet,
         }
     }
+}
+
+/// Payment specific configuration
+#[derive(Debug, Clone, Default)]
+pub struct PaymentConfig {
+    /// Amount of confirmations until we consider an on-chain payment as paid
+    pub num_confirmations_for_payment: usize,
 }
 
 /// Nostr specific configuration

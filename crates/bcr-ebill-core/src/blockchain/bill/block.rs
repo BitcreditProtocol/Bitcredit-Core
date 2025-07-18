@@ -1216,18 +1216,17 @@ impl BillBlock {
         let mut key = None;
 
         // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
-        if op_code == BillOpCode::Endorse
+        if (op_code == BillOpCode::Endorse
             || op_code == BillOpCode::Sell
-            || op_code == BillOpCode::Mint
+            || op_code == BillOpCode::Mint)
+            && let Some(new_holder_public_key) = public_key_for_keys
         {
-            if let Some(new_holder_public_key) = public_key_for_keys {
-                let key_bytes = to_vec(&bill_keys.get_private_key_string())?;
-                let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
-                    &key_bytes,
-                    &new_holder_public_key,
-                )?);
-                key = Some(encrypted_key);
-            }
+            let key_bytes = to_vec(&bill_keys.get_private_key_string())?;
+            let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
+                &key_bytes,
+                &new_holder_public_key,
+            )?);
+            key = Some(encrypted_key);
         }
 
         let data = BillBlockData {

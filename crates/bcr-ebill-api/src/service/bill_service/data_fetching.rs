@@ -2,8 +2,8 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
-use bcr_ebill_core::bill::BillMintStatus;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
+use bcr_ebill_core::bill::{BillMintStatus, BillWaitingStatePaymentData, PaymentState};
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::identity::IdentityType;
@@ -212,18 +212,16 @@ impl BillService {
             offered_to_sell = true;
             if let Some(last_reject_offer_to_sell_block) =
                 chain.get_last_version_block_with_op_code(BillOpCode::RejectToBuy)
+                && last_reject_offer_to_sell_block.id > last_offer_to_sell_block.id
             {
-                if last_reject_offer_to_sell_block.id > last_offer_to_sell_block.id {
-                    rejected_offer_to_sell = true;
-                }
+                rejected_offer_to_sell = true;
             }
             if let Some(last_sell_block) =
                 chain.get_last_version_block_with_op_code(BillOpCode::Sell)
+                && last_sell_block.id > last_offer_to_sell_block.id
             {
-                if last_sell_block.id > last_offer_to_sell_block.id {
-                    // last offer to sell was sold
-                    sold = true;
-                }
+                // last offer to sell was sold
+                sold = true;
             }
             if !sold
                 && !rejected_offer_to_sell
@@ -249,17 +247,15 @@ impl BillService {
             time_of_last_request_to_recourse = Some(last_req_to_recourse_block.timestamp);
             if let Some(last_reject_to_pay_recourse_block) =
                 chain.get_last_version_block_with_op_code(BillOpCode::RejectToPayRecourse)
+                && last_reject_to_pay_recourse_block.id > last_req_to_recourse_block.id
             {
-                if last_reject_to_pay_recourse_block.id > last_req_to_recourse_block.id {
-                    rejected_request_to_recourse = true;
-                }
+                rejected_request_to_recourse = true;
             }
             if let Some(last_recourse_block) =
                 chain.get_last_version_block_with_op_code(BillOpCode::Recourse)
+                && last_recourse_block.id > last_req_to_recourse_block.id
             {
-                if last_recourse_block.id > last_req_to_recourse_block.id {
-                    recoursed = true
-                }
+                recoursed = true
             }
             if !recoursed
                 && !rejected_request_to_recourse
@@ -303,6 +299,30 @@ impl BillService {
                     .is_last_offer_to_sell_block_waiting_for_payment(bill_keys, current_timestamp)?
                 {
                     // we're waiting, collect data
+                    let payment_state = self
+                        .store
+                        .get_offer_to_sell_payment_state(&bill.id, payment_info.block_id)
+                        .await?;
+
+                    let mut tx_id = None;
+                    let mut in_mempool = false;
+                    let mut confirmations = 0;
+
+                    if let Some(ps) = payment_state {
+                        match ps {
+                            PaymentState::PaidConfirmed(paid_data)
+                            | PaymentState::PaidUnconfirmed(paid_data) => {
+                                tx_id = Some(paid_data.tx_id);
+                                confirmations = paid_data.confirmations;
+                            }
+                            PaymentState::InMempool(in_mempool_data) => {
+                                tx_id = Some(in_mempool_data.tx_id);
+                                in_mempool = true;
+                            }
+                            PaymentState::NotFound => (),
+                        }
+                    }
+
                     let buyer = self
                         .extend_bill_chain_participant_data_from_contacts_or_identity(
                             payment_info.buyer.clone().into(),
@@ -331,14 +351,19 @@ impl BillService {
                         .get_mempool_link_for_address(&address_to_pay);
 
                     Some(BillCurrentWaitingState::Sell(BillWaitingForSellState {
-                        time_of_request: last_block.timestamp,
                         seller,
                         buyer,
-                        currency: payment_info.currency,
-                        sum: currency::sum_to_string(payment_info.sum),
-                        link_to_pay,
-                        address_to_pay,
-                        mempool_link_for_address_to_pay,
+                        payment_data: BillWaitingStatePaymentData {
+                            time_of_request: last_block.timestamp,
+                            currency: payment_info.currency,
+                            sum: currency::sum_to_string(payment_info.sum),
+                            link_to_pay,
+                            address_to_pay,
+                            mempool_link_for_address_to_pay,
+                            tx_id,
+                            in_mempool,
+                            confirmations,
+                        },
                     }))
                 } else {
                     None
@@ -360,6 +385,26 @@ impl BillService {
                     None
                 } else {
                     // we're waiting, collect data
+                    let payment_state = self.store.get_payment_state(&bill.id).await?;
+
+                    let mut tx_id = None;
+                    let mut in_mempool = false;
+                    let mut confirmations = 0;
+
+                    if let Some(ps) = payment_state {
+                        match ps {
+                            PaymentState::PaidConfirmed(paid_data)
+                            | PaymentState::PaidUnconfirmed(paid_data) => {
+                                tx_id = Some(paid_data.tx_id);
+                                confirmations = paid_data.confirmations;
+                            }
+                            PaymentState::InMempool(in_mempool_data) => {
+                                tx_id = Some(in_mempool_data.tx_id);
+                                in_mempool = true;
+                            }
+                            PaymentState::NotFound => (),
+                        }
+                    }
                     let address_to_pay = self
                         .bitcoin_client
                         .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
@@ -376,14 +421,19 @@ impl BillService {
 
                     Some(BillCurrentWaitingState::Payment(
                         BillWaitingForPaymentState {
-                            time_of_request: last_block.timestamp,
                             payer: bill.drawee.clone(),
                             payee: holder.clone(),
-                            currency: bill.currency.clone(),
-                            sum: currency::sum_to_string(bill.sum),
-                            link_to_pay,
-                            address_to_pay,
-                            mempool_link_for_address_to_pay,
+                            payment_data: BillWaitingStatePaymentData {
+                                time_of_request: last_block.timestamp,
+                                currency: bill.currency.clone(),
+                                sum: currency::sum_to_string(bill.sum),
+                                link_to_pay,
+                                address_to_pay,
+                                mempool_link_for_address_to_pay,
+                                tx_id,
+                                in_mempool,
+                                confirmations,
+                            },
                         },
                     ))
                 }
@@ -396,6 +446,30 @@ impl BillService {
                     )?
                 {
                     // we're waiting, collect data
+                    let payment_state = self
+                        .store
+                        .get_recourse_payment_state(&bill.id, payment_info.block_id)
+                        .await?;
+
+                    let mut tx_id = None;
+                    let mut in_mempool = false;
+                    let mut confirmations = 0;
+
+                    if let Some(ps) = payment_state {
+                        match ps {
+                            PaymentState::PaidConfirmed(paid_data)
+                            | PaymentState::PaidUnconfirmed(paid_data) => {
+                                tx_id = Some(paid_data.tx_id);
+                                confirmations = paid_data.confirmations;
+                            }
+                            PaymentState::InMempool(in_mempool_data) => {
+                                tx_id = Some(in_mempool_data.tx_id);
+                                in_mempool = true;
+                            }
+                            PaymentState::NotFound => (),
+                        }
+                    }
+
                     let recourser = self
                         .extend_bill_chain_identity_data_from_contacts_or_identity(
                             payment_info.recourser.clone(),
@@ -428,14 +502,19 @@ impl BillService {
 
                     Some(BillCurrentWaitingState::Recourse(
                         BillWaitingForRecourseState {
-                            time_of_request: last_block.timestamp,
                             recourser,
                             recoursee,
-                            currency: payment_info.currency,
-                            sum: currency::sum_to_string(payment_info.sum),
-                            link_to_pay,
-                            address_to_pay,
-                            mempool_link_for_address_to_pay,
+                            payment_data: BillWaitingStatePaymentData {
+                                time_of_request: last_block.timestamp,
+                                currency: payment_info.currency,
+                                sum: currency::sum_to_string(payment_info.sum),
+                                link_to_pay,
+                                address_to_pay,
+                                mempool_link_for_address_to_pay,
+                                tx_id,
+                                in_mempool,
+                                confirmations,
+                            },
                         },
                     ))
                 } else {
@@ -530,16 +609,14 @@ impl BillService {
             && !acceptance.accepted
             && !acceptance.rejected_to_accept
             && !acceptance.request_to_accept_timed_out
+            && let Some(time_of_request_to_accept) = acceptance.time_of_request_to_accept
+            && util::date::check_if_deadline_has_passed(
+                time_of_request_to_accept,
+                current_timestamp,
+                ACCEPT_DEADLINE_SECONDS,
+            )
         {
-            if let Some(time_of_request_to_accept) = acceptance.time_of_request_to_accept {
-                if util::date::check_if_deadline_has_passed(
-                    time_of_request_to_accept,
-                    current_timestamp,
-                    ACCEPT_DEADLINE_SECONDS,
-                ) {
-                    invalidate_and_recalculate = true;
-                }
-            }
+            invalidate_and_recalculate = true;
         }
 
         // if it was requested, but not "finished" (paid, rejected, or expired), we have to
@@ -549,31 +626,30 @@ impl BillService {
             && !payment.paid
             && !payment.rejected_to_pay
             && !payment.request_to_pay_timed_out
+            && let Some(time_of_request_to_pay) = payment.time_of_request_to_pay
         {
-            if let Some(time_of_request_to_pay) = payment.time_of_request_to_pay {
-                let deadline_base = get_expiration_deadline_base_for_req_to_pay(
-                    time_of_request_to_pay,
-                    &bill.data.maturity_date,
-                )?;
-                // payment has expired (after maturity date)
+            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
+                time_of_request_to_pay,
+                &bill.data.maturity_date,
+            )?;
+            // payment has expired (after maturity date)
+            if util::date::check_if_deadline_has_passed(
+                deadline_base,
+                current_timestamp,
+                PAYMENT_DEADLINE_SECONDS,
+            ) {
+                invalidate_and_recalculate = true;
+            }
+            // if it was req to pay and is currently waiting, we have to check, if it's expired
+            // once it's expired, we don't have to check this anymore
+            if let Some(BillCurrentWaitingState::Payment(_)) = bill.current_waiting_state {
+                // req to pay has expired (before maturity date)
                 if util::date::check_if_deadline_has_passed(
-                    deadline_base,
+                    time_of_request_to_pay,
                     current_timestamp,
                     PAYMENT_DEADLINE_SECONDS,
                 ) {
                     invalidate_and_recalculate = true;
-                }
-                // if it was req to pay and is currently waiting, we have to check, if it's expired
-                // once it's expired, we don't have to check this anymore
-                if let Some(BillCurrentWaitingState::Payment(_)) = bill.current_waiting_state {
-                    // req to pay has expired (before maturity date)
-                    if util::date::check_if_deadline_has_passed(
-                        time_of_request_to_pay,
-                        current_timestamp,
-                        PAYMENT_DEADLINE_SECONDS,
-                    ) {
-                        invalidate_and_recalculate = true;
-                    }
                 }
             }
         }
@@ -585,16 +661,14 @@ impl BillService {
             && !sell.sold
             && !sell.rejected_offer_to_sell
             && !sell.offer_to_sell_timed_out
+            && let Some(time_of_last_offer_to_sell) = sell.time_of_last_offer_to_sell
+            && util::date::check_if_deadline_has_passed(
+                time_of_last_offer_to_sell,
+                current_timestamp,
+                PAYMENT_DEADLINE_SECONDS,
+            )
         {
-            if let Some(time_of_last_offer_to_sell) = sell.time_of_last_offer_to_sell {
-                if util::date::check_if_deadline_has_passed(
-                    time_of_last_offer_to_sell,
-                    current_timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                ) {
-                    invalidate_and_recalculate = true;
-                }
-            }
+            invalidate_and_recalculate = true;
         }
 
         let recourse = &bill.status.recourse;
@@ -604,18 +678,15 @@ impl BillService {
             && !recourse.recoursed
             && !recourse.rejected_request_to_recourse
             && !recourse.request_to_recourse_timed_out
-        {
-            if let Some(time_of_last_request_to_recourse) =
+            && let Some(time_of_last_request_to_recourse) =
                 recourse.time_of_last_request_to_recourse
-            {
-                if util::date::check_if_deadline_has_passed(
-                    time_of_last_request_to_recourse,
-                    current_timestamp,
-                    RECOURSE_DEADLINE_SECONDS,
-                ) {
-                    invalidate_and_recalculate = true;
-                }
-            }
+            && util::date::check_if_deadline_has_passed(
+                time_of_last_request_to_recourse,
+                current_timestamp,
+                RECOURSE_DEADLINE_SECONDS,
+            )
+        {
+            invalidate_and_recalculate = true;
         }
         Ok(invalidate_and_recalculate)
     }

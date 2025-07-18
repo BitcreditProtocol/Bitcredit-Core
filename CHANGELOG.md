@@ -1,3 +1,14 @@
+# 0.4.4
+
+* Add `num_confirmations_for_payment` config flag and a `payment_config` part of the api config, to configure the amount of confirmations needed until an on-chain payment is considered `paid`
+* Rewrite payment logic to iterate transactions and calculate payment state based on the first transaction that covers the amount
+    * We now are also able to differentiate between a payment not being sent, being in the mem pool, being paid and unconfirmed and paid and confirmed
+    * Add payment state for sell, recourse and bill payments to DB (breaking DB change - reset IndexedDB)
+    * Restructure `BillCurrentWaitingState` to remove duplication (breaking API change - check `index.d.ts`)
+        * Add info for if a payment is in the mempool with it's transaction id, as well as how many confirmations it has, in the bill data (breaking DB change - reset IndexedDB)
+* Removed the `gloo` dependency, since it's going to be archived
+* Add chain propagation for company chains and identity chain
+
 # 0.4.3
 
 * Add endpoints to fetch files as base64 for identity, contacts, companies and bills

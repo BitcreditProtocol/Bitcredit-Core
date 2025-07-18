@@ -21,7 +21,7 @@ use crate::{
 use bcr_ebill_core::{
     bill::{
         BillAcceptanceStatus, BillData, BillMintStatus, BillParticipants, BillPaymentStatus,
-        BillRecourseStatus, BillSellStatus, BillStatus,
+        BillRecourseStatus, BillSellStatus, BillStatus, PaidData, PaymentState,
     },
     blockchain::{
         Blockchain,
@@ -174,8 +174,16 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     init_test_cfg();
     let mut bitcoin_client = MockBitcoinClientApi::new();
     bitcoin_client
-        .expect_check_if_paid()
-        .returning(|_, _| Ok((true, 100)));
+        .expect_check_payment_for_address()
+        .returning(|_, _| {
+            Ok(PaymentState::PaidConfirmed(PaidData {
+                block_time: 1731593928,
+                block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
+                    .into(),
+                confirmations: 7,
+                tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c".into(),
+            }))
+        });
     bitcoin_client
         .expect_get_combined_private_descriptor()
         .returning(|_, _| {
@@ -231,6 +239,23 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
             public_key: node_id_test().pub_key(),
         })
     });
+    let payment_state_paid = PaymentState::PaidConfirmed(PaidData {
+        block_time: 1731593928,
+        block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1".into(),
+        confirmations: 7,
+        tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c".into(),
+    });
+    let payment_state_clone = payment_state_paid.clone();
+    let payment_state_clone2 = payment_state_paid.clone();
+    ctx.bill_store
+        .expect_get_payment_state()
+        .returning(move |_| Ok(Some(payment_state_clone.clone())));
+    ctx.bill_store
+        .expect_get_offer_to_sell_payment_state()
+        .returning(move |_, _| Ok(Some(payment_state_clone2.clone())));
+    ctx.bill_store
+        .expect_get_recourse_payment_state()
+        .returning(move |_, _| Ok(Some(payment_state_paid.clone())));
     ctx.bill_store
         .expect_get_bill_from_cache()
         .returning(|_, _| Ok(None));

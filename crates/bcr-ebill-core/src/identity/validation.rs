@@ -44,16 +44,16 @@ pub fn validate_update_identity(
     profile_picture_file_upload_id: &Option<String>,
     identity_document_file_upload_id: &Option<String>,
 ) -> Result<(), ValidationError> {
-    if let Some(set_name) = name {
-        if set_name.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::Name));
-        }
+    if let Some(set_name) = name
+        && set_name.trim().is_empty()
+    {
+        return Err(ValidationError::FieldEmpty(Field::Name));
     }
 
-    if let Some(set_email) = email {
-        if set_email.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::Email));
-        }
+    if let Some(set_email) = email
+        && set_email.trim().is_empty()
+    {
+        return Err(ValidationError::FieldEmpty(Field::Email));
     }
 
     match t {

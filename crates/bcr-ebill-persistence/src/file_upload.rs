@@ -120,11 +120,11 @@ impl FileUploadStoreApi for FileUploadStore {
         let mut dir = tokio::fs::read_dir(&folder).await?;
         while let Some(entry) = dir.next_entry().await? {
             let file_path = entry.path();
-            if let Some(file_name) = file_path.file_name() {
-                if let Some(file_name_str) = file_name.to_str() {
-                    let file_bytes = tokio::fs::read(&file_path).await?;
-                    files.push((file_name_str.to_owned(), file_bytes));
-                }
+            if let Some(file_name) = file_path.file_name()
+                && let Some(file_name_str) = file_name.to_str()
+            {
+                let file_bytes = tokio::fs::read(&file_path).await?;
+                files.push((file_name_str.to_owned(), file_bytes));
             }
         }
         if files.is_empty() {

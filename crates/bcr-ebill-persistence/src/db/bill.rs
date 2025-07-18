@@ -9,7 +9,7 @@ use bcr_ebill_core::bill::{
     BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillMintStatus,
     BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
     BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-    BitcreditBillResult,
+    BillWaitingStatePaymentData, BitcreditBillResult, InMempoolData, PaidData, PaymentState,
 };
 use bcr_ebill_core::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
 use bcr_ebill_core::contact::{
@@ -29,6 +29,8 @@ impl SurrealBillStore {
     const CHAIN_TABLE: &'static str = "bill_chain";
     const KEYS_TABLE: &'static str = "bill_keys";
     const PAID_TABLE: &'static str = "bill_paid";
+    const OFFER_TO_SELL_PAID_TABLE: &'static str = "offer_to_sell_bill_paid";
+    const RECOURSE_PAID_TABLE: &'static str = "recourse_bill_paid";
     const CACHE_TABLE: &'static str = "bill_cache";
 
     pub fn new(db: SurrealWrapper) -> Self {
@@ -181,13 +183,21 @@ impl BillStoreApi for SurrealBillStore {
     async fn is_paid(&self, id: &BillId) -> Result<bool> {
         let result: Option<BillPaidDb> =
             self.db.select_one(Self::PAID_TABLE, id.to_string()).await?;
-        Ok(result.is_some())
+        Ok(if let Some(bill_paid) = result {
+            match bill_paid.payment_state {
+                // only if it's paid and confirmed
+                PaymentStateDb::PaidConfirmed(..) => true,
+                _ => false,
+            }
+        } else {
+            false
+        })
     }
 
-    async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()> {
+    async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()> {
         let entity = BillPaidDb {
-            id: (Self::PAID_TABLE, id.to_string().as_str()).into(),
-            payment_address: payment_address.to_string(),
+            bill_id: id.to_owned(),
+            payment_state: payment_state.into(),
         };
         let _: Option<BillPaidDb> = self
             .db
@@ -196,8 +206,90 @@ impl BillStoreApi for SurrealBillStore {
         Ok(())
     }
 
+    async fn get_payment_state(&self, id: &BillId) -> Result<Option<PaymentState>> {
+        let result: Option<BillPaidDb> =
+            self.db.select_one(Self::PAID_TABLE, id.to_string()).await?;
+        Ok(result.map(|r| r.payment_state.into()))
+    }
+
+    async fn set_offer_to_sell_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+        payment_state: &PaymentState,
+    ) -> Result<()> {
+        let entity = OfferToSellBillPaidDb {
+            bill_id: id.to_owned(),
+            block_id,
+            payment_state: payment_state.into(),
+        };
+        let _: Option<OfferToSellBillPaidDb> = self
+            .db
+            .upsert(
+                Self::OFFER_TO_SELL_PAID_TABLE,
+                format!("{id}_{block_id}"),
+                entity,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn get_offer_to_sell_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+    ) -> Result<Option<PaymentState>> {
+        let result: Option<OfferToSellBillPaidDb> = self
+            .db
+            .select_one(Self::OFFER_TO_SELL_PAID_TABLE, format!("{id}_{block_id}"))
+            .await?;
+        Ok(result.map(|r| r.payment_state.into()))
+    }
+
+    async fn set_recourse_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+        payment_state: &PaymentState,
+    ) -> Result<()> {
+        let entity = RecourseBillPaidDb {
+            bill_id: id.to_owned(),
+            block_id,
+            payment_state: payment_state.into(),
+        };
+        let _: Option<RecourseBillPaidDb> = self
+            .db
+            .upsert(
+                Self::RECOURSE_PAID_TABLE,
+                format!("{id}_{block_id}"),
+                entity,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn get_recourse_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+    ) -> Result<Option<PaymentState>> {
+        let result: Option<RecourseBillPaidDb> = self
+            .db
+            .select_one(Self::RECOURSE_PAID_TABLE, format!("{id}_{block_id}"))
+            .await?;
+        Ok(result.map(|r| r.payment_state.into()))
+    }
+
     async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>> {
-        let bill_ids_paid: Vec<BillPaidDb> = self.db.select_all(Self::PAID_TABLE).await?;
+        let mut paid_bindings = Bindings::default();
+        paid_bindings.add(DB_TABLE, Self::PAID_TABLE)?;
+        let bill_ids_paid: Vec<BillPaidDb> = self
+            .db
+            .query(
+                "SELECT * FROM type::table($table) WHERE payment_state.PaidConfirmed?",
+                paid_bindings,
+            )
+            .await?;
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
         bindings.add(DB_OP_CODE, BillOpCode::RequestToPay)?;
@@ -211,10 +303,7 @@ impl BillStoreApi for SurrealBillStore {
         let result: Vec<BillId> = with_req_to_pay_bill_ids
             .into_iter()
             .filter_map(|bid| {
-                if !bill_ids_paid
-                    .iter()
-                    .any(|idp| idp.id.id.to_raw() == bid.bill_id.to_string())
-                {
+                if !bill_ids_paid.iter().any(|idp| idp.bill_id == bid.bill_id) {
                     Some(bid.bill_id)
                 } else {
                     None
@@ -347,28 +436,63 @@ impl From<&BillCurrentWaitingState> for BillCurrentWaitingStateDb {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BillWaitingForSellStateDb {
+pub struct BillWaitingStatePaymentDataDb {
     pub time_of_request: u64,
-    pub buyer: BillParticipantDb,
-    pub seller: BillParticipantDb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub mempool_link_for_address_to_pay: String,
+    pub tx_id: Option<String>,
+    pub in_mempool: bool,
+    pub confirmations: u64,
 }
 
-impl From<BillWaitingForSellStateDb> for BillWaitingForSellState {
-    fn from(value: BillWaitingForSellStateDb) -> Self {
+impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
+    fn from(value: BillWaitingStatePaymentDataDb) -> Self {
         Self {
             time_of_request: value.time_of_request,
-            buyer: value.buyer.into(),
-            seller: value.seller.into(),
             currency: value.currency,
             sum: value.sum,
             link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
             mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
+            tx_id: value.tx_id,
+            in_mempool: value.in_mempool,
+            confirmations: value.confirmations,
+        }
+    }
+}
+
+impl From<&BillWaitingStatePaymentData> for BillWaitingStatePaymentDataDb {
+    fn from(value: &BillWaitingStatePaymentData) -> Self {
+        Self {
+            time_of_request: value.time_of_request,
+            currency: value.currency.clone(),
+            sum: value.sum.clone(),
+            link_to_pay: value.link_to_pay.clone(),
+            address_to_pay: value.address_to_pay.clone(),
+            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.clone(),
+            tx_id: value.tx_id.clone(),
+            in_mempool: value.in_mempool,
+            confirmations: value.confirmations,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillWaitingForSellStateDb {
+    pub buyer: BillParticipantDb,
+    pub seller: BillParticipantDb,
+    pub payment_data: BillWaitingStatePaymentDataDb,
+}
+
+impl From<BillWaitingForSellStateDb> for BillWaitingForSellState {
+    fn from(value: BillWaitingForSellStateDb) -> Self {
+        Self {
+            buyer: value.buyer.into(),
+            seller: value.seller.into(),
+            payment_data: value.payment_data.into(),
         }
     }
 }
@@ -376,41 +500,26 @@ impl From<BillWaitingForSellStateDb> for BillWaitingForSellState {
 impl From<&BillWaitingForSellState> for BillWaitingForSellStateDb {
     fn from(value: &BillWaitingForSellState) -> Self {
         Self {
-            time_of_request: value.time_of_request,
             buyer: (&value.buyer).into(),
             seller: (&value.seller).into(),
-            currency: value.currency.clone(),
-            sum: value.sum.clone(),
-            link_to_pay: value.link_to_pay.clone(),
-            address_to_pay: value.address_to_pay.clone(),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.clone(),
+            payment_data: (&value.payment_data).into(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingForPaymentStateDb {
-    pub time_of_request: u64,
     pub payer: BillIdentParticipantDb,
     pub payee: BillParticipantDb,
-    pub currency: String,
-    pub sum: String,
-    pub link_to_pay: String,
-    pub address_to_pay: String,
-    pub mempool_link_for_address_to_pay: String,
+    pub payment_data: BillWaitingStatePaymentDataDb,
 }
 
 impl From<BillWaitingForPaymentStateDb> for BillWaitingForPaymentState {
     fn from(value: BillWaitingForPaymentStateDb) -> Self {
         Self {
-            time_of_request: value.time_of_request,
             payer: value.payer.into(),
             payee: value.payee.into(),
-            currency: value.currency,
-            sum: value.sum,
-            link_to_pay: value.link_to_pay,
-            address_to_pay: value.address_to_pay,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
+            payment_data: value.payment_data.into(),
         }
     }
 }
@@ -418,41 +527,26 @@ impl From<BillWaitingForPaymentStateDb> for BillWaitingForPaymentState {
 impl From<&BillWaitingForPaymentState> for BillWaitingForPaymentStateDb {
     fn from(value: &BillWaitingForPaymentState) -> Self {
         Self {
-            time_of_request: value.time_of_request,
             payer: (&value.payer).into(),
             payee: (&value.payee).into(),
-            currency: value.currency.clone(),
-            sum: value.sum.clone(),
-            link_to_pay: value.link_to_pay.clone(),
-            address_to_pay: value.address_to_pay.clone(),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.clone(),
+            payment_data: (&value.payment_data).into(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingForRecourseStateDb {
-    pub time_of_request: u64,
     pub recourser: BillIdentParticipantDb,
     pub recoursee: BillIdentParticipantDb,
-    pub currency: String,
-    pub sum: String,
-    pub link_to_pay: String,
-    pub address_to_pay: String,
-    pub mempool_link_for_address_to_pay: String,
+    pub payment_data: BillWaitingStatePaymentDataDb,
 }
 
 impl From<BillWaitingForRecourseStateDb> for BillWaitingForRecourseState {
     fn from(value: BillWaitingForRecourseStateDb) -> Self {
         Self {
-            time_of_request: value.time_of_request,
             recourser: value.recourser.into(),
             recoursee: value.recoursee.into(),
-            currency: value.currency,
-            sum: value.sum,
-            link_to_pay: value.link_to_pay,
-            address_to_pay: value.address_to_pay,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
+            payment_data: value.payment_data.into(),
         }
     }
 }
@@ -460,14 +554,9 @@ impl From<BillWaitingForRecourseStateDb> for BillWaitingForRecourseState {
 impl From<&BillWaitingForRecourseState> for BillWaitingForRecourseStateDb {
     fn from(value: &BillWaitingForRecourseState) -> Self {
         Self {
-            time_of_request: value.time_of_request,
             recourser: (&value.recourser).into(),
             recoursee: (&value.recoursee).into(),
-            currency: value.currency.clone(),
-            sum: value.sum.clone(),
-            link_to_pay: value.link_to_pay.clone(),
-            address_to_pay: value.address_to_pay.clone(),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.clone(),
+            payment_data: (&value.payment_data).into(),
         }
     }
 }
@@ -836,8 +925,115 @@ impl From<&BillIdentParticipant> for BillIdentParticipantDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillPaidDb {
-    pub id: Thing,
-    pub payment_address: String,
+    pub bill_id: BillId,
+    pub payment_state: PaymentStateDb,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfferToSellBillPaidDb {
+    pub bill_id: BillId,
+    pub block_id: u64,
+    pub payment_state: PaymentStateDb,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecourseBillPaidDb {
+    pub bill_id: BillId,
+    pub block_id: u64,
+    pub payment_state: PaymentStateDb,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PaymentStateDb {
+    PaidConfirmed(PaidDataDb),
+    PaidUnconfirmed(PaidDataDb),
+    InMempool(InMempoolDataDb),
+    NotFound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaidDataDb {
+    pub block_time: u64, // unix timestamp
+    pub block_hash: String,
+    pub confirmations: u64,
+    pub tx_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InMempoolDataDb {
+    pub tx_id: String,
+}
+
+impl From<&PaymentState> for PaymentStateDb {
+    fn from(value: &PaymentState) -> Self {
+        match value {
+            PaymentState::PaidConfirmed(paid_data) => {
+                PaymentStateDb::PaidConfirmed(paid_data.into())
+            }
+            PaymentState::PaidUnconfirmed(paid_data) => {
+                PaymentStateDb::PaidUnconfirmed(paid_data.into())
+            }
+            PaymentState::InMempool(in_mempool_data) => {
+                PaymentStateDb::InMempool(in_mempool_data.into())
+            }
+            PaymentState::NotFound => PaymentStateDb::NotFound,
+        }
+    }
+}
+
+impl From<PaymentStateDb> for PaymentState {
+    fn from(value: PaymentStateDb) -> Self {
+        match value {
+            PaymentStateDb::PaidConfirmed(paid_data) => {
+                PaymentState::PaidConfirmed(paid_data.into())
+            }
+            PaymentStateDb::PaidUnconfirmed(paid_data) => {
+                PaymentState::PaidUnconfirmed(paid_data.into())
+            }
+            PaymentStateDb::InMempool(in_mempool_data) => {
+                PaymentState::InMempool(in_mempool_data.into())
+            }
+            PaymentStateDb::NotFound => PaymentState::NotFound,
+        }
+    }
+}
+
+impl From<&PaidData> for PaidDataDb {
+    fn from(value: &PaidData) -> Self {
+        Self {
+            block_time: value.block_time,
+            block_hash: value.block_hash.clone(),
+            confirmations: value.confirmations,
+            tx_id: value.tx_id.clone(),
+        }
+    }
+}
+
+impl From<PaidDataDb> for PaidData {
+    fn from(value: PaidDataDb) -> Self {
+        Self {
+            block_time: value.block_time,
+            block_hash: value.block_hash.clone(),
+            confirmations: value.confirmations,
+            tx_id: value.tx_id,
+        }
+    }
+}
+
+impl From<&InMempoolData> for InMempoolDataDb {
+    fn from(value: &InMempoolData) -> Self {
+        Self {
+            tx_id: value.tx_id.clone(),
+        }
+    }
+}
+
+impl From<InMempoolDataDb> for InMempoolData {
+    fn from(value: InMempoolDataDb) -> Self {
+        Self {
+            tx_id: value.tx_id.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -884,7 +1080,7 @@ pub mod tests {
     };
     use bcr_ebill_core::{
         NodeId,
-        bill::{BillId, BillKeys},
+        bill::{BillId, BillKeys, PaidData, PaymentState},
         blockchain::bill::{
             BillBlock, BillOpCode,
             block::{
@@ -1038,16 +1234,42 @@ pub mod tests {
     async fn test_paid() {
         let store = get_store(get_db().await).await;
         let res = store
-            .set_to_paid(&bill_id_test(), "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
+            .set_payment_state(
+                &bill_id_test(),
+                &PaymentState::PaidConfirmed(PaidData {
+                    block_time: 1731593928,
+                    block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
+                        .into(),
+                    confirmations: 6,
+                    tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c"
+                        .into(),
+                }),
+            )
             .await;
         assert!(res.is_ok());
         let get_res = store.is_paid(&bill_id_test()).await;
         assert!(get_res.is_ok());
         assert!(get_res.as_ref().unwrap());
+        let payment_state = store
+            .get_payment_state(&bill_id_test())
+            .await
+            .expect("succeeds")
+            .expect("is there");
+        assert!(matches!(payment_state, PaymentState::PaidConfirmed(..)));
 
         // save again
         let res_again = store
-            .set_to_paid(&bill_id_test(), "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
+            .set_payment_state(
+                &bill_id_test(),
+                &PaymentState::PaidConfirmed(PaidData {
+                    block_time: 1731593928,
+                    block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
+                        .into(),
+                    confirmations: 6,
+                    tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c"
+                        .into(),
+                }),
+            )
             .await;
         assert!(res_again.is_ok());
         let get_res_again = store.is_paid(&bill_id_test()).await;
@@ -1058,6 +1280,72 @@ pub mod tests {
         let get_res_not_paid = store.is_paid(&bill_id_test_other()).await;
         assert!(get_res_not_paid.is_ok());
         assert!(!get_res_not_paid.as_ref().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_payment_state_offer_to_sell() {
+        let store = get_store(get_db().await).await;
+        let res = store
+            .set_offer_to_sell_payment_state(
+                &bill_id_test(),
+                1,
+                &PaymentState::PaidConfirmed(PaidData {
+                    block_time: 1731593928,
+                    block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
+                        .into(),
+                    confirmations: 6,
+                    tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c"
+                        .into(),
+                }),
+            )
+            .await;
+        assert!(res.is_ok());
+
+        let payment_state = store
+            .get_offer_to_sell_payment_state(&bill_id_test(), 1)
+            .await
+            .expect("succeeds")
+            .expect("is there");
+        assert!(matches!(payment_state, PaymentState::PaidConfirmed(..)));
+
+        let payment_state_different_block = store
+            .get_offer_to_sell_payment_state(&bill_id_test(), 2)
+            .await
+            .expect("succeeds");
+        assert!(payment_state_different_block.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_payment_state_recourse() {
+        let store = get_store(get_db().await).await;
+        let res = store
+            .set_recourse_payment_state(
+                &bill_id_test(),
+                1,
+                &PaymentState::PaidConfirmed(PaidData {
+                    block_time: 1731593928,
+                    block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
+                        .into(),
+                    confirmations: 6,
+                    tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c"
+                        .into(),
+                }),
+            )
+            .await;
+        assert!(res.is_ok());
+
+        let payment_state = store
+            .get_recourse_payment_state(&bill_id_test(), 1)
+            .await
+            .expect("succeeds")
+            .expect("is there");
+        assert!(matches!(payment_state, PaymentState::PaidConfirmed(..)));
+
+        let payment_state_different_block = store
+            .get_recourse_payment_state(&bill_id_test(), 2)
+            .await
+            .expect("succeeds");
+        assert!(payment_state_different_block.is_none());
     }
 
     #[tokio::test]
@@ -1107,9 +1395,19 @@ pub mod tests {
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 1);
 
-        // add the bill to paid, expect it not to be returned afterwards
+        // set the bill to paid, expect it not to be returned afterwards
         store
-            .set_to_paid(&bill_id_test(), "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk")
+            .set_payment_state(
+                &bill_id_test(),
+                &PaymentState::PaidConfirmed(PaidData {
+                    block_time: 1731593928,
+                    block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
+                        .into(),
+                    confirmations: 6,
+                    tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c"
+                        .into(),
+                }),
+            )
             .await
             .unwrap();
 

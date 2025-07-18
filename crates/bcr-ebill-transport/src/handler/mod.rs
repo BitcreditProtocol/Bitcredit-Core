@@ -292,7 +292,7 @@ mod test_utils {
     use async_trait::async_trait;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
-        bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult},
+        bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult, PaymentState},
         blockchain::{
             bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
             company::{CompanyBlock, CompanyBlockchain},
@@ -403,7 +403,30 @@ mod test_utils {
             async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
             async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
             async fn is_paid(&self, id: &BillId) -> Result<bool>;
-            async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()>;
+            async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()>;
+            async fn get_payment_state(&self, id: &BillId) -> Result<Option<PaymentState>>;
+            async fn set_offer_to_sell_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+                payment_state: &PaymentState,
+            ) -> Result<()>;
+            async fn get_offer_to_sell_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+            ) -> Result<Option<PaymentState>>;
+            async fn set_recourse_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+                payment_state: &PaymentState,
+            ) -> Result<()>;
+            async fn get_recourse_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+            ) -> Result<Option<PaymentState>>;
             async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>>;

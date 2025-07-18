@@ -461,15 +461,15 @@ impl CompanyBlock {
         let mut key = None;
 
         // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
-        if op_code == CompanyOpCode::AddSignatory {
-            if let Some(signatory_public_key) = public_key_for_keys {
-                let key_bytes = to_vec(&company_keys.get_private_key_string())?;
-                let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
-                    &key_bytes,
-                    signatory_public_key,
-                )?);
-                key = Some(encrypted_key);
-            }
+        if op_code == CompanyOpCode::AddSignatory
+            && let Some(signatory_public_key) = public_key_for_keys
+        {
+            let key_bytes = to_vec(&company_keys.get_private_key_string())?;
+            let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
+                &key_bytes,
+                signatory_public_key,
+            )?);
+            key = Some(encrypted_key);
         }
 
         let data = CompanyBlockData {

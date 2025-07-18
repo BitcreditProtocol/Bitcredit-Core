@@ -3,6 +3,7 @@ import * as wasm from '../pkg/index.js';
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("notif").addEventListener("click", triggerNotif);
 document.getElementById("get_active_notif_status").addEventListener("click", getActiveNotif);
+document.getElementById("get_notif_list").addEventListener("click", getNotifList);
 document.getElementById("company_create").addEventListener("click", createCompany);
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
@@ -69,6 +70,7 @@ let config = {
   default_mint_url: "https://wildcat-dev-docker.minibill.tech",
   // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
   default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
+  num_confirmations_for_payment: 6,
 };
 
 async function start(create_identity) {
@@ -652,6 +654,13 @@ async function getActiveNotif() {
   await measured();
 }
 
+async function getNotifList() {
+  let measured = measure(async () => {
+      return await notificationTriggerApi.list({});
+  });
+  await measured();
+}
+
 // disables auto identity creation via query param identity=false
 function generateIdentity() {
   let param = getQueryParam("identity");
@@ -665,3 +674,4 @@ function getQueryParam(paramName) {
   const urlParams = new URLSearchParams(window.location.search);
   return urlParams.get(paramName);
 }
+

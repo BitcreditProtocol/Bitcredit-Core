@@ -3,7 +3,7 @@ use super::service::BillService;
 use crate::service::bill_service::{BillAction, BillServiceApi};
 use bcr_ebill_core::{
     NodeId,
-    bill::{BillId, RecourseReason},
+    bill::{BillId, PaymentState, RecourseReason},
     blockchain::{
         Blockchain,
         bill::{
@@ -46,14 +46,29 @@ impl BillService {
         let address_to_pay = self
             .bitcoin_client
             .get_address_to_pay(&bill_keys.public_key, &holder_public_key.pub_key())?;
-        if let Ok((paid, sum)) = self
+        if let Ok(payment_state) = self
             .bitcoin_client
-            .check_if_paid(&address_to_pay, bill.sum)
+            .check_payment_for_address(&address_to_pay, bill.sum)
             .await
         {
-            if paid && sum > 0 {
-                debug!("bill {bill_id} is paid - setting to paid and invalidating cache");
-                self.store.set_to_paid(bill_id, &address_to_pay).await?;
+            let should_update = match self
+                    .store
+                    .get_payment_state(bill_id)
+                    .await {
+                        // only update if have a different state
+                        Ok(Some(prev_payment_state)) => prev_payment_state != payment_state
+                        ,
+                        // if we don't have a previous payment state, we set the one we got
+                        _ => true
+                    };
+
+            if should_update {
+                debug!(
+                    "Updating bill payment state for {bill_id} to {payment_state:?} and invalidating cache"
+                );
+                self.store
+                    .set_payment_state(bill_id, &payment_state)
+                    .await?;
                 // invalidate bill cache, so payment state is updated on next fetch
                 self.store.invalidate_bill_in_cache(bill_id).await?;
             }
@@ -80,12 +95,35 @@ impl BillService {
                 &payment_info.recourser.node_id.pub_key(),
             )?;
             // check if paid
-            if let Ok((paid, sum)) = self
+            if let Ok(payment_state) = self
                 .bitcoin_client
-                .check_if_paid(&payment_address, payment_info.sum)
+                .check_payment_for_address(&payment_address, payment_info.sum)
                 .await
             {
-                if paid && sum > 0 {
+                let should_update = match self
+                    .store
+                    .get_recourse_payment_state(bill_id, payment_info.block_id)
+                    .await {
+                        // only update if have a different state
+                        Ok(Some(prev_payment_state)) => prev_payment_state != payment_state
+                        ,
+                        // if we don't have a previous payment state, we set the one we got
+                        _ => true
+                    };
+
+                if should_update {
+                    debug!(
+                        "Updating bill recourse payment state for {bill_id} to {payment_state:?} and invalidating cache"
+                    );
+                    self.store
+                        .set_recourse_payment_state(bill_id, payment_info.block_id, &payment_state)
+                        .await?;
+                    // invalidate bill cache, so recourse payment state is updated on next fetch
+                    self.store.invalidate_bill_in_cache(bill_id).await?;
+                }
+
+                // if recourse was paid, attempt to create recourse block
+                if matches!(payment_state, PaymentState::PaidConfirmed(..)) {
                     debug!(
                         "bill {bill_id} is recourse-paid - creating recourse block if we're recourser"
                     );
@@ -102,20 +140,24 @@ impl BillService {
                                 BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
                             };
                             let _ = self
-                                .execute_bill_action(
-                                    bill_id,
-                                    BillAction::Recourse(
-                                        self.extend_bill_chain_identity_data_from_contacts_or_identity(
-                                            payment_info.recoursee.clone(),
-                                            &identity.identity,
-                                            &contacts
-                                        )
-                                        .await, payment_info.sum, payment_info.currency, reason),
-                                    &BillParticipant::Ident(signer_identity),
-                                    &identity.key_pair,
-                                    now,
-                                )
-                                .await?;
+                            .execute_bill_action(
+                                bill_id,
+                                BillAction::Recourse(
+                                    self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                                        payment_info.recoursee.clone(),
+                                        &identity.identity,
+                                        &contacts,
+                                    )
+                                    .await,
+                                    payment_info.sum,
+                                    payment_info.currency,
+                                    reason,
+                                ),
+                                &BillParticipant::Ident(signer_identity),
+                                &identity.key_pair,
+                                now,
+                            )
+                            .await?;
                         } else {
                             log::error!(
                                 "Signer {} for bill {bill_id} is not a valid signer",
@@ -130,37 +172,41 @@ impl BillService {
                     // If a local company is the recourser, create the recourse block as that company
                     if let Some(recourser_company) =
                         local_companies.get(&payment_info.recourser.node_id)
-                    {
-                        if recourser_company
+                        && recourser_company
                             .0
                             .signatories
                             .iter()
                             .any(|s| s == &identity.identity.node_id)
-                        {
-                            let reason = match payment_info.reason {
-                                BillRecourseReasonBlockData::Pay => RecourseReason::Pay(
-                                    payment_info.sum,
-                                    payment_info.currency.clone(),
-                                ),
-                                BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
-                            };
-                            let _ = self
-                                .execute_bill_action(
-                                    bill_id,
-                                    BillAction::Recourse(self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    {
+                        let reason = match payment_info.reason {
+                            BillRecourseReasonBlockData::Pay => {
+                                RecourseReason::Pay(payment_info.sum, payment_info.currency.clone())
+                            }
+                            BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
+                        };
+                        let _ = self
+                            .execute_bill_action(
+                                bill_id,
+                                BillAction::Recourse(
+                                    self.extend_bill_chain_identity_data_from_contacts_or_identity(
                                         payment_info.recoursee.clone(),
                                         &identity.identity,
-                                        &contacts
+                                        &contacts,
                                     )
-                                    .await, payment_info.sum, payment_info.currency, reason),
-                                    // signer identity (company)
-                                    &BillParticipant::Ident(BillIdentParticipant::from(recourser_company.0.clone())),
-                                    // signer keys (company keys)
-                                    &BcrKeys::from_private_key(&recourser_company.1.private_key)?,
-                                    now,
-                                )
-                                .await?;
-                        }
+                                    .await,
+                                    payment_info.sum,
+                                    payment_info.currency,
+                                    reason,
+                                ),
+                                // signer identity (company)
+                                &BillParticipant::Ident(BillIdentParticipant::from(
+                                    recourser_company.0.clone(),
+                                )),
+                                // signer keys (company keys)
+                                &BcrKeys::from_private_key(&recourser_company.1.private_key)?,
+                                now,
+                            )
+                            .await?;
                     }
                 }
             }
@@ -182,12 +228,38 @@ impl BillService {
             chain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, now)
         {
             // check if paid
-            if let Ok((paid, sum)) = self
+            if let Ok(payment_state) = self
                 .bitcoin_client
-                .check_if_paid(&payment_info.payment_address, payment_info.sum)
+                .check_payment_for_address(&payment_info.payment_address, payment_info.sum)
                 .await
             {
-                if paid && sum > 0 {
+                let should_update = match self
+                    .store
+                    .get_offer_to_sell_payment_state(bill_id, payment_info.block_id)
+                    .await {
+                        // only update if have a different state
+                        Ok(Some(prev_payment_state)) => prev_payment_state != payment_state
+                        ,
+                        // if we don't have a previous payment state, we set the one we got
+                        _ => true
+                    };
+                if should_update {
+                    debug!(
+                        "Updating bill offer to sell payment state for {bill_id} to {payment_state:?} and invalidating cache"
+                    );
+                    self.store
+                        .set_offer_to_sell_payment_state(
+                            bill_id,
+                            payment_info.block_id,
+                            &payment_state,
+                        )
+                        .await?;
+                    // invalidate bill cache, so offer to sell payment state is updated on next fetch
+                    self.store.invalidate_bill_in_cache(bill_id).await?;
+                }
+
+                // if offer to sell was paid, attempt to create sell block
+                if matches!(payment_state, PaymentState::PaidConfirmed(..)) {
                     debug!("bill {bill_id} got bought - creating sell block if we're seller");
                     // If we are the seller and anon, or a bill issuer and it's paid, we add a Sell block
                     if payment_info.seller.node_id() == identity.identity.node_id {
@@ -210,23 +282,24 @@ impl BillService {
                             )),
                         };
                         let _ = self
-                                .execute_bill_action(
-                                    bill_id,
-                                    BillAction::Sell(
-                                    self.extend_bill_chain_participant_data_from_contacts_or_identity(
-                                        payment_info.buyer.clone().into(),
-                                        &identity.identity,
-                                        &contacts
-                                    )
-                                    .await,
-                                    payment_info.sum,
-                                    payment_info.currency,
-                                    payment_info.payment_address),
-                                    &signer_identity,
-                                    &identity.key_pair,
-                                    now,
+                        .execute_bill_action(
+                            bill_id,
+                            BillAction::Sell(
+                                self.extend_bill_chain_participant_data_from_contacts_or_identity(
+                                    payment_info.buyer.clone().into(),
+                                    &identity.identity,
+                                    &contacts,
                                 )
-                                .await?;
+                                .await,
+                                payment_info.sum,
+                                payment_info.currency,
+                                payment_info.payment_address,
+                            ),
+                            &signer_identity,
+                            &identity.key_pair,
+                            now,
+                        )
+                        .await?;
                         return Ok(()); // return early
                     }
 
@@ -235,14 +308,13 @@ impl BillService {
                     // If a local company is the seller, create the sell block as that company
                     if let Some(seller_company) =
                         local_companies.get(&payment_info.seller.node_id())
-                    {
-                        if seller_company
+                        && seller_company
                             .0
                             .signatories
                             .iter()
                             .any(|s| s == &identity.identity.node_id)
-                        {
-                            let _ = self
+                    {
+                        let _ = self
                                 .execute_bill_action(
                                     bill_id,
                                     BillAction::Sell(
@@ -262,7 +334,6 @@ impl BillService {
                                     now,
                                 )
                                 .await?;
-                        }
                     }
                 }
             }

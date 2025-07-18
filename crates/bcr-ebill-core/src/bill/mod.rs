@@ -248,38 +248,36 @@ pub enum BillCurrentWaitingState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForSellState {
-    pub time_of_request: u64,
     pub buyer: BillParticipant,
     pub seller: BillParticipant,
-    pub currency: String,
-    pub sum: String,
-    pub link_to_pay: String,
-    pub address_to_pay: String,
-    pub mempool_link_for_address_to_pay: String,
+    pub payment_data: BillWaitingStatePaymentData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForPaymentState {
-    pub time_of_request: u64,
     pub payer: BillIdentParticipant,
     pub payee: BillParticipant,
-    pub currency: String,
-    pub sum: String,
-    pub link_to_pay: String,
-    pub address_to_pay: String,
-    pub mempool_link_for_address_to_pay: String,
+    pub payment_data: BillWaitingStatePaymentData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForRecourseState {
-    pub time_of_request: u64,
     pub recourser: BillIdentParticipant,
     pub recoursee: BillIdentParticipant,
+    pub payment_data: BillWaitingStatePaymentData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BillWaitingStatePaymentData {
+    pub time_of_request: u64,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub mempool_link_for_address_to_pay: String,
+    pub tx_id: Option<String>,
+    pub in_mempool: bool,
+    pub confirmations: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -428,15 +426,14 @@ impl BitcreditBillResult {
             return true;
         }
 
-        if let Some(ref endorsee) = self.participants.endorsee {
-            if endorsee
+        if let Some(ref endorsee) = self.participants.endorsee
+            && endorsee
                 .name()
                 .as_ref()
                 .map(|n| n.to_lowercase().contains(&search_term_lc))
                 .unwrap_or(false)
-            {
-                return true;
-            }
+        {
+            return true;
         }
 
         if let Some(BillCurrentWaitingState::Sell(ref sell_waiting_state)) =
@@ -608,4 +605,25 @@ pub struct PastPaymentDataRecourse {
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum PaymentState {
+    PaidConfirmed(PaidData),
+    PaidUnconfirmed(PaidData),
+    InMempool(InMempoolData),
+    NotFound,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PaidData {
+    pub block_time: u64, // unix timestamp
+    pub block_hash: String,
+    pub confirmations: u64,
+    pub tx_id: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct InMempoolData {
+    pub tx_id: String,
 }

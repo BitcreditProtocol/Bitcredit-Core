@@ -651,16 +651,16 @@ impl ContactServiceApi for ContactService {
         let nostr_relays = contact.nostr_relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
-            if let Some(avatar_file) = contact.avatar_file {
-                if avatar_file.name == file_name {
-                    file = Some(avatar_file);
-                }
+            if let Some(avatar_file) = contact.avatar_file
+                && avatar_file.name == file_name
+            {
+                file = Some(avatar_file);
             }
 
-            if let Some(proof_document_file) = contact.proof_document_file {
-                if proof_document_file.name == file_name {
-                    file = Some(proof_document_file);
-                }
+            if let Some(proof_document_file) = contact.proof_document_file
+                && proof_document_file.name == file_name
+            {
+                file = Some(proof_document_file);
             }
 
             if let Some(file) = file {

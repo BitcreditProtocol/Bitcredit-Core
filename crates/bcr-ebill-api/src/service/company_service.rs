@@ -591,14 +591,13 @@ impl CompanyServiceApi for CompanyService {
 
         debug!("company with id {id} updated");
 
-        if let Some(upload_id) = logo_file_upload_id {
-            if let Err(e) = self
+        if let Some(upload_id) = logo_file_upload_id
+            && let Err(e) = self
                 .file_upload_store
                 .remove_temp_upload_folder(&upload_id)
                 .await
-            {
-                error!("Error while cleaning up temporary file uploads for {upload_id}: {e}");
-            }
+        {
+            error!("Error while cleaning up temporary file uploads for {upload_id}: {e}");
         }
 
         Ok(())
@@ -822,16 +821,16 @@ impl CompanyServiceApi for CompanyService {
         let nostr_relays = get_config().nostr_config.relays.clone();
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
-            if let Some(logo_file) = company.logo_file {
-                if logo_file.name == file_name {
-                    file = Some(logo_file);
-                }
+            if let Some(logo_file) = company.logo_file
+                && logo_file.name == file_name
+            {
+                file = Some(logo_file);
             }
 
-            if let Some(proof_of_registration_file) = company.proof_of_registration_file {
-                if proof_of_registration_file.name == file_name {
-                    file = Some(proof_of_registration_file);
-                }
+            if let Some(proof_of_registration_file) = company.proof_of_registration_file
+                && proof_of_registration_file.name == file_name
+            {
+                file = Some(proof_of_registration_file);
             }
 
             if let Some(file) = file {

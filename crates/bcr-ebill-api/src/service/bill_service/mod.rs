@@ -237,7 +237,8 @@ pub mod tests {
         File, ValidationError,
         bill::{
             BillAcceptanceStatus, BillCurrentWaitingState, BillPaymentStatus, BillRecourseStatus,
-            BillSellStatus, BillWaitingForPaymentState, PastPaymentStatus, RecourseReason,
+            BillSellStatus, BillWaitingForPaymentState, BillWaitingStatePaymentData,
+            PastPaymentStatus, RecourseReason,
         },
         blockchain::{
             Blockchain,
@@ -3421,7 +3422,9 @@ pub mod tests {
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_payment()
             .returning(|| Ok(vec![bill_id_test()]));
-        ctx.bill_store.expect_set_to_paid().returning(|_, _| Ok(()));
+        ctx.bill_store
+            .expect_set_payment_state()
+            .returning(|_, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3438,7 +3441,9 @@ pub mod tests {
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_payment()
             .returning(|| Ok(vec![bill_id_test()]));
-        ctx.bill_store.expect_set_to_paid().returning(|_, _| Ok(()));
+        ctx.bill_store
+            .expect_set_payment_state()
+            .returning(|_, _| Ok(()));
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3461,6 +3466,9 @@ pub mod tests {
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_sell_payment()
             .returning(|| Ok(vec![bill_id_test()]));
+        ctx.bill_store
+            .expect_set_offer_to_sell_payment_state()
+            .returning(|_, _, _| Ok(()));
         let buyer_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -3470,7 +3478,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &bill_identified_participant_only_node_id(buyer_node_id.clone()),
-                    None,
+                    Some(util::date::now().timestamp() as u64),
                 )));
                 Ok(chain)
             });
@@ -3501,6 +3509,9 @@ pub mod tests {
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_sell_payment()
             .returning(|| Ok(vec![bill_id_test()]));
+        ctx.bill_store
+            .expect_set_offer_to_sell_payment_state()
+            .returning(|_, _, _| Ok(()));
         let company_clone = company.clone();
         ctx.company_store.expect_get_all().returning(move || {
             let mut map = HashMap::new();
@@ -3519,7 +3530,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &bill_identified_participant_only_node_id(buyer_node_id.clone()),
-                    None,
+                    Some(util::date::now().timestamp() as u64),
                 )));
                 Ok(chain)
             });
@@ -4468,6 +4479,7 @@ pub mod tests {
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         // paid
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
+
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
@@ -5151,6 +5163,9 @@ pub mod tests {
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_recourse_payment()
             .returning(|| Ok(vec![bill_id_test()]));
+        ctx.bill_store
+            .expect_set_recourse_payment_state()
+            .returning(|_, _, _| Ok(()));
         let recoursee = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         ctx.bill_blockchain_store
             .expect_get_chain()
@@ -5210,6 +5225,9 @@ pub mod tests {
         ctx.bill_store
             .expect_get_bill_ids_waiting_for_recourse_payment()
             .returning(|| Ok(vec![bill_id_test()]));
+        ctx.bill_store
+            .expect_set_recourse_payment_state()
+            .returning(|_, _, _| Ok(()));
         let company_clone = company.clone();
         ctx.company_store.expect_get_all().returning(move || {
             let mut map = HashMap::new();
@@ -5757,14 +5775,19 @@ pub mod tests {
         );
         bill_payment.current_waiting_state = Some(BillCurrentWaitingState::Payment(
             BillWaitingForPaymentState {
-                time_of_request: 1531593928,
                 payer: empty_bill_identified_participant(),
                 payee: BillParticipant::Ident(empty_bill_identified_participant()),
-                currency: "sat".into(),
-                sum: "10".into(),
-                link_to_pay: String::default(),
-                address_to_pay: String::default(),
-                mempool_link_for_address_to_pay: String::default(),
+                payment_data: BillWaitingStatePaymentData {
+                    time_of_request: 1531593928,
+                    currency: "sat".into(),
+                    sum: "10".into(),
+                    link_to_pay: String::default(),
+                    address_to_pay: String::default(),
+                    mempool_link_for_address_to_pay: String::default(),
+                    tx_id: None,
+                    confirmations: 0,
+                    in_mempool: false,
+                },
             },
         ));
         // req to pay expired, but not yet 2 days after end of day maturity date
