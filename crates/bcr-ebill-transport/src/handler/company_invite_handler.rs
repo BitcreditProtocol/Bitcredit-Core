@@ -172,3 +172,366 @@ impl CompanyInviteEventHandler {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        event::blockchain_event::CompanyBlockEvent,
+        handler::{
+            MockCompanyChainEventProcessorApi,
+            public_chain_helpers::collect_event_chains,
+            test_utils::{
+                MockNostrChainEventStore, empty_address, get_bill_keys, node_id_test,
+                private_key_test,
+            },
+        },
+        transport::{MockNotificationJsonTransportApi, create_public_chain_event},
+    };
+
+    use super::*;
+    use bcr_ebill_core::{
+        blockchain::{
+            Blockchain,
+            company::{CompanyBlockchain, CompanyCreateBlockData},
+        },
+        company::Company,
+        util::crypto::BcrKeys,
+    };
+    use mockall::predicate::eq;
+
+    #[test]
+    fn test_single_block() {
+        let (keys, chain) = generate_test_chain(1, false);
+        let chains = collect_event_chains(
+            &chain,
+            &node_id_test().to_string(),
+            BlockchainType::Company,
+            &keys,
+        );
+        assert_eq!(chains.len(), 1, "should contain a single valid chain");
+        let result_chain = chains.first().unwrap();
+        assert_eq!(result_chain.len(), 1, "chain should contain a single event");
+    }
+
+    #[test]
+    fn test_multiple_valid_blocks() {
+        let (keys, chain) = generate_test_chain(3, false);
+        let chains = collect_event_chains(
+            &chain,
+            &node_id_test().to_string(),
+            BlockchainType::Company,
+            &keys,
+        );
+
+        assert_eq!(chains.len(), 1, "should contain a single valid chain");
+        let result_chain = chains.first().unwrap();
+        assert_eq!(result_chain.len(), 3, "chain should contain 3 events");
+    }
+
+    #[test]
+    fn test_multiple_chains() {
+        let (keys, chain) = generate_test_chain(3, true);
+        let chains = collect_event_chains(
+            &chain,
+            &node_id_test().to_string(),
+            BlockchainType::Company,
+            &keys,
+        );
+
+        assert_eq!(chains.len(), 2, "should contain two valid chains");
+        for chain in chains {
+            assert_eq!(chain.len(), 3, "chain should contain 3 events");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_single_event_chain_invite() {
+        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+
+        let node_id = node_id_test();
+        let (keys, chain) = generate_test_chain(1, false);
+
+        // get events from nostr
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(node_id_test().to_string()), eq(BlockchainType::Company))
+            .returning(move |_, _| Ok(chain.clone()));
+
+        let keys_clone = keys.clone();
+        // process blocks
+        processor
+            .expect_process_chain_data()
+            .withf(move |node_id, blocks, keys| {
+                node_id == &node_id_test()
+                    && blocks.len() == 1
+                    && keys.clone().unwrap().public_key.to_string()
+                        == keys_clone.get_key_pair().public_key().to_string()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // store events
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(1);
+
+        let event = generate_test_event(&BcrKeys::new(), None, None, 1);
+        let invite = Event::new_company_invite(ChainInvite::company(
+            node_id_test().to_string(),
+            CompanyKeys {
+                public_key: keys.get_key_pair().public_key(),
+                private_key: keys.get_private_key(),
+            },
+        ))
+        .try_into()
+        .expect("failed to create envelope");
+
+        let handler = CompanyInviteEventHandler::new(
+            Arc::new(transport),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+        handler
+            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .await
+            .expect("failed to process chain invite event");
+    }
+
+    #[tokio::test]
+    async fn test_process_single_chain_invite() {
+        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+
+        let node_id = node_id_test();
+        let (keys, chain) = generate_test_chain(3, false);
+
+        // get events from nostr
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(node_id_test().to_string()), eq(BlockchainType::Company))
+            .returning(move |_, _| Ok(chain.clone()));
+
+        // process blocks
+        processor
+            .expect_process_chain_data()
+            .withf(|node_id, blocks, keys| {
+                node_id == &node_id_test()
+                    && blocks.len() == 3
+                    && keys.clone().unwrap().public_key.to_string()
+                        == get_bill_keys().public_key.to_string()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // store events
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(3);
+
+        let event = generate_test_event(&BcrKeys::new(), None, None, 1);
+        let invite = Event::new_company_invite(ChainInvite::company(
+            node_id_test().to_string(),
+            CompanyKeys {
+                public_key: keys.get_key_pair().public_key(),
+                private_key: keys.get_private_key(),
+            },
+        ))
+        .try_into()
+        .expect("failed to create envelope");
+
+        let handler = CompanyInviteEventHandler::new(
+            Arc::new(transport),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+        handler
+            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .await
+            .expect("failed to process chain invite event");
+    }
+
+    #[tokio::test]
+    async fn test_process_multiple_chains_invite() {
+        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+
+        let node_id = node_id_test();
+        let (keys, chain) = generate_test_chain(3, true);
+
+        // get events from nostr
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(node_id_test().to_string()), eq(BlockchainType::Company))
+            .returning(move |_, _| Ok(chain.clone()));
+
+        // process blocks
+        processor
+            .expect_process_chain_data()
+            .withf(|node_id, blocks, keys| {
+                node_id == &node_id_test()
+                    && blocks.len() == 3
+                    && keys.clone().unwrap().public_key.to_string()
+                        == get_bill_keys().public_key.to_string()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // store valid events
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(|e| e.valid)
+            .returning(|_| Ok(()))
+            .times(3);
+
+        // store invalid events
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(|e| !e.valid)
+            .returning(|_| Ok(()))
+            .times(1);
+
+        let event = generate_test_event(&BcrKeys::new(), None, None, 1);
+        let invite = Event::new_company_invite(ChainInvite::company(
+            node_id_test().to_string(),
+            CompanyKeys {
+                public_key: keys.get_key_pair().public_key(),
+                private_key: keys.get_private_key(),
+            },
+        ))
+        .try_into()
+        .expect("failed to create envelope");
+
+        let handler = CompanyInviteEventHandler::new(
+            Arc::new(transport),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+        handler
+            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .await
+            .expect("failed to process chain invite event");
+    }
+
+    fn get_mocks() -> (
+        MockNotificationJsonTransportApi,
+        MockCompanyChainEventProcessorApi,
+        MockNostrChainEventStore,
+    ) {
+        (
+            MockNotificationJsonTransportApi::new(),
+            MockCompanyChainEventProcessorApi::new(),
+            MockNostrChainEventStore::new(),
+        )
+    }
+
+    // generates event chains. If invalid blocks is enabled chains of size 3 will have two equal
+    // valid chains. From there on len even gives one valid and N - 2 invalid (shorter) chains.
+    // Uneven give two valid (equal len) and N - 1 invalid chains.
+    fn generate_test_chain(len: usize, invalid_blocks: bool) -> (BcrKeys, Vec<nostr::Event>) {
+        let keys = BcrKeys::from_private_key(&private_key_test())
+            .expect("failed to generate keys from private key");
+        let mut result = Vec::new();
+
+        let root = generate_test_event(&keys, None, None, 1);
+        result.push(root.clone());
+
+        let mut parent = root.clone();
+        for idx in 1..len {
+            let child =
+                generate_test_event(&keys, Some(parent.clone()), Some(root.clone()), idx + 1);
+            result.push(child.clone());
+            // produce some side chain
+            if invalid_blocks && idx % 2 == 0 {
+                let invalid =
+                    generate_test_event(&keys, Some(parent.clone()), Some(root.clone()), idx + 1);
+                result.push(invalid);
+            }
+            parent = child;
+        }
+
+        (keys, result)
+    }
+
+    #[allow(dead_code)]
+    fn print_chains(chains: Vec<Vec<EventContainer>>) {
+        for (idx, chain) in chains.iter().enumerate() {
+            println!("CHAIN: {idx}");
+            for (edx, evt) in chain.iter().enumerate() {
+                println!(
+                    "Evt {edx}: {:?} {:?} {:?} {}",
+                    evt.root_id,
+                    evt.event.id,
+                    evt.reply_id,
+                    evt.children.len()
+                );
+            }
+        }
+    }
+
+    fn generate_test_event(
+        keys: &BcrKeys,
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        height: usize,
+    ) -> nostr::Event {
+        create_public_chain_event(
+            &node_id_test().to_string(),
+            generate_test_block(height),
+            1000,
+            BlockchainType::Company,
+            keys.clone(),
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
+    fn generate_test_block(block_height: usize) -> EventEnvelope {
+        let (id, (company, keys)) = get_company_data();
+        let block = get_valid_company_chain(&company, &keys)
+            .get_latest_block()
+            .clone();
+
+        Event::new_company_invite(CompanyBlockEvent {
+            node_id: id,
+            block,
+            block_height,
+        })
+        .try_into()
+        .expect("could not create envelope")
+    }
+
+    pub fn get_company_data() -> (NodeId, (Company, CompanyKeys)) {
+        (
+            node_id_test(),
+            (
+                Company {
+                    id: node_id_test(),
+                    name: "some_name".to_string(),
+                    country_of_registration: Some("AT".to_string()),
+                    city_of_registration: Some("Vienna".to_string()),
+                    postal_address: empty_address(),
+                    email: "company@example.com".to_string(),
+                    registration_number: Some("some_number".to_string()),
+                    registration_date: Some("2012-01-01".to_string()),
+                    proof_of_registration_file: None,
+                    logo_file: None,
+                    signatories: vec![node_id_test()],
+                },
+                CompanyKeys {
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
+                },
+            ),
+        )
+    }
+
+    pub fn get_valid_company_chain(company: &Company, keys: &CompanyKeys) -> CompanyBlockchain {
+        CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(company.to_owned()),
+            &BcrKeys::new(),
+            keys,
+            1731593928,
+        )
+        .unwrap()
+    }
+}
