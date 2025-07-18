@@ -1,5 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
+use bcr_ebill_api::PaymentConfig;
 use bcr_ebill_api::data::validate_node_id_network;
 use bcr_ebill_api::{
     Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
@@ -36,6 +37,7 @@ pub struct Config {
     pub job_runner_check_interval_seconds: u32,
     pub default_mint_url: String,
     pub default_mint_node_id: String,
+    pub num_confirmations_for_payment: usize,
 }
 
 pub type Result<T> = std::result::Result<T, error::WasmError>;
@@ -85,6 +87,9 @@ pub async fn initialize_api(
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
         },
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
+        payment_config: PaymentConfig {
+            num_confirmations_for_payment: config.num_confirmations_for_payment,
+        },
     };
     init(api_config.clone())?;
     // make sure the configured default mint node id is valid for the configured network

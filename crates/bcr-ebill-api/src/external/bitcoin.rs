@@ -45,7 +45,7 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
     async fn get_last_block_height(&self) -> Result<u64>;
 
     #[allow(dead_code)]
-    fn get_first_transaction(&self, transactions: &Transactions) -> Option<Txid>;
+    fn get_last_transaction(&self, transactions: &Transactions) -> Option<Txid>;
 
     async fn check_if_paid(&self, address: &str, sum: u64) -> Result<(bool, u64)>;
 
@@ -163,7 +163,7 @@ impl BitcoinClientApi for BitcoinClient {
         Ok(height)
     }
 
-    fn get_first_transaction(&self, transactions: &Transactions) -> Option<Txid> {
+    fn get_last_transaction(&self, transactions: &Transactions) -> Option<Txid> {
         transactions.last().cloned()
     }
 

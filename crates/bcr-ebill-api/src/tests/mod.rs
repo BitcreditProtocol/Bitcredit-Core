@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
-    use crate::{CONFIG, MintConfig, NostrConfig, data::bill::BillKeys};
+    use crate::{CONFIG, MintConfig, NostrConfig, PaymentConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
@@ -473,6 +473,9 @@ pub mod tests {
                             "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                         ).unwrap(),
                     },
+                    payment_config: PaymentConfig {
+                        num_confirmations_for_payment: 6,
+                    }
                 });
             }
         }

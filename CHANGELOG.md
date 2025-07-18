@@ -1,3 +1,7 @@
+# 0.4.4
+
+* Add `num_confirmations_for_payment` config flag and a `payment_config` part of the api config, to configure the amount of confirmations needed until an on-chain payment is considered `paid`
+
 # 0.4.3
 
 * Add endpoints to fetch files as base64 for identity, contacts, companies and bills
