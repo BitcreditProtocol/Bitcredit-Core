@@ -4,8 +4,8 @@ use bcr_ebill_api::data::{
         BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData, BillId,
         BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
         BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
-        BillWaitingForSellState, BillsFilterRole, BitcreditBillResult, Endorsement,
-        LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
+        BillWaitingForSellState, BillWaitingStatePaymentData, BillsFilterRole, BitcreditBillResult,
+        Endorsement, LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
         PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
     },
     contact::{
@@ -461,28 +461,48 @@ impl From<BillCurrentWaitingState> for BillCurrentWaitingStateWeb {
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
-pub struct BillWaitingForSellStateWeb {
+pub struct BillWaitingStatePaymentDataWeb {
     pub time_of_request: u64,
-    pub buyer: BillParticipantWeb,
-    pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub mempool_link_for_address_to_pay: String,
+    pub tx_id: Option<String>,
+    pub in_mempool: bool,
+    pub confirmations: u64,
 }
 
-impl From<BillWaitingForSellState> for BillWaitingForSellStateWeb {
-    fn from(val: BillWaitingForSellState) -> Self {
-        BillWaitingForSellStateWeb {
+impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
+    fn from(val: BillWaitingStatePaymentData) -> Self {
+        BillWaitingStatePaymentDataWeb {
             time_of_request: val.time_of_request,
-            buyer: val.buyer.into(),
-            seller: val.seller.into(),
             currency: val.currency,
             sum: val.sum,
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
+            tx_id: val.tx_id,
+            in_mempool: val.in_mempool,
+            confirmations: val.confirmations,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillWaitingForSellStateWeb {
+    pub buyer: BillParticipantWeb,
+    pub seller: BillParticipantWeb,
+    pub payment_data: BillWaitingStatePaymentDataWeb,
+}
+
+impl From<BillWaitingForSellState> for BillWaitingForSellStateWeb {
+    fn from(val: BillWaitingForSellState) -> Self {
+        BillWaitingForSellStateWeb {
+            buyer: val.buyer.into(),
+            seller: val.seller.into(),
+            payment_data: val.payment_data.into(),
         }
     }
 }
@@ -490,27 +510,17 @@ impl From<BillWaitingForSellState> for BillWaitingForSellStateWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForPaymentStateWeb {
-    pub time_of_request: u64,
     pub payer: BillIdentParticipantWeb,
     pub payee: BillParticipantWeb,
-    pub currency: String,
-    pub sum: String,
-    pub link_to_pay: String,
-    pub address_to_pay: String,
-    pub mempool_link_for_address_to_pay: String,
+    pub payment_data: BillWaitingStatePaymentDataWeb,
 }
 
 impl From<BillWaitingForPaymentState> for BillWaitingForPaymentStateWeb {
     fn from(val: BillWaitingForPaymentState) -> Self {
         BillWaitingForPaymentStateWeb {
-            time_of_request: val.time_of_request,
             payer: val.payer.into(),
             payee: val.payee.into(),
-            currency: val.currency,
-            sum: val.sum,
-            link_to_pay: val.link_to_pay,
-            address_to_pay: val.address_to_pay,
-            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
+            payment_data: val.payment_data.into(),
         }
     }
 }
@@ -518,26 +528,16 @@ impl From<BillWaitingForPaymentState> for BillWaitingForPaymentStateWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForRecourseStateWeb {
-    pub time_of_request: u64,
     pub recourser: BillIdentParticipantWeb,
     pub recoursee: BillIdentParticipantWeb,
-    pub currency: String,
-    pub sum: String,
-    pub link_to_pay: String,
-    pub address_to_pay: String,
-    pub mempool_link_for_address_to_pay: String,
+    pub payment_data: BillWaitingStatePaymentDataWeb,
 }
 impl From<BillWaitingForRecourseState> for BillWaitingForRecourseStateWeb {
     fn from(val: BillWaitingForRecourseState) -> Self {
         BillWaitingForRecourseStateWeb {
-            time_of_request: val.time_of_request,
             recourser: val.recourser.into(),
             recoursee: val.recoursee.into(),
-            currency: val.currency,
-            sum: val.sum,
-            link_to_pay: val.link_to_pay,
-            address_to_pay: val.address_to_pay,
-            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
+            payment_data: val.payment_data.into(),
         }
     }
 }

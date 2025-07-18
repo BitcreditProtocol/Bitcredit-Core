@@ -23,6 +23,10 @@ check: wasm
   cargo check
   cargo test --all
   cargo clippy --all-targets --all-features -- -D warnings
+  cargo deny check
 
 wasm:
   wasm-pack build --dev --target web --out-name index ./crates/bcr-ebill-wasm
+
+serve:
+  http-server -g -c-1 -p 8081 ./crates/bcr-ebill-wasm/

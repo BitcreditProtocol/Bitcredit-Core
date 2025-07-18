@@ -4,7 +4,7 @@ use super::Result;
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
-    bill::{BillId, BillKeys, BitcreditBillResult},
+    bill::{BillId, BillKeys, BitcreditBillResult, PaymentState},
     blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
 };
 
@@ -44,8 +44,36 @@ pub trait BillStoreApi: ServiceTraitBounds {
     async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
     /// Check if the given bill was paid
     async fn is_paid(&self, id: &BillId) -> Result<bool>;
-    /// Set the given bill to paid on the given payment address
-    async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()>;
+    /// Set payment state for given bill
+    async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()>;
+    /// Get payment state for given bill
+    async fn get_payment_state(&self, id: &BillId) -> Result<Option<PaymentState>>;
+    /// Set offer to sell payment state for given bill
+    async fn set_offer_to_sell_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+        payment_state: &PaymentState,
+    ) -> Result<()>;
+    /// Get offer to sell payment state for given bill
+    async fn get_offer_to_sell_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+    ) -> Result<Option<PaymentState>>;
+    /// Set recourse payment state for given bill
+    async fn set_recourse_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+        payment_state: &PaymentState,
+    ) -> Result<()>;
+    /// Get recourse payment state for given bill
+    async fn get_recourse_payment_state(
+        &self,
+        id: &BillId,
+        block_id: u64,
+    ) -> Result<Option<PaymentState>>;
     /// Gets all bills with a RequestToPay block, which are not paid already
     async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
     /// Gets all bills where the latest block is OfferToSell, which are still waiting for payment
