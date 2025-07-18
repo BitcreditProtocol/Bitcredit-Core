@@ -22,58 +22,57 @@ pub struct Company {
 impl Company {
     /// Applies data from a block to the company. Retruns a new company with the data applied.
     pub fn apply_block_data(&mut self, data: &CompanyBlockPayload) {
-        let mut result = self.clone();
         match data {
             CompanyBlockPayload::Update(payload) => {
-                result.name = payload.name.to_owned().unwrap_or(result.name);
-                result.email = payload.email.to_owned().unwrap_or(result.email);
-                result.postal_address.city = payload
+                self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
+                self.email = payload.email.to_owned().unwrap_or(self.email.to_owned());
+                self.postal_address.city = payload
                     .postal_address
                     .city
                     .to_owned()
-                    .unwrap_or(result.postal_address.city);
-                result.postal_address.country = payload
+                    .unwrap_or(self.postal_address.city.to_owned());
+                self.postal_address.country = payload
                     .postal_address
                     .country
                     .to_owned()
-                    .unwrap_or(result.postal_address.country);
-                result.postal_address.zip = payload
+                    .unwrap_or(self.postal_address.country.to_owned());
+                self.postal_address.zip = payload
                     .postal_address
                     .zip
                     .to_owned()
-                    .or(result.postal_address.zip);
-                result.postal_address.address = payload
+                    .or(self.postal_address.zip.to_owned());
+                self.postal_address.address = payload
                     .postal_address
                     .address
                     .to_owned()
-                    .unwrap_or(result.postal_address.address);
-                result.country_of_registration = payload
+                    .unwrap_or(self.postal_address.address.to_owned());
+                self.country_of_registration = payload
                     .country_of_registration
                     .to_owned()
-                    .or(result.country_of_registration);
-                result.city_of_registration = payload
+                    .or(self.country_of_registration.to_owned());
+                self.city_of_registration = payload
                     .city_of_registration
                     .to_owned()
-                    .or(result.city_of_registration);
-                result.registration_number = payload
+                    .or(self.city_of_registration.to_owned());
+                self.registration_number = payload
                     .registration_number
                     .to_owned()
-                    .or(result.registration_number);
-                result.registration_date = payload
+                    .or(self.registration_number.to_owned());
+                self.registration_date = payload
                     .registration_date
                     .to_owned()
-                    .or(result.registration_date);
-                result.logo_file = payload.logo_file.to_owned().or(result.logo_file);
-                result.proof_of_registration_file = payload
+                    .or(self.registration_date.to_owned());
+                self.logo_file = payload.logo_file.to_owned().or(self.logo_file.to_owned());
+                self.proof_of_registration_file = payload
                     .proof_of_registration_file
                     .to_owned()
-                    .or(result.proof_of_registration_file);
+                    .or(self.proof_of_registration_file.to_owned());
             }
             CompanyBlockPayload::AddSignatory(payload) => {
-                result.signatories.push(payload.signatory.to_owned());
+                self.signatories.push(payload.signatory.to_owned());
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {
-                result.signatories.retain(|i| i != &payload.signatory);
+                self.signatories.retain(|i| i != &payload.signatory);
             }
             _ => {}
         }

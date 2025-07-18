@@ -23,6 +23,7 @@ use bcr_ebill_api::{
         validate_file_upload_id,
     },
 };
+use log::info;
 use wasm_bindgen::prelude::*;
 
 async fn get_file(file_name: &str) -> Result<(Vec<u8>, String)> {
@@ -267,6 +268,11 @@ impl Identity {
                 .set_current_personal_identity(&node_id)
                 .await?;
             return Ok(());
+        }
+
+        let companies = get_ctx().company_service.get_list_of_companies().await?;
+        for c in companies {
+            info!("got company: {c:#?}");
         }
 
         // if it's one of our companies, set it

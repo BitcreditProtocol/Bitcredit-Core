@@ -132,6 +132,7 @@ pub struct CompanyRemoveSignatoryBlockData {
     pub signatory: NodeId,
 }
 
+#[derive(Debug)]
 pub enum CompanyBlockPayload {
     Create(CompanyCreateBlockData),
     Update(CompanyUpdateBlockData),

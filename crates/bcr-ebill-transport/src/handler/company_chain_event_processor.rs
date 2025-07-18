@@ -1,6 +1,6 @@
 use crate::{Error, Result};
 use async_trait::async_trait;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::sync::Arc;
 
 use bcr_ebill_core::{
@@ -92,7 +92,12 @@ impl CompanyChainEventProcessor {
 
     async fn add_new_chain(&self, blocks: Vec<CompanyBlock>, keys: &CompanyKeys) -> Result<()> {
         let (company_id, company, chain) = self.get_valid_chain(blocks, keys)?;
-        debug!("adding new chain for company {company_id}");
+        debug!("adding new chain and company {company_id}");
+        // add the company
+        self.company_store.insert(&company).await.map_err(|e| {
+            error!("Failed to insert company {company_id}: {e}");
+            Error::Persistence(e.to_string())
+        })?;
         // save all blocks
         for block in chain.blocks().iter() {
             self.save_block(&company_id, block).await?;
@@ -100,8 +105,12 @@ impl CompanyChainEventProcessor {
         // save keys
         self.save_keys(&company_id, keys).await?;
 
+        // we also want the company itself as a contact
+        let mut contacts_to_ensure = company.signatories.clone();
+        contacts_to_ensure.push(company_id.to_owned());
+
         // ensure that we have all nostr contacts for the bill participants
-        for node_id in company.signatories {
+        for node_id in contacts_to_ensure {
             self.nostr_contact_processor
                 .ensure_nostr_contact(&node_id)
                 .await
@@ -126,11 +135,20 @@ impl CompanyChainEventProcessor {
             .get(company_id)
             .await
             .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        let mut block_height = chain.get_latest_block().id;
         for block in blocks {
+            if block.id <= block_height {
+                info!(
+                    "Skipping block with id {block_height} for {company_id} as we already have it"
+                );
+                continue;
+            }
             let data = block
                 .get_block_data(&keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             if chain.try_add_block(block.clone()) {
+                block_height = block.id;
                 company.apply_block_data(&data);
                 self.save_block(company_id, &block).await?;
                 self.company_store
@@ -139,7 +157,7 @@ impl CompanyChainEventProcessor {
                     .map_err(|e| Error::Persistence(e.to_string()))?;
             }
         }
-
+        debug!("Updated company {company_id} with data from new blocks");
         Ok(())
     }
 

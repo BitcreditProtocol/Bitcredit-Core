@@ -11,8 +11,8 @@ use bcr_ebill_persistence::nostr::{NostrChainEventStoreApi, NostrQueuedMessageSt
 use bcr_ebill_transport::chain_keys::ChainKeyServiceApi;
 use bcr_ebill_transport::handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
-    CompanyChainEventProcessor, CompanyInviteEventHandler, LoggingEventHandler,
-    NostrContactProcessor, NostrContactProcessorApi, NotificationHandlerApi,
+    CompanyChainEventHandler, CompanyChainEventProcessor, CompanyInviteEventHandler,
+    LoggingEventHandler, NostrContactProcessor, NostrContactProcessorApi, NotificationHandlerApi,
 };
 use bcr_ebill_transport::{Error, EventType, Result};
 use bcr_ebill_transport::{NotificationServiceApi, PushApi};
@@ -173,6 +173,11 @@ pub async fn create_nostr_consumer(
         )),
         Box::new(CompanyInviteEventHandler::new(
             transport.clone(),
+            company_processor.clone(),
+            db_context.nostr_chain_event_store.clone(),
+        )),
+        Box::new(CompanyChainEventHandler::new(
+            db_context.company_store.clone(),
             company_processor.clone(),
             db_context.nostr_chain_event_store.clone(),
         )),

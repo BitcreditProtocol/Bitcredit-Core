@@ -617,13 +617,16 @@ async fn handle_public_event(
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<bool> {
     if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
-        debug!("Received public chain event: {encrypted_data:#?}");
+        debug!(
+            "Received public chain event: {} {}",
+            encrypted_data.chain_type, encrypted_data.id
+        );
         if let Ok(Some(chain_keys)) = chain_key_store
             .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
             .await
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
-            debug!("Handling public chain event: {decrypted:?}");
+            debug!("Handling public chain event: {:?}", decrypted.event_type);
             handle_event(decrypted.clone(), node_id, handlers, event.clone()).await?;
         }
         Ok(true)
