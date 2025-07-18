@@ -602,7 +602,7 @@ async fn handle_direct_message<T: NostrSigner>(
     if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
         let sender_npub = sender.to_bech32();
         let sender_pub_key = sender.to_hex();
-        trace!(
+        debug!(
             "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}"
         );
         handle_event(envelope, client_id, event_handlers, event).await?;
@@ -617,12 +617,13 @@ async fn handle_public_event(
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<bool> {
     if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
+        debug!("Received public chain event: {encrypted_data:#?}");
         if let Ok(Some(chain_keys)) = chain_key_store
             .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
             .await
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
-            trace!("Handling public chain event: {decrypted:?}");
+            debug!("Handling public chain event: {decrypted:?}");
             handle_event(decrypted.clone(), node_id, handlers, event.clone()).await?;
         }
         Ok(true)

@@ -15,7 +15,7 @@ use bcr_ebill_persistence::nostr::{
 use bcr_ebill_transport::chain_keys::ChainKeyServiceApi;
 use bcr_ebill_transport::handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
-    LoggingEventHandler, NotificationHandlerApi,
+    CompanyInviteEventHandler, LoggingEventHandler, NotificationHandlerApi,
 };
 use bcr_ebill_transport::{Error, EventType, Result};
 use bcr_ebill_transport::{NotificationServiceApi, PushApi};
@@ -165,6 +165,10 @@ pub async fn create_nostr_consumer(
         Box::new(BillChainEventHandler::new(
             processor.clone(),
             bill_store.clone(),
+            chain_event_store.clone(),
+        )),
+        Box::new(CompanyInviteEventHandler::new(
+            transport.clone(),
             chain_event_store.clone(),
         )),
     ];

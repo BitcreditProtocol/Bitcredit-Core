@@ -15,11 +15,14 @@ mod bill_action_event_handler;
 mod bill_chain_event_handler;
 mod bill_chain_event_processor;
 mod bill_invite_handler;
+mod company_invite_handler;
+mod public_chain_helpers;
 
 pub use bill_action_event_handler::BillActionEventHandler;
 pub use bill_chain_event_handler::BillChainEventHandler;
 pub use bill_chain_event_processor::BillChainEventProcessor;
 pub use bill_invite_handler::BillInviteEventHandler;
+pub use company_invite_handler::CompanyInviteEventHandler;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}

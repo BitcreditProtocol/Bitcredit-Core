@@ -44,6 +44,11 @@ document.getElementById("bill_test_promissory").addEventListener("click", trigge
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 
+document.getElementById("company_create").addEventListener("click", createCompany);
+document.getElementById("company_update").addEventListener("click", updateCompany);
+document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
+
+
 let config = {
   log_level: "debug",
   // bitcoin_network: "regtest", // local reg test
@@ -58,7 +63,7 @@ let config = {
   job_runner_check_interval_seconds: 600,
   // default_mint_url: "http://localhost:4343",
   default_mint_url: "https://wildcat-dev-docker.minibill.tech",
-// default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
+  // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
   default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
 };
 
@@ -226,6 +231,27 @@ async function createCompany() {
     }
   });
   console.log("company: ", company);
+}
+
+async function updateCompany() {
+  let company_id = document.getElementById("company_update_id").value;
+  let name = document.getElementById("company_update_name").value;
+  await companyApi.edit({
+    id: company_id,
+    name: name,
+    postal_address: {}
+  });
+  console.log("updated company name: ", company_id, name);
+}
+
+async function addSignatory() {
+  let company_id = document.getElementById("company_update_id").value;
+  let signatory_node_id = document.getElementById("company_signatory_id").value;
+  await companyApi.add_signatory({
+    id: company_id,
+    signatory_node_id: signatory_node_id,
+  });
+  console.log("added signatory to company: ", signatory_node_id, company_id);
 }
 
 async function triggerContact() {
@@ -522,7 +548,7 @@ async function fetchBillFile() {
     let file = await billApi.attachment_base64(bill_id, detail.data.files[0].name);
     document.getElementById("bill_attached_file").src = `data:${file.content_type};base64,${file.data}`;
   } else {
-      console.log("Bill has no file");
+    console.log("Bill has no file");
   }
 }
 
