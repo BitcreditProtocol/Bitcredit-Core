@@ -49,7 +49,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 _ => {
                     error!("Received company blocks for unknown company {company_id}");
                     Err(Error::Blockchain(
-                        "Received bill blocks for unknown bill".to_string(),
+                        "Received company blocks for unknown company".to_string(),
                     ))
                 }
             }
@@ -259,7 +259,7 @@ impl CompanyChainEventProcessor {
         if let Err(e) = self.company_store.save_key_pair(node_id, keys).await {
             error!("Failed to save keys to company store: {e}");
             return Err(Error::Persistence(
-                "Failed to save keys to bill store".to_string(),
+                "Failed to save keys to company store".to_string(),
             ));
         }
         Ok(())

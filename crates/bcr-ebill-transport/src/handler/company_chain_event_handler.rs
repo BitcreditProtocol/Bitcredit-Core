@@ -97,7 +97,7 @@ impl CompanyChainEventHandler {
                 reply_id: reply.map(|id| id.to_string()),
                 author: event.pubkey.to_string(),
                 chain_id: chain_id.to_string(),
-                chain_type: BlockchainType::Bill,
+                chain_type: BlockchainType::Company,
                 block_height,
                 block_hash: block_hash.to_string(),
                 received: now().timestamp() as u64,
