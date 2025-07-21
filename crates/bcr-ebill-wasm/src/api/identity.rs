@@ -23,7 +23,6 @@ use bcr_ebill_api::{
         validate_file_upload_id,
     },
 };
-use log::info;
 use wasm_bindgen::prelude::*;
 
 async fn get_file(file_name: &str) -> Result<(Vec<u8>, String)> {

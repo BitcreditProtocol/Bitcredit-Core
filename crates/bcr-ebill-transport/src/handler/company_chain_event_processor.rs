@@ -1,7 +1,7 @@
 use crate::{Error, Result};
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
@@ -110,13 +110,14 @@ impl CompanyChainEventProcessor {
         self.save_keys(&company_id, keys).await?;
 
         // we also want the company itself as a contact
-        let mut contacts_to_ensure = company.signatories.clone();
-        contacts_to_ensure.push(company_id.to_owned());
+        let mut contacts_to_ensure: HashSet<&NodeId> =
+            HashSet::from_iter(company.signatories.iter());
+        contacts_to_ensure.insert(&company_id);
 
         // ensure that we have all nostr contacts for the bill participants
         for node_id in contacts_to_ensure {
             self.nostr_contact_processor
-                .ensure_nostr_contact(&node_id)
+                .ensure_nostr_contact(node_id)
                 .await
         }
 
@@ -159,6 +160,12 @@ impl CompanyChainEventProcessor {
                     .update(company_id, &company)
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                if let CompanyBlockPayload::AddSignatory(payload) = data {
+                    self.nostr_contact_processor
+                        .ensure_nostr_contact(&payload.signatory)
+                        .await
+                };
             }
         }
         debug!("Updated company {company_id} with data from new blocks");
@@ -265,8 +272,19 @@ impl ServiceTraitBounds for CompanyChainEventProcessor {}
 mod tests {
     use std::sync::Arc;
 
-    use bcr_ebill_core::{NodeId, util::BcrKeys};
-    use mockall::predicate::eq;
+    use bcr_ebill_core::{
+        NodeId,
+        blockchain::{
+            Blockchain,
+            company::{
+                CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain,
+                CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+            },
+        },
+        company::{Company, CompanyKeys},
+        util::BcrKeys,
+    };
+    use mockall::predicate::{always, eq};
 
     use crate::handler::{
         CompanyChainEventProcessor, CompanyChainEventProcessorApi, MockNostrContactProcessorApi,
@@ -355,6 +373,409 @@ mod tests {
             .await
             .expect("Event should be handled");
         assert!(valid);
+    }
+
+    #[tokio::test]
+    async fn test_process_create_company_data() {
+        let (mut chain_store, mut store, mut contact) = create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(|_| Err(bcr_ebill_persistence::Error::NoCompanyBlock))
+            .once();
+
+        // it is valid so add the company
+        let expected_company = company.clone();
+        store
+            .expect_insert()
+            .withf(move |c| c.id == expected_company.id.clone() && c.name == expected_company.name)
+            .returning(|_| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // adds the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // and ensures that we have all nostr contacts for the company participants
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(node_id.clone()))
+            .returning(|_| ())
+            .once();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, blocks, Some(keys))
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    #[tokio::test]
+    async fn test_process_update_company_data() {
+        let (mut chain_store, mut store, mut contact) = create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data = CompanyUpdateBlockData {
+            name: Some("new_name".to_string()),
+            ..Default::default()
+        };
+        let update_block = get_company_update_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(chain.clone()))
+            .once();
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .once();
+
+        // apply changes from block and update the company
+        let expected_node = node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone() && c.id == expected_node.clone() && c.name == "new_name"
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        // no need to ensure contacts in case of an update
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(node_id.clone()))
+            .returning(|_| ())
+            .never();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    #[tokio::test]
+    async fn test_process_add_company_signatory() {
+        let (mut chain_store, mut store, mut contact) = create_mocks();
+        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let (node_id, (company, keys)) = get_company_data();
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data = CompanyAddSignatoryBlockData {
+            signatory: new_node_id.clone(),
+            t: SignatoryType::Solo,
+        };
+        let update_block = get_company_add_signatory_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(chain.clone()))
+            .once();
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .once();
+
+        // apply changes from block with the signatory
+        let expected_node = node_id.clone();
+        let expected_new_node = new_node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.signatories.contains(&expected_new_node.clone())
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        // ensure the new node is a contact
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(new_node_id.clone()))
+            .returning(|_| ())
+            .once();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    #[tokio::test]
+    async fn test_process_remove_company_signatory() {
+        let (mut chain_store, mut store, mut contact) = create_mocks();
+        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let (node_id, (mut company, keys)) = get_company_data();
+        company.signatories.push(new_node_id.clone());
+
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data = CompanyRemoveSignatoryBlockData {
+            signatory: new_node_id.clone(),
+        };
+        let update_block = get_company_remove_signatory_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(chain.clone()))
+            .once();
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .once();
+
+        // apply changes from block with the signatory
+        let expected_node = node_id.clone();
+        let expected_new_node = new_node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && !c.signatories.contains(&expected_new_node.clone())
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        // no need to ensure contacts in case of a remove
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(new_node_id.clone()))
+            .returning(|_| ())
+            .never();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(contact),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    fn get_company_create_block(
+        node_id: NodeId,
+        company: Company,
+        keys: &CompanyKeys,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_create(
+            node_id,
+            "genesis hash".to_string(),
+            &company.into(),
+            &BcrKeys::new(),
+            keys,
+            1731593928,
+        )
+        .expect("could not create block")
+    }
+
+    fn get_company_update_block(
+        node_id: NodeId,
+        previous_block: &CompanyBlock,
+        keys: &BcrKeys,
+        company_keys: &CompanyKeys,
+        data: &CompanyUpdateBlockData,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_update(
+            node_id,
+            previous_block,
+            data,
+            keys,
+            company_keys,
+            1731594928,
+        )
+        .expect("could not create block")
+    }
+
+    fn get_company_add_signatory_block(
+        node_id: NodeId,
+        previous_block: &CompanyBlock,
+        keys: &BcrKeys,
+        company_keys: &CompanyKeys,
+        data: &CompanyAddSignatoryBlockData,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_add_signatory(
+            node_id,
+            previous_block,
+            data,
+            keys,
+            company_keys,
+            &data.signatory.pub_key(),
+            1731594928,
+        )
+        .expect("could not create block")
+    }
+
+    fn get_company_remove_signatory_block(
+        node_id: NodeId,
+        previous_block: &CompanyBlock,
+        keys: &BcrKeys,
+        company_keys: &CompanyKeys,
+        data: &CompanyRemoveSignatoryBlockData,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_remove_signatory(
+            node_id,
+            previous_block,
+            data,
+            keys,
+            company_keys,
+            1731594928,
+        )
+        .expect("could not create block")
     }
 
     fn create_mocks() -> (

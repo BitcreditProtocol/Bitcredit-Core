@@ -223,7 +223,9 @@ impl fmt::Display for PostalAddress {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Default, Serialize, Deserialize, Debug, Clone, PartialEq, Eq,
+)]
 pub struct OptionalPostalAddress {
     pub country: Option<String>,
     pub city: Option<String>,

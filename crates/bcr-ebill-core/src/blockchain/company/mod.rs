@@ -100,7 +100,7 @@ impl From<Company> for CompanyCreateBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq)]
 pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
