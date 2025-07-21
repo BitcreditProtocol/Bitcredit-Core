@@ -269,7 +269,7 @@ impl CompanyChainEventProcessor {
 impl ServiceTraitBounds for CompanyChainEventProcessor {}
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::sync::Arc;
 
     use bcr_ebill_core::{
@@ -707,7 +707,7 @@ mod tests {
             .expect("Process chain data should be handled");
     }
 
-    fn get_company_create_block(
+    pub fn get_company_create_block(
         node_id: NodeId,
         company: Company,
         keys: &CompanyKeys,
@@ -723,7 +723,7 @@ mod tests {
         .expect("could not create block")
     }
 
-    fn get_company_update_block(
+    pub fn get_company_update_block(
         node_id: NodeId,
         previous_block: &CompanyBlock,
         keys: &BcrKeys,

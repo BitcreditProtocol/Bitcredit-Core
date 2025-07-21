@@ -112,3 +112,155 @@ impl CompanyChainEventHandler {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use bcr_ebill_core::{
+        blockchain::{
+            Blockchain,
+            company::{CompanyBlockchain, CompanyUpdateBlockData},
+        },
+        company::{Company, CompanyKeys},
+        util::BcrKeys,
+    };
+    use mockall::predicate::{always, eq};
+
+    use crate::handler::{
+        MockCompanyChainEventProcessorApi,
+        company_chain_event_processor::tests::{
+            get_company_create_block, get_company_update_block,
+        },
+        test_utils::{
+            MockCompanyStore, MockNostrChainEventStore, get_company_data, get_test_nostr_event,
+            node_id_test,
+        },
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_handle_update_event() {
+        let (mut store, mut processor, mut chain_event_store) = create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+        let chain = create_company_chain(node_id.clone(), company.clone(), &keys);
+        let data = CompanyUpdateBlockData {
+            name: Some("new_name".to_string()),
+            ..Default::default()
+        };
+        let block = get_company_update_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+        let original_event = Box::new(get_test_nostr_event());
+
+        let event = Event::new_company_chain(CompanyBlockEvent {
+            node_id: node_id_test(),
+            block_height: 1,
+            block: block.clone(),
+        });
+
+        // see if we have chain keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // should process the chain data
+        processor
+            .expect_process_chain_data()
+            .withf(|node_id, blocks, company_keys| {
+                node_id == &node_id.clone() && !blocks.is_empty() && company_keys.is_some()
+            })
+            .returning(|_, _, _| Ok(()))
+            .once();
+
+        // and store the nostr event
+        chain_event_store
+            .expect_add_chain_event()
+            .with(always())
+            .returning(|_| Ok(()))
+            .once();
+
+        let handler = CompanyChainEventHandler::new(
+            Arc::new(store),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+
+        handler
+            .handle_event(event.try_into().unwrap(), &node_id, original_event)
+            .await
+            .expect("failed to handle event");
+    }
+
+    #[tokio::test]
+    async fn test_handle_no_chain_event() {
+        let (mut store, mut processor, chain_event_store) = create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+        let chain = create_company_chain(node_id.clone(), company.clone(), &keys);
+        let data = CompanyUpdateBlockData {
+            name: Some("new_name".to_string()),
+            ..Default::default()
+        };
+        let block = get_company_update_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+        let original_event = Box::new(get_test_nostr_event());
+
+        let event = Event::new_company_chain(CompanyBlockEvent {
+            node_id: node_id_test(),
+            block_height: 1,
+            block: block.clone(),
+        });
+
+        // no chain keys so we should be done here
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Err(bcr_ebill_persistence::Error::NoCompanyBlock))
+            .once();
+
+        processor.expect_process_chain_data().never();
+
+        let handler = CompanyChainEventHandler::new(
+            Arc::new(store),
+            Arc::new(processor),
+            Arc::new(chain_event_store),
+        );
+
+        handler
+            .handle_event(event.try_into().unwrap(), &node_id, original_event)
+            .await
+            .expect("failed to handle event");
+    }
+
+    fn create_company_chain(
+        node_id: NodeId,
+        company: Company,
+        keys: &CompanyKeys,
+    ) -> CompanyBlockchain {
+        let blocks = vec![get_company_create_block(node_id, company, keys)];
+        CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain")
+    }
+
+    fn create_mocks() -> (
+        MockCompanyStore,
+        MockCompanyChainEventProcessorApi,
+        MockNostrChainEventStore,
+    ) {
+        (
+            MockCompanyStore::default(),
+            MockCompanyChainEventProcessorApi::default(),
+            MockNostrChainEventStore::default(),
+        )
+    }
+}
