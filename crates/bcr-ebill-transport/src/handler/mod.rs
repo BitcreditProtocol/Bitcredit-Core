@@ -60,7 +60,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BillChainEventProcessorApi: ServiceTraitBounds {
-    /// Processes the chain data for given bill id, some blocks and an otptional key that will be
+    /// Processes the chain data for given bill id, some blocks and an optional key that will be
     /// present when we are joining a new chain.
     async fn process_chain_data(
         &self,
@@ -86,7 +86,7 @@ impl ServiceTraitBounds for MockBillChainEventProcessorApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
-    /// Processes the chain data for given bill id, some blocks and an otptional key that will be
+    /// Processes the chain data for given bill id, some blocks and an optional key that will be
     /// present when we are joining a new chain.
     async fn process_chain_data(
         &self,
@@ -112,7 +112,7 @@ impl ServiceTraitBounds for MockCompanyChainEventProcessorApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NostrContactProcessorApi: ServiceTraitBounds {
-    /// Ensures that a given node id is in or Nostr contacts. If not it will be added
+    /// Ensures that a given node id is in our Nostr contacts. If not it will be added
     /// with data fetched from Nostr relays.
     async fn ensure_nostr_contact(&self, node_id: &NodeId);
 }

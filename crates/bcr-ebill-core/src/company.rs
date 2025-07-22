@@ -20,7 +20,7 @@ pub struct Company {
 }
 
 impl Company {
-    /// Applies data from a block to the company. Retruns a new company with the data applied.
+    /// Applies data from a block to this company.
     pub fn apply_block_data(&mut self, data: &CompanyBlockPayload) {
         match data {
             CompanyBlockPayload::Update(payload) => {
@@ -69,7 +69,9 @@ impl Company {
                     .or(self.proof_of_registration_file.to_owned());
             }
             CompanyBlockPayload::AddSignatory(payload) => {
-                self.signatories.push(payload.signatory.to_owned());
+                if !self.signatories.contains(&payload.signatory) {
+                    self.signatories.push(payload.signatory.to_owned());
+                }
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {
                 self.signatories.retain(|i| i != &payload.signatory);
