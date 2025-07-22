@@ -1,4 +1,7 @@
-use crate::NodeId;
+use crate::{
+    NodeId,
+    blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData},
+};
 
 use super::{File, PostalAddress};
 use secp256k1::{PublicKey, SecretKey};
@@ -17,6 +20,84 @@ pub struct Company {
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<NodeId>,
+}
+
+impl Company {
+    /// Creates a new company from a block data payload
+    pub fn from_block_data(data: CompanyCreateBlockData) -> Self {
+        Self {
+            id: data.id,
+            name: data.name,
+            country_of_registration: data.country_of_registration,
+            city_of_registration: data.city_of_registration,
+            postal_address: data.postal_address,
+            email: data.email,
+            registration_number: data.registration_number,
+            registration_date: data.registration_date,
+            proof_of_registration_file: data.proof_of_registration_file,
+            logo_file: data.logo_file,
+            signatories: data.signatories,
+        }
+    }
+    /// Applies data from a block to this company.
+    pub fn apply_block_data(&mut self, data: &CompanyBlockPayload) {
+        match data {
+            CompanyBlockPayload::Update(payload) => {
+                self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
+                self.email = payload.email.to_owned().unwrap_or(self.email.to_owned());
+                self.postal_address.city = payload
+                    .postal_address
+                    .city
+                    .to_owned()
+                    .unwrap_or(self.postal_address.city.to_owned());
+                self.postal_address.country = payload
+                    .postal_address
+                    .country
+                    .to_owned()
+                    .unwrap_or(self.postal_address.country.to_owned());
+                self.postal_address.zip = payload
+                    .postal_address
+                    .zip
+                    .to_owned()
+                    .or(self.postal_address.zip.to_owned());
+                self.postal_address.address = payload
+                    .postal_address
+                    .address
+                    .to_owned()
+                    .unwrap_or(self.postal_address.address.to_owned());
+                self.country_of_registration = payload
+                    .country_of_registration
+                    .to_owned()
+                    .or(self.country_of_registration.to_owned());
+                self.city_of_registration = payload
+                    .city_of_registration
+                    .to_owned()
+                    .or(self.city_of_registration.to_owned());
+                self.registration_number = payload
+                    .registration_number
+                    .to_owned()
+                    .or(self.registration_number.to_owned());
+                self.registration_date = payload
+                    .registration_date
+                    .to_owned()
+                    .or(self.registration_date.to_owned());
+                self.logo_file = payload.logo_file.to_owned().or(self.logo_file.to_owned());
+                self.proof_of_registration_file = payload
+                    .proof_of_registration_file
+                    .to_owned()
+                    .or(self.proof_of_registration_file.to_owned());
+            }
+            CompanyBlockPayload::AddSignatory(payload) => {
+                if !self.signatories.contains(&payload.signatory) {
+                    self.signatories.push(payload.signatory.to_owned());
+                }
+            }
+            CompanyBlockPayload::RemoveSignatory(payload) => {
+                self.signatories.retain(|i| i != &payload.signatory);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

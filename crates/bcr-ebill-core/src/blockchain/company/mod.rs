@@ -100,7 +100,7 @@ impl From<Company> for CompanyCreateBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq)]
 pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
@@ -130,6 +130,15 @@ pub struct CompanyAddSignatoryBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct CompanyRemoveSignatoryBlockData {
     pub signatory: NodeId,
+}
+
+#[derive(Debug)]
+pub enum CompanyBlockPayload {
+    Create(CompanyCreateBlockData),
+    Update(CompanyUpdateBlockData),
+    SignBill(CompanySignCompanyBillBlockData),
+    AddSignatory(CompanyAddSignatoryBlockData),
+    RemoveSignatory(CompanyRemoveSignatoryBlockData),
 }
 
 impl Block for CompanyBlock {
@@ -406,6 +415,29 @@ impl CompanyBlock {
             CompanyOpCode::RemoveSignatory,
         )?;
         Ok(block)
+    }
+
+    pub fn get_block_data(&self, company_keys: &CompanyKeys) -> Result<CompanyBlockPayload> {
+        let data = self.get_decrypted_block(company_keys)?;
+        let result: CompanyBlockPayload = match self.op_code {
+            CompanyOpCode::Create => CompanyBlockPayload::Create(from_slice(&data)?),
+            CompanyOpCode::Update => CompanyBlockPayload::Update(from_slice(&data)?),
+            CompanyOpCode::AddSignatory => CompanyBlockPayload::AddSignatory(from_slice(&data)?),
+            CompanyOpCode::RemoveSignatory => {
+                CompanyBlockPayload::RemoveSignatory(from_slice(&data)?)
+            }
+            CompanyOpCode::SignCompanyBill => CompanyBlockPayload::SignBill(from_slice(&data)?),
+        };
+        Ok(result)
+    }
+
+    fn get_decrypted_block(&self, company_keys: &CompanyKeys) -> Result<Vec<u8>> {
+        let bytes = util::base58_decode(&self.data)?;
+        let block_data: CompanyBlockData = from_slice(&bytes)?;
+        let decoded_data_bytes = util::base58_decode(&block_data.data)?;
+        let decrypted_bytes =
+            util::crypto::decrypt_ecies(&decoded_data_bytes, &company_keys.private_key)?;
+        Ok(decrypted_bytes)
     }
 
     fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(

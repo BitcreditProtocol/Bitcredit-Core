@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
-    blockchain::bill::BillBlock,
+    blockchain::{bill::BillBlock, company::CompanyBlock},
+    company::CompanyKeys,
 };
 use log::trace;
 #[cfg(test)]
@@ -15,11 +16,20 @@ mod bill_action_event_handler;
 mod bill_chain_event_handler;
 mod bill_chain_event_processor;
 mod bill_invite_handler;
+mod company_chain_event_handler;
+mod company_chain_event_processor;
+mod company_invite_handler;
+mod nostr_contact_processor;
+mod public_chain_helpers;
 
 pub use bill_action_event_handler::BillActionEventHandler;
 pub use bill_chain_event_handler::BillChainEventHandler;
 pub use bill_chain_event_processor::BillChainEventProcessor;
 pub use bill_invite_handler::BillInviteEventHandler;
+pub use company_chain_event_handler::CompanyChainEventHandler;
+pub use company_chain_event_processor::CompanyChainEventProcessor;
+pub use company_invite_handler::CompanyInviteEventHandler;
+pub use nostr_contact_processor::NostrContactProcessor;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -50,7 +60,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BillChainEventProcessorApi: ServiceTraitBounds {
-    /// Processes the chain data for given bill id, some blocks and an otptional key that will be
+    /// Processes the chain data for given bill id, some blocks and an optional key that will be
     /// present when we are joining a new chain.
     async fn process_chain_data(
         &self,
@@ -70,6 +80,45 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockBillChainEventProcessorApi {}
+
+/// Generalizes the handling and validation of a bill block event.
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
+    /// Processes the chain data for given bill id, some blocks and an optional key that will be
+    /// present when we are joining a new chain.
+    async fn process_chain_data(
+        &self,
+        node_id: &NodeId,
+        blocks: Vec<CompanyBlock>,
+        keys: Option<CompanyKeys>,
+    ) -> Result<()>;
+
+    /// Validates that a given bill id is relevant for us, and if so also checks that the sender
+    /// of the event is part of the chain this event is for.
+    async fn validate_chain_event_and_sender(
+        &self,
+        node_id: &NodeId,
+        sender: nostr::PublicKey,
+    ) -> Result<bool>;
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockCompanyChainEventProcessorApi {}
+
+/// Generalizes the handling of other Nostr identities.
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait NostrContactProcessorApi: ServiceTraitBounds {
+    /// Ensures that a given node id is in our Nostr contacts. If not it will be added
+    /// with data fetched from Nostr relays.
+    async fn ensure_nostr_contact(&self, node_id: &NodeId);
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockNostrContactProcessorApi {}
 
 /// Logs all events that are received and registered in the event_types.
 pub struct LoggingEventHandler {
@@ -215,7 +264,11 @@ mod test_utils {
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult},
-        blockchain::bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
+        blockchain::{
+            bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
+            company::{CompanyBlock, CompanyBlockchain},
+        },
+        company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         identity::{Identity, IdentityType, IdentityWithAll},
         nostr_contact::NostrPublicKey,
@@ -225,6 +278,7 @@ mod test_utils {
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
+        company::{CompanyChainStoreApi, CompanyStoreApi},
         nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
@@ -346,6 +400,39 @@ mod test_utils {
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 
+        }
+    }
+
+    mock! {
+        pub CompanyStore {}
+
+        impl ServiceTraitBounds for CompanyStore {}
+
+        #[async_trait]
+        impl CompanyStoreApi for CompanyStore {
+            async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
+            async fn exists(&self, id: &NodeId) -> bool;
+            async fn get(&self, id: &NodeId) -> Result<Company>;
+            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>>;
+            async fn insert(&self, data: &Company) -> Result<()>;
+            async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
+            async fn remove(&self, id: &NodeId) -> Result<()>;
+            async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()>;
+            async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys>;
+        }
+    }
+
+    mock! {
+        pub CompanyChainStore {}
+
+        impl ServiceTraitBounds for CompanyChainStore {}
+
+        #[async_trait]
+        impl CompanyChainStoreApi for CompanyChainStore {
+            async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock>;
+            async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
+            async fn remove(&self, id: &NodeId) -> Result<()>;
+            async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
         }
     }
 
@@ -505,6 +592,31 @@ mod test_utils {
             zip: None,
             address: None,
         }
+    }
+
+    pub fn get_company_data() -> (NodeId, (Company, CompanyKeys)) {
+        (
+            node_id_test(),
+            (
+                Company {
+                    id: node_id_test(),
+                    name: "some_name".to_string(),
+                    country_of_registration: Some("AT".to_string()),
+                    city_of_registration: Some("Vienna".to_string()),
+                    postal_address: empty_address(),
+                    email: "company@example.com".to_string(),
+                    registration_number: Some("some_number".to_string()),
+                    registration_date: Some("2012-01-01".to_string()),
+                    proof_of_registration_file: None,
+                    logo_file: None,
+                    signatories: vec![node_id_test()],
+                },
+                CompanyKeys {
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
+                },
+            ),
+        )
     }
 
     // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY

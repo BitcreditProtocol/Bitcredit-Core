@@ -2,20 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::persistence::identity::IdentityStoreApi;
-use crate::persistence::nostr::NostrEventOffsetStoreApi;
 use crate::persistence::notification::NotificationStoreApi;
-use crate::{Config, get_config};
+use crate::{Config, DbContext, get_config};
 use bcr_ebill_core::NodeId;
 use bcr_ebill_core::util::BcrKeys;
-use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::CompanyStoreApi;
-use bcr_ebill_persistence::nostr::{
-    NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessageStoreApi,
-};
+use bcr_ebill_persistence::nostr::{NostrChainEventStoreApi, NostrQueuedMessageStoreApi};
 use bcr_ebill_transport::chain_keys::ChainKeyServiceApi;
 use bcr_ebill_transport::handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
-    LoggingEventHandler, NotificationHandlerApi,
+    CompanyChainEventHandler, CompanyChainEventProcessor, CompanyInviteEventHandler,
+    LoggingEventHandler, NostrContactProcessor, NostrContactProcessorApi, NotificationHandlerApi,
 };
 use bcr_ebill_transport::{Error, EventType, Result};
 use bcr_ebill_transport::{NotificationServiceApi, PushApi};
@@ -118,14 +115,9 @@ pub async fn create_notification_service(
 pub async fn create_nostr_consumer(
     clients: Vec<Arc<NostrClient>>,
     contact_service: Arc<dyn ContactServiceApi>,
-    nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
-    notification_store: Arc<dyn NotificationStoreApi>,
     push_service: Arc<dyn PushApi>,
-    bill_blockchain_store: Arc<dyn BillChainStoreApi>,
-    bill_store: Arc<dyn BillStoreApi>,
-    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
-    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    db_context: DbContext,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
     let transport = match clients.iter().find(|c| c.is_primary()) {
@@ -133,16 +125,28 @@ pub async fn create_nostr_consumer(
         None => panic!("Cant create Nostr consumer as there is no nostr client available"),
     };
 
-    let processor = Arc::new(BillChainEventProcessor::new(
-        bill_blockchain_store.clone(),
-        bill_store.clone(),
+    let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         transport.clone(),
-        nostr_contact_store,
+        db_context.nostr_contact_store.clone(),
+        get_config().bitcoin_network(),
+    ));
+
+    let bill_processor = Arc::new(BillChainEventProcessor::new(
+        db_context.bill_blockchain_store.clone(),
+        db_context.bill_store.clone(),
+        nostr_contact_processor.clone(),
+        get_config().bitcoin_network(),
+    ));
+
+    let company_processor = Arc::new(CompanyChainEventProcessor::new(
+        db_context.company_chain_store.clone(),
+        db_context.company_store.clone(),
+        nostr_contact_processor.clone(),
         get_config().bitcoin_network(),
     ));
 
     // on startup, we make sure the configured default mint exists
-    processor
+    nostr_contact_processor
         .ensure_nostr_contact(&get_config().mint_config.default_mint_node_id)
         .await;
 
@@ -153,19 +157,29 @@ pub async fn create_nostr_consumer(
             event_types: EventType::all(),
         }),
         Box::new(BillActionEventHandler::new(
-            notification_store,
+            db_context.notification_store.clone(),
             push_service,
-            processor.clone(),
+            bill_processor.clone(),
         )),
         Box::new(BillInviteEventHandler::new(
             transport.clone(),
-            processor.clone(),
-            chain_event_store.clone(),
+            bill_processor.clone(),
+            db_context.nostr_chain_event_store.clone(),
         )),
         Box::new(BillChainEventHandler::new(
-            processor.clone(),
-            bill_store.clone(),
-            chain_event_store.clone(),
+            bill_processor.clone(),
+            db_context.bill_store.clone(),
+            db_context.nostr_chain_event_store.clone(),
+        )),
+        Box::new(CompanyInviteEventHandler::new(
+            transport.clone(),
+            company_processor.clone(),
+            db_context.nostr_chain_event_store.clone(),
+        )),
+        Box::new(CompanyChainEventHandler::new(
+            db_context.company_store.clone(),
+            company_processor.clone(),
+            db_context.nostr_chain_event_store.clone(),
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());
@@ -173,7 +187,7 @@ pub async fn create_nostr_consumer(
         clients,
         contact_service,
         handlers,
-        nostr_event_offset_store,
+        db_context.nostr_event_offset_store.clone(),
         chain_key_service,
     );
     Ok(consumer)

@@ -38,6 +38,7 @@ pub struct Context {
 
 impl Context {
     pub async fn new(cfg: Config, db: DbContext) -> Result<Self> {
+        let db_ctx = db.clone();
         let file_upload_client = Arc::new(FileStorageClient::new());
         let contact_service = Arc::new(ContactService::new(
             db.contact_store.clone(),
@@ -86,7 +87,7 @@ impl Context {
         );
 
         let company_service = CompanyService::new(
-            db.company_store,
+            db.company_store.clone(),
             db.file_upload_store.clone(),
             file_upload_client.clone(),
             db.identity_store.clone(),
@@ -98,19 +99,17 @@ impl Context {
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 
         let push_service = Arc::new(PushService::new());
-        let chain_key_service = Arc::new(ChainKeyService::new(db.bill_store.clone()));
+        let chain_key_service = Arc::new(ChainKeyService::new(
+            db.bill_store.clone(),
+            db.company_store.clone(),
+        ));
 
         let nostr_consumer = create_nostr_consumer(
             nostr_clients.clone(),
             contact_service.clone(),
-            db.nostr_event_offset_store.clone(),
-            db.notification_store.clone(),
             push_service.clone(),
-            db.bill_blockchain_store.clone(),
-            db.bill_store.clone(),
-            db.nostr_contact_store.clone(),
             chain_key_service.clone(),
-            db.nostr_chain_event_store.clone(),
+            db_ctx.clone(),
         )
         .await?;
 

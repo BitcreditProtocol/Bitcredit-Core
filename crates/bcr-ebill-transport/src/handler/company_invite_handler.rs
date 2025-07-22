@@ -3,8 +3,8 @@ use std::{cmp::Reverse, collections::HashMap, str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
-    bill::{BillId, BillKeys},
-    blockchain::BlockchainType,
+    blockchain::{BlockchainType, company::CompanyBlock},
+    company::CompanyKeys,
     util::BcrKeys,
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
@@ -17,20 +17,21 @@ use crate::{
 };
 
 use super::{
-    BillChainEventProcessorApi, NotificationHandlerApi, public_chain_helpers::collect_event_chains,
+    CompanyChainEventProcessorApi, NotificationHandlerApi,
+    public_chain_helpers::collect_event_chains,
 };
 
-pub struct BillInviteEventHandler {
+pub struct CompanyInviteEventHandler {
     transport: Arc<dyn NotificationJsonTransportApi>,
-    processor: Arc<dyn BillChainEventProcessorApi>,
+    processor: Arc<dyn CompanyChainEventProcessorApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl NotificationHandlerApi for BillInviteEventHandler {
+impl NotificationHandlerApi for CompanyInviteEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
-        event_type == &EventType::BillChainInvite
+        event_type == &EventType::CompanyChainInvite
     }
 
     async fn handle_event(
@@ -39,7 +40,7 @@ impl NotificationHandlerApi for BillInviteEventHandler {
         node_id: &NodeId,
         _: Box<nostr::Event>,
     ) -> Result<()> {
-        debug!("incoming bill chain invite for {node_id}");
+        debug!("incoming company chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
             let events = self
                 .transport
@@ -58,20 +59,22 @@ impl NotificationHandlerApi for BillInviteEventHandler {
             {
                 // We try to add shorter and shorter chains until we have a success
                 for data in chain_data.iter() {
-                    let blocks = data
+                    debug!("Processing company chain data with block {data:#?}");
+                    let blocks: Vec<CompanyBlock> = data
                         .iter()
                         .filter_map(|d| match d.block.clone() {
-                            BlockData::Bill(block) => Some(block),
+                            BlockData::Company(block) => Some(block),
                             _ => None,
                         })
                         .collect();
+                    debug!("Processing company chain data with {} blocks", blocks.len());
                     if !data.is_empty()
                         && self
                             .processor
                             .process_chain_data(
-                                &BillId::from_str(&decoded.data.chain_id)?,
+                                &NodeId::from_str(&decoded.data.chain_id)?,
                                 blocks,
-                                Some(BillKeys {
+                                Some(CompanyKeys {
                                     public_key: decoded.data.keys.public_key.to_owned(),
                                     private_key: decoded.data.keys.private_key.to_owned(),
                                 }),
@@ -96,21 +99,21 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                     error!("Error storing chain events: {e}");
                 }
             } else {
-                error!("Could not extract chain data for invite event {event:?}");
+                error!("Could not extract chain data for company invite event {event:?}");
             }
         } else {
-            warn!("Could not decode event to ChainInvite {event:?}");
+            warn!("Could not decode event to company ChainInvite {event:?}");
         }
         Ok(())
     }
 }
 
-impl ServiceTraitBounds for BillInviteEventHandler {}
+impl ServiceTraitBounds for CompanyInviteEventHandler {}
 
-impl BillInviteEventHandler {
+impl CompanyInviteEventHandler {
     pub fn new(
         transport: Arc<dyn NotificationJsonTransportApi>,
-        processor: Arc<dyn BillChainEventProcessorApi>,
+        processor: Arc<dyn CompanyChainEventProcessorApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     ) -> Self {
         Self {
@@ -173,20 +176,27 @@ impl BillInviteEventHandler {
 #[cfg(test)]
 mod tests {
     use crate::{
-        event::blockchain_event::BillBlockEvent,
+        event::blockchain_event::CompanyBlockEvent,
         handler::{
-            MockBillChainEventProcessorApi,
+            MockCompanyChainEventProcessorApi,
             public_chain_helpers::collect_event_chains,
             test_utils::{
-                MockNostrChainEventStore, bill_id_test, get_bill_keys, get_genesis_chain,
-                node_id_test, private_key_test,
+                MockNostrChainEventStore, get_bill_keys, get_company_data, node_id_test,
+                private_key_test,
             },
         },
         transport::{MockNotificationJsonTransportApi, create_public_chain_event},
     };
 
     use super::*;
-    use bcr_ebill_core::{blockchain::Blockchain, util::crypto::BcrKeys};
+    use bcr_ebill_core::{
+        blockchain::{
+            Blockchain,
+            company::{CompanyBlockchain, CompanyCreateBlockData},
+        },
+        company::Company,
+        util::crypto::BcrKeys,
+    };
     use mockall::predicate::eq;
 
     #[test]
@@ -194,8 +204,8 @@ mod tests {
         let (keys, chain) = generate_test_chain(1, false);
         let chains = collect_event_chains(
             &chain,
-            &bill_id_test().to_string(),
-            BlockchainType::Bill,
+            &node_id_test().to_string(),
+            BlockchainType::Company,
             &keys,
         );
         assert_eq!(chains.len(), 1, "should contain a single valid chain");
@@ -208,8 +218,8 @@ mod tests {
         let (keys, chain) = generate_test_chain(3, false);
         let chains = collect_event_chains(
             &chain,
-            &bill_id_test().to_string(),
-            BlockchainType::Bill,
+            &node_id_test().to_string(),
+            BlockchainType::Company,
             &keys,
         );
 
@@ -223,8 +233,8 @@ mod tests {
         let (keys, chain) = generate_test_chain(3, true);
         let chains = collect_event_chains(
             &chain,
-            &bill_id_test().to_string(),
-            BlockchainType::Bill,
+            &node_id_test().to_string(),
+            BlockchainType::Company,
             &keys,
         );
 
@@ -239,22 +249,23 @@ mod tests {
         let (mut transport, mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (_, chain) = generate_test_chain(1, false);
+        let (keys, chain) = generate_test_chain(1, false);
 
         // get events from nostr
         transport
             .expect_resolve_public_chain()
-            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
+            .with(eq(node_id_test().to_string()), eq(BlockchainType::Company))
             .returning(move |_, _| Ok(chain.clone()));
 
+        let keys_clone = keys.clone();
         // process blocks
         processor
             .expect_process_chain_data()
-            .withf(|bill_id, blocks, keys| {
-                bill_id == &bill_id_test()
+            .withf(move |node_id, blocks, keys| {
+                node_id == &node_id_test()
                     && blocks.len() == 1
                     && keys.clone().unwrap().public_key.to_string()
-                        == get_bill_keys().public_key.to_string()
+                        == keys_clone.get_key_pair().public_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
 
@@ -265,14 +276,17 @@ mod tests {
             .times(1);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
-        let invite = Event::new_bill_invite(ChainInvite::bill(
-            bill_id_test().to_string(),
-            get_bill_keys(),
+        let invite = Event::new_company_invite(ChainInvite::company(
+            node_id_test().to_string(),
+            CompanyKeys {
+                public_key: keys.get_key_pair().public_key(),
+                private_key: keys.get_private_key(),
+            },
         ))
         .try_into()
         .expect("failed to create envelope");
 
-        let handler = BillInviteEventHandler::new(
+        let handler = CompanyInviteEventHandler::new(
             Arc::new(transport),
             Arc::new(processor),
             Arc::new(chain_event_store),
@@ -288,19 +302,19 @@ mod tests {
         let (mut transport, mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (_, chain) = generate_test_chain(3, false);
+        let (keys, chain) = generate_test_chain(3, false);
 
         // get events from nostr
         transport
             .expect_resolve_public_chain()
-            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
+            .with(eq(node_id_test().to_string()), eq(BlockchainType::Company))
             .returning(move |_, _| Ok(chain.clone()));
 
         // process blocks
         processor
             .expect_process_chain_data()
-            .withf(|bill_id, blocks, keys| {
-                bill_id == &bill_id_test()
+            .withf(|node_id, blocks, keys| {
+                node_id == &node_id_test()
                     && blocks.len() == 3
                     && keys.clone().unwrap().public_key.to_string()
                         == get_bill_keys().public_key.to_string()
@@ -314,14 +328,17 @@ mod tests {
             .times(3);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
-        let invite = Event::new_bill_invite(ChainInvite::bill(
-            bill_id_test().to_string(),
-            get_bill_keys(),
+        let invite = Event::new_company_invite(ChainInvite::company(
+            node_id_test().to_string(),
+            CompanyKeys {
+                public_key: keys.get_key_pair().public_key(),
+                private_key: keys.get_private_key(),
+            },
         ))
         .try_into()
         .expect("failed to create envelope");
 
-        let handler = BillInviteEventHandler::new(
+        let handler = CompanyInviteEventHandler::new(
             Arc::new(transport),
             Arc::new(processor),
             Arc::new(chain_event_store),
@@ -337,19 +354,19 @@ mod tests {
         let (mut transport, mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (_, chain) = generate_test_chain(3, true);
+        let (keys, chain) = generate_test_chain(3, true);
 
         // get events from nostr
         transport
             .expect_resolve_public_chain()
-            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
+            .with(eq(node_id_test().to_string()), eq(BlockchainType::Company))
             .returning(move |_, _| Ok(chain.clone()));
 
         // process blocks
         processor
             .expect_process_chain_data()
-            .withf(|bill_id, blocks, keys| {
-                bill_id == &bill_id_test()
+            .withf(|node_id, blocks, keys| {
+                node_id == &node_id_test()
                     && blocks.len() == 3
                     && keys.clone().unwrap().public_key.to_string()
                         == get_bill_keys().public_key.to_string()
@@ -371,14 +388,17 @@ mod tests {
             .times(1);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
-        let invite = Event::new_bill_invite(ChainInvite::bill(
-            bill_id_test().to_string(),
-            get_bill_keys(),
+        let invite = Event::new_company_invite(ChainInvite::company(
+            node_id_test().to_string(),
+            CompanyKeys {
+                public_key: keys.get_key_pair().public_key(),
+                private_key: keys.get_private_key(),
+            },
         ))
         .try_into()
         .expect("failed to create envelope");
 
-        let handler = BillInviteEventHandler::new(
+        let handler = CompanyInviteEventHandler::new(
             Arc::new(transport),
             Arc::new(processor),
             Arc::new(chain_event_store),
@@ -391,12 +411,12 @@ mod tests {
 
     fn get_mocks() -> (
         MockNotificationJsonTransportApi,
-        MockBillChainEventProcessorApi,
+        MockCompanyChainEventProcessorApi,
         MockNostrChainEventStore,
     ) {
         (
             MockNotificationJsonTransportApi::new(),
-            MockBillChainEventProcessorApi::new(),
+            MockCompanyChainEventProcessorApi::new(),
             MockNostrChainEventStore::new(),
         )
     }
@@ -452,10 +472,10 @@ mod tests {
         height: usize,
     ) -> nostr::Event {
         create_public_chain_event(
-            &bill_id_test().to_string(),
+            &node_id_test().to_string(),
             generate_test_block(height),
             1000,
-            BlockchainType::Bill,
+            BlockchainType::Company,
             keys.clone(),
             previous,
             root,
@@ -466,18 +486,27 @@ mod tests {
     }
 
     fn generate_test_block(block_height: usize) -> EventEnvelope {
-        let block = get_genesis_chain(None)
-            .blocks()
-            .first()
-            .expect("could not get block")
+        let (id, (company, keys)) = get_company_data();
+        let block = get_valid_company_chain(&company, &keys)
+            .get_latest_block()
             .clone();
 
-        Event::new_bill_chain(BillBlockEvent {
-            bill_id: bill_id_test(),
-            block: block.clone(),
+        Event::new_company_invite(CompanyBlockEvent {
+            node_id: id,
+            block,
             block_height,
         })
         .try_into()
         .expect("could not create envelope")
+    }
+
+    pub fn get_valid_company_chain(company: &Company, keys: &CompanyKeys) -> CompanyBlockchain {
+        CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(company.to_owned()),
+            &BcrKeys::new(),
+            keys,
+            1731593928,
+        )
+        .unwrap()
     }
 }
