@@ -1,4 +1,7 @@
-use crate::{NodeId, blockchain::company::CompanyBlockPayload};
+use crate::{
+    NodeId,
+    blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData},
+};
 
 use super::{File, PostalAddress};
 use secp256k1::{PublicKey, SecretKey};
@@ -20,6 +23,22 @@ pub struct Company {
 }
 
 impl Company {
+    /// Creates a new company from a block data payload
+    pub fn from_block_data(data: CompanyCreateBlockData) -> Self {
+        Self {
+            id: data.id,
+            name: data.name,
+            country_of_registration: data.country_of_registration,
+            city_of_registration: data.city_of_registration,
+            postal_address: data.postal_address,
+            email: data.email,
+            registration_number: data.registration_number,
+            registration_date: data.registration_date,
+            proof_of_registration_file: data.proof_of_registration_file,
+            logo_file: data.logo_file,
+            signatories: data.signatories,
+        }
+    }
     /// Applies data from a block to this company.
     pub fn apply_block_data(&mut self, data: &CompanyBlockPayload) {
         match data {

@@ -199,19 +199,7 @@ impl CompanyChainEventProcessor {
                 let node_id = payload.id.clone();
 
                 // initialize company from payload
-                let mut company = Company {
-                    id: payload.id,
-                    name: payload.name,
-                    country_of_registration: payload.country_of_registration,
-                    city_of_registration: payload.city_of_registration,
-                    postal_address: payload.postal_address,
-                    email: payload.email,
-                    registration_number: payload.registration_number,
-                    registration_date: payload.registration_date,
-                    proof_of_registration_file: payload.proof_of_registration_file,
-                    logo_file: payload.logo_file,
-                    signatories: payload.signatories,
-                };
+                let mut company = Company::from_block_data(payload);
 
                 // now process and validate all the blocks
                 for block in chain.blocks().iter() {
