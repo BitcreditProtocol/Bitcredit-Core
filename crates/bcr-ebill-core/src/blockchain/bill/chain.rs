@@ -354,6 +354,7 @@ impl BillBlockchain {
                 sum: block_data_decrypted.sum,
                 currency: block_data_decrypted.currency,
                 payment_address: block_data_decrypted.payment_address,
+                block_id: offer_to_sell_block.id(),
             };
 
             match sell_pair.1 {
@@ -465,6 +466,7 @@ impl BillBlockchain {
                 sum: block_data_decrypted.sum,
                 currency: block_data_decrypted.currency,
                 reason: block_data_decrypted.recourse_reason,
+                block_id: request_to_recourse_block.id(),
             };
 
             match recourse_pair.1 {
@@ -578,6 +580,7 @@ impl BillBlockchain {
                         sum: block_data_decrypted.sum,
                         currency: block_data_decrypted.currency,
                         reason: block_data_decrypted.recourse_reason,
+                        block_id: last_version_block.id(),
                     },
                 )));
             }
@@ -615,6 +618,7 @@ impl BillBlockchain {
                     sum: block_data_decrypted.sum,
                     currency: block_data_decrypted.currency,
                     payment_address: block_data_decrypted.payment_address,
+                    block_id: last_version_block_offer_to_sell.id(),
                 })));
             }
         }

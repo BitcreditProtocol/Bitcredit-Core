@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.4.3"
+version = "0.4.4"
 edition = "2024"
 license = "MIT"
 
@@ -30,11 +30,13 @@ chrono = { version = "0.4", default-features = false, features = [
   "serde",
   "clock",
 ] }
-tokio = { version = "1.43", default-features = false, features = [
+tokio = { version = "1.46", default-features = false, features = [
   "rt",
   "sync",
+  "macros",
+  "time",
 ] }
-tokio_with_wasm = { version = "0.8", features = ["rt", "sync"] }
+tokio_with_wasm = { version = "0.8", features = ["rt", "sync", "macros", "time"] }
 async-trait = "0.1"
 serde_json = "1"
 serde = { version = "1", default-features = false, features = ["derive"] }

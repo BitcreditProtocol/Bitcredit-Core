@@ -2,8 +2,8 @@ use crate::util;
 
 use super::service::BillService;
 use super::{Error, Result};
-use bcr_ebill_core::bill::BillMintStatus;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
+use bcr_ebill_core::bill::{BillMintStatus, BillWaitingStatePaymentData, PaymentState};
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::identity::IdentityType;
@@ -303,6 +303,30 @@ impl BillService {
                     .is_last_offer_to_sell_block_waiting_for_payment(bill_keys, current_timestamp)?
                 {
                     // we're waiting, collect data
+                    let payment_state = self
+                        .store
+                        .get_offer_to_sell_payment_state(&bill.id, payment_info.block_id)
+                        .await?;
+
+                    let mut tx_id = None;
+                    let mut in_mempool = false;
+                    let mut confirmations = 0;
+
+                    if let Some(ps) = payment_state {
+                        match ps {
+                            PaymentState::PaidConfirmed(paid_data)
+                            | PaymentState::PaidUnconfirmed(paid_data) => {
+                                tx_id = Some(paid_data.tx_id);
+                                confirmations = paid_data.confirmations;
+                            }
+                            PaymentState::InMempool(in_mempool_data) => {
+                                tx_id = Some(in_mempool_data.tx_id);
+                                in_mempool = true;
+                            }
+                            PaymentState::NotFound => (),
+                        }
+                    }
+
                     let buyer = self
                         .extend_bill_chain_participant_data_from_contacts_or_identity(
                             payment_info.buyer.clone().into(),
@@ -331,14 +355,19 @@ impl BillService {
                         .get_mempool_link_for_address(&address_to_pay);
 
                     Some(BillCurrentWaitingState::Sell(BillWaitingForSellState {
-                        time_of_request: last_block.timestamp,
                         seller,
                         buyer,
-                        currency: payment_info.currency,
-                        sum: currency::sum_to_string(payment_info.sum),
-                        link_to_pay,
-                        address_to_pay,
-                        mempool_link_for_address_to_pay,
+                        payment_data: BillWaitingStatePaymentData {
+                            time_of_request: last_block.timestamp,
+                            currency: payment_info.currency,
+                            sum: currency::sum_to_string(payment_info.sum),
+                            link_to_pay,
+                            address_to_pay,
+                            mempool_link_for_address_to_pay,
+                            tx_id,
+                            in_mempool,
+                            confirmations,
+                        },
                     }))
                 } else {
                     None
@@ -360,6 +389,26 @@ impl BillService {
                     None
                 } else {
                     // we're waiting, collect data
+                    let payment_state = self.store.get_payment_state(&bill.id).await?;
+
+                    let mut tx_id = None;
+                    let mut in_mempool = false;
+                    let mut confirmations = 0;
+
+                    if let Some(ps) = payment_state {
+                        match ps {
+                            PaymentState::PaidConfirmed(paid_data)
+                            | PaymentState::PaidUnconfirmed(paid_data) => {
+                                tx_id = Some(paid_data.tx_id);
+                                confirmations = paid_data.confirmations;
+                            }
+                            PaymentState::InMempool(in_mempool_data) => {
+                                tx_id = Some(in_mempool_data.tx_id);
+                                in_mempool = true;
+                            }
+                            PaymentState::NotFound => (),
+                        }
+                    }
                     let address_to_pay = self
                         .bitcoin_client
                         .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
@@ -376,14 +425,19 @@ impl BillService {
 
                     Some(BillCurrentWaitingState::Payment(
                         BillWaitingForPaymentState {
-                            time_of_request: last_block.timestamp,
                             payer: bill.drawee.clone(),
                             payee: holder.clone(),
-                            currency: bill.currency.clone(),
-                            sum: currency::sum_to_string(bill.sum),
-                            link_to_pay,
-                            address_to_pay,
-                            mempool_link_for_address_to_pay,
+                            payment_data: BillWaitingStatePaymentData {
+                                time_of_request: last_block.timestamp,
+                                currency: bill.currency.clone(),
+                                sum: currency::sum_to_string(bill.sum),
+                                link_to_pay,
+                                address_to_pay,
+                                mempool_link_for_address_to_pay,
+                                tx_id,
+                                in_mempool,
+                                confirmations,
+                            },
                         },
                     ))
                 }
@@ -396,6 +450,30 @@ impl BillService {
                     )?
                 {
                     // we're waiting, collect data
+                    let payment_state = self
+                        .store
+                        .get_recourse_payment_state(&bill.id, payment_info.block_id)
+                        .await?;
+
+                    let mut tx_id = None;
+                    let mut in_mempool = false;
+                    let mut confirmations = 0;
+
+                    if let Some(ps) = payment_state {
+                        match ps {
+                            PaymentState::PaidConfirmed(paid_data)
+                            | PaymentState::PaidUnconfirmed(paid_data) => {
+                                tx_id = Some(paid_data.tx_id);
+                                confirmations = paid_data.confirmations;
+                            }
+                            PaymentState::InMempool(in_mempool_data) => {
+                                tx_id = Some(in_mempool_data.tx_id);
+                                in_mempool = true;
+                            }
+                            PaymentState::NotFound => (),
+                        }
+                    }
+
                     let recourser = self
                         .extend_bill_chain_identity_data_from_contacts_or_identity(
                             payment_info.recourser.clone(),
@@ -428,14 +506,19 @@ impl BillService {
 
                     Some(BillCurrentWaitingState::Recourse(
                         BillWaitingForRecourseState {
-                            time_of_request: last_block.timestamp,
                             recourser,
                             recoursee,
-                            currency: payment_info.currency,
-                            sum: currency::sum_to_string(payment_info.sum),
-                            link_to_pay,
-                            address_to_pay,
-                            mempool_link_for_address_to_pay,
+                            payment_data: BillWaitingStatePaymentData {
+                                time_of_request: last_block.timestamp,
+                                currency: payment_info.currency,
+                                sum: currency::sum_to_string(payment_info.sum),
+                                link_to_pay,
+                                address_to_pay,
+                                mempool_link_for_address_to_pay,
+                                tx_id,
+                                in_mempool,
+                                confirmations,
+                            },
                         },
                     ))
                 } else {

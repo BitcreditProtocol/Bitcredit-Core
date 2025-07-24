@@ -32,7 +32,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{
     BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
-    PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+    PastPaymentDataSell, PastPaymentResult, PastPaymentStatus, PaymentState,
 };
 use bcr_ebill_core::blockchain::bill::block::BillParticipantBlockData;
 use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
@@ -1289,7 +1289,14 @@ impl BillServiceApi for BillService {
                         private_descriptor_to_spend: descriptor_to_spend.clone(),
                         mempool_link_for_address_to_pay,
                         status: if is_paid {
-                            PastPaymentStatus::Paid(req_to_pay.timestamp)
+                            if let Ok(Some(PaymentState::PaidConfirmed(paid_date))) =
+                                self.store.get_payment_state(bill_id).await
+                            {
+                                PastPaymentStatus::Paid(paid_date.block_time)
+                            } else {
+                                // fall back to req to pay time, if we don't have the paid ts
+                                PastPaymentStatus::Paid(req_to_pay.timestamp)
+                            }
                         } else if is_rejected {
                             let ts = if let Some(reject_to_pay_block) =
                                 chain.get_last_version_block_with_op_code(BillOpCode::RejectToPay)

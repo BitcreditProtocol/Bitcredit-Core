@@ -1,17 +1,17 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
+use bcr_ebill_api::PaymentConfig;
 use bcr_ebill_api::data::validate_node_id_network;
 use bcr_ebill_api::{
     Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
     init,
 };
 use context::{Context, get_ctx};
-use futures::{StreamExt, future::ready};
-use gloo_timers::future::{IntervalStream, TimeoutFuture};
 use job::run_jobs;
 use log::info;
 use serde::Deserialize;
 use std::thread_local;
+use std::time::Duration;
 use std::{cell::RefCell, str::FromStr};
 use tokio::spawn;
 use tokio_with_wasm::alias as tokio;
@@ -36,6 +36,7 @@ pub struct Config {
     pub job_runner_check_interval_seconds: u32,
     pub default_mint_url: String,
     pub default_mint_node_id: String,
+    pub num_confirmations_for_payment: usize,
 }
 
 pub type Result<T> = std::result::Result<T, error::WasmError>;
@@ -85,6 +86,9 @@ pub async fn initialize_api(
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
         },
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
+        payment_config: PaymentConfig {
+            num_confirmations_for_payment: config.num_confirmations_for_payment,
+        },
     };
     init(api_config.clone())?;
     // make sure the configured default mint node id is valid for the configured network
@@ -117,14 +121,18 @@ pub async fn initialize_api(
 
     // start jobs
     wasm_bindgen_futures::spawn_local(async move {
-        TimeoutFuture::new(config.job_runner_initial_delay_seconds * 1000).await;
+        tokio::time::sleep(Duration::from_secs(
+            config.job_runner_initial_delay_seconds as u64,
+        ))
+        .await;
         run_jobs(); // initial run
-        IntervalStream::new(config.job_runner_check_interval_seconds * 1000)
-            .for_each(|_| {
-                run_jobs(); // regular run
-                ready(())
-            })
-            .await;
+        let mut interval = tokio::time::interval(Duration::from_secs(
+            config.job_runner_check_interval_seconds as u64,
+        ));
+        loop {
+            interval.tick().await;
+            run_jobs(); // regular run
+        }
     });
 
     // start nostr subscription
