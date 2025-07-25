@@ -9,15 +9,14 @@ use bcr_ebill_api::{
         contact_service::{ContactService, ContactServiceApi},
         file_upload_service::{FileUploadService, FileUploadServiceApi},
         identity_service::{IdentityService, IdentityServiceApi},
-        notification_service::{
-            NostrConsumer, create_nostr_clients, create_nostr_consumer, create_notification_service,
-        },
+        notification_service::NotificationServiceApi,
         search_service::{SearchService, SearchServiceApi},
     },
 };
 use bcr_ebill_transport::{
-    NotificationServiceApi,
+    NostrConsumer,
     chain_keys::ChainKeyService,
+    create_nostr_clients, create_nostr_consumer, create_notification_service,
     push_notification::{PushApi, PushService},
 };
 use std::sync::Arc;

@@ -1,7 +1,8 @@
-use bcr_ebill_api::service::Error as ServiceError;
 use bcr_ebill_api::service::bill_service::Error as BillServiceError;
+use bcr_ebill_api::service::{
+    Error as ServiceError, notification_service::Error as NotificationServiceError,
+};
 use bcr_ebill_api::util::{self, ValidationError};
-use bcr_ebill_transport::Error as NotificationServiceError;
 use log::error;
 use serde::Serialize;
 use thiserror::Error;

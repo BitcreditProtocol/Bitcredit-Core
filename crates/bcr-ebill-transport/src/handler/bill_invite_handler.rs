@@ -1,6 +1,10 @@
 use std::{cmp::Reverse, collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::{
+    event::{ChainInvite, ChainKeys},
+    transport::NotificationJsonTransportApi,
+};
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
@@ -11,10 +15,11 @@ use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, warn};
 
 use crate::{
-    Event, EventEnvelope, EventType, NotificationJsonTransportApi, Result,
-    event::blockchain_event::{ChainInvite, ChainKeys},
+    EventType,
     handler::public_chain_helpers::{BlockData, EventContainer},
 };
+use bcr_ebill_api::service::notification_service::event::Event;
+use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
 
 use super::{
     BillChainEventProcessorApi, NotificationHandlerApi, public_chain_helpers::collect_event_chains,
@@ -173,7 +178,6 @@ impl BillInviteEventHandler {
 #[cfg(test)]
 mod tests {
     use crate::{
-        event::blockchain_event::BillBlockEvent,
         handler::{
             MockBillChainEventProcessorApi,
             public_chain_helpers::collect_event_chains,
@@ -182,10 +186,12 @@ mod tests {
                 node_id_test, private_key_test,
             },
         },
-        transport::{MockNotificationJsonTransportApi, create_public_chain_event},
+        test_utils::MockNotificationJsonTransport,
+        transport::create_public_chain_event,
     };
 
     use super::*;
+    use bcr_ebill_api::service::notification_service::event::BillBlockEvent;
     use bcr_ebill_core::{blockchain::Blockchain, util::crypto::BcrKeys};
     use mockall::predicate::eq;
 
@@ -390,12 +396,12 @@ mod tests {
     }
 
     fn get_mocks() -> (
-        MockNotificationJsonTransportApi,
+        MockNotificationJsonTransport,
         MockBillChainEventProcessorApi,
         MockNostrChainEventStore,
     ) {
         (
-            MockNotificationJsonTransportApi::new(),
+            MockNotificationJsonTransport::new(),
             MockBillChainEventProcessorApi::new(),
             MockNostrChainEventStore::new(),
         )
