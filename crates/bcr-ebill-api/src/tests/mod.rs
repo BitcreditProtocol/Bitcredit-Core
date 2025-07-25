@@ -1,6 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
+    use crate::service::notification_service::{self, chain_keys::ChainKeyServiceApi};
     use crate::{CONFIG, DbContext, MintConfig, NostrConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
@@ -33,12 +34,6 @@ pub mod tests {
             NostrQueuedMessageStoreApi,
         },
         notification::NotificationFilter,
-    };
-    use bcr_ebill_transport::{
-        BillChainEvent, NotificationServiceApi,
-        chain_keys::ChainKeyServiceApi,
-        event::{company_events::CompanyChainEvent, identity_events::IdentityChainEvent},
-        transport::NostrContactData,
     };
     use std::{
         collections::{HashMap, HashSet},
@@ -195,7 +190,7 @@ pub mod tests {
 
         #[async_trait]
         impl ChainKeyServiceApi for ChainKeyService {
-            async fn get_chain_keys(&self, chain_id: &str, chain_type: BlockchainType) -> bcr_ebill_transport::Result<Option<BcrKeys>>;
+            async fn get_chain_keys(&self, chain_id: &str, chain_type: BlockchainType) -> notification_service::Result<Option<BcrKeys>>;
         }
     }
 
@@ -370,87 +365,7 @@ pub mod tests {
         }
     }
 
-    mockall::mock! {
-        pub NotificationService {}
-
-        impl ServiceTraitBounds for NotificationService {}
-
-        #[async_trait]
-        impl NotificationServiceApi for NotificationService {
-            async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> bcr_ebill_transport::Result<()>;
-            async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_company_chain_events(&self, events: CompanyChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> bcr_ebill_transport::Result<()>;
-            async fn send_offer_to_sell_event(
-                &self,
-                event: &BillChainEvent,
-                buyer: &BillParticipant,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_bill_is_sold_event(
-                &self,
-                event: &BillChainEvent,
-                buyer: &BillParticipant,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_bill_recourse_paid_event(
-                &self,
-                event: &BillChainEvent,
-                recoursee: &BillIdentParticipant,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_action_rejected_event(
-                &self,
-                event: &BillChainEvent,
-                rejected_action: ActionType,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_action_timed_out_event(
-                &self,
-                sender_node_id: &NodeId,
-                bill_id: &BillId,
-                sum: Option<u64>,
-                timed_out_action: ActionType,
-                recipients: Vec<BillParticipant>,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_recourse_action_event(
-                &self,
-                event: &BillChainEvent,
-                action: ActionType,
-                recoursee: &BillIdentParticipant,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_request_to_mint_event(&self, sender_node_id: &NodeId, mint: &BillParticipant, bill: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
-            async fn send_new_quote_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
-            async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> bcr_ebill_transport::Result<()>;
-            async fn get_client_notifications(
-                &self,
-                filter: NotificationFilter,
-            ) -> bcr_ebill_transport::Result<Vec<Notification>>;
-            async fn mark_notification_as_done(&self, notification_id: &str) -> bcr_ebill_transport::Result<()>;
-            async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
-            async fn get_active_bill_notifications(&self, bill_ids: &[BillId]) -> HashMap<BillId, Notification>;
-            async fn get_active_notification_status_for_node_ids(
-                &self,
-                node_ids: &[NodeId],
-            ) -> bcr_ebill_transport::Result<HashMap<NodeId, bool>>;
-            async fn check_bill_notification_sent(
-                &self,
-                bill_id: &BillId,
-                block_height: i32,
-                action: ActionType,
-            ) -> bcr_ebill_transport::Result<bool>;
-            async fn mark_bill_notification_sent(
-                &self,
-                bill_id: &BillId,
-                block_height: i32,
-                action: ActionType,
-            ) -> bcr_ebill_transport::Result<()>;
-            async fn send_retry_messages(&self) -> bcr_ebill_transport::Result<()>;
-            async fn resolve_contact(&self, node_id: &NodeId) -> bcr_ebill_transport::Result<Option<NostrContactData>>;
-        }
-    }
-
+    #[allow(unused)]
     pub fn get_mock_db_ctx(nostr_contact_store: Option<MockNostrContactStore>) -> DbContext {
         DbContext {
             contact_store: Arc::new(MockContactStoreApiMock::new()),
@@ -555,17 +470,6 @@ pub mod tests {
         })
     }
 
-    pub fn bill_identified_participant_only_node_id(node_id: NodeId) -> BillIdentParticipant {
-        BillIdentParticipant {
-            t: ContactType::Person,
-            node_id,
-            name: "some name".to_string(),
-            postal_address: empty_address(),
-            email: None,
-            nostr_relays: vec![],
-        }
-    }
-
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
             id: bill_id_test(),
@@ -583,6 +487,17 @@ pub mod tests {
             country_of_payment: "AT".to_string(),
             language: "DE".to_string(),
             files: vec![],
+        }
+    }
+
+    pub fn bill_identified_participant_only_node_id(node_id: NodeId) -> BillIdentParticipant {
+        BillIdentParticipant {
+            t: ContactType::Person,
+            node_id,
+            name: "some name".to_string(),
+            postal_address: empty_address(),
+            email: None,
+            nostr_relays: vec![],
         }
     }
 

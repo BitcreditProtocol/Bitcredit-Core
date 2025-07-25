@@ -1,80 +1,29 @@
-use async_trait::async_trait;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
     blockchain::BlockchainType,
     constants::BCR_NOSTR_CHAIN_PREFIX,
-    contact::BillParticipant,
     util::{
         BcrKeys, base58_decode, base58_encode,
         crypto::{decrypt_ecies, encrypt_ecies},
     },
 };
 
+use bcr_ebill_api::service::notification_service::{Error, Result, event::EventEnvelope};
+
 use log::{error, info};
-#[cfg(test)]
-use mockall::automock;
 
 use nostr::{
     Event,
     event::{EventBuilder, EventId, Kind, Tag, TagKind, TagStandard, UnsignedEvent},
     filter::{Alphabet, Filter, SingleLetterTag},
     key::PublicKey,
-    nips::{nip01::Metadata, nip10::Marker, nip59::UnwrappedGift, nip73::ExternalContentId},
+    nips::{nip10::Marker, nip59::UnwrappedGift, nip73::ExternalContentId},
     signer::NostrSigner,
-    types::{RelayUrl, Timestamp},
+    types::Timestamp,
 };
-
-use crate::{Error, Result, event::EventEnvelope};
 
 // A bit abitrary. This is to protect our client from beeing overwhelmed by spam. The downside is
 // that we will not be able to extract a chain even if there are valid blocks on the relay.
 const CHAIN_EVENT_LIMIT: usize = 1000;
-
-#[cfg(test)]
-impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
-
-#[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait NotificationJsonTransportApi: ServiceTraitBounds {
-    /// Returns the senders node id for this instance.
-    fn get_sender_node_id(&self) -> NodeId;
-    /// Sends a private json event to the given recipient.
-    async fn send_private_event(
-        &self,
-        recipient: &BillParticipant,
-        event: EventEnvelope,
-    ) -> Result<()>;
-    /// Sends a public json chain event to our Nostr relays. The id is the chain id
-    /// eg. bill_id or company_id etc. The id will be published as a tag on the Nostr
-    /// event. This will return the sent event so we can add it to the local store.
-    async fn send_public_chain_event(
-        &self,
-        id: &str,
-        blockchain: BlockchainType,
-        block_time: u64,
-        keys: BcrKeys,
-        event: EventEnvelope,
-        previous_event: Option<Event>,
-        root_event: Option<Event>,
-    ) -> Result<Event>;
-    /// Resolves a nostr contact by node id.
-    async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
-    /// Given an id and chain type, tries to resolve the public chain events.
-    async fn resolve_public_chain(
-        &self,
-        id: &str,
-        chain_type: BlockchainType,
-    ) -> Result<Vec<Event>>;
-    /// Adds a new Nostr subscription on the primary client for an added contact
-    async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
-}
-
-#[derive(Debug, Clone)]
-pub struct NostrContactData {
-    pub metadata: Metadata,
-    pub relays: Vec<RelayUrl>,
-}
 
 pub async fn unwrap_direct_message<T: NostrSigner>(
     event: Box<Event>,

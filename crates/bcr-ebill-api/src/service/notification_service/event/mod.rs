@@ -1,11 +1,18 @@
-pub mod bill_events;
-pub mod blockchain_event;
-pub mod company_events;
-pub mod identity_events;
+mod bill_events;
+mod blockchain_event;
+mod company_events;
+mod identity_events;
 
-use crate::{Error, Result};
+use crate::service::notification_service::{Error, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
+
+pub use bill_events::{BillChainEvent, BillChainEventPayload};
+pub use blockchain_event::{
+    BillBlockEvent, ChainInvite, ChainKeys, CompanyBlockEvent, IdentityBlockEvent,
+};
+pub use company_events::CompanyChainEvent;
+pub use identity_events::IdentityChainEvent;
 
 /// The global event type that is used for all events.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

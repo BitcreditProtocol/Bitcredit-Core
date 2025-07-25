@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::event::CompanyBlockEvent;
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType, util::date::now};
 use bcr_ebill_persistence::{
     NostrChainEventStoreApi, company::CompanyStoreApi, nostr::NostrChainEvent,
 };
 use log::{debug, error, trace, warn};
 
-use crate::{
-    Event, EventEnvelope, EventType, Result, event::blockchain_event::CompanyBlockEvent,
-    transport::root_and_reply_id,
-};
+use crate::{EventType, transport::root_and_reply_id};
+use bcr_ebill_api::service::notification_service::event::Event;
+use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
 
 use super::{CompanyChainEventProcessorApi, NotificationHandlerApi};
 

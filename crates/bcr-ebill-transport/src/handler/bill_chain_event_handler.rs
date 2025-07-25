@@ -1,10 +1,11 @@
 use super::BillChainEventProcessorApi;
 use super::NotificationHandlerApi;
 use crate::EventType;
-use crate::event::blockchain_event::BillBlockEvent;
 use crate::transport::root_and_reply_id;
-use crate::{Event, EventEnvelope, Result};
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::event::BillBlockEvent;
+use bcr_ebill_api::service::notification_service::event::Event;
+use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
 use bcr_ebill_core::NodeId;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::blockchain::BlockchainType;

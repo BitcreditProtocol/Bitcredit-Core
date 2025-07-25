@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
 };
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{error, info, warn};
-
-use crate::NotificationJsonTransportApi;
 
 use super::NostrContactProcessorApi;
 

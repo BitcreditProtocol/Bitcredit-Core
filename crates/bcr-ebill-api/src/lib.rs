@@ -7,7 +7,7 @@ mod blockchain;
 pub mod constants;
 pub mod data;
 pub mod external;
-mod persistence;
+pub mod persistence;
 pub mod service;
 #[cfg(test)]
 mod tests;

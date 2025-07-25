@@ -11,7 +11,7 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{Error, Result};
+use crate::service::notification_service::{Error, Result};
 
 use super::{
     Event, EventType,

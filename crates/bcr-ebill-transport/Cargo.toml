@@ -10,6 +10,7 @@ doctest = false
 [dependencies]
 bcr-ebill-core.workspace = true
 bcr-ebill-persistence.workspace = true
+bcr-ebill-api = { path = "../bcr-ebill-api" }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,9 +22,13 @@ tokio.workspace = true
 reqwest.workspace = true
 async-broadcast.workspace = true
 bitcoin.workspace = true
+uuid.workspace = true
+tokio_with_wasm.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true
+nostr-relay-builder = "0.42"
+secp256k1.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { workspace = true, features = ["json"] }

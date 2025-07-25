@@ -5,15 +5,16 @@ use crate::{
     service::{
         company_service::tests::get_valid_company_block,
         contact_service::tests::get_baseline_contact,
+        notification_service::MockNotificationServiceApi,
     },
     tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
         MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
         MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockMintStore,
-        MockNotificationService, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
-        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
-        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, init_test_cfg,
-        node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+        VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
+        bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
+        empty_bitcredit_bill, empty_identity, init_test_cfg, node_id_test, node_id_test_other,
+        node_id_test_other2, private_key_test,
     },
     util,
 };
@@ -52,7 +53,7 @@ pub struct MockBillContext {
     pub company_store: MockCompanyStoreApiMock,
     pub file_upload_store: MockFileUploadStoreApiMock,
     pub file_upload_client: MockFileStorageClientApi,
-    pub notification_service: MockNotificationService,
+    pub notification_service: MockNotificationServiceApi,
     pub mint_store: MockMintStore,
     pub mint_client: MockMintClientApi,
 }
@@ -283,7 +284,7 @@ pub fn get_ctx() -> MockBillContext {
         company_chain_store: MockCompanyChainStoreApiMock::new(),
         contact_store: MockContactStoreApiMock::new(),
         company_store: MockCompanyStoreApiMock::new(),
-        notification_service: MockNotificationService::new(),
+        notification_service: MockNotificationServiceApi::new(),
         mint_store: MockMintStore::new(),
         mint_client: MockMintClientApi::new(),
     }

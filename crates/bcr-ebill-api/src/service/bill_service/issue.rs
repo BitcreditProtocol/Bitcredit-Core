@@ -3,6 +3,7 @@ use crate::{
     constants::MAX_BILL_ATTACHMENTS,
     data::validate_node_id_network,
     get_config,
+    service::notification_service::event::BillChainEvent,
     util::{self, file::UploadFileType},
 };
 use bcr_ebill_core::{
@@ -17,7 +18,6 @@ use bcr_ebill_core::{
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     util::BcrKeys,
 };
-use bcr_ebill_transport::BillChainEvent;
 use log::{debug, error, info};
 
 impl BillService {

@@ -1,7 +1,7 @@
 use std::{str::FromStr, sync::Arc};
 
-use crate::Result;
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::Result;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds, bill::BillId, blockchain::BlockchainType, util::BcrKeys,
 };
