@@ -27,7 +27,7 @@ pub enum Error {
 
     /// errors stemming from sending or receiving notifications
     #[error("Notification service error: {0}")]
-    NotificationService(#[from] bcr_ebill_transport::Error),
+    NotificationService(#[from] notification_service::Error),
 
     /// errors stemming from handling bills
     #[error("Bill service error: {0}")]

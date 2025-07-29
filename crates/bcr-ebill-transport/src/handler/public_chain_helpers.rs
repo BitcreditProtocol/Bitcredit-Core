@@ -1,3 +1,6 @@
+use bcr_ebill_api::service::notification_service::event::{
+    BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent,
+};
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     util::{BcrKeys, date::now},
@@ -8,11 +11,8 @@ use nostr::{
     nips::nip10::Marker,
 };
 
-use crate::{
-    Error, Result,
-    event::blockchain_event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
-    transport::{decrypt_public_chain_event, unwrap_public_chain_event},
-};
+use crate::transport::{decrypt_public_chain_event, unwrap_public_chain_event};
+use bcr_ebill_api::service::notification_service::{Error, Result};
 
 // Will build up as many chains as needed for the Nostr chain structure. This does not look into
 // the actual blockchain, but will build the chains just from Nostr metadata.

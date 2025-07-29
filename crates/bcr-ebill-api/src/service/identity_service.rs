@@ -1,4 +1,6 @@
 use super::Result;
+use super::notification_service::NotificationServiceApi;
+use super::notification_service::event::IdentityChainEvent;
 use crate::data::validate_node_id_network;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::util::file::UploadFileType;
@@ -17,8 +19,6 @@ use async_trait::async_trait;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError};
-use bcr_ebill_transport::NotificationServiceApi;
-use bcr_ebill_transport::event::identity_events::IdentityChainEvent;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -678,9 +678,10 @@ mod tests {
     use super::*;
     use crate::{
         external::file_storage::MockFileStorageClientApi,
+        service::notification_service::MockNotificationServiceApi,
         tests::tests::{
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            MockNotificationService, empty_identity, empty_optional_address, init_test_cfg,
+            empty_identity, empty_optional_address, init_test_cfg,
         },
     };
     use mockall::predicate::eq;
@@ -691,14 +692,14 @@ mod tests {
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
-            Arc::new(MockNotificationService::new()),
+            Arc::new(MockNotificationServiceApi::new()),
         )
     }
 
     fn get_service_with_chain_storage(
         mock_storage: MockIdentityStoreApiMock,
         mock_chain_storage: MockIdentityChainStoreApiMock,
-        notification: MockNotificationService,
+        notification: MockNotificationServiceApi,
     ) -> IdentityService {
         IdentityService::new(
             Arc::new(mock_storage),
@@ -722,7 +723,7 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification
             .expect_send_identity_chain_events()
             .returning(|_| Ok(()))
@@ -762,7 +763,7 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification
             .expect_send_identity_chain_events()
             .returning(|_| Ok(()))
@@ -816,7 +817,7 @@ mod tests {
                     .clone(),
             )
         });
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification
             .expect_send_identity_chain_events()
             .returning(|_| Ok(()))
@@ -861,7 +862,7 @@ mod tests {
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification.expect_send_identity_chain_events().never();
 
         let service = get_service_with_chain_storage(storage, chain_storage, notification);
@@ -906,7 +907,7 @@ mod tests {
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification.expect_send_identity_chain_events().never();
 
         let service = get_service_with_chain_storage(storage, chain_storage, notification);
@@ -956,7 +957,7 @@ mod tests {
             )
         });
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification
             .expect_send_identity_chain_events()
             .returning(|_| Ok(()))
@@ -1046,7 +1047,7 @@ mod tests {
             .expect_add_block()
             .returning(|_| Ok(()))
             .once();
-        let mut notification = MockNotificationService::new();
+        let mut notification = MockNotificationServiceApi::new();
         notification.expect_send_identity_chain_events().never();
 
         let service = get_service_with_chain_storage(storage, chain_storage, notification);

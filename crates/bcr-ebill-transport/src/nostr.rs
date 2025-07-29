@@ -1,14 +1,13 @@
-use async_trait::async_trait;
-use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipant};
-use bcr_ebill_transport::{
+use crate::{
     chain_keys::ChainKeyServiceApi,
-    event::EventEnvelope,
     handler::NotificationHandlerApi,
     transport::{
-        NostrContactData, chain_filter, create_nip04_event, create_public_chain_event,
-        decrypt_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
+        chain_filter, create_nip04_event, create_public_chain_event, decrypt_public_chain_event,
+        unwrap_direct_message, unwrap_public_chain_event,
     },
 };
+use async_trait::async_trait;
+use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipant};
 use log::{debug, error, info, trace, warn};
 use nostr::signer::NostrSigner;
 use nostr_sdk::{
@@ -17,59 +16,23 @@ use nostr_sdk::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::util::BcrKeys;
-use crate::{constants::NOSTR_EVENT_TIME_SLACK, service::contact_service::ContactServiceApi};
+use bcr_ebill_api::{
+    constants::NOSTR_EVENT_TIME_SLACK,
+    service::{
+        contact_service::ContactServiceApi,
+        notification_service::{
+            Error, NostrConfig, NostrContactData, Result, event::EventEnvelope,
+            transport::NotificationJsonTransportApi,
+        },
+    },
+    util::BcrKeys,
+};
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
-use bcr_ebill_transport::{Error, NotificationJsonTransportApi, Result};
 
 use tokio::task::spawn;
 use tokio_with_wasm::alias as tokio;
-
-#[derive(Clone, Debug)]
-pub struct NostrConfig {
-    pub keys: BcrKeys,
-    pub relays: Vec<String>,
-    pub name: String,
-    pub default_timeout: Duration,
-    pub is_primary: bool,
-    pub node_id: NodeId,
-}
-
-impl NostrConfig {
-    pub fn new(
-        keys: BcrKeys,
-        relays: Vec<String>,
-        name: String,
-        is_primary: bool,
-        node_id: NodeId,
-    ) -> Self {
-        assert!(!relays.is_empty());
-        Self {
-            keys,
-            relays,
-            name,
-            default_timeout: Duration::from_secs(20),
-            is_primary,
-            node_id,
-        }
-    }
-
-    pub fn get_npub(&self) -> String {
-        self.keys
-            .get_nostr_keys()
-            .public_key()
-            .to_bech32()
-            .expect("checked conversion")
-    }
-
-    pub fn get_relay(&self) -> String {
-        self.relays[0].clone()
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SortOrder {
     Asc,
@@ -262,7 +225,7 @@ impl NostrClient {
         &self,
         recipient: &BillParticipant,
         event: EventEnvelope,
-    ) -> bcr_ebill_transport::Result<()> {
+    ) -> Result<()> {
         let public_key = recipient.node_id().npub();
         let message = serde_json::to_string(&event)?;
         let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
@@ -281,7 +244,7 @@ impl NostrClient {
         &self,
         recipient: &BillParticipant,
         event: EventEnvelope,
-    ) -> bcr_ebill_transport::Result<()> {
+    ) -> Result<()> {
         let public_key = recipient.node_id().npub();
         let message = serde_json::to_string(&event)?;
         let relays = recipient.nostr_relays();
@@ -317,7 +280,7 @@ impl NotificationJsonTransportApi for NostrClient {
         &self,
         recipient: &BillParticipant,
         event: EventEnvelope,
-    ) -> bcr_ebill_transport::Result<()> {
+    ) -> Result<()> {
         if self.use_nip04() {
             self.send_nip04_message(recipient, event).await?;
         } else {
@@ -356,10 +319,7 @@ impl NotificationJsonTransportApi for NostrClient {
         Ok(send_event)
     }
 
-    async fn resolve_contact(
-        &self,
-        node_id: &NodeId,
-    ) -> Result<Option<bcr_ebill_transport::transport::NostrContactData>> {
+    async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
         match self.fetch_metadata(node_id.npub()).await? {
             Some(meta) => {
                 let relays = self
@@ -716,34 +676,24 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use bcr_ebill_api::service::notification_service::event::{Event, EventType};
+    use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+    use bcr_ebill_api::util::BcrKeys;
     use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
-    use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
+    use bcr_ebill_core::notification::BillEventType;
     use bcr_ebill_persistence::NostrEventOffset;
-    use bcr_ebill_transport::handler::NotificationHandlerApi;
-    use bcr_ebill_transport::{Event, EventEnvelope, EventType};
     use mockall::predicate;
     use tokio::time;
 
+    use crate::handler::MockNotificationHandlerApi;
+    use crate::test_utils::{
+        MockChainKeyService, MockContactService, MockNostrEventOffsetStore, TestEventPayload,
+        create_test_event, get_identity_public_data,
+    };
+
     use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig, NostrConsumer};
-    use crate::service::{
-        contact_service::MockContactServiceApi,
-        notification_service::{NotificationJsonTransportApi, test_utils::*},
-    };
-    use crate::tests::tests::{MockChainKeyService, MockNostrEventOffsetStoreApiMock};
-    use crate::util::BcrKeys;
-    use mockall::mock;
-
-    impl ServiceTraitBounds for MockNotificationHandler {}
-    mock! {
-        pub NotificationHandler {}
-        #[async_trait::async_trait]
-        impl NotificationHandlerApi for NotificationHandler {
-            async fn handle_event(&self, event: EventEnvelope, identity: &NodeId, original_event: Box<nostr::Event>) -> bcr_ebill_transport::Result<()>;
-            fn handles_event(&self, event_type: &EventType) -> bool;
-        }
-    }
 
     /// When testing with the mock relay we need to be careful. It is always
     /// listening on the same port and will not start multiple times. If we
@@ -788,14 +738,14 @@ mod tests {
         let event = create_test_event(&BillEventType::BillSigned);
 
         // expect the receiver to check if the sender contact is known
-        let mut contact_service = MockContactServiceApi::new();
+        let mut contact_service = MockContactService::new();
         contact_service
             .expect_is_known_npub()
             .with(predicate::eq(keys1.get_nostr_keys().public_key()))
             .returning(|_| Ok(true));
 
         // expect a handler that is subscribed to the event type w sent
-        let mut handler = MockNotificationHandler::new();
+        let mut handler = MockNotificationHandlerApi::new();
         handler
             .expect_handles_event()
             .with(predicate::eq(&EventType::Bill))
@@ -816,7 +766,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut offset_store = MockNostrEventOffsetStoreApiMock::new();
+        let mut offset_store = MockNostrEventOffsetStore::new();
 
         // expect the offset store to return the current offset once on start
         offset_store

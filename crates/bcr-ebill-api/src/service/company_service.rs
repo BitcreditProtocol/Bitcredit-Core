@@ -1,4 +1,5 @@
 use super::Result;
+use super::notification_service::NotificationServiceApi;
 use crate::blockchain::Blockchain;
 use crate::blockchain::company::{
     CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain, CompanyCreateBlockData,
@@ -18,6 +19,7 @@ use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
+use crate::service::notification_service::event::{CompanyChainEvent, IdentityChainEvent};
 use crate::util::BcrKeys;
 use crate::util::file::UploadFileType;
 use crate::{
@@ -29,9 +31,6 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError};
-use bcr_ebill_transport::NotificationServiceApi;
-use bcr_ebill_transport::event::company_events::CompanyChainEvent;
-use bcr_ebill_transport::event::identity_events::IdentityChainEvent;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -862,12 +861,15 @@ pub mod tests {
         blockchain::{Blockchain, identity::IdentityBlockchain},
         data::identity::IdentityWithAll,
         external::file_storage::MockFileStorageClientApi,
-        service::contact_service::tests::get_baseline_contact,
+        service::{
+            contact_service::tests::get_baseline_contact,
+            notification_service::MockNotificationServiceApi,
+        },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            MockNotificationService, empty_address, empty_identity, empty_optional_address,
-            node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+            empty_address, empty_identity, empty_optional_address, node_id_test,
+            node_id_test_other, node_id_test_other2, private_key_test,
         },
     };
     use std::{collections::HashMap, str::FromStr};
@@ -881,7 +883,7 @@ pub mod tests {
         mock_contacts_storage: MockContactStoreApiMock,
         mock_identity_chain_storage: MockIdentityChainStoreApiMock,
         mock_company_chain_storage: MockCompanyChainStoreApiMock,
-        notification_service: MockNotificationService,
+        notification_service: MockNotificationServiceApi,
     ) -> CompanyService {
         CompanyService::new(
             Arc::new(mock_storage),
@@ -903,7 +905,7 @@ pub mod tests {
         MockContactStoreApiMock,
         MockIdentityChainStoreApiMock,
         MockCompanyChainStoreApiMock,
-        MockNotificationService,
+        MockNotificationServiceApi,
     ) {
         (
             MockCompanyStoreApiMock::new(),
@@ -913,7 +915,7 @@ pub mod tests {
             MockContactStoreApiMock::new(),
             MockIdentityChainStoreApiMock::new(),
             MockCompanyChainStoreApiMock::new(),
-            MockNotificationService::new(),
+            MockNotificationServiceApi::new(),
         )
     }
 

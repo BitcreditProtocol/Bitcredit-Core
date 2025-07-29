@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::service::notification_service::event::BillChainEvent;
+
 use super::{BillAction, Result, service::BillService};
 use bcr_ebill_core::{
     NodeId,
@@ -9,7 +11,6 @@ use bcr_ebill_core::{
     identity::Identity,
     notification::ActionType,
 };
-use bcr_ebill_transport::BillChainEvent;
 
 impl BillService {
     pub(super) async fn notify_for_block_action(

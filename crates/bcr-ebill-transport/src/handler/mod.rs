@@ -1,5 +1,6 @@
 use crate::Result;
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::event::EventEnvelope;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
@@ -10,7 +11,7 @@ use log::trace;
 #[cfg(test)]
 use mockall::automock;
 
-use super::{EventEnvelope, EventType};
+use super::EventType;
 
 mod bill_action_event_handler;
 mod bill_chain_event_handler;
@@ -49,7 +50,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// the event.
     async fn handle_event(
         &self,
-        event: EventEnvelope,
+        event: bcr_ebill_api::service::notification_service::event::EventEnvelope,
         node_id: &NodeId,
         original_event: Box<nostr::Event>,
     ) -> Result<()>;
@@ -150,11 +151,12 @@ impl NotificationHandlerApi for LoggingEventHandler {
 mod tests {
     use std::str::FromStr;
 
+    use bcr_ebill_api::service::notification_service::event::Event;
     use bcr_ebill_core::notification::BillEventType;
     use serde::{Deserialize, Serialize, de::DeserializeOwned};
     use tokio::sync::Mutex;
 
-    use crate::{Event, event::EventType, handler::test_utils::get_test_nostr_event};
+    use crate::handler::test_utils::get_test_nostr_event;
 
     use super::*;
 
