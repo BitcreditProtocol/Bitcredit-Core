@@ -48,6 +48,10 @@ document.getElementById("company_create").addEventListener("click", createCompan
 document.getElementById("company_update").addEventListener("click", updateCompany);
 document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
 
+// restore account, backup seed phrase
+document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
+document.getElementById("restore_account").addEventListener("click", restoreFromSeedPhrase);
+
 
 let config = {
   log_level: "debug",
@@ -217,6 +221,16 @@ async function uploadFile(event) {
   } catch (err) {
     console.log("upload error: ", err);
   }
+}
+
+async function getSeedPhrase() {
+  let seed_phrase = await identityApi.seed_backup();
+  document.getElementById("current_seed").innerHTML = seed_phrase.seed_phrase;
+}
+
+async function restoreFromSeedPhrase() {
+  let seed_phrase = document.getElementById("restore_seed_phrase").value;
+  await identityApi.seed_recover({ seed_phrase });
 }
 
 async function createCompany() {

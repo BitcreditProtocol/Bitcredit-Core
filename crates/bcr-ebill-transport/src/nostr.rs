@@ -62,7 +62,16 @@ pub struct NostrClient {
 }
 
 impl NostrClient {
+    /// Creates a new nostr client with the given config and publishes the metadata and relay list.
     pub async fn new(config: &NostrConfig) -> Result<Self> {
+        let client = NostrClient::default(config).await?;
+        client.publish_metadata().await?;
+        client.publish_relay_list().await?;
+        Ok(client)
+    }
+
+    /// Creates a new nostr client with the given config.
+    pub async fn default(config: &NostrConfig) -> Result<Self> {
         let keys = config.keys.clone();
         let options = Options::new();
         let client = Client::builder()
@@ -76,29 +85,34 @@ impl NostrClient {
             })?;
         }
         client.connect().await;
-        let metadata = Metadata::new()
-            .name(&config.name)
-            .display_name(&config.name);
-        client.set_metadata(&metadata).await.map_err(|e| {
-            error!("Failed to set and send user metadata with Nostr client: {e}");
-            Error::Network("Failed to send user metadata with Nostr client".to_string())
-        })?;
 
         let client = Self {
             keys,
             client,
             config: config.clone(),
         };
+        Ok(client)
+    }
 
-        client
-            .update_relay_list(config.relays.clone())
+    async fn publish_metadata(&self) -> Result<()> {
+        let metadata = Metadata::new()
+            .name(&self.config.name)
+            .display_name(&self.config.name);
+        self.client.set_metadata(&metadata).await.map_err(|e| {
+            error!("Failed to send user metadata with Nostr client: {e}");
+            Error::Network("Failed to send user metadata with Nostr client".to_string())
+        })?;
+        Ok(())
+    }
+
+    async fn publish_relay_list(&self) -> Result<()> {
+        self.update_relay_list(self.config.relays.clone())
             .await
             .map_err(|e| {
                 error!("Failed to update relay list: {e}");
                 Error::Network("Failed to update relay list".to_string())
             })?;
-
-        Ok(client)
+        Ok(())
     }
 
     pub fn get_node_id(&self) -> NodeId {
@@ -348,6 +362,21 @@ impl NotificationJsonTransportApi for NostrClient {
         debug!("adding nostr subscription for contact {node_id}");
         self.subscribe(Filter::new().author(node_id.npub())).await?;
         Ok(())
+    }
+
+    async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<nostr::event::Event>> {
+        let kinds = if self.use_nip04() {
+            vec![Kind::EncryptedDirectMessage]
+        } else {
+            vec![Kind::GiftWrap]
+        };
+        let filter = filter
+            .clone()
+            .pubkey(self.keys.get_nostr_keys().public_key())
+            .kinds(kinds);
+        Ok(self
+            .fetch_events(filter, Some(SortOrder::Asc), None)
+            .await?)
     }
 }
 

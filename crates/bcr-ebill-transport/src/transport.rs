@@ -23,7 +23,7 @@ use nostr::{
 
 // A bit abitrary. This is to protect our client from beeing overwhelmed by spam. The downside is
 // that we will not be able to extract a chain even if there are valid blocks on the relay.
-const CHAIN_EVENT_LIMIT: usize = 1000;
+const CHAIN_EVENT_LIMIT: usize = 10000;
 
 pub async fn unwrap_direct_message<T: NostrSigner>(
     event: Box<Event>,

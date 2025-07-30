@@ -39,6 +39,7 @@ pub use async_broadcast::Receiver;
 pub use nostr::{NostrClient, NostrConsumer};
 use notification_service::NotificationService;
 pub use push_notification::{PushApi, PushService};
+pub use restore::RestoreAccountService;
 pub use transport::bcr_nostr_tag;
 
 /// Creates a new nostr client configured with the current identity user.

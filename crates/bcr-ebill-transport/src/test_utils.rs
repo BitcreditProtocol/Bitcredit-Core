@@ -421,6 +421,7 @@ mockall::mock! {
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
+        async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
     }
 }
 

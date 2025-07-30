@@ -16,13 +16,17 @@ use bcr_ebill_api::{
         identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
     },
     external,
-    service::Error,
+    service::{
+        Error,
+        notification_service::{NostrConfig, restore::RestoreAccountApi},
+    },
     util::{
         ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
         validate_file_upload_id,
     },
 };
+use bcr_ebill_transport::{NostrClient, RestoreAccountService};
 use wasm_bindgen::prelude::*;
 
 async fn get_file(file_name: &str) -> Result<(Vec<u8>, String)> {
@@ -305,6 +309,22 @@ impl Identity {
             .identity_service
             .recover_from_seedphrase(&seed_phrase_payload.seed_phrase)
             .await?;
+
+        let identity = get_ctx().identity_service.get_full_identity().await?;
+
+        let conf = get_ctx().cfg.nostr_config.clone();
+
+        let nostr_config = NostrConfig::new(
+            identity.key_pair,
+            conf.relays,
+            "Recovery user".to_string(),
+            true,
+            identity.identity.node_id,
+        );
+
+        let client = NostrClient::default(&nostr_config).await?;
+        let recovery_service = RestoreAccountService::new(Box::new(client)).await;
+        recovery_service.restore_account().await?;
         Ok(())
     }
 }
