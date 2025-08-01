@@ -11,7 +11,7 @@ pub mod tests {
             BlockchainType,
             bill::{BillBlock, BillBlockchain, BillOpCode},
             company::{CompanyBlock, CompanyBlockchain},
-            identity::IdentityBlock,
+            identity::{IdentityBlock, IdentityBlockchain},
         },
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
@@ -257,6 +257,7 @@ pub mod tests {
         impl IdentityChainStoreApi for IdentityChainStoreApiMock {
             async fn get_latest_block(&self) -> Result<IdentityBlock>;
             async fn add_block(&self, block: &IdentityBlock) -> Result<()>;
+            async fn get_chain(&self) -> Result<IdentityBlockchain>;
         }
     }
 

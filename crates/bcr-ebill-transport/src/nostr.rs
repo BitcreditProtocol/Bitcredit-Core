@@ -488,61 +488,14 @@ impl NostrConsumer {
                                 )
                                 .await
                                 {
-                                    let (success, time) = match event.kind {
-                                        Kind::EncryptedDirectMessage | Kind::GiftWrap => {
-                                            trace!("Received encrypted direct message: {event:?}");
-                                            match handle_direct_message(
-                                                event.clone(),
-                                                &signer,
-                                                &client_id,
-                                                &event_handlers,
-                                            )
-                                            .await
-                                            {
-                                                Err(e) => {
-                                                    error!("Failed to handle direct message: {e}");
-                                                    (false, 0u64)
-                                                }
-                                                Ok(_) => (true, event.created_at.as_u64()),
-                                            }
-                                        }
-                                        Kind::TextNote => {
-                                            trace!("Received text note: {event:?}");
-                                            match handle_public_event(
-                                                event.clone(),
-                                                &client_id,
-                                                &chain_key_store,
-                                                &event_handlers,
-                                            )
-                                            .await
-                                            {
-                                                Err(e) => {
-                                                    error!(
-                                                        "Failed to handle public chain event: {e}"
-                                                    );
-                                                    (false, 0u64)
-                                                }
-                                                Ok(v) => {
-                                                    if v {
-                                                        (v, event.created_at.as_u64())
-                                                    } else {
-                                                        (false, 0u64)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Kind::RelayList => {
-                                            // we have not subscribed to relaylist events yet
-                                            debug!("Received relay list from: {}", event.pubkey);
-                                            (true, 0u64)
-                                        }
-                                        Kind::Metadata => {
-                                            // we have not subscribed to metadata events yet
-                                            debug!("Received metadata from: {}", event.pubkey);
-                                            (true, 0u64)
-                                        }
-                                        _ => (true, 0u64),
-                                    };
+                                    let (success, time) = process_event(
+                                        event.clone(),
+                                        signer,
+                                        client_id.clone(),
+                                        chain_key_store,
+                                        event_handlers,
+                                    )
+                                    .await?;
                                     // store the new event offset
                                     add_offset(&offset_store, event.id, time, success, &client_id)
                                         .await;
@@ -567,6 +520,59 @@ impl NostrConsumer {
 
         Ok(())
     }
+}
+
+/// Detects event types and routes them to the correct handler.
+pub async fn process_event(
+    event: Box<Event>,
+    signer: Arc<dyn NostrSigner>,
+    client_id: NodeId,
+    chain_key_store: Arc<dyn ChainKeyServiceApi>,
+    event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+) -> Result<(bool, u64)> {
+    let (success, time) = match event.kind {
+        Kind::EncryptedDirectMessage | Kind::GiftWrap => {
+            trace!("Received encrypted direct message: {event:?}");
+            match handle_direct_message(event.clone(), &signer, &client_id, &event_handlers).await {
+                Err(e) => {
+                    error!("Failed to handle direct message: {e}");
+                    (false, 0u64)
+                }
+                Ok(_) => (true, event.created_at.as_u64()),
+            }
+        }
+        Kind::TextNote => {
+            trace!("Received text note: {event:?}");
+            match handle_public_event(event.clone(), &client_id, &chain_key_store, &event_handlers)
+                .await
+            {
+                Err(e) => {
+                    error!("Failed to handle public chain event: {e}");
+                    (false, 0u64)
+                }
+                Ok(v) => {
+                    if v {
+                        (v, event.created_at.as_u64())
+                    } else {
+                        (false, 0u64)
+                    }
+                }
+            }
+        }
+        Kind::RelayList => {
+            // we have not subscribed to relaylist events yet
+            debug!("Received relay list from: {}", event.pubkey);
+            (true, 0u64)
+        }
+        Kind::Metadata => {
+            // we have not subscribed to metadata events yet
+            debug!("Received metadata from: {}", event.pubkey);
+            (true, 0u64)
+        }
+        _ => (true, 0u64),
+    };
+
+    Ok((success, time))
 }
 
 async fn should_process(

@@ -14,7 +14,7 @@ use bcr_ebill_core::{
     PublicKey, ServiceTraitBounds,
     blockchain::{
         Block,
-        identity::{IdentityBlock, IdentityOpCode},
+        identity::{IdentityBlock, IdentityBlockchain, IdentityOpCode},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -147,6 +147,28 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
             }
             Err(e) => Err(e),
         }
+    }
+
+    async fn get_chain(&self) -> Result<IdentityBlockchain> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+
+        let result: Vec<IdentityBlockDb> = self
+            .db
+            .query(
+                "SELECT * FROM type::table($table) ORDER BY block_id DESC LIMIT 1",
+                bindings,
+            )
+            .await
+            .map_err(|e| {
+                log::error!("Get Identity Block: {e}");
+                e
+            })?;
+        let blocks = result
+            .into_iter()
+            .map(|b| b.into())
+            .collect::<Vec<IdentityBlock>>();
+        Ok(IdentityBlockchain::new_from_blocks(blocks)?)
     }
 }
 
