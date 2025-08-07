@@ -90,7 +90,7 @@ impl NotificationHandlerApi for TestEventHandler<TestEventPayload> {
         &self,
         event: EventEnvelope,
         _: &NodeId,
-        _: Box<nostr::Event>,
+        _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         *self.called.lock().await = true;
         let event: Event<TestEventPayload> = event.try_into()?;
@@ -430,7 +430,7 @@ mockall::mock! {
     impl ServiceTraitBounds for NotificationHandler {}
     #[async_trait]
     impl NotificationHandlerApi for NotificationHandler {
-        async fn handle_event(&self, event: EventEnvelope, identity: &NodeId, original_event: Box<nostr::Event>) -> Result<()>;
+        async fn handle_event(&self, event: EventEnvelope, identity: &NodeId, original_event: Option<Box<nostr::Event>>) -> Result<()>;
         fn handles_event(&self, event_type: &EventType) -> bool;
     }
 }

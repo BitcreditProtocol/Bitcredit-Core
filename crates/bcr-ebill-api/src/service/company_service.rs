@@ -356,6 +356,7 @@ impl CompanyServiceApi for CompanyService {
             &previous_block,
             &IdentityCreateCompanyBlockData {
                 company_id: id.clone(),
+                company_key: company_keys.get_private_key_string(),
                 block_hash: create_company_block.hash.clone(),
             },
             &full_identity.key_pair,

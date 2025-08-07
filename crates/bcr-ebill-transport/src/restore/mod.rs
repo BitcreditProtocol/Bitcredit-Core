@@ -1,38 +1,97 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use bcr_ebill_api::service::notification_service::{
-    Result, restore::RestoreAccountApi, transport::NotificationJsonTransportApi,
+use bcr_ebill_api::{
+    service::notification_service::{
+        Result, restore::RestoreAccountApi, transport::NotificationJsonTransportApi,
+    },
+    util::BcrKeys,
 };
-use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType};
+use bcr_ebill_core::{
+    NodeId, ServiceTraitBounds,
+    blockchain::{BlockchainType, identity::IdentityBlock},
+};
 use log::info;
 use nostr::{filter::Filter, types::Timestamp};
 
+use crate::handler::{
+    BlockData, EventContainer, IdentityChainEventProcessorApi, resolve_event_chains,
+};
+
 #[allow(dead_code)]
 pub struct RestoreAccountService {
-    nostr: Box<dyn NotificationJsonTransportApi>,
+    nostr: Arc<dyn NotificationJsonTransportApi>,
+    identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
+    keys: BcrKeys,
+    node_id: NodeId,
 }
 
 #[allow(dead_code)]
 impl RestoreAccountService {
-    pub async fn new(nostr: Box<dyn NotificationJsonTransportApi>) -> Self {
-        Self { nostr }
+    pub async fn new(
+        nostr: Arc<dyn NotificationJsonTransportApi>,
+        identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
+        keys: BcrKeys,
+    ) -> Self {
+        let node_id = nostr.get_sender_node_id();
+        Self {
+            nostr,
+            identity_chain_processor,
+            keys,
+            node_id,
+        }
     }
 
     async fn restore_primary_account(&self) -> Result<()> {
-        let blocks = self
-            .nostr
-            .resolve_public_chain(
-                &self.nostr.get_sender_node_id().to_string(),
-                BlockchainType::Identity,
-            )
-            .await?;
-        info!("found identity blocks {blocks :#?} blocks for primary account");
-
-        let dms = self
+        self.restore_identity().await?;
+        let events = self
             .nostr
             .resolve_private_events(Filter::new().since(Timestamp::zero()))
             .await?;
-        info!("found private dms {dms :#?} dms for primary account");
+        info!(
+            "found private {} dms  dms for primary account",
+            events.len()
+        );
         Ok(())
+    }
+
+    async fn restore_identity(&self) -> Result<()> {
+        info!("restoring identity chain");
+        let chains = resolve_event_chains(
+            self.nostr.clone(),
+            &self.node_id.to_string(),
+            BlockchainType::Identity,
+            &self.keys,
+        )
+        .await?;
+        info!("found {} chains for primary account", chains.len());
+        for chain in chains {
+            if self.valid_identity_chain_events(&chain) {
+                let blocks: Vec<IdentityBlock> = chain
+                    .iter()
+                    .filter_map(|d| match d.block.clone() {
+                        BlockData::Identity(block) => Some(block),
+                        _ => None,
+                    })
+                    .collect();
+                self.identity_chain_processor
+                    .process_chain_data(&self.node_id, blocks, Some(self.keys.clone()))
+                    .await?;
+                info!("restored identity chain from {} events", chain.len());
+            }
+        }
+        Ok(())
+    }
+
+    fn valid_identity_chain_events(&self, events: &[EventContainer]) -> bool {
+        let mut valid = true;
+        for event in events {
+            valid = valid
+                && self
+                    .identity_chain_processor
+                    .validate_chain_event_and_sender(&self.node_id, event.event.pubkey);
+        }
+        valid
     }
 }
 
@@ -50,13 +109,18 @@ impl RestoreAccountApi for RestoreAccountService {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{MockNotificationJsonTransport, node_id_test};
+    use crate::{
+        handler::MockIdentityChainEventProcessorApi,
+        test_utils::{MockNotificationJsonTransport, node_id_test},
+    };
 
     use super::*;
 
     #[tokio::test]
     async fn test_service() {
         let mut nostr = MockNotificationJsonTransport::new();
+        let processor = MockIdentityChainEventProcessorApi::new();
+        let keys = BcrKeys::new();
 
         nostr
             .expect_get_sender_node_id()
@@ -73,7 +137,7 @@ mod tests {
             .returning(|_| Ok(vec![]))
             .once();
 
-        let service = RestoreAccountService::new(Box::new(nostr)).await;
+        let service = RestoreAccountService::new(Arc::new(nostr), Arc::new(processor), keys).await;
 
         service
             .restore_account()

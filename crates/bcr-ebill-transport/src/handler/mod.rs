@@ -32,7 +32,9 @@ pub use bill_invite_handler::BillInviteEventHandler;
 pub use company_chain_event_handler::CompanyChainEventHandler;
 pub use company_chain_event_processor::CompanyChainEventProcessor;
 pub use company_invite_handler::CompanyInviteEventHandler;
+pub use identity_chain_event_processor::IdentityChainEventProcessor;
 pub use nostr_contact_processor::NostrContactProcessor;
+pub use public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -54,7 +56,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
         &self,
         event: bcr_ebill_api::service::notification_service::event::EventEnvelope,
         node_id: &NodeId,
-        original_event: Box<nostr::Event>,
+        original_event: Option<Box<nostr::Event>>,
     ) -> Result<()>;
 }
 
@@ -126,11 +128,7 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
 
     /// Validates that a given bill id is relevant for us, and if so also checks that the sender
     /// of the event is part of the chain this event is for.
-    async fn validate_chain_event_and_sender(
-        &self,
-        node_id: &NodeId,
-        sender: nostr::PublicKey,
-    ) -> Result<bool>;
+    fn validate_chain_event_and_sender(&self, node_id: &NodeId, sender: nostr::PublicKey) -> bool;
 }
 
 #[cfg(test)]
@@ -168,7 +166,7 @@ impl NotificationHandlerApi for LoggingEventHandler {
         &self,
         event: EventEnvelope,
         identity: &NodeId,
-        _: Box<nostr::Event>,
+        _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         trace!("Received event: {event:?} for identity: {identity}");
         Ok(())
@@ -212,7 +210,7 @@ mod tests {
                     "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
                 )
                 .unwrap(),
-                nostr_event,
+                Some(nostr_event),
             )
             .await
             .expect("event was not handled");
@@ -264,7 +262,7 @@ mod tests {
             &self,
             event: EventEnvelope,
             _: &NodeId,
-            _: Box<nostr::Event>,
+            _: Option<Box<nostr::Event>>,
         ) -> Result<()> {
             *self.called.lock().await = true;
             let event: Event<TestEventPayload> = event.try_into()?;

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bcr_ebill_api::{
-    Config, DbContext, get_config,
+    Config, DbContext, get_config, get_db_context,
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
@@ -20,7 +20,8 @@ use chain_keys::ChainKeyServiceApi;
 use handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
     CompanyChainEventHandler, CompanyChainEventProcessor, CompanyInviteEventHandler,
-    LoggingEventHandler, NostrContactProcessor, NostrContactProcessorApi, NotificationHandlerApi,
+    IdentityChainEventProcessor, LoggingEventHandler, NostrContactProcessor,
+    NostrContactProcessorApi, NotificationHandlerApi,
 };
 use log::{debug, error};
 
@@ -204,4 +205,52 @@ pub async fn create_nostr_consumer(
         chain_key_service,
     );
     Ok(consumer)
+}
+
+pub async fn create_restore_account_service(
+    config: &Config,
+    keys: &BcrKeys,
+) -> Result<RestoreAccountService> {
+    let db_context = get_db_context(config)
+        .await
+        .expect("could not create db context");
+
+    let node_id = NodeId::new(keys.pub_key(), config.bitcoin_network());
+    let nostr_config = NostrConfig::new(
+        keys.clone(),
+        config.nostr_config.relays.clone(),
+        "Recovery user".to_string(),
+        true,
+        node_id,
+    );
+
+    let nostr_client = Arc::new(NostrClient::default(&nostr_config).await?);
+    let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
+        nostr_client.clone(),
+        db_context.nostr_contact_store.clone(),
+        config.bitcoin_network(),
+    ));
+
+    let company_processor = Arc::new(CompanyChainEventProcessor::new(
+        db_context.company_chain_store.clone(),
+        db_context.company_store.clone(),
+        nostr_contact_processor.clone(),
+        config.bitcoin_network(),
+    ));
+
+    let company_invite_handler = Arc::new(CompanyInviteEventHandler::new(
+        nostr_client.clone(),
+        company_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    ));
+
+    let processor = Arc::new(IdentityChainEventProcessor::new(
+        db_context.identity_chain_store.clone(),
+        db_context.identity_store.clone(),
+        company_invite_handler,
+        nostr_contact_processor,
+        config.bitcoin_network(),
+    ));
+
+    Ok(RestoreAccountService::new(nostr_client, processor, keys.clone()).await)
 }

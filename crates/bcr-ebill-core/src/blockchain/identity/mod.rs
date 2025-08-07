@@ -112,6 +112,7 @@ pub struct IdentitySignCompanyBillBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateCompanyBlockData {
     pub company_id: NodeId,
+    pub company_key: String,
     pub block_hash: String,
 }
 
@@ -576,6 +577,7 @@ mod tests {
             chain.get_latest_block(),
             &IdentityCreateCompanyBlockData {
                 company_id: node_id_test(),
+                company_key: "some key".to_string(),
                 block_hash: "some hash".to_string(),
             },
             &keys,

@@ -31,7 +31,7 @@ impl NotificationHandlerApi for IdentityChainEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
-        original_event: Box<nostr::Event>,
+        original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming identity chain event for {node_id}");
         if let Ok(decoded) = Event::<IdentityBlockEvent>::try_from(event.clone()) {
@@ -46,15 +46,16 @@ impl NotificationHandlerApi for IdentityChainEventHandler {
                     .await
                     .inspect_err(|e| error!("Received invalid block {e}"))
                     .is_ok();
-
-                self.store_event(
-                    original_event,
-                    decoded.data.block_height,
-                    &decoded.data.block.hash,
-                    &decoded.data.node_id.to_string(),
-                    valid,
-                )
-                .await?;
+                if let Some(original_event) = original_event {
+                    self.store_event(
+                        original_event,
+                        decoded.data.block_height,
+                        &decoded.data.block.hash,
+                        &decoded.data.node_id.to_string(),
+                        valid,
+                    )
+                    .await?;
+                }
             } else {
                 trace!("no keys for incoming identity block {node_id}");
             }
@@ -188,7 +189,11 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().unwrap(), &identity.node_id, original_event)
+            .handle_event(
+                event.try_into().unwrap(),
+                &identity.node_id,
+                Some(original_event),
+            )
             .await
             .expect("failed to handle event");
     }
@@ -236,7 +241,7 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().unwrap(), &node_id, original_event)
+            .handle_event(event.try_into().unwrap(), &node_id, Some(original_event))
             .await
             .expect("failed to handle event");
     }

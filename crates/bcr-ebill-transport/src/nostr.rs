@@ -691,7 +691,7 @@ async fn handle_event(
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
             match handler
-                .handle_event(event.to_owned(), node_id, original_event.clone())
+                .handle_event(event.to_owned(), node_id, Some(original_event.clone()))
                 .await
             {
                 Ok(_) => times += 1,

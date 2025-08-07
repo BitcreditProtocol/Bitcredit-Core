@@ -24,6 +24,7 @@ async-broadcast.workspace = true
 bitcoin.workspace = true
 uuid.workspace = true
 tokio_with_wasm.workspace = true
+secp256k1.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true
