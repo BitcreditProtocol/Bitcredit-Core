@@ -11,8 +11,9 @@ use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipan
 use log::{debug, error, info, trace, warn};
 use nostr::signer::NostrSigner;
 use nostr_sdk::{
-    Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
-    RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp, ToBech32,
+    Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
+    PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp,
+    ToBech32,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -73,7 +74,7 @@ impl NostrClient {
     /// Creates a new nostr client with the given config.
     pub async fn default(config: &NostrConfig) -> Result<Self> {
         let keys = config.keys.clone();
-        let options = Options::new();
+        let options = ClientOptions::new();
         let client = Client::builder()
             .signer(keys.get_nostr_keys().clone())
             .opts(options)
