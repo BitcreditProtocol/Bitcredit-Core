@@ -22,6 +22,7 @@ use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope}
 
 use super::{CompanyChainEventProcessorApi, NotificationHandlerApi};
 
+#[derive(Clone)]
 pub struct CompanyInviteEventHandler {
     transport: Arc<dyn NotificationJsonTransportApi>,
     processor: Arc<dyn CompanyChainEventProcessorApi>,

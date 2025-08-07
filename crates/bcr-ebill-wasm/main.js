@@ -199,7 +199,7 @@ async function start(create_identity) {
   return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi };
 }
 
-let apis = await start(false);
+let apis = await start(generateIdentity());
 let contactApi = apis.contactApi;
 let companyApi = apis.companyApi;
 let generalApi = apis.generalApi;
@@ -652,3 +652,16 @@ async function getActiveNotif() {
   await measured();
 }
 
+// disables auto identity creation via query param identity=false
+function generateIdentity() {
+  let param = getQueryParam("identity");
+  if (param && param.toLowerCase() === "false") {
+    return false;
+  }
+  return true;
+}
+
+function getQueryParam(paramName) {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get(paramName);
+}

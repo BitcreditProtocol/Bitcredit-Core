@@ -20,8 +20,8 @@ use chain_keys::ChainKeyServiceApi;
 use handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
     CompanyChainEventHandler, CompanyChainEventProcessor, CompanyInviteEventHandler,
-    IdentityChainEventProcessor, LoggingEventHandler, NostrContactProcessor,
-    NostrContactProcessorApi, NotificationHandlerApi,
+    IdentityChainEventHandler, IdentityChainEventProcessor, LoggingEventHandler,
+    NostrContactProcessor, NostrContactProcessorApi, NotificationHandlerApi,
 };
 use log::{debug, error};
 
@@ -159,6 +159,20 @@ pub async fn create_nostr_consumer(
         get_config().bitcoin_network(),
     ));
 
+    let company_invite_handler = CompanyInviteEventHandler::new(
+        transport.clone(),
+        company_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    );
+
+    let identity_processor = Arc::new(IdentityChainEventProcessor::new(
+        db_context.identity_chain_store.clone(),
+        db_context.identity_store.clone(),
+        Arc::new(company_invite_handler.clone()),
+        nostr_contact_processor.clone(),
+        get_config().bitcoin_network(),
+    ));
+
     // on startup, we make sure the configured default mint exists
     nostr_contact_processor
         .ensure_nostr_contact(&get_config().mint_config.default_mint_node_id)
@@ -185,14 +199,15 @@ pub async fn create_nostr_consumer(
             db_context.bill_store.clone(),
             db_context.nostr_chain_event_store.clone(),
         )),
-        Box::new(CompanyInviteEventHandler::new(
-            transport.clone(),
-            company_processor.clone(),
-            db_context.nostr_chain_event_store.clone(),
-        )),
+        Box::new(company_invite_handler),
         Box::new(CompanyChainEventHandler::new(
             db_context.company_store.clone(),
             company_processor.clone(),
+            db_context.nostr_chain_event_store.clone(),
+        )),
+        Box::new(IdentityChainEventHandler::new(
+            db_context.identity_store.clone(),
+            identity_processor.clone(),
             db_context.nostr_chain_event_store.clone(),
         )),
     ];

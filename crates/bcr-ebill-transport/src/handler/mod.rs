@@ -32,6 +32,7 @@ pub use bill_invite_handler::BillInviteEventHandler;
 pub use company_chain_event_handler::CompanyChainEventHandler;
 pub use company_chain_event_processor::CompanyChainEventProcessor;
 pub use company_invite_handler::CompanyInviteEventHandler;
+pub use identity_chain_event_handler::IdentityChainEventHandler;
 pub use identity_chain_event_processor::IdentityChainEventProcessor;
 pub use nostr_contact_processor::NostrContactProcessor;
 pub use public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
