@@ -135,6 +135,7 @@ impl IdentityChainEventProcessor {
             }
             self.add_identity_block(node_id, &keys, &mut identity, chain, &block)
                 .await?;
+            block_height = block.id;
         }
         debug!("Updated identity {node_id} with data from new blocks");
         Ok(())
