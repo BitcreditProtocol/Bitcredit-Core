@@ -156,7 +156,7 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
         let result: Vec<IdentityBlockDb> = self
             .db
             .query(
-                "SELECT * FROM type::table($table) ORDER BY block_id DESC LIMIT 1",
+                "SELECT * FROM type::table($table) ORDER BY block_id DESC",
                 bindings,
             )
             .await

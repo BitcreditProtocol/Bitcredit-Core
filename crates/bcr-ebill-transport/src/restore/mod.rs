@@ -48,10 +48,7 @@ impl RestoreAccountService {
             .nostr
             .resolve_private_events(Filter::new().since(Timestamp::zero()))
             .await?;
-        info!(
-            "found private {} dms  dms for primary account",
-            events.len()
-        );
+        info!("found private {} dms for primary account", events.len());
         Ok(())
     }
 
