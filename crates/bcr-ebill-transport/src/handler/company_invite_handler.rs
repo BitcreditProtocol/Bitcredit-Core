@@ -11,7 +11,7 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 
 use crate::{
     EventType,
@@ -57,7 +57,7 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
             {
                 // We try to add shorter and shorter chains until we have a success
                 for data in chain_data.iter() {
-                    debug!("Processing company chain data with block {data:#?}");
+                    trace!("Processing company chain data with block {data:#?}");
                     let blocks: Vec<CompanyBlock> = data
                         .iter()
                         .filter_map(|d| match d.block.clone() {
@@ -65,7 +65,7 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                             _ => None,
                         })
                         .collect();
-                    debug!("Processing company chain data with {} blocks", blocks.len());
+                    trace!("Processing company chain data with {} blocks", blocks.len());
                     if !data.is_empty()
                         && self
                             .processor

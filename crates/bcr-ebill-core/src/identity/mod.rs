@@ -63,13 +63,8 @@ impl Identity {
     }
 
     pub fn from_block_data(data: IdentityCreateBlockData) -> Self {
-        let t = if data.postal_address.is_fully_set() {
-            IdentityType::Ident
-        } else {
-            IdentityType::Anon
-        };
         Self {
-            t,
+            t: get_identity_type(&data.postal_address),
             node_id: data.node_id,
             name: data.name,
             email: data.email,
@@ -87,6 +82,10 @@ impl Identity {
     pub fn apply_block_data(&mut self, data: &IdentityBlockPayload) {
         // only the update block does actually mutate the identity
         if let IdentityBlockPayload::Update(payload) = data {
+            // check whether the account was deanonymized with the update
+            if self.t == IdentityType::Anon {
+                self.t = get_identity_type(&payload.postal_address);
+            }
             self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
             self.email = payload.email.to_owned().or(self.email.to_owned());
             self.postal_address.country = payload
@@ -134,6 +133,15 @@ impl Identity {
                 .to_owned()
                 .or(self.identity_document_file.to_owned());
         }
+    }
+}
+
+/// determines the identity type based on the postal address
+fn get_identity_type(address: &OptionalPostalAddress) -> IdentityType {
+    if address.is_fully_set() {
+        IdentityType::Ident
+    } else {
+        IdentityType::Anon
     }
 }
 
