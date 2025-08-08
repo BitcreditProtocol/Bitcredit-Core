@@ -1,9 +1,8 @@
-use std::{cmp::Reverse, collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use bcr_ebill_api::service::notification_service::{
-    event::{ChainInvite, ChainKeys},
-    transport::NotificationJsonTransportApi,
+    event::ChainInvite, transport::NotificationJsonTransportApi,
 };
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
@@ -12,20 +11,18 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 
 use crate::{
     EventType,
-    handler::public_chain_helpers::{BlockData, EventContainer},
+    handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
 };
 use bcr_ebill_api::service::notification_service::event::Event;
 use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
 
-use super::{
-    CompanyChainEventProcessorApi, NotificationHandlerApi,
-    public_chain_helpers::collect_event_chains,
-};
+use super::{CompanyChainEventProcessorApi, NotificationHandlerApi};
 
+#[derive(Clone)]
 pub struct CompanyInviteEventHandler {
     transport: Arc<dyn NotificationJsonTransportApi>,
     processor: Arc<dyn CompanyChainEventProcessorApi>,
@@ -43,28 +40,24 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
-        _: Box<nostr::Event>,
+        _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming company chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
-            let events = self
-                .transport
-                .resolve_public_chain(&decoded.data.chain_id, decoded.data.chain_type)
-                .await?;
+            let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key)?;
 
             let mut inserted_chain: Vec<EventContainer> = Vec::new();
-            if let Ok(chain_data) = self
-                .resolve_chain_data(
-                    &decoded.data.keys,
-                    &decoded.data.chain_id,
-                    decoded.data.chain_type,
-                    &events,
-                )
-                .await
+            if let Ok(chain_data) = resolve_event_chains(
+                self.transport.clone(),
+                &decoded.data.chain_id,
+                decoded.data.chain_type,
+                &keys,
+            )
+            .await
             {
                 // We try to add shorter and shorter chains until we have a success
                 for data in chain_data.iter() {
-                    debug!("Processing company chain data with block {data:#?}");
+                    trace!("Processing company chain data with block {data:#?}");
                     let blocks: Vec<CompanyBlock> = data
                         .iter()
                         .filter_map(|d| match d.block.clone() {
@@ -72,7 +65,7 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                             _ => None,
                         })
                         .collect();
-                    debug!("Processing company chain data with {} blocks", blocks.len());
+                    trace!("Processing company chain data with {} blocks", blocks.len());
                     if !data.is_empty()
                         && self
                             .processor
@@ -126,22 +119,6 @@ impl CompanyInviteEventHandler {
             processor,
             chain_event_store,
         }
-    }
-
-    /// Parses chain keys, resolves all Nostr events and builds Nostr chains from it.
-    /// Then decrypts the payloads and parses the block contents. Returns all found chains
-    /// in descending order by chain length.
-    async fn resolve_chain_data(
-        &self,
-        keys: &ChainKeys,
-        chain_id: &str,
-        chain_type: BlockchainType,
-        events: &[nostr_sdk::Event],
-    ) -> Result<Vec<Vec<EventContainer>>> {
-        let keys = BcrKeys::from_private_key(&keys.private_key)?;
-        let mut chains = collect_event_chains(events, chain_id, chain_type, &keys);
-        chains.sort_by_key(|v| Reverse(v.len()));
-        Ok(chains)
     }
 
     async fn store_events(
@@ -298,7 +275,7 @@ mod tests {
             Arc::new(chain_event_store),
         );
         handler
-            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .handle_event(invite, &node_id, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }
@@ -350,7 +327,7 @@ mod tests {
             Arc::new(chain_event_store),
         );
         handler
-            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .handle_event(invite, &node_id, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }
@@ -410,7 +387,7 @@ mod tests {
             Arc::new(chain_event_store),
         );
         handler
-            .handle_event(invite, &node_id, Box::new(event.clone()))
+            .handle_event(invite, &node_id, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }

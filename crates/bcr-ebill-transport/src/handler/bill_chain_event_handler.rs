@@ -51,7 +51,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
-        original_event: Box<nostr::Event>,
+        original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming bill chain event for {node_id}");
         if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
@@ -67,14 +67,16 @@ impl NotificationHandlerApi for BillChainEventHandler {
                     .inspect_err(|e| error!("Received invalid block {e}"))
                     .is_ok();
 
-                self.store_event(
-                    original_event,
-                    decoded.data.block_height,
-                    &decoded.data.block.hash,
-                    &decoded.data.bill_id.to_string(),
-                    valid,
-                )
-                .await?;
+                if let Some(original_event) = original_event {
+                    self.store_event(
+                        original_event,
+                        decoded.data.block_height,
+                        &decoded.data.block.hash,
+                        &decoded.data.bill_id.to_string(),
+                        valid,
+                    )
+                    .await?;
+                }
             } else {
                 trace!("no keys for incoming bill block");
             }
@@ -229,7 +231,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
-                Box::new(nostr_event),
+                Some(Box::new(nostr_event)),
             )
             .await
             .expect("Event should be handled");
@@ -297,7 +299,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
-                Box::new(get_test_nostr_event()),
+                Some(Box::new(get_test_nostr_event())),
             )
             .await
             .expect("Event should be handled");

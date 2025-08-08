@@ -1,10 +1,10 @@
 use crate::Result;
 use async_trait::async_trait;
-use bcr_ebill_api::service::notification_service::event::EventEnvelope;
+use bcr_ebill_api::{service::notification_service::event::EventEnvelope, util::BcrKeys};
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
-    blockchain::{bill::BillBlock, company::CompanyBlock},
+    blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
 };
 use log::trace;
@@ -20,6 +20,8 @@ mod bill_invite_handler;
 mod company_chain_event_handler;
 mod company_chain_event_processor;
 mod company_invite_handler;
+mod identity_chain_event_handler;
+mod identity_chain_event_processor;
 mod nostr_contact_processor;
 mod public_chain_helpers;
 
@@ -30,7 +32,10 @@ pub use bill_invite_handler::BillInviteEventHandler;
 pub use company_chain_event_handler::CompanyChainEventHandler;
 pub use company_chain_event_processor::CompanyChainEventProcessor;
 pub use company_invite_handler::CompanyInviteEventHandler;
+pub use identity_chain_event_handler::IdentityChainEventHandler;
+pub use identity_chain_event_processor::IdentityChainEventProcessor;
 pub use nostr_contact_processor::NostrContactProcessor;
+pub use public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -52,7 +57,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
         &self,
         event: bcr_ebill_api::service::notification_service::event::EventEnvelope,
         node_id: &NodeId,
-        original_event: Box<nostr::Event>,
+        original_event: Option<Box<nostr::Event>>,
     ) -> Result<()>;
 }
 
@@ -108,6 +113,28 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
 #[cfg(test)]
 impl ServiceTraitBounds for MockCompanyChainEventProcessorApi {}
 
+/// Generalizes the handling and validation of a bill block event.
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
+    /// Processes the chain data for given bill id, some blocks and an optional key that will be
+    /// present when we are joining a new chain.
+    async fn process_chain_data(
+        &self,
+        node_id: &NodeId,
+        blocks: Vec<IdentityBlock>,
+        keys: Option<BcrKeys>,
+    ) -> Result<()>;
+
+    /// Validates that a given bill id is relevant for us, and if so also checks that the sender
+    /// of the event is part of the chain this event is for.
+    fn validate_chain_event_and_sender(&self, node_id: &NodeId, sender: nostr::PublicKey) -> bool;
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockIdentityChainEventProcessorApi {}
+
 /// Generalizes the handling of other Nostr identities.
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -140,7 +167,7 @@ impl NotificationHandlerApi for LoggingEventHandler {
         &self,
         event: EventEnvelope,
         identity: &NodeId,
-        _: Box<nostr::Event>,
+        _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         trace!("Received event: {event:?} for identity: {identity}");
         Ok(())
@@ -184,7 +211,7 @@ mod tests {
                     "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
                 )
                 .unwrap(),
-                nostr_event,
+                Some(nostr_event),
             )
             .await
             .expect("event was not handled");
@@ -236,7 +263,7 @@ mod tests {
             &self,
             event: EventEnvelope,
             _: &NodeId,
-            _: Box<nostr::Event>,
+            _: Option<Box<nostr::Event>>,
         ) -> Result<()> {
             *self.called.lock().await = true;
             let event: Event<TestEventPayload> = event.try_into()?;
@@ -281,6 +308,7 @@ mod test_utils {
         NostrChainEventStoreApi, NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
+        identity::{IdentityChainStoreApi, IdentityStoreApi},
         nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
@@ -402,6 +430,40 @@ mod test_utils {
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
 
+        }
+    }
+
+    mock! {
+        pub IdentityStore {}
+
+        impl ServiceTraitBounds for IdentityStore {}
+
+        #[async_trait]
+        impl IdentityStoreApi for IdentityStore {
+            async fn exists(&self) -> bool;
+            async fn save(&self, identity: &Identity) -> Result<()>;
+            async fn get(&self) -> Result<Identity>;
+            async fn get_full(&self) -> Result<IdentityWithAll>;
+            async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()>;
+            async fn get_key_pair(&self) -> Result<BcrKeys>;
+            async fn get_or_create_key_pair(&self) -> Result<BcrKeys>;
+            async fn get_seedphrase(&self) -> Result<String>;
+            async fn get_current_identity(&self) -> Result<bcr_ebill_core::identity::ActiveIdentityState>;
+            async fn set_current_identity(&self, identity_state: &bcr_ebill_core::identity::ActiveIdentityState) -> Result<()>;
+            async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
+        }
+    }
+
+    mock! {
+        pub IdentityChainStore {}
+
+        impl ServiceTraitBounds for IdentityChainStore {}
+
+        #[async_trait]
+        impl IdentityChainStoreApi for IdentityChainStore {
+            async fn get_latest_block(&self) -> Result<bcr_ebill_core::blockchain::identity::IdentityBlock>;
+            async fn add_block(&self, block: &bcr_ebill_core::blockchain::identity::IdentityBlock) -> Result<()>;
+            async fn get_chain(&self) -> Result<bcr_ebill_core::blockchain::identity::IdentityBlockchain>;
         }
     }
 

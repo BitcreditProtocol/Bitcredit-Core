@@ -5,7 +5,7 @@ use crate::NodeId;
 use crate::bill::BillId;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
-use borsh::to_vec;
+use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use secp256k1::PublicKey;
@@ -79,7 +79,7 @@ impl From<Identity> for IdentityCreateBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Debug, Clone, PartialEq)]
 pub struct IdentityUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
@@ -112,6 +112,7 @@ pub struct IdentitySignCompanyBillBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateCompanyBlockData {
     pub company_id: NodeId,
+    pub company_key: String,
     pub block_hash: String,
 }
 
@@ -129,6 +130,17 @@ pub struct IdentityRemoveSignatoryBlockData {
     pub block_id: u64,
     pub block_hash: String,
     pub signatory: NodeId,
+}
+
+#[derive(Debug)]
+pub enum IdentityBlockPayload {
+    Create(IdentityCreateBlockData),
+    Update(IdentityUpdateBlockData),
+    SignPersonalBill(IdentitySignPersonBillBlockData),
+    SignCompanyBill(IdentitySignCompanyBillBlockData),
+    CreateCompany(IdentityCreateCompanyBlockData),
+    AddSignatory(IdentityAddSignatoryBlockData),
+    RemoveSignatory(IdentityRemoveSignatoryBlockData),
 }
 
 impl Block for IdentityBlock {
@@ -393,6 +405,34 @@ impl IdentityBlock {
         }
         Ok(new_block)
     }
+
+    pub fn get_block_data(&self, keys: &BcrKeys) -> Result<IdentityBlockPayload> {
+        let data = self.get_decrypted_block(keys)?;
+        let result: IdentityBlockPayload = match self.op_code {
+            IdentityOpCode::Create => IdentityBlockPayload::Create(from_slice(&data)?),
+            IdentityOpCode::Update => IdentityBlockPayload::Update(from_slice(&data)?),
+            IdentityOpCode::SignPersonBill => {
+                IdentityBlockPayload::SignPersonalBill(from_slice(&data)?)
+            }
+            IdentityOpCode::SignCompanyBill => {
+                IdentityBlockPayload::SignCompanyBill(from_slice(&data)?)
+            }
+            IdentityOpCode::CreateCompany => {
+                IdentityBlockPayload::CreateCompany(from_slice(&data)?)
+            }
+            IdentityOpCode::AddSignatory => IdentityBlockPayload::AddSignatory(from_slice(&data)?),
+            IdentityOpCode::RemoveSignatory => {
+                IdentityBlockPayload::RemoveSignatory(from_slice(&data)?)
+            }
+        };
+        Ok(result)
+    }
+
+    fn get_decrypted_block(&self, keys: &BcrKeys) -> Result<Vec<u8>> {
+        let bytes = util::base58_decode(&self.data)?;
+        let decrypted_bytes = util::crypto::decrypt_ecies(&bytes, &keys.get_private_key())?;
+        Ok(decrypted_bytes)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -423,6 +463,28 @@ impl IdentityBlockchain {
         Ok(Self {
             blocks: vec![first_block],
         })
+    }
+
+    /// Creates an identity chain from a list of blocks
+    pub fn new_from_blocks(blocks_to_add: Vec<IdentityBlock>) -> Result<Self> {
+        match blocks_to_add.first() {
+            None => Err(super::Error::BlockchainInvalid),
+            Some(first) => {
+                if !first.verify() || !first.validate_hash() {
+                    return Err(super::Error::BlockchainInvalid);
+                }
+
+                let chain = Self {
+                    blocks: blocks_to_add,
+                };
+
+                if !chain.is_chain_valid() {
+                    return Err(super::Error::BlockchainInvalid);
+                }
+
+                Ok(chain)
+            }
+        }
     }
 }
 
@@ -515,6 +577,7 @@ mod tests {
             chain.get_latest_block(),
             &IdentityCreateCompanyBlockData {
                 company_id: node_id_test(),
+                company_key: "some key".to_string(),
                 block_hash: "some hash".to_string(),
             },
             &keys,

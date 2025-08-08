@@ -16,13 +16,14 @@ use bcr_ebill_api::{
         identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
     },
     external,
-    service::Error,
+    service::{Error, notification_service::restore::RestoreAccountApi},
     util::{
         ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
         validate_file_upload_id,
     },
 };
+use bcr_ebill_transport::create_restore_account_service;
 use wasm_bindgen::prelude::*;
 
 async fn get_file(file_name: &str) -> Result<(Vec<u8>, String)> {
@@ -301,10 +302,14 @@ impl Identity {
         #[wasm_bindgen(unchecked_param_type = "SeedPhrase")] payload: JsValue,
     ) -> Result<()> {
         let seed_phrase_payload: SeedPhrase = serde_wasm_bindgen::from_value(payload)?;
-        get_ctx()
+        let context = get_ctx();
+        context
             .identity_service
             .recover_from_seedphrase(&seed_phrase_payload.seed_phrase)
             .await?;
+        let keys = context.identity_service.get_keys().await?;
+        let recovery_service = create_restore_account_service(&context.cfg, &keys).await?;
+        recovery_service.restore_account().await?;
         Ok(())
     }
 }

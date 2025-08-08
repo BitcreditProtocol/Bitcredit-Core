@@ -3,7 +3,7 @@ use async_trait::async_trait;
 
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    blockchain::identity::IdentityBlock,
+    blockchain::identity::{IdentityBlock, IdentityBlockchain},
     identity::{ActiveIdentityState, Identity, IdentityWithAll},
     util::crypto::BcrKeys,
 };
@@ -43,4 +43,6 @@ pub trait IdentityChainStoreApi: ServiceTraitBounds {
     async fn get_latest_block(&self) -> Result<IdentityBlock>;
     /// Adds the block to the chain
     async fn add_block(&self, block: &IdentityBlock) -> Result<()>;
+    /// Gets the chain
+    async fn get_chain(&self) -> Result<IdentityBlockchain>;
 }

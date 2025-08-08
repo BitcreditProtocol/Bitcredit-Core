@@ -98,6 +98,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
 
     /// sets the active identity to the given company node id
     async fn set_current_company_identity(&self, node_id: &NodeId) -> Result<()>;
+
+    /// Returns the local key pair
+    async fn get_keys(&self) -> Result<BcrKeys>;
 }
 
 /// The identity service is responsible for managing the local identity
@@ -668,6 +671,10 @@ impl IdentityServiceApi for IdentityService {
             })
             .await?;
         Ok(())
+    }
+
+    async fn get_keys(&self) -> Result<BcrKeys> {
+        Ok(self.store.get_key_pair().await?)
     }
 }
 

@@ -1,5 +1,8 @@
-use bcr_ebill_api::service::notification_service::event::{
-    BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent,
+use std::{cmp::Reverse, sync::Arc};
+
+use bcr_ebill_api::service::notification_service::{
+    event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
+    transport::NotificationJsonTransportApi,
 };
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
@@ -13,6 +16,21 @@ use nostr::{
 
 use crate::transport::{decrypt_public_chain_event, unwrap_public_chain_event};
 use bcr_ebill_api::service::notification_service::{Error, Result};
+
+/// Will query the transport for the public chain events and build up as many chains as needed for
+/// the Nostr chain structure. This does not look into the actual blockchain, but will build the
+/// chains just from Nostr metadata.
+pub async fn resolve_event_chains(
+    transport: Arc<dyn NotificationJsonTransportApi>,
+    chain_id: &str,
+    chain_type: BlockchainType,
+    keys: &BcrKeys,
+) -> Result<Vec<Vec<EventContainer>>> {
+    let events = transport.resolve_public_chain(chain_id, chain_type).await?;
+    let mut chains = collect_event_chains(&events, chain_id, chain_type, keys);
+    chains.sort_by_key(|v| Reverse(v.len()));
+    Ok(chains)
+}
 
 // Will build up as many chains as needed for the Nostr chain structure. This does not look into
 // the actual blockchain, but will build the chains just from Nostr metadata.

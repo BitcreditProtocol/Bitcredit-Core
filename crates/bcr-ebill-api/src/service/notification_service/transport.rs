@@ -6,7 +6,7 @@ use bcr_ebill_core::{
 #[cfg(test)]
 use mockall::automock;
 
-use nostr::Event;
+use nostr::{Event, Filter};
 
 use super::{NostrContactData, Result, event::EventEnvelope};
 
@@ -48,4 +48,6 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
     ) -> Result<Vec<Event>>;
     /// Adds a new Nostr subscription on the primary client for an added contact
     async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
+    /// Resolves all private messages matching the filter
+    async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
 }

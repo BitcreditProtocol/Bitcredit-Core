@@ -11,8 +11,9 @@ use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipan
 use log::{debug, error, info, trace, warn};
 use nostr::signer::NostrSigner;
 use nostr_sdk::{
-    Alphabet, Client, Event, EventBuilder, EventId, Filter, Kind, Metadata, Options, PublicKey,
-    RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp, ToBech32,
+    Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
+    PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp,
+    ToBech32,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -62,9 +63,18 @@ pub struct NostrClient {
 }
 
 impl NostrClient {
+    /// Creates a new nostr client with the given config and publishes the metadata and relay list.
     pub async fn new(config: &NostrConfig) -> Result<Self> {
+        let client = NostrClient::default(config).await?;
+        client.publish_metadata().await?;
+        client.publish_relay_list().await?;
+        Ok(client)
+    }
+
+    /// Creates a new nostr client with the given config.
+    pub async fn default(config: &NostrConfig) -> Result<Self> {
         let keys = config.keys.clone();
-        let options = Options::new();
+        let options = ClientOptions::new();
         let client = Client::builder()
             .signer(keys.get_nostr_keys().clone())
             .opts(options)
@@ -76,29 +86,34 @@ impl NostrClient {
             })?;
         }
         client.connect().await;
-        let metadata = Metadata::new()
-            .name(&config.name)
-            .display_name(&config.name);
-        client.set_metadata(&metadata).await.map_err(|e| {
-            error!("Failed to set and send user metadata with Nostr client: {e}");
-            Error::Network("Failed to send user metadata with Nostr client".to_string())
-        })?;
 
         let client = Self {
             keys,
             client,
             config: config.clone(),
         };
+        Ok(client)
+    }
 
-        client
-            .update_relay_list(config.relays.clone())
+    async fn publish_metadata(&self) -> Result<()> {
+        let metadata = Metadata::new()
+            .name(&self.config.name)
+            .display_name(&self.config.name);
+        self.client.set_metadata(&metadata).await.map_err(|e| {
+            error!("Failed to send user metadata with Nostr client: {e}");
+            Error::Network("Failed to send user metadata with Nostr client".to_string())
+        })?;
+        Ok(())
+    }
+
+    async fn publish_relay_list(&self) -> Result<()> {
+        self.update_relay_list(self.config.relays.clone())
             .await
             .map_err(|e| {
                 error!("Failed to update relay list: {e}");
                 Error::Network("Failed to update relay list".to_string())
             })?;
-
-        Ok(client)
+        Ok(())
     }
 
     pub fn get_node_id(&self) -> NodeId {
@@ -349,6 +364,21 @@ impl NotificationJsonTransportApi for NostrClient {
         self.subscribe(Filter::new().author(node_id.npub())).await?;
         Ok(())
     }
+
+    async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<nostr::event::Event>> {
+        let kinds = if self.use_nip04() {
+            vec![Kind::EncryptedDirectMessage]
+        } else {
+            vec![Kind::GiftWrap]
+        };
+        let filter = filter
+            .clone()
+            .pubkey(self.keys.get_nostr_keys().public_key())
+            .kinds(kinds);
+        Ok(self
+            .fetch_events(filter, Some(SortOrder::Asc), None)
+            .await?)
+    }
 }
 
 #[derive(Clone)]
@@ -459,61 +489,14 @@ impl NostrConsumer {
                                 )
                                 .await
                                 {
-                                    let (success, time) = match event.kind {
-                                        Kind::EncryptedDirectMessage | Kind::GiftWrap => {
-                                            trace!("Received encrypted direct message: {event:?}");
-                                            match handle_direct_message(
-                                                event.clone(),
-                                                &signer,
-                                                &client_id,
-                                                &event_handlers,
-                                            )
-                                            .await
-                                            {
-                                                Err(e) => {
-                                                    error!("Failed to handle direct message: {e}");
-                                                    (false, 0u64)
-                                                }
-                                                Ok(_) => (true, event.created_at.as_u64()),
-                                            }
-                                        }
-                                        Kind::TextNote => {
-                                            trace!("Received text note: {event:?}");
-                                            match handle_public_event(
-                                                event.clone(),
-                                                &client_id,
-                                                &chain_key_store,
-                                                &event_handlers,
-                                            )
-                                            .await
-                                            {
-                                                Err(e) => {
-                                                    error!(
-                                                        "Failed to handle public chain event: {e}"
-                                                    );
-                                                    (false, 0u64)
-                                                }
-                                                Ok(v) => {
-                                                    if v {
-                                                        (v, event.created_at.as_u64())
-                                                    } else {
-                                                        (false, 0u64)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Kind::RelayList => {
-                                            // we have not subscribed to relaylist events yet
-                                            debug!("Received relay list from: {}", event.pubkey);
-                                            (true, 0u64)
-                                        }
-                                        Kind::Metadata => {
-                                            // we have not subscribed to metadata events yet
-                                            debug!("Received metadata from: {}", event.pubkey);
-                                            (true, 0u64)
-                                        }
-                                        _ => (true, 0u64),
-                                    };
+                                    let (success, time) = process_event(
+                                        event.clone(),
+                                        signer,
+                                        client_id.clone(),
+                                        chain_key_store,
+                                        event_handlers,
+                                    )
+                                    .await?;
                                     // store the new event offset
                                     add_offset(&offset_store, event.id, time, success, &client_id)
                                         .await;
@@ -538,6 +521,59 @@ impl NostrConsumer {
 
         Ok(())
     }
+}
+
+/// Detects event types and routes them to the correct handler.
+pub async fn process_event(
+    event: Box<Event>,
+    signer: Arc<dyn NostrSigner>,
+    client_id: NodeId,
+    chain_key_store: Arc<dyn ChainKeyServiceApi>,
+    event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+) -> Result<(bool, u64)> {
+    let (success, time) = match event.kind {
+        Kind::EncryptedDirectMessage | Kind::GiftWrap => {
+            trace!("Received encrypted direct message: {event:?}");
+            match handle_direct_message(event.clone(), &signer, &client_id, &event_handlers).await {
+                Err(e) => {
+                    error!("Failed to handle direct message: {e}");
+                    (false, 0u64)
+                }
+                Ok(_) => (true, event.created_at.as_u64()),
+            }
+        }
+        Kind::TextNote => {
+            trace!("Received text note: {event:?}");
+            match handle_public_event(event.clone(), &client_id, &chain_key_store, &event_handlers)
+                .await
+            {
+                Err(e) => {
+                    error!("Failed to handle public chain event: {e}");
+                    (false, 0u64)
+                }
+                Ok(v) => {
+                    if v {
+                        (v, event.created_at.as_u64())
+                    } else {
+                        (false, 0u64)
+                    }
+                }
+            }
+        }
+        Kind::RelayList => {
+            // we have not subscribed to relaylist events yet
+            debug!("Received relay list from: {}", event.pubkey);
+            (true, 0u64)
+        }
+        Kind::Metadata => {
+            // we have not subscribed to metadata events yet
+            debug!("Received metadata from: {}", event.pubkey);
+            (true, 0u64)
+        }
+        _ => (true, 0u64),
+    };
+
+    Ok((success, time))
 }
 
 async fn should_process(
@@ -656,7 +692,7 @@ async fn handle_event(
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
             match handler
-                .handle_event(event.to_owned(), node_id, original_event.clone())
+                .handle_event(event.to_owned(), node_id, Some(original_event.clone()))
                 .await
             {
                 Ok(_) => times += 1,

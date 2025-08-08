@@ -5,7 +5,9 @@ use bcr_ebill_api::service::notification_service::Result;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds, bill::BillId, blockchain::BlockchainType, util::BcrKeys,
 };
-use bcr_ebill_persistence::{bill::BillStoreApi, company::CompanyStoreApi};
+use bcr_ebill_persistence::{
+    bill::BillStoreApi, company::CompanyStoreApi, identity::IdentityStoreApi,
+};
 use log::warn;
 
 /// Resolver for generic chain keys that are needed to decrypt
@@ -25,13 +27,19 @@ pub trait ChainKeyServiceApi: ServiceTraitBounds {
 pub struct ChainKeyService {
     bill_store: Arc<dyn BillStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    identity_store: Arc<dyn IdentityStoreApi>,
 }
 
 impl ChainKeyService {
-    pub fn new(bill_store: Arc<dyn BillStoreApi>, company_store: Arc<dyn CompanyStoreApi>) -> Self {
+    pub fn new(
+        bill_store: Arc<dyn BillStoreApi>,
+        company_store: Arc<dyn CompanyStoreApi>,
+        identity_store: Arc<dyn IdentityStoreApi>,
+    ) -> Self {
         Self {
             bill_store,
             company_store,
+            identity_store,
         }
     }
 }
@@ -70,7 +78,13 @@ impl ChainKeyServiceApi for ChainKeyService {
                     }
                 }
             }
-            _ => None,
+            BlockchainType::Identity => match self.identity_store.get_key_pair().await {
+                Ok(keys) => Some(keys),
+                Err(e) => {
+                    warn!("failed to get identity keys with {e}");
+                    None
+                }
+            },
         };
 
         Ok(keys)

@@ -3,6 +3,7 @@ use bcr_ebill_core::util::crypto;
 
 pub mod chain_keys;
 pub mod event;
+pub mod restore;
 mod service;
 pub mod transport;
 

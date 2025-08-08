@@ -90,7 +90,7 @@ impl NotificationHandlerApi for TestEventHandler<TestEventPayload> {
         &self,
         event: EventEnvelope,
         _: &NodeId,
-        _: Box<nostr::Event>,
+        _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         *self.called.lock().await = true;
         let event: Event<TestEventPayload> = event.try_into()?;
@@ -421,6 +421,7 @@ mockall::mock! {
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
+        async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
     }
 }
 
@@ -429,7 +430,7 @@ mockall::mock! {
     impl ServiceTraitBounds for NotificationHandler {}
     #[async_trait]
     impl NotificationHandlerApi for NotificationHandler {
-        async fn handle_event(&self, event: EventEnvelope, identity: &NodeId, original_event: Box<nostr::Event>) -> Result<()>;
+        async fn handle_event(&self, event: EventEnvelope, identity: &NodeId, original_event: Option<Box<nostr::Event>>) -> Result<()>;
         fn handles_event(&self, event_type: &EventType) -> bool;
     }
 }
