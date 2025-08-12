@@ -101,6 +101,7 @@ impl Context {
         let chain_key_service = Arc::new(ChainKeyService::new(
             db.bill_store.clone(),
             db.company_store.clone(),
+            db.identity_store.clone(),
         ));
 
         let nostr_consumer = create_nostr_consumer(

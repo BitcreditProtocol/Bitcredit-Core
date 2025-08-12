@@ -48,6 +48,10 @@ document.getElementById("company_create").addEventListener("click", createCompan
 document.getElementById("company_update").addEventListener("click", updateCompany);
 document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
 
+// restore account, backup seed phrase
+document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
+document.getElementById("restore_account").addEventListener("click", restoreFromSeedPhrase);
+
 
 let config = {
   log_level: "debug",
@@ -67,7 +71,7 @@ let config = {
   default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
 };
 
-async function start() {
+async function start(create_identity) {
   await wasm.default();
   await wasm.initialize_api(config);
 
@@ -79,92 +83,98 @@ async function start() {
   let generalApi = wasm.Api.general();
 
   let identity;
+  let current_identity;
   // Identity
   try {
     identity = await identityApi.detail();
     console.log("local identity:", identity);
   } catch (err) {
-    console.log("No local identity found - creating anon identity..");
-    await identityApi.create({
-      t: 1,
-      name: "Cypherpunk",
-      email: "cypher@example.com",
-      postal_address: {},
-    });
+    if (create_identity) {
 
-    identity = await identityApi.detail();
+      console.log("No local identity found - creating anon identity..");
+      await identityApi.create({
+        t: 1,
+        name: "Cypherpunk",
+        email: "cypher@example.com",
+        postal_address: {},
+      });
 
-    console.log("Deanonymizing identity..");
-    await identityApi.deanonymize({
-      t: 0,
-      name: "Johanna Smith",
-      email: "jsmith@example.com",
-      postal_address: {
-        country: "AT",
-        city: "Vienna",
-        zip: "1020",
-        address: "street 1",
-      }
-    });
+      identity = await identityApi.detail();
 
-    // add self to contacts
-    await contactApi.create({
-      t: 0,
-      node_id: identity.node_id,
-      name: "Self Contact",
-      email: "selfcont@example.com",
-      postal_address: {
-        country: "AT",
-        city: "Vienna",
-        zip: "1020",
-        address: "street 1",
-      },
-    });
+      console.log("Deanonymizing identity..");
+      await identityApi.deanonymize({
+        t: 0,
+        name: "Johanna Smith",
+        email: "jsmith@example.com",
+        postal_address: {
+          country: "AT",
+          city: "Vienna",
+          zip: "1020",
+          address: "street 1",
+        }
+      });
+
+      // add self to contacts
+      await contactApi.create({
+        t: 0,
+        node_id: identity.node_id,
+        name: "Self Contact",
+        email: "selfcont@example.com",
+        postal_address: {
+          country: "AT",
+          city: "Vienna",
+          zip: "1020",
+          address: "street 1",
+        },
+      });
+    }
   }
-  document.getElementById("identity").innerHTML = identity.node_id;
 
+  if (identity) {
+    document.getElementById("identity").innerHTML = identity.node_id;
 
-  await notificationApi.subscribe((evt) => {
-    console.log("Received event in JS: ", evt);
-  });
-
-  let current_identity = await identityApi.active();
-  console.log(current_identity);
-  document.getElementById("current_identity").innerHTML = current_identity.node_id;
-
-  // Company
-  let companies = await companyApi.list();
-  console.log("companies:", companies.companies.length, companies);
-  if (companies.companies.length == 0) {
-    let company = await companyApi.create({
-      name: "hayek Ltd",
-      email: "test@example.com",
-      postal_address: {
-        country: "AT",
-        city: "Vienna",
-        zip: "1020",
-        address: "street 1",
-      }
+    await notificationApi.subscribe((evt) => {
+      console.log("Received event in JS: ", evt);
     });
-    console.log("company: ", company);
-    await companyApi.edit({ id: company.id, email: "different@example.com", postal_address: {} });
-    let detail = await companyApi.detail(company.id);
-    console.log("company detail: ", detail);
-    // add company to contacts
-    await contactApi.create({
-      t: 1,
-      node_id: detail.id,
-      name: "Company Contact",
-      email: "comcont@example.com",
-      postal_address: {
-        country: "AT",
-        city: "Vienna",
-        zip: "1020",
-        address: "street 1",
-      },
-    });
-  } else {
-    document.getElementById("companies").innerHTML = "node_id: " + companies.companies[0].id;
+
+    current_identity = await identityApi.active();
+    console.log(current_identity);
+    document.getElementById("current_identity").innerHTML = current_identity.node_id;
+
+    // Company
+    let companies = await companyApi.list();
+    console.log("companies:", companies.companies.length, companies);
+    if (companies.companies.length == 0 && create_identity) {
+      let company = await companyApi.create({
+        name: "hayek Ltd",
+        email: "test@example.com",
+        postal_address: {
+          country: "AT",
+          city: "Vienna",
+          zip: "1020",
+          address: "street 1",
+        }
+      });
+      console.log("company: ", company);
+      await companyApi.edit({ id: company.id, email: "different@example.com", postal_address: {} });
+      let detail = await companyApi.detail(company.id);
+      console.log("company detail: ", detail);
+      // add company to contacts
+      await contactApi.create({
+        t: 1,
+        node_id: detail.id,
+        name: "Company Contact",
+        email: "comcont@example.com",
+        postal_address: {
+          country: "AT",
+          city: "Vienna",
+          zip: "1020",
+          address: "street 1",
+        },
+      });
+    } else if (companies.companies.length > 0) {
+      document.getElementById("companies").innerHTML = "node_id: " + companies.companies[0].id;
+    }
   }
 
   // General
@@ -174,17 +184,22 @@ async function start() {
   let status = await generalApi.status();
   console.log("status: ", status);
 
-  let search = await generalApi.search({ filter: { search_term: "Test", currency: "sat", item_types: ["Contact"] } });
-  console.log("search: ", search);
+  if (identity) {
+    let search = await generalApi.search({ filter: { search_term: "Test", currency: "sat", item_types: ["Contact"] } });
+    console.log("search: ", search);
+  }
 
   // Notifications
-  let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
-  let notifications = await notificationApi.list(filter);
-  console.log("notifications: ", notifications);
+  if (current_identity) {
+    let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
+    let notifications = await notificationApi.list(filter);
+    console.log("notifications: ", notifications);
+  }
+  console.log("Returning apis..");
   return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi };
 }
 
-let apis = await start();
+let apis = await start(generateIdentity());
 let contactApi = apis.contactApi;
 let companyApi = apis.companyApi;
 let generalApi = apis.generalApi;
@@ -194,6 +209,8 @@ window.billApi = billApi;
 window.identityApi = identityApi;
 window.generalApi = generalApi;
 let notificationTriggerApi = apis.notificationApi;
+console.log("Apis initialized..");
+
 
 async function uploadFile(event) {
   const file = event.target.files[0];
@@ -217,6 +234,16 @@ async function uploadFile(event) {
   } catch (err) {
     console.log("upload error: ", err);
   }
+}
+
+async function getSeedPhrase() {
+  let seed_phrase = await identityApi.seed_backup();
+  document.getElementById("current_seed").innerHTML = seed_phrase.seed_phrase;
+}
+
+async function restoreFromSeedPhrase() {
+  let seed_phrase = document.getElementById("restore_seed_phrase").value;
+  await identityApi.seed_recover({ seed_phrase });
 }
 
 async function createCompany() {
@@ -625,3 +652,16 @@ async function getActiveNotif() {
   await measured();
 }
 
+// disables auto identity creation via query param identity=false
+function generateIdentity() {
+  let param = getQueryParam("identity");
+  if (param && param.toLowerCase() === "false") {
+    return false;
+  }
+  return true;
+}
+
+function getQueryParam(paramName) {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get(paramName);
+}

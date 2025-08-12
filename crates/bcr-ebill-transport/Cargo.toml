@@ -24,10 +24,11 @@ async-broadcast.workspace = true
 bitcoin.workspace = true
 uuid.workspace = true
 tokio_with_wasm.workspace = true
+secp256k1.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true
-nostr-relay-builder = "0.42"
+nostr-relay-builder = "0.43"
 secp256k1.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
