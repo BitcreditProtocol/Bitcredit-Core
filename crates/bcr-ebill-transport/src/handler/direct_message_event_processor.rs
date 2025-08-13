@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_persistence::NostrEventOffsetStoreApi;
-use log::info;
 use nostr::signer::NostrSigner;
 
 use crate::handler::DirectMessageEventProcessorApi;
@@ -49,7 +48,6 @@ impl DirectMessageEventProcessor {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
     async fn process_direct_message(&self, event: Box<nostr::Event>) -> Result<()> {
-        info!("processing direct message: {event:?}");
         // check if the event should be processed
         if should_process(
             event.clone(),

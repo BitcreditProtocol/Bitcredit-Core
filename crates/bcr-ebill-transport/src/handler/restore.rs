@@ -52,11 +52,8 @@ impl RestoreAccountService {
         // restores identity and all our own companies
         self.restore_identity().await?;
 
-        let events = self
-            .nostr
-            .resolve_private_events(Filter::new().since(Timestamp::zero()))
-            .await?;
-        info!("found private {} dms for primary account", events.len());
+        // restore bills and companies primary account was invited to
+        self.process_private_events().await?;
         Ok(())
     }
 
@@ -67,7 +64,6 @@ impl RestoreAccountService {
             .await?;
         info!("found private {} dms for primary account", events.len());
         for event in events {
-            info!("processing private event: {event:?}");
             if let Err(e) = self
                 .dm_processor
                 .process_direct_message(Box::new(event))
