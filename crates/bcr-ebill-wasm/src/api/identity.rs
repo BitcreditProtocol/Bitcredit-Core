@@ -307,8 +307,15 @@ impl Identity {
             .identity_service
             .recover_from_seedphrase(&seed_phrase_payload.seed_phrase)
             .await?;
+
         let keys = context.identity_service.get_keys().await?;
-        let recovery_service = create_restore_account_service(&context.cfg, &keys).await?;
+        let recovery_service = create_restore_account_service(
+            &context.cfg,
+            &keys,
+            context.chain_key_service.clone(),
+            context.contact_service.clone(),
+        )
+        .await?;
         recovery_service.restore_account().await?;
         Ok(())
     }

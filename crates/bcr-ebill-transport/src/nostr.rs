@@ -133,7 +133,7 @@ impl NostrClient {
     }
 
     // We create the client with a private key so this should never fail.
-    async fn get_signer(&self) -> Arc<dyn NostrSigner> {
+    pub async fn get_signer(&self) -> Arc<dyn NostrSigner> {
         self.client
             .signer()
             .await
@@ -575,7 +575,7 @@ pub async fn process_event(
     Ok((success, time))
 }
 
-async fn should_process(
+pub async fn should_process(
     event: Box<Event>,
     local_node_ids: &[NodeId],
     contact_service: &Arc<dyn ContactServiceApi>,
@@ -661,7 +661,7 @@ async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) ->
     Timestamp::from_secs(ts)
 }
 
-async fn add_offset(
+pub async fn add_offset(
     db: &Arc<dyn NostrEventOffsetStoreApi>,
     event_id: EventId,
     time: u64,

@@ -11,17 +11,21 @@ use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     blockchain::{BlockchainType, identity::IdentityBlock},
 };
-use log::info;
+use log::{error, info};
 use nostr::{filter::Filter, types::Timestamp};
 
-use crate::handler::{
-    BlockData, EventContainer, IdentityChainEventProcessorApi, resolve_event_chains,
+use crate::handler::DirectMessageEventProcessorApi;
+
+use super::{
+    IdentityChainEventProcessorApi,
+    public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
 };
 
 #[allow(dead_code)]
 pub struct RestoreAccountService {
     nostr: Arc<dyn NotificationJsonTransportApi>,
     identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
+    dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
     keys: BcrKeys,
     node_id: NodeId,
 }
@@ -31,12 +35,14 @@ impl RestoreAccountService {
     pub async fn new(
         nostr: Arc<dyn NotificationJsonTransportApi>,
         identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
+        dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
         keys: BcrKeys,
     ) -> Self {
         let node_id = nostr.get_sender_node_id();
         Self {
             nostr,
             identity_chain_processor,
+            dm_processor,
             keys,
             node_id,
         }
@@ -62,7 +68,13 @@ impl RestoreAccountService {
         info!("found private {} dms for primary account", events.len());
         for event in events {
             info!("processing private event: {event:?}");
-            //handle_direct_message(event, self.nostr.get_signer(), &self.node_id, [self.]).await?;
+            if let Err(e) = self
+                .dm_processor
+                .process_direct_message(Box::new(event))
+                .await
+            {
+                error!("Failed to process direct message with: {e}");
+            }
         }
         Ok(())
     }
@@ -122,7 +134,7 @@ impl RestoreAccountApi for RestoreAccountService {
 #[cfg(test)]
 mod tests {
     use crate::{
-        handler::MockIdentityChainEventProcessorApi,
+        handler::{MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi},
         test_utils::{MockNotificationJsonTransport, node_id_test},
     };
 
@@ -132,6 +144,7 @@ mod tests {
     async fn test_service() {
         let mut nostr = MockNotificationJsonTransport::new();
         let processor = MockIdentityChainEventProcessorApi::new();
+        let dm_processor = MockDirectMessageEventProcessorApi::new();
         let keys = BcrKeys::new();
 
         nostr
@@ -149,7 +162,13 @@ mod tests {
             .returning(|_| Ok(vec![]))
             .once();
 
-        let service = RestoreAccountService::new(Arc::new(nostr), Arc::new(processor), keys).await;
+        let service = RestoreAccountService::new(
+            Arc::new(nostr),
+            Arc::new(processor),
+            Arc::new(dm_processor),
+            keys,
+        )
+        .await;
 
         service
             .restore_account()

@@ -20,10 +20,12 @@ mod bill_invite_handler;
 mod company_chain_event_handler;
 mod company_chain_event_processor;
 mod company_invite_handler;
+mod direct_message_event_processor;
 mod identity_chain_event_handler;
 mod identity_chain_event_processor;
 mod nostr_contact_processor;
 mod public_chain_helpers;
+mod restore;
 
 pub use bill_action_event_handler::BillActionEventHandler;
 pub use bill_chain_event_handler::BillChainEventHandler;
@@ -32,10 +34,11 @@ pub use bill_invite_handler::BillInviteEventHandler;
 pub use company_chain_event_handler::CompanyChainEventHandler;
 pub use company_chain_event_processor::CompanyChainEventProcessor;
 pub use company_invite_handler::CompanyInviteEventHandler;
+pub use direct_message_event_processor::DirectMessageEventProcessor;
 pub use identity_chain_event_handler::IdentityChainEventHandler;
 pub use identity_chain_event_processor::IdentityChainEventProcessor;
 pub use nostr_contact_processor::NostrContactProcessor;
-pub use public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
+pub use restore::RestoreAccountService;
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationHandlerApi {}
@@ -134,6 +137,17 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockIdentityChainEventProcessorApi {}
+
+/// Generalizes the handling and validation of direct messages.
+#[cfg_attr(test, automock)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait DirectMessageEventProcessorApi: ServiceTraitBounds {
+    async fn process_direct_message(&self, event: Box<nostr::Event>) -> Result<()>;
+}
+
+#[cfg(test)]
+impl ServiceTraitBounds for MockDirectMessageEventProcessorApi {}
 
 /// Generalizes the handling of other Nostr identities.
 #[cfg_attr(test, automock)]

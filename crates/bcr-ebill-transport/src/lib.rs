@@ -31,17 +31,18 @@ pub mod handler;
 mod nostr;
 pub mod notification_service;
 pub mod push_notification;
-mod restore;
 #[cfg(test)]
 pub mod test_utils;
 pub mod transport;
 
 pub use async_broadcast::Receiver;
-pub use nostr::{NostrClient, NostrConsumer, handle_direct_message};
+pub use handler::RestoreAccountService;
+pub use nostr::{NostrClient, NostrConsumer};
 use notification_service::NotificationService;
 pub use push_notification::{PushApi, PushService};
-pub use restore::RestoreAccountService;
 pub use transport::bcr_nostr_tag;
+
+use crate::handler::DirectMessageEventProcessor;
 
 /// Creates a new nostr client configured with the current identity user.
 pub async fn create_nostr_clients(
@@ -228,6 +229,8 @@ pub async fn create_nostr_consumer(
 pub async fn create_restore_account_service(
     config: &Config,
     keys: &BcrKeys,
+    chain_key_service: Arc<dyn ChainKeyServiceApi>,
+    contact_service: Arc<dyn ContactServiceApi>,
 ) -> Result<RestoreAccountService> {
     let db_context = get_db_context(config)
         .await
@@ -278,11 +281,22 @@ pub async fn create_restore_account_service(
     let processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
         db_context.identity_store.clone(),
-        company_invite_handler,
-        bill_invite_handler,
+        company_invite_handler.clone(),
+        bill_invite_handler.clone(),
         nostr_contact_processor,
         config.bitcoin_network(),
     ));
 
-    Ok(RestoreAccountService::new(nostr_client, processor, keys.clone()).await)
+    let dm_processor = Arc::new(
+        DirectMessageEventProcessor::new(
+            nostr_client.clone(),
+            contact_service.clone(),
+            db_context.nostr_event_offset_store.clone(),
+            chain_key_service.clone(),
+            vec![company_invite_handler, bill_invite_handler],
+        )
+        .await,
+    );
+
+    Ok(RestoreAccountService::new(nostr_client, processor, dm_processor, keys.clone()).await)
 }
