@@ -129,9 +129,24 @@ impl RestoreAccountApi for RestoreAccountService {
 
 #[cfg(test)]
 mod tests {
+
+    use bcr_ebill_api::{
+        Blockchain,
+        service::notification_service::event::{Event, EventEnvelope, IdentityBlockEvent},
+    };
+    use bcr_ebill_core::{
+        blockchain::identity::{IdentityBlockchain, IdentityCreateBlockData},
+        identity::Identity,
+    };
+    use mockall::predicate::{always, eq};
+
     use crate::{
-        handler::{MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi},
+        handler::{
+            MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi,
+            test_utils::{get_baseline_identity, private_key_test},
+        },
         test_utils::{MockNotificationJsonTransport, node_id_test},
+        transport::create_public_chain_event,
     };
 
     use super::*;
@@ -170,5 +185,126 @@ mod tests {
             .restore_account()
             .await
             .expect("could not restore account");
+    }
+
+    #[tokio::test]
+    async fn test_create_identity() {
+        let (keys, events) = generate_test_chain(1, false);
+        let mut nostr = MockNotificationJsonTransport::new();
+        let mut processor = MockIdentityChainEventProcessorApi::new();
+        let dm_processor = MockDirectMessageEventProcessorApi::new();
+
+        // given some node id
+        nostr
+            .expect_get_sender_node_id()
+            .returning(node_id_test)
+            .once();
+
+        let return_events = events.clone();
+        // and identity chain events
+        nostr
+            .expect_resolve_public_chain()
+            .returning(move |_, _| Ok(return_events.clone()))
+            .once();
+
+        // should validate the event sender
+        processor
+            .expect_validate_chain_event_and_sender()
+            .with(eq(node_id_test()), eq(keys.get_nostr_keys().public_key()))
+            .returning(|_, _| true)
+            .times(events.len());
+
+        processor
+            .expect_process_chain_data()
+            .with(eq(node_id_test()), always(), eq(Some(keys.clone())))
+            .returning(|_, _, _| Ok(()))
+            .once();
+
+        nostr
+            .expect_resolve_private_events()
+            .returning(|_| Ok(vec![]))
+            .once();
+
+        let service = RestoreAccountService::new(
+            Arc::new(nostr),
+            Arc::new(processor),
+            Arc::new(dm_processor),
+            keys,
+        )
+        .await;
+
+        service
+            .restore_account()
+            .await
+            .expect("could not restore account");
+    }
+
+    fn generate_test_chain(len: usize, invalid_blocks: bool) -> (BcrKeys, Vec<nostr::Event>) {
+        let keys = BcrKeys::from_private_key(&private_key_test())
+            .expect("failed to generate keys from private key");
+        let mut result = Vec::new();
+
+        let root = generate_test_event(&keys, None, None, 1);
+        result.push(root.clone());
+
+        let mut parent = root.clone();
+        for idx in 1..len {
+            let child =
+                generate_test_event(&keys, Some(parent.clone()), Some(root.clone()), idx + 1);
+            result.push(child.clone());
+            // produce some side chain
+            if invalid_blocks && idx % 2 == 0 {
+                let invalid =
+                    generate_test_event(&keys, Some(parent.clone()), Some(root.clone()), idx + 1);
+                result.push(invalid);
+            }
+            parent = child;
+        }
+
+        (keys, result)
+    }
+
+    fn generate_test_event(
+        keys: &BcrKeys,
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        height: usize,
+    ) -> nostr::Event {
+        create_public_chain_event(
+            &node_id_test().to_string(),
+            generate_test_block(height),
+            1000,
+            BlockchainType::Identity,
+            keys.clone(),
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
+    fn generate_test_block(block_height: usize) -> EventEnvelope {
+        let identity = get_baseline_identity();
+        let block = get_valid_identity_chain(&identity.identity, &identity.key_pair)
+            .get_latest_block()
+            .clone();
+
+        Event::new_identity_chain(IdentityBlockEvent {
+            node_id: identity.identity.node_id.clone(),
+            block,
+            block_height,
+        })
+        .try_into()
+        .expect("could not create envelope")
+    }
+
+    pub fn get_valid_identity_chain(identity: &Identity, keys: &BcrKeys) -> IdentityBlockchain {
+        IdentityBlockchain::new(
+            &IdentityCreateBlockData::from(identity.to_owned()),
+            keys,
+            1731593928,
+        )
+        .unwrap()
     }
 }

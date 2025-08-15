@@ -192,11 +192,11 @@ impl IdentityChainEventProcessor {
                         .await?;
                 }
                 IdentityBlockPayload::SignCompanyBill(payload) => {
-                    // NOTE: if we add bill keys when we issue a bill we can recover or company bills
+                    // NOTE: if we add bill keys when we issue a bill we can recover our company bills
                     // here
                 }
                 IdentityBlockPayload::SignPersonalBill(payload) => {
-                    // NOTE: if we add bill keys when we issue a bill we can recover or own bills here
+                    // NOTE: if we add bill keys when we issue a bill we can recover our own bills here
                 }
                 IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
                 IdentityBlockPayload::Create(_) => { /* creates a handled on validation */ }
