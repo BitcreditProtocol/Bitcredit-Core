@@ -320,11 +320,10 @@ impl NotificationService {
         node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
-        if let Some(node) = self.get_node_transport(sender).await {
-            if let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
-            {
-                node.send_private_event(&identity, message).await?;
-            }
+        if let Some(node) = self.get_node_transport(sender).await
+            && let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
+        {
+            node.send_private_event(&identity, message).await?;
         }
         Ok(())
     }
@@ -427,11 +426,11 @@ impl NotificationServiceApi for NotificationService {
             }
 
             // handle potential invite for new signatory
-            if let Some((recipient, invite)) = events.generate_company_invite_message() {
-                if let Some(identity) = self.resolve_identity(&recipient).await {
-                    node.send_private_event(&identity, invite.try_into()?)
-                        .await?;
-                }
+            if let Some((recipient, invite)) = events.generate_company_invite_message()
+                && let Some(identity) = self.resolve_identity(&recipient).await
+            {
+                node.send_private_event(&identity, invite.try_into()?)
+                    .await?;
             }
         } else {
             error!(
@@ -646,23 +645,23 @@ impl NotificationServiceApi for NotificationService {
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
     ) -> Result<()> {
-        if let Some(node) = self.get_node_transport(sender_node_id).await {
-            if let Some(event_type) = timed_out_action.get_timeout_event_type() {
-                // only send to a recipient once
-                let unique: HashMap<NodeId, BillParticipant> =
-                    HashMap::from_iter(recipients.iter().map(|r| (r.node_id().clone(), r.clone())));
+        if let Some(node) = self.get_node_transport(sender_node_id).await
+            && let Some(event_type) = timed_out_action.get_timeout_event_type()
+        {
+            // only send to a recipient once
+            let unique: HashMap<NodeId, BillParticipant> =
+                HashMap::from_iter(recipients.iter().map(|r| (r.node_id().clone(), r.clone())));
 
-                let payload = BillChainEventPayload {
-                    event_type,
-                    bill_id: bill_id.to_owned(),
-                    action_type: Some(ActionType::CheckBill),
-                    sum,
-                };
-                for (_, recipient) in unique {
-                    let event = Event::new_bill(payload.clone());
-                    node.send_private_event(&recipient, event.try_into()?)
-                        .await?;
-                }
+            let payload = BillChainEventPayload {
+                event_type,
+                bill_id: bill_id.to_owned(),
+                action_type: Some(ActionType::CheckBill),
+                sum,
+            };
+            for (_, recipient) in unique {
+                let event = Event::new_bill(payload.clone());
+                node.send_private_event(&recipient, event.try_into()?)
+                    .await?;
             }
         }
         Ok(())
@@ -852,9 +851,8 @@ impl NotificationServiceApi for NotificationService {
 
 #[cfg(test)]
 mod tests {
-
     use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
-    use bcr_ebill_api::{Config, MintConfig, SurrealDbConfig, init};
+    use bcr_ebill_api::{Config, MintConfig, PaymentConfig, SurrealDbConfig, init};
     use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
@@ -2035,6 +2033,9 @@ mod tests {
             mint_config: MintConfig {
                 default_mint_url: "http://localhost:4242/".into(),
                 default_mint_node_id: node_id_test_other(),
+            },
+            payment_config: PaymentConfig {
+                num_confirmations_for_payment: 6,
             },
         })
         .unwrap();

@@ -480,27 +480,26 @@ impl NostrConsumer {
                         let signer = signer.clone();
 
                         async move {
-                            if let RelayPoolNotification::Event { event, .. } = note {
-                                if should_process(
+                            if let RelayPoolNotification::Event { event, .. } = note
+                                && should_process(
                                     event.clone(),
                                     &local_node_ids,
                                     &contact_service,
                                     &offset_store,
                                 )
                                 .await
-                                {
-                                    let (success, time) = process_event(
-                                        event.clone(),
-                                        signer,
-                                        client_id.clone(),
-                                        chain_key_store,
-                                        event_handlers,
-                                    )
-                                    .await?;
-                                    // store the new event offset
-                                    add_offset(&offset_store, event.id, time, success, &client_id)
-                                        .await;
-                                }
+                            {
+                                let (success, time) = process_event(
+                                    event.clone(),
+                                    signer,
+                                    client_id.clone(),
+                                    chain_key_store,
+                                    event_handlers,
+                                )
+                                .await?;
+                                // store the new event offset
+                                add_offset(&offset_store, event.id, time, success, &client_id)
+                                    .await;
                             }
                             Ok(false)
                         }

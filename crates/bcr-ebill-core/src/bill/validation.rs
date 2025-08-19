@@ -84,16 +84,14 @@ impl Validate for BillValidateActionData {
         if let Some(req_to_recourse) = self
             .blockchain
             .get_last_version_block_with_op_code(BillOpCode::RequestRecourse)
+            && BillOpCode::RequestRecourse == *self.blockchain.get_latest_block().op_code()
+            && util::date::check_if_deadline_has_passed(
+                req_to_recourse.timestamp,
+                self.timestamp,
+                RECOURSE_DEADLINE_SECONDS,
+            )
         {
-            if BillOpCode::RequestRecourse == *self.blockchain.get_latest_block().op_code()
-                && util::date::check_if_deadline_has_passed(
-                    req_to_recourse.timestamp,
-                    self.timestamp,
-                    RECOURSE_DEADLINE_SECONDS,
-                )
-            {
-                return Err(ValidationError::BillRequestToRecourseExpired);
-            }
+            return Err(ValidationError::BillRequestToRecourseExpired);
         }
 
         // If the bill was paid, no further actions are allowed
@@ -541,21 +539,18 @@ impl BillValidateActionData {
 
     /// active req to pay, calculated from the start of the request
     fn bill_waiting_for_req_to_pay(&self) -> Result<(), ValidationError> {
-        if self.blockchain.get_latest_block().op_code == BillOpCode::RequestToPay {
-            if let Some(req_to_pay) = self
+        if self.blockchain.get_latest_block().op_code == BillOpCode::RequestToPay
+            && let Some(req_to_pay) = self
                 .blockchain
                 .get_last_version_block_with_op_code(BillOpCode::RequestToPay)
-            {
-                if !self.is_paid
-                    && !util::date::check_if_deadline_has_passed(
-                        req_to_pay.timestamp, // calculated from start of request
-                        self.timestamp,
-                        PAYMENT_DEADLINE_SECONDS,
-                    )
-                {
-                    return Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment);
-                }
-            }
+            && !self.is_paid
+            && !util::date::check_if_deadline_has_passed(
+                req_to_pay.timestamp, // calculated from start of request
+                self.timestamp,
+                PAYMENT_DEADLINE_SECONDS,
+            )
+        {
+            return Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment);
         }
         Ok(())
     }

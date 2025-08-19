@@ -236,22 +236,22 @@ impl IdentityServiceApi for IdentityService {
             &identity_document_file_upload_id,
         )?;
 
-        if let Some(ref name_to_set) = name {
-            if identity.name != name_to_set.trim() {
-                identity.name = name_to_set.trim().to_owned();
-                changed = true;
-            }
+        if let Some(ref name_to_set) = name
+            && identity.name != name_to_set.trim()
+        {
+            identity.name = name_to_set.trim().to_owned();
+            changed = true;
         }
 
         // for anonymous identity, we only consider email and name
         if identity.t == IdentityType::Anon {
             util::update_optional_field(&mut identity.email, &email, &mut changed);
         } else {
-            if let Some(ref email_to_set) = email {
-                if identity.email != Some(email_to_set.trim().to_string()) {
-                    identity.email = Some(email_to_set.trim().to_owned());
-                    changed = true;
-                }
+            if let Some(ref email_to_set) = email
+                && identity.email != Some(email_to_set.trim().to_string())
+            {
+                identity.email = Some(email_to_set.trim().to_owned());
+                changed = true;
             }
 
             util::update_optional_field(
@@ -611,16 +611,16 @@ impl IdentityServiceApi for IdentityService {
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
 
-            if let Some(profile_picture_file) = identity.profile_picture_file {
-                if profile_picture_file.name == file_name {
-                    file = Some(profile_picture_file);
-                }
+            if let Some(profile_picture_file) = identity.profile_picture_file
+                && profile_picture_file.name == file_name
+            {
+                file = Some(profile_picture_file);
             }
 
-            if let Some(identity_document_file) = identity.identity_document_file {
-                if identity_document_file.name == file_name {
-                    file = Some(identity_document_file);
-                }
+            if let Some(identity_document_file) = identity.identity_document_file
+                && identity_document_file.name == file_name
+            {
+                file = Some(identity_document_file);
             }
 
             if let Some(file) = file {

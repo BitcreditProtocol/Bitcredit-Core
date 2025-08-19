@@ -33,7 +33,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{
     BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
-    PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+    PastPaymentDataSell, PastPaymentResult, PastPaymentStatus, PaymentState,
 };
 use bcr_ebill_core::blockchain::bill::block::BillParticipantBlockData;
 use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
@@ -584,8 +584,7 @@ impl BillService {
             // don't reject the accepted one and only reject offered ones
             if req.mint_request_id != accepted_mint_request_id
                 && matches!(req.status, MintRequestStatus::Offered)
-            {
-                if let Err(e) = self
+                && let Err(e) = self
                     .mint_client
                     .resolve_quote_for_mint(
                         &get_config().mint_config.default_mint_url,
@@ -593,12 +592,11 @@ impl BillService {
                         ResolveMintOffer::Reject,
                     )
                     .await
-                {
-                    error!(
-                        "Could not reject quote for mint {}: {e}",
-                        req.mint_request_id
-                    )
-                }
+            {
+                error!(
+                    "Could not reject quote for mint {}: {e}",
+                    req.mint_request_id
+                )
             }
         }
         Ok(())
@@ -681,14 +679,14 @@ impl BillServiceApi for BillService {
         let mut contingent_sum = 0;
 
         for bill in bills {
-            if let Ok(sum) = currency::parse_sum(&bill.data.sum) {
-                if let Some(bill_role) = bill.get_bill_role_for_node_id(current_identity_node_id) {
-                    match bill_role {
-                        BillRole::Payee => payee_sum += sum,
-                        BillRole::Payer => payer_sum += sum,
-                        BillRole::Contingent => contingent_sum += sum,
-                    };
-                }
+            if let Ok(sum) = currency::parse_sum(&bill.data.sum)
+                && let Some(bill_role) = bill.get_bill_role_for_node_id(current_identity_node_id)
+            {
+                match bill_role {
+                    BillRole::Payee => payee_sum += sum,
+                    BillRole::Payer => payer_sum += sum,
+                    BillRole::Contingent => contingent_sum += sum,
+                };
             }
         }
 
@@ -728,15 +726,15 @@ impl BillServiceApi for BillService {
             if let Ok(issue_date_ts) =
                 util::date::date_string_to_timestamp(&bill.data.issue_date, None)
             {
-                if let Some(from) = date_range_from {
-                    if from > issue_date_ts {
-                        continue;
-                    }
+                if let Some(from) = date_range_from
+                    && from > issue_date_ts
+                {
+                    continue;
                 }
-                if let Some(to) = date_range_to {
-                    if to < issue_date_ts {
-                        continue;
-                    }
+                if let Some(to) = date_range_to
+                    && to < issue_date_ts
+                {
+                    continue;
                 }
             }
 
@@ -768,10 +766,10 @@ impl BillServiceApi for BillService {
                 }
             };
 
-            if let Some(st) = search_term {
-                if !bill.search_bill_for_search_term(st) {
-                    continue;
-                }
+            if let Some(st) = search_term
+                && !bill.search_bill_for_search_term(st)
+            {
+                continue;
             }
 
             result.push(bill.into());
@@ -1248,62 +1246,68 @@ impl BillServiceApi for BillService {
         )?;
 
         // Request to Pay
-        if holder.node_id() == caller_public_data.node_id() {
-            if let Some(req_to_pay) =
+        if holder.node_id() == caller_public_data.node_id()
+            && let Some(req_to_pay) =
                 chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
-            {
-                let address_to_pay = self
-                    .bitcoin_client
-                    .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
-                let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                    &address_to_pay,
-                    bill.sum,
-                    &format!("Payment in relation to a bill {}", bill.id.clone()),
-                );
-                let mempool_link_for_address_to_pay = self
-                    .bitcoin_client
-                    .get_mempool_link_for_address(&address_to_pay);
+        {
+            let address_to_pay = self
+                .bitcoin_client
+                .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
+            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
+                &address_to_pay,
+                bill.sum,
+                &format!("Payment in relation to a bill {}", bill.id.clone()),
+            );
+            let mempool_link_for_address_to_pay = self
+                .bitcoin_client
+                .get_mempool_link_for_address(&address_to_pay);
 
-                // we check for the payment expiration, not the request expiration
-                // if the request expired, but the payment deadline hasn't, it's not a past payment
-                let deadline_base = get_expiration_deadline_base_for_req_to_pay(
-                    req_to_pay.timestamp,
-                    &bill.maturity_date,
-                )?;
-                let is_expired = util::date::check_if_deadline_has_passed(
-                    deadline_base,
-                    timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                );
-                let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
+            // we check for the payment expiration, not the request expiration
+            // if the request expired, but the payment deadline hasn't, it's not a past payment
+            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
+                req_to_pay.timestamp,
+                &bill.maturity_date,
+            )?;
+            let is_expired = util::date::check_if_deadline_has_passed(
+                deadline_base,
+                timestamp,
+                PAYMENT_DEADLINE_SECONDS,
+            );
+            let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
 
-                if is_paid || is_rejected || is_expired {
-                    result.push(PastPaymentResult::Payment(PastPaymentDataPayment {
-                        time_of_request: req_to_pay.timestamp,
-                        payer: bill_parties.drawee.clone().into(),
-                        payee: holder.clone().into(),
-                        currency: bill.currency.clone(),
-                        sum: currency::sum_to_string(bill.sum),
-                        link_to_pay,
-                        address_to_pay,
-                        private_descriptor_to_spend: descriptor_to_spend.clone(),
-                        mempool_link_for_address_to_pay,
-                        status: if is_paid {
-                            PastPaymentStatus::Paid(req_to_pay.timestamp)
-                        } else if is_rejected {
-                            let ts = if let Some(reject_to_pay_block) =
-                                chain.get_last_version_block_with_op_code(BillOpCode::RejectToPay)
-                            {
-                                reject_to_pay_block.timestamp
-                            } else {
-                                req_to_pay.timestamp
-                            };
-                            PastPaymentStatus::Rejected(ts)
+            if is_paid || is_rejected || is_expired {
+                result.push(PastPaymentResult::Payment(PastPaymentDataPayment {
+                    time_of_request: req_to_pay.timestamp,
+                    payer: bill_parties.drawee.clone().into(),
+                    payee: holder.clone().into(),
+                    currency: bill.currency.clone(),
+                    sum: currency::sum_to_string(bill.sum),
+                    link_to_pay,
+                    address_to_pay,
+                    private_descriptor_to_spend: descriptor_to_spend.clone(),
+                    mempool_link_for_address_to_pay,
+                    status: if is_paid {
+                        if let Ok(Some(PaymentState::PaidConfirmed(paid_date))) =
+                            self.store.get_payment_state(bill_id).await
+                        {
+                            PastPaymentStatus::Paid(paid_date.block_time)
                         } else {
-                            PastPaymentStatus::Expired(deadline_base + PAYMENT_DEADLINE_SECONDS)
-                        },
-                    }));
-                }
+                            // fall back to req to pay time, if we don't have the paid ts
+                            PastPaymentStatus::Paid(req_to_pay.timestamp)
+                        }
+                    } else if is_rejected {
+                        let ts = if let Some(reject_to_pay_block) =
+                            chain.get_last_version_block_with_op_code(BillOpCode::RejectToPay)
+                        {
+                            reject_to_pay_block.timestamp
+                        } else {
+                            req_to_pay.timestamp
+                        };
+                        PastPaymentStatus::Rejected(ts)
+                    } else {
+                        PastPaymentStatus::Expired(deadline_base + PAYMENT_DEADLINE_SECONDS)
+                    },
+                }));
             }
         }
 

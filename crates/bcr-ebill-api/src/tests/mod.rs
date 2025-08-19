@@ -2,11 +2,11 @@
 #[allow(clippy::module_inception)]
 pub mod tests {
     use crate::service::notification_service::{self, chain_keys::ChainKeyServiceApi};
-    use crate::{CONFIG, DbContext, MintConfig, NostrConfig, data::bill::BillKeys};
+    use crate::{CONFIG, DbContext, MintConfig, NostrConfig, PaymentConfig, data::bill::BillKeys};
     use async_trait::async_trait;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
-        bill::{BillId, BitcreditBill, BitcreditBillResult},
+        bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
         blockchain::{
             BlockchainType,
             bill::{BillBlock, BillBlockchain, BillOpCode},
@@ -158,7 +158,30 @@ pub mod tests {
             async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
             async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
             async fn is_paid(&self, id: &BillId) -> Result<bool>;
-            async fn set_to_paid(&self, id: &BillId, payment_address: &str) -> Result<()>;
+            async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()>;
+            async fn get_payment_state(&self, id: &BillId) -> Result<Option<PaymentState>>;
+            async fn set_offer_to_sell_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+                payment_state: &PaymentState,
+            ) -> Result<()>;
+            async fn get_offer_to_sell_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+            ) -> Result<Option<PaymentState>>;
+            async fn set_recourse_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+                payment_state: &PaymentState,
+            ) -> Result<()>;
+            async fn get_recourse_payment_state(
+                &self,
+                id: &BillId,
+                block_id: u64,
+            ) -> Result<Option<PaymentState>>;
             async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>>;
@@ -409,6 +432,9 @@ pub mod tests {
                             "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                         ).unwrap(),
                     },
+                    payment_config: PaymentConfig {
+                        num_confirmations_for_payment: 6,
+                    }
                 });
             }
         }

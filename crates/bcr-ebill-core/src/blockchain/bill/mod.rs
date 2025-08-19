@@ -56,6 +56,7 @@ pub struct PaymentInfo {
     pub sum: u64,
     pub currency: String,
     pub payment_address: String,
+    pub block_id: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +66,7 @@ pub struct RecoursePaymentInfo {
     pub sum: u64,
     pub currency: String,
     pub reason: BillRecourseReasonBlockData,
+    pub block_id: u64,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]

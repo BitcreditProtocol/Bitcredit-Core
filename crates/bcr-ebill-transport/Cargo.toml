@@ -10,7 +10,7 @@ doctest = false
 [dependencies]
 bcr-ebill-core.workspace = true
 bcr-ebill-persistence.workspace = true
-bcr-ebill-api = { path = "../bcr-ebill-api" }
+bcr-ebill-api.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
