@@ -194,11 +194,13 @@ impl IdentityChainEventProcessor {
                         .await?;
                 }
                 IdentityBlockPayload::SignPersonalBill(payload) => {
-                    debug!("Got sign personal bill event {payload:?}");
                     if let Some(bill_key) = payload.bill_key
                         && payload.operation == BillOpCode::Issue
                     {
-                        debug!("Trying to add bill");
+                        debug!(
+                            "Found personal bill issue block so adding bill {}",
+                            payload.bill_id
+                        );
                         let secret_key = SecretKey::from_str(&bill_key)
                             .map_err(|e| Error::Crypto(e.to_string()))?;
                         let bill_keys = BcrKeys::from_private_key(&secret_key)?;
@@ -209,11 +211,9 @@ impl IdentityChainEventProcessor {
                                 public_key: bill_keys.pub_key(),
                             },
                         );
-                        debug!("Got keys {bill_keys:?} and invite {invite:?}");
                         self.bill_invite_handler
                             .handle_event(Event::new_bill(invite).try_into()?, node_id, None)
                             .await?;
-                        debug!("Bill added");
                     }
                 }
                 IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }

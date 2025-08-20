@@ -198,7 +198,6 @@ impl CompanyChainEventProcessor {
             let data = block
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
-            debug!("Adding company block with data {data:?}");
             match data {
                 CompanyBlockPayload::Create(_) => { /* creates a handled on validation */ }
                 update @ CompanyBlockPayload::Update(_) => {
@@ -229,11 +228,10 @@ impl CompanyChainEventProcessor {
                         .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
                 CompanyBlockPayload::SignBill(payload) => {
-                    info!("Bill signed {payload:?}");
                     if let Some(bill_key) = payload.bill_key
                         && payload.operation == BillOpCode::Issue
                     {
-                        info!("Trying to add bill");
+                        info!("Adding detected company bill {}", payload.bill_id);
                         let bill_keys = BcrKeys::from_private_key_string(&bill_key)?;
                         let invite = ChainInvite::bill(
                             payload.bill_id.to_string(),
@@ -242,7 +240,6 @@ impl CompanyChainEventProcessor {
                                 public_key: bill_keys.pub_key(),
                             },
                         );
-                        info!("Got keys {bill_keys:?} and invite {invite:?}");
                         // we want to process all blocks for the company even if we don't have all
                         // the bills.
                         if let Err(e) = self
