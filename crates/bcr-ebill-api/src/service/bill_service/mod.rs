@@ -3571,6 +3571,9 @@ pub mod tests {
             .expect_send_bill_is_sold_event()
             .returning(|_, _| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -3622,6 +3625,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_sold_event()
             .returning(|_, _| Ok(()));
+
+        // Populates identity block and company block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service.check_bills_offer_to_sell_payment().await;
