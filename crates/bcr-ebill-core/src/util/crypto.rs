@@ -80,6 +80,11 @@ impl BcrKeys {
         Ok(Self { inner: keypair })
     }
 
+    pub fn from_private_key_string(private_key: &str) -> Result<Self> {
+        let private_key = SecretKey::from_str(private_key)?;
+        Self::from_private_key(&private_key)
+    }
+
     /// Returns the private key as a hex encoded string
     pub fn get_private_key_string(&self) -> String {
         self.inner.secret_key().display_secret().to_string()

@@ -10,8 +10,10 @@ use std::{str::FromStr, sync::Arc};
 
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
+    bill::BillKeys,
     blockchain::{
-        Block, Blockchain,
+        Blockchain,
+        bill::BillOpCode,
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
     company::CompanyKeys,
@@ -191,21 +193,32 @@ impl IdentityChainEventProcessor {
                         .handle_event(event.try_into()?, node_id, None)
                         .await?;
                 }
-                IdentityBlockPayload::SignCompanyBill(payload) => {
-                    // NOTE: if we add bill keys when we issue a bill we can recover our company bills
-                    // here
-                }
                 IdentityBlockPayload::SignPersonalBill(payload) => {
-                    // NOTE: if we add bill keys when we issue a bill we can recover our own bills here
+                    if let Some(bill_key) = payload.bill_key
+                        && payload.operation == BillOpCode::Issue
+                    {
+                        let secret_key = SecretKey::from_str(&bill_key)
+                            .map_err(|e| Error::Crypto(e.to_string()))?;
+                        let bill_keys = BcrKeys::from_private_key(&secret_key)?;
+                        let invite = ChainInvite::bill(
+                            payload.bill_id.to_string(),
+                            BillKeys {
+                                private_key: bill_keys.get_private_key(),
+                                public_key: bill_keys.pub_key(),
+                            },
+                        );
+                        self.bill_invite_handler
+                            .handle_event(Event::new_bill(invite).try_into()?, node_id, None)
+                            .await?;
+                    }
                 }
+                IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
                 IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
-                IdentityBlockPayload::Create(_) => { /* creates a handled on validation */ }
+                IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
             }
 
             // persist data
             self.save_block(block).await?;
-
-            // return the updated identity and chain
             Ok(())
         } else {
             error!("Received invalid identity block");
@@ -223,7 +236,7 @@ impl IdentityChainEventProcessor {
         keys: &BcrKeys,
     ) -> Result<(NodeId, Identity, IdentityBlockchain)> {
         match IdentityBlockchain::new_from_blocks(blocks) {
-            Ok(chain) => {
+            Ok(chain) if chain.is_chain_valid() => {
                 let first_block = chain.get_first_block();
                 // create block is where we build up the company from
                 let payload = match first_block
@@ -242,19 +255,8 @@ impl IdentityChainEventProcessor {
                     }
                 };
 
-                // now process and validate all the blocks
-                for block in chain.blocks().iter() {
-                    // validate the payloads
-                    if !block.validate_plaintext_hash(&keys.get_private_key()) {
-                        error!("Newly received chain block has invalid plaintext hash");
-                        return Err(Error::Blockchain(
-                            "Newly received chain block has invalid plaintext hash".to_string(),
-                        ));
-                    }
-                }
-
                 // initialize identity and chain from first block
-                let mut identity = Identity::from_block_data(payload);
+                let identity = Identity::from_block_data(payload);
                 let node_id = identity.node_id.clone();
                 let return_chain = IdentityBlockchain::new_from_blocks(vec![first_block.clone()])
                     .map_err(|e| Error::Blockchain(e.to_string()))?;

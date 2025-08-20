@@ -417,6 +417,7 @@ impl BillService {
             &identity.key_pair,
             signer_keys,
             timestamp,
+            None,
         )
         .await?;
 
@@ -446,6 +447,7 @@ impl BillService {
         identity_keys: &BcrKeys,
         signer_keys: &BcrKeys,
         timestamp: u64,
+        bill_keys: Option<BillKeys>,
     ) -> Result<()> {
         match signer_public_data {
             BillParticipant::Ident(identified) => {
@@ -456,6 +458,7 @@ impl BillService {
                             block,
                             identity_keys,
                             timestamp,
+                            bill_keys,
                         )
                         .await?;
                     }
@@ -470,6 +473,7 @@ impl BillService {
                                 public_key: signer_keys.pub_key(),
                             },
                             timestamp,
+                            bill_keys,
                         )
                         .await?;
 
@@ -491,6 +495,7 @@ impl BillService {
                     block,
                     identity_keys,
                     timestamp,
+                    bill_keys,
                 )
                 .await?;
             }
@@ -504,6 +509,7 @@ impl BillService {
         block: &BillBlock,
         keys: &BcrKeys,
         timestamp: u64,
+        bill_keys: Option<BillKeys>,
     ) -> Result<()> {
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_sign_person_bill(
@@ -513,6 +519,7 @@ impl BillService {
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
                 operation: block.op_code.clone(),
+                bill_key: bill_keys.map(|k| k.private_key.display_secret().to_string()),
             },
             keys,
             timestamp,
@@ -554,6 +561,7 @@ impl BillService {
         signatory_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         timestamp: u64,
+        bill_keys: Option<BillKeys>,
     ) -> Result<()> {
         let previous_block = self
             .company_blockchain_store
@@ -567,6 +575,7 @@ impl BillService {
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
                 operation: block.op_code.clone(),
+                bill_key: bill_keys.map(|k| k.private_key.display_secret().to_string()),
             },
             signatory_keys,
             company_keys,

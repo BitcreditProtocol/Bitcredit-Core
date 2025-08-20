@@ -226,6 +226,7 @@ impl BillService {
             &identity.key_pair,
             &data.drawer_keys,
             data.timestamp,
+            Some(bill_keys.clone()),
         )
         .await?;
 
