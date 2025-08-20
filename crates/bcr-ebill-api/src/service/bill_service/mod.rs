@@ -224,7 +224,12 @@ pub mod tests {
     use crate::{
         external::mint::QuoteStatusReply,
         persistence,
-        service::company_service::tests::get_baseline_company_data,
+        service::{
+            bill_service::test_utils::MockBillContext,
+            company_service::tests::{
+                get_baseline_company, get_baseline_company_data, get_valid_company_chain,
+            },
+        },
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_id_test_other, bill_id_test_other2,
             bill_identified_participant_only_node_id, empty_address,
@@ -503,6 +508,9 @@ pub mod tests {
             .expect_send_bill_is_signed_event()
             .returning(|_| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let drawer = get_baseline_identity();
@@ -568,6 +576,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_signed_event()
             .returning(|_| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -714,6 +725,12 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_signed_event()
             .returning(|_| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
+        // Populates company block
+        expect_populates_company_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -2260,6 +2277,9 @@ pub mod tests {
             .expect_send_bill_is_accepted_event()
             .returning(|_| Ok(()));
 
+        // Populate identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -2309,6 +2329,26 @@ pub mod tests {
         ));
     }
 
+    fn expect_populates_company_block(ctx: &mut MockBillContext) {
+        ctx.company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()));
+        ctx.company_store
+            .expect_get()
+            .returning(|_| Ok(get_baseline_company()));
+        ctx.notification_service
+            .expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+    }
+
+    fn expect_populates_identity_block(ctx: &mut MockBillContext) {
+        ctx.notification_service
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+    }
+
     #[tokio::test]
     async fn accept_bill_as_company() {
         let mut ctx = get_ctx();
@@ -2327,6 +2367,12 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_accepted_event()
             .returning(|_| Ok(()));
+
+        // Populate company block via transport
+        expect_populates_company_block(&mut ctx);
+
+        // Populate identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -2445,6 +2491,9 @@ pub mod tests {
             .expect_send_request_to_pay_event()
             .returning(|_| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -2483,6 +2532,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_request_to_pay_event()
             .returning(|_| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -2547,6 +2599,9 @@ pub mod tests {
             .expect_send_request_to_accept_event()
             .returning(|_| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -2583,6 +2638,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_request_to_accept_event()
             .returning(|_| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -2651,6 +2709,9 @@ pub mod tests {
             .expect_send_bill_is_endorsed_event()
             .returning(|_| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -2698,6 +2759,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_endorsed_event()
             .returning(|_| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -2815,6 +2879,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_offer_to_sell_event()
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -2858,6 +2926,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_offer_to_sell_event()
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -2967,6 +3039,9 @@ pub mod tests {
             .expect_send_bill_is_sold_event()
             .returning(|_, _| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -3036,6 +3111,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_sold_event()
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -3218,6 +3296,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_endorsed_event()
             .returning(|_| Ok(()));
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -3259,6 +3340,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_is_endorsed_event()
             .returning(|_| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -4726,6 +4811,9 @@ pub mod tests {
             .with(always(), eq(ActionType::AcceptBill))
             .returning(|_, _| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
         let res = service
             .execute_bill_action(
@@ -4831,6 +4919,10 @@ pub mod tests {
             .expect_send_request_to_action_rejected_event()
             .with(always(), eq(ActionType::BuyBill))
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -4881,6 +4973,10 @@ pub mod tests {
             .expect_send_request_to_action_rejected_event()
             .with(always(), eq(ActionType::BuyBill))
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -4941,6 +5037,10 @@ pub mod tests {
             .expect_send_request_to_action_rejected_event()
             .with(always(), eq(ActionType::PayBill))
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -5065,6 +5165,9 @@ pub mod tests {
             .expect_send_request_to_action_rejected_event()
             .with(always(), eq(ActionType::RecourseBill))
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -5201,6 +5304,9 @@ pub mod tests {
             .expect_send_bill_recourse_paid_event()
             .returning(|_, _| Ok(()));
 
+        // Populate identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service.check_bills_in_recourse_payment().await;
@@ -5273,6 +5379,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_recourse_paid_event()
             .returning(|_, _| Ok(()));
+
+        // Populate identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service.check_bills_in_recourse_payment().await;
@@ -5358,6 +5468,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_recourse_action_event()
             .returning(|_, _, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -5559,6 +5673,10 @@ pub mod tests {
         ctx.notification_service
             .expect_send_recourse_action_event()
             .returning(|_, _, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -5634,6 +5752,9 @@ pub mod tests {
         ctx.notification_service
             .expect_send_bill_recourse_paid_event()
             .returning(|_, _| Ok(()));
+
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
@@ -6120,6 +6241,9 @@ pub mod tests {
                 chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
                 Ok(chain)
             });
+
+        // Populate identity block
+        expect_populates_identity_block(&mut ctx);
 
         ctx.mint_client
             .expect_resolve_quote_for_mint()

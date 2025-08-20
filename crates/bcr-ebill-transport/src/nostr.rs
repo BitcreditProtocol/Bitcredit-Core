@@ -450,20 +450,20 @@ impl NostrConsumer {
 
                 // we only need one client to subscribe to public events
                 if current_client.is_primary() {
-                    let contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
+                    let mut contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
                     info!("Found {} contacts to subscribe to", contacts.len());
-                    if !contacts.is_empty() {
-                        info!("Subscribing to public Nostr events for client {client_id}");
-                        current_client
-                            .subscribe(
-                                Filter::new()
-                                    .authors(contacts)
-                                    .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
-                                    .since(offset_ts),
-                            )
-                            .await
-                            .expect("Failed to subscribe to Nostr public events");
-                    }
+                    // we also subscribe to our own public key
+                    contacts.push(current_client.keys.get_nostr_keys().public_key());
+                    info!("Subscribing to public Nostr events for client {client_id}");
+                    current_client
+                        .subscribe(
+                            Filter::new()
+                                .authors(contacts)
+                                .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
+                                .since(offset_ts),
+                        )
+                        .await
+                        .expect("Failed to subscribe to Nostr public events");
                 }
 
                 let signer = current_client.get_signer().await;

@@ -17,7 +17,10 @@ use bcr_ebill_core::{
     },
     company::{Company, CompanyKeys},
 };
-use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
+use bcr_ebill_persistence::{
+    company::{CompanyChainStoreApi, CompanyStoreApi},
+    identity::IdentityStoreApi,
+};
 
 use super::{CompanyChainEventProcessorApi, NostrContactProcessorApi};
 
@@ -25,6 +28,7 @@ use super::{CompanyChainEventProcessorApi, NostrContactProcessorApi};
 pub struct CompanyChainEventProcessor {
     blockchain_store: Arc<dyn CompanyChainStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    identity_store: Arc<dyn IdentityStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     bitcoin_network: bitcoin::Network,
@@ -90,6 +94,7 @@ impl CompanyChainEventProcessor {
     pub fn new(
         blockchain_store: Arc<dyn CompanyChainStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
+        identity_store: Arc<dyn IdentityStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         bitcoin_network: bitcoin::Network,
@@ -97,6 +102,7 @@ impl CompanyChainEventProcessor {
         Self {
             blockchain_store,
             company_store,
+            identity_store,
             nostr_contact_processor,
             bitcoin_network,
             bill_invite_handler,
@@ -104,32 +110,45 @@ impl CompanyChainEventProcessor {
     }
 
     async fn add_new_chain(&self, blocks: Vec<CompanyBlock>, keys: &CompanyKeys) -> Result<()> {
-        let (company_id, mut company, mut chain) = self.get_valid_chain(blocks.clone(), keys)?;
-        debug!("adding new chain and company {company_id}");
-        // add the company
-        self.company_store.insert(&company).await.map_err(|e| {
-            error!("Failed to insert company {company_id}: {e}");
-            Error::Persistence(e.to_string())
-        })?;
+        let identity = self
+            .identity_store
+            .get()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?
+            .node_id;
+        let (company_id, mut company, mut chain, we_are_signatory) =
+            self.get_valid_chain(blocks.clone(), keys, &identity)?;
+        if we_are_signatory {
+            debug!(
+                "adding new chain and company {company_id} with {} blocks",
+                blocks.len()
+            );
+            // add the company
+            self.company_store.insert(&company).await.map_err(|e| {
+                error!("Failed to insert company {company_id}: {e}");
+                Error::Persistence(e.to_string())
+            })?;
 
-        // save keys
-        self.save_keys(&company_id, keys).await?;
+            // save keys
+            self.save_keys(&company_id, keys).await?;
 
-        // save the first block
-        self.save_block(&company_id, chain.get_first_block())
-            .await?;
-
-        // save all blocks
-        for block in blocks.iter().skip(1) {
-            self.add_company_block(&company_id, keys, &mut company, &mut chain, block)
+            // save the first block
+            self.save_block(&company_id, chain.get_first_block())
                 .await?;
+
+            // save all blocks
+            for block in blocks.iter().skip(1) {
+                self.add_company_block(&company_id, keys, &mut company, &mut chain, block)
+                    .await?;
+            }
+
+            // also add the company to our nostr contacts
+            self.nostr_contact_processor
+                .ensure_nostr_contact(&company_id)
+                .await;
+        } else {
+            info!("We are not a signatory for company {company_id} so skipping chain");
         }
-
-        // also add the company to our nostr contacts
-        self.nostr_contact_processor
-            .ensure_nostr_contact(&company_id)
-            .await;
-
         Ok(())
     }
 
@@ -179,6 +198,7 @@ impl CompanyChainEventProcessor {
             let data = block
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
+            debug!("Adding company block with data {data:?}");
             match data {
                 CompanyBlockPayload::Create(_) => { /* creates a handled on validation */ }
                 update @ CompanyBlockPayload::Update(_) => {
@@ -209,9 +229,11 @@ impl CompanyChainEventProcessor {
                         .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
                 CompanyBlockPayload::SignBill(payload) => {
+                    info!("Bill signed {payload:?}");
                     if let Some(bill_key) = payload.bill_key
                         && payload.operation == BillOpCode::Issue
                     {
+                        info!("Trying to add bill");
                         let bill_keys = BcrKeys::from_private_key_string(&bill_key)?;
                         let invite = ChainInvite::bill(
                             payload.bill_id.to_string(),
@@ -220,6 +242,7 @@ impl CompanyChainEventProcessor {
                                 public_key: bill_keys.pub_key(),
                             },
                         );
+                        info!("Got keys {bill_keys:?} and invite {invite:?}");
                         // we want to process all blocks for the company even if we don't have all
                         // the bills.
                         if let Err(e) = self
@@ -250,8 +273,9 @@ impl CompanyChainEventProcessor {
         &self,
         blocks: Vec<CompanyBlock>,
         keys: &CompanyKeys,
-    ) -> Result<(NodeId, Company, CompanyBlockchain)> {
-        match CompanyBlockchain::new_from_blocks(blocks) {
+        identity: &NodeId,
+    ) -> Result<(NodeId, Company, CompanyBlockchain, bool)> {
+        match CompanyBlockchain::new_from_blocks(blocks.clone()) {
             Ok(chain) if chain.is_chain_valid() => {
                 let first_block = chain.get_first_block();
                 // create block is where we build up the company from
@@ -275,11 +299,22 @@ impl CompanyChainEventProcessor {
                 // initialize company from payload
                 let company = Company::from_block_data(payload);
 
+                // check if we are a signatory
+                let we_are_signatory = {
+                    let mut aggregate = company.clone();
+                    for block in blocks.iter().skip(1) {
+                        if let Ok(data) = &block.get_block_data(keys) {
+                            aggregate.apply_block_data(data);
+                        }
+                    }
+                    aggregate.signatories.contains(identity)
+                };
+
                 // chain with just the create block
                 let return_chain = CompanyBlockchain::new_from_blocks(vec![first_block.clone()])
                     .map_err(|e| Error::Blockchain(e.to_string()))?;
 
-                Ok((node_id, company, return_chain))
+                Ok((node_id, company, return_chain, we_are_signatory))
             }
             _ => {
                 error!("Newly received company chain is not valid");
@@ -331,18 +366,25 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::{
-        CompanyChainEventProcessor, CompanyChainEventProcessorApi, MockNostrContactProcessorApi,
-        MockNotificationHandlerApi,
-        test_utils::{MockCompanyChainStore, MockCompanyStore, get_company_data, node_id_test},
+    use crate::{
+        handler::{
+            CompanyChainEventProcessor, CompanyChainEventProcessorApi,
+            MockNostrContactProcessorApi, MockNotificationHandlerApi,
+            test_utils::{
+                MockCompanyChainStore, MockCompanyStore, MockIdentityStore, get_company_data,
+                node_id_test,
+            },
+        },
+        test_utils::get_baseline_identity,
     };
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, bill) = create_mocks();
+        let (chain_store, store, contact, bill, identity) = create_mocks();
         CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -352,7 +394,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, bill) = create_mocks();
+        let (chain_store, mut store, contact, bill, identity) = create_mocks();
 
         store
             .expect_get()
@@ -362,6 +404,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -377,7 +420,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_signatory() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, bill) = create_mocks();
+        let (chain_store, mut store, contact, bill, identity) = create_mocks();
         let (_, (company, _)) = get_company_data();
         store
             .expect_get()
@@ -387,6 +430,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -402,7 +446,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, bill) = create_mocks();
+        let (chain_store, mut store, contact, bill, identity) = create_mocks();
         let (_, (mut company, _)) = get_company_data();
         company.signatories = vec![NodeId::new(keys.pub_key(), bitcoin::Network::Testnet)];
         store
@@ -413,6 +457,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -427,7 +472,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_create_company_data() {
-        let (mut chain_store, mut store, mut contact, bill) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -440,6 +485,12 @@ pub mod tests {
             .expect_get_chain()
             .with(eq(node_id.clone()))
             .returning(|_| Err(bcr_ebill_persistence::Error::NoCompanyBlock))
+            .once();
+
+        // in case of a new chain we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
             .once();
 
         // it is valid so add the company
@@ -474,6 +525,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -487,7 +539,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_company_data() {
-        let (mut chain_store, mut store, mut contact, bill) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, identity) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -563,6 +615,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -576,7 +629,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_add_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, identity) = create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
@@ -656,6 +709,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -669,7 +723,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_remove_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, identity) = create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (mut company, keys)) = get_company_data();
         company.signatories.push(new_node_id.clone());
@@ -750,6 +804,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(identity),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -837,12 +892,14 @@ pub mod tests {
         MockCompanyStore,
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
+        MockIdentityStore,
     ) {
         (
             MockCompanyChainStore::new(),
             MockCompanyStore::new(),
             MockNostrContactProcessorApi::new(),
             MockNotificationHandlerApi::new(),
+            MockIdentityStore::new(),
         )
     }
 }

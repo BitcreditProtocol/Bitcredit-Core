@@ -23,7 +23,10 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 
-use crate::data::validate_node_id_network;
+use crate::{
+    data::validate_node_id_network,
+    service::notification_service::event::{CompanyChainEvent, IdentityChainEvent},
+};
 
 use super::{BillAction, Result, error::Error, service::BillService};
 
@@ -414,7 +417,7 @@ impl BillService {
             signer_public_data,
             &bill_id,
             &block,
-            &identity.key_pair,
+            identity,
             signer_keys,
             timestamp,
             None,
@@ -444,7 +447,7 @@ impl BillService {
         signer_public_data: &BillParticipant,
         bill_id: &BillId,
         block: &BillBlock,
-        identity_keys: &BcrKeys,
+        identity: &IdentityWithAll,
         signer_keys: &BcrKeys,
         timestamp: u64,
         bill_keys: Option<BillKeys>,
@@ -454,11 +457,7 @@ impl BillService {
                 match identified.t {
                     ContactType::Person | ContactType::Anon => {
                         self.add_block_to_identity_chain_for_signed_bill_action(
-                            bill_id,
-                            block,
-                            identity_keys,
-                            timestamp,
-                            bill_keys,
+                            bill_id, block, identity, timestamp, bill_keys,
                         )
                         .await?;
                     }
@@ -467,7 +466,7 @@ impl BillService {
                             &identified.node_id, // company id
                             bill_id,
                             block,
-                            identity_keys,
+                            identity,
                             &CompanyKeys {
                                 private_key: signer_keys.get_private_key(),
                                 public_key: signer_keys.pub_key(),
@@ -481,7 +480,7 @@ impl BillService {
                             &identified.node_id, // company id
                             bill_id,
                             block,
-                            identity_keys,
+                            identity,
                             timestamp,
                         )
                         .await?;
@@ -491,11 +490,7 @@ impl BillService {
             // for anon, we only add to our identity chain, since we're no company
             BillParticipant::Anon(_) => {
                 self.add_block_to_identity_chain_for_signed_bill_action(
-                    bill_id,
-                    block,
-                    identity_keys,
-                    timestamp,
-                    bill_keys,
+                    bill_id, block, identity, timestamp, bill_keys,
                 )
                 .await?;
             }
@@ -507,7 +502,7 @@ impl BillService {
         &self,
         bill_id: &BillId,
         block: &BillBlock,
-        keys: &BcrKeys,
+        identity: &IdentityWithAll,
         timestamp: u64,
         bill_keys: Option<BillKeys>,
     ) -> Result<()> {
@@ -521,10 +516,17 @@ impl BillService {
                 operation: block.op_code.clone(),
                 bill_key: bill_keys.map(|k| k.private_key.display_secret().to_string()),
             },
-            keys,
+            &identity.key_pair,
             timestamp,
         )?;
         self.identity_blockchain_store.add_block(&new_block).await?;
+        self.notification_service
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &identity.identity,
+                &new_block,
+                &identity.key_pair,
+            ))
+            .await?;
         Ok(())
     }
 
@@ -533,7 +535,7 @@ impl BillService {
         company_id: &NodeId,
         bill_id: &BillId,
         block: &BillBlock,
-        keys: &BcrKeys,
+        identity: &IdentityWithAll,
         timestamp: u64,
     ) -> Result<()> {
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
@@ -546,10 +548,17 @@ impl BillService {
                 company_id: company_id.to_owned(),
                 operation: block.op_code.clone(),
             },
-            keys,
+            &identity.key_pair,
             timestamp,
         )?;
         self.identity_blockchain_store.add_block(&new_block).await?;
+        self.notification_service
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &identity.identity,
+                &new_block,
+                &identity.key_pair,
+            ))
+            .await?;
         Ok(())
     }
 
@@ -558,7 +567,7 @@ impl BillService {
         company_id: &NodeId,
         bill_id: &BillId,
         block: &BillBlock,
-        signatory_keys: &BcrKeys,
+        signatory_identity: &IdentityWithAll,
         company_keys: &CompanyKeys,
         timestamp: u64,
         bill_keys: Option<BillKeys>,
@@ -577,12 +586,24 @@ impl BillService {
                 operation: block.op_code.clone(),
                 bill_key: bill_keys.map(|k| k.private_key.display_secret().to_string()),
             },
-            signatory_keys,
+            &signatory_identity.key_pair,
             company_keys,
             timestamp,
         )?;
         self.company_blockchain_store
             .add_block(company_id, &new_block)
+            .await?;
+
+        let chain = self.company_blockchain_store.get_chain(company_id).await?;
+        let company = self.company_store.get(company_id).await?;
+        self.notification_service
+            .send_company_chain_events(CompanyChainEvent::new(
+                &company,
+                &chain,
+                company_keys,
+                None,
+                true,
+            ))
             .await?;
         Ok(())
     }
