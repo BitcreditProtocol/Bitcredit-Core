@@ -21,11 +21,13 @@ use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 
 use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, NotificationHandlerApi};
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct IdentityChainEventProcessor {
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
+    bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bitcoin_network: bitcoin::Network,
 }
@@ -74,6 +76,7 @@ impl IdentityChainEventProcessor {
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
+        bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
@@ -81,6 +84,7 @@ impl IdentityChainEventProcessor {
             blockchain_store,
             identity_store,
             company_invite_handler,
+            bill_invite_handler,
             nostr_contact_processor,
             bitcoin_network,
         }
@@ -187,10 +191,15 @@ impl IdentityChainEventProcessor {
                         .handle_event(event.try_into()?, node_id, None)
                         .await?;
                 }
-                IdentityBlockPayload::RemoveSignatory(payload) => {}
-                IdentityBlockPayload::SignCompanyBill(payload) => {}
-                IdentityBlockPayload::SignPersonalBill(payload) => {}
-                IdentityBlockPayload::Create(_) => {}
+                IdentityBlockPayload::SignCompanyBill(payload) => {
+                    // NOTE: if we add bill keys when we issue a bill we can recover or company bills
+                    // here
+                }
+                IdentityBlockPayload::SignPersonalBill(payload) => {
+                    // NOTE: if we add bill keys when we issue a bill we can recover or own bills here
+                }
+                IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
+                IdentityBlockPayload::Create(_) => { /* creates a handled on validation */ }
             }
 
             // persist data
@@ -297,11 +306,12 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, company_invite) = create_mocks();
+        let (chain_store, store, contact, company_invite, bill_invite) = create_mocks();
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -310,7 +320,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, company_invite) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
 
         store
             .expect_get()
@@ -320,6 +330,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -331,7 +342,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_own_node_id() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, company_invite) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
         let identity = get_baseline_identity();
         store
             .expect_get()
@@ -341,6 +352,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -352,7 +364,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_validate_chain_event() {
-        let (chain_store, mut store, contact, company_invite) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
         identity.name = "new name".to_string();
@@ -364,6 +376,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -377,7 +390,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_identity_data() {
-        let (mut chain_store, mut store, contact, company_invite) = create_mocks();
+        let (mut chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -426,6 +439,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -460,11 +474,13 @@ pub mod tests {
         MockIdentityStore,
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
+        MockNotificationHandlerApi,
     ) {
         (
             MockIdentityChainStore::new(),
             MockIdentityStore::new(),
             MockNostrContactProcessorApi::new(),
+            MockNotificationHandlerApi::new(),
             MockNotificationHandlerApi::new(),
         )
     }

@@ -37,7 +37,7 @@ pub mod test_utils;
 pub mod transport;
 
 pub use async_broadcast::Receiver;
-pub use nostr::{NostrClient, NostrConsumer};
+pub use nostr::{NostrClient, NostrConsumer, handle_direct_message};
 use notification_service::NotificationService;
 pub use push_notification::{PushApi, PushService};
 pub use restore::RestoreAccountService;
@@ -165,10 +165,17 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
     );
 
+    let bill_invite_handler = BillInviteEventHandler::new(
+        transport.clone(),
+        bill_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    );
+
     let identity_processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
         db_context.identity_store.clone(),
         Arc::new(company_invite_handler.clone()),
+        Arc::new(bill_invite_handler.clone()),
         nostr_contact_processor.clone(),
         get_config().bitcoin_network(),
     ));
@@ -180,32 +187,28 @@ pub async fn create_nostr_consumer(
 
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
-    let handlers: Vec<Box<dyn NotificationHandlerApi>> = vec![
-        Box::new(LoggingEventHandler {
+    let handlers: Vec<Arc<dyn NotificationHandlerApi>> = vec![
+        Arc::new(LoggingEventHandler {
             event_types: EventType::all(),
         }),
-        Box::new(BillActionEventHandler::new(
+        Arc::new(BillActionEventHandler::new(
             db_context.notification_store.clone(),
             push_service,
             bill_processor.clone(),
         )),
-        Box::new(BillInviteEventHandler::new(
-            transport.clone(),
-            bill_processor.clone(),
-            db_context.nostr_chain_event_store.clone(),
-        )),
-        Box::new(BillChainEventHandler::new(
+        Arc::new(bill_invite_handler),
+        Arc::new(BillChainEventHandler::new(
             bill_processor.clone(),
             db_context.bill_store.clone(),
             db_context.nostr_chain_event_store.clone(),
         )),
-        Box::new(company_invite_handler),
-        Box::new(CompanyChainEventHandler::new(
+        Arc::new(company_invite_handler),
+        Arc::new(CompanyChainEventHandler::new(
             db_context.company_store.clone(),
             company_processor.clone(),
             db_context.nostr_chain_event_store.clone(),
         )),
-        Box::new(IdentityChainEventHandler::new(
+        Arc::new(IdentityChainEventHandler::new(
             db_context.identity_store.clone(),
             identity_processor.clone(),
             db_context.nostr_chain_event_store.clone(),
@@ -259,10 +262,24 @@ pub async fn create_restore_account_service(
         db_context.nostr_chain_event_store.clone(),
     ));
 
+    let bill_processor = Arc::new(BillChainEventProcessor::new(
+        db_context.bill_blockchain_store.clone(),
+        db_context.bill_store.clone(),
+        nostr_contact_processor.clone(),
+        get_config().bitcoin_network(),
+    ));
+
+    let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
+        nostr_client.clone(),
+        bill_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    ));
+
     let processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
         db_context.identity_store.clone(),
         company_invite_handler,
+        bill_invite_handler,
         nostr_contact_processor,
         config.bitcoin_network(),
     ));

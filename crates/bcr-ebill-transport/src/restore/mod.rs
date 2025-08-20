@@ -43,12 +43,27 @@ impl RestoreAccountService {
     }
 
     async fn restore_primary_account(&self) -> Result<()> {
+        // restores identity and all our own companies
         self.restore_identity().await?;
+
         let events = self
             .nostr
             .resolve_private_events(Filter::new().since(Timestamp::zero()))
             .await?;
         info!("found private {} dms for primary account", events.len());
+        Ok(())
+    }
+
+    async fn process_private_events(&self) -> Result<()> {
+        let events = self
+            .nostr
+            .resolve_private_events(Filter::new().since(Timestamp::zero()))
+            .await?;
+        info!("found private {} dms for primary account", events.len());
+        for event in events {
+            info!("processing private event: {event:?}");
+            //handle_direct_message(event, self.nostr.get_signer(), &self.node_id, [self.]).await?;
+        }
         Ok(())
     }
 

@@ -401,6 +401,7 @@ impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
+#[allow(dead_code)]
 #[tsify(into_wasm_abi)]
 pub struct BitcreditBillWeb {
     #[tsify(type = "string")]
