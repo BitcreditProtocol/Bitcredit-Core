@@ -46,12 +46,13 @@ impl BillService {
         let address_to_pay = self
             .bitcoin_client
             .get_address_to_pay(&bill_keys.public_key, &holder_public_key.pub_key())?;
-        if let Ok(payment_state) = self
+        match self
             .bitcoin_client
             .check_payment_for_address(&address_to_pay, bill.sum)
             .await
         {
-            let should_update = match self
+            Ok(payment_state) => {
+                let should_update = match self
                     .store
                     .get_payment_state(bill_id)
                     .await {
@@ -62,17 +63,21 @@ impl BillService {
                         _ => true
                     };
 
-            if should_update {
-                debug!(
-                    "Updating bill payment state for {bill_id} to {payment_state:?} and invalidating cache"
-                );
-                self.store
-                    .set_payment_state(bill_id, &payment_state)
-                    .await?;
-                // invalidate bill cache, so payment state is updated on next fetch
-                self.store.invalidate_bill_in_cache(bill_id).await?;
+                if should_update {
+                    debug!(
+                        "Updating bill payment state for {bill_id} to {payment_state:?} and invalidating cache"
+                    );
+                    self.store
+                        .set_payment_state(bill_id, &payment_state)
+                        .await?;
+                    // invalidate bill cache, so payment state is updated on next fetch
+                    self.store.invalidate_bill_in_cache(bill_id).await?;
+                }
             }
-        }
+            Err(e) => {
+                log::error!("Error checking payment for {bill_id}: {e}");
+            }
+        };
         Ok(())
     }
 
