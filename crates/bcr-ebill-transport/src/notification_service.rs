@@ -320,9 +320,10 @@ impl NotificationService {
         node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
-        if let Some(node) = self.get_node_transport(sender).await
-            && let Ok(Some(identity)) = self.contact_service.get_identity_by_node_id(node_id).await
-        {
+        if let (Some(node), Ok(Some(identity))) = (
+            self.get_node_transport(sender).await,
+            self.contact_service.get_identity_by_node_id(node_id).await,
+        ) {
             node.send_private_event(&identity, message).await?;
         }
         Ok(())

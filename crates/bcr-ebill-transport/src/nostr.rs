@@ -133,7 +133,7 @@ impl NostrClient {
     }
 
     // We create the client with a private key so this should never fail.
-    async fn get_signer(&self) -> Arc<dyn NostrSigner> {
+    pub async fn get_signer(&self) -> Arc<dyn NostrSigner> {
         self.client
             .signer()
             .await
@@ -384,7 +384,7 @@ impl NotificationJsonTransportApi for NostrClient {
 #[derive(Clone)]
 pub struct NostrConsumer {
     clients: HashMap<NodeId, Arc<NostrClient>>,
-    event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    event_handlers: Vec<Arc<dyn NotificationHandlerApi>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
@@ -394,7 +394,7 @@ impl NostrConsumer {
     pub fn new(
         clients: Vec<Arc<NostrClient>>,
         contact_service: Arc<dyn ContactServiceApi>,
-        event_handlers: Vec<Box<dyn NotificationHandlerApi>>,
+        event_handlers: Vec<Arc<dyn NotificationHandlerApi>>,
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
     ) -> Self {
@@ -405,7 +405,7 @@ impl NostrConsumer {
         Self {
             clients,
             #[allow(clippy::arc_with_non_send_sync)]
-            event_handlers: Arc::new(event_handlers),
+            event_handlers,
             contact_service,
             offset_store,
             chain_key_service,
@@ -450,20 +450,20 @@ impl NostrConsumer {
 
                 // we only need one client to subscribe to public events
                 if current_client.is_primary() {
-                    let contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
+                    let mut contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
                     info!("Found {} contacts to subscribe to", contacts.len());
-                    if !contacts.is_empty() {
-                        info!("Subscribing to public Nostr events for client {client_id}");
-                        current_client
-                            .subscribe(
-                                Filter::new()
-                                    .authors(contacts)
-                                    .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
-                                    .since(offset_ts),
-                            )
-                            .await
-                            .expect("Failed to subscribe to Nostr public events");
-                    }
+                    // we also subscribe to our own public key
+                    contacts.push(current_client.keys.get_nostr_keys().public_key());
+                    info!("Subscribing to public Nostr events for client {client_id}");
+                    current_client
+                        .subscribe(
+                            Filter::new()
+                                .authors(contacts)
+                                .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
+                                .since(offset_ts),
+                        )
+                        .await
+                        .expect("Failed to subscribe to Nostr public events");
                 }
 
                 let signer = current_client.get_signer().await;
@@ -494,7 +494,7 @@ impl NostrConsumer {
                                     signer,
                                     client_id.clone(),
                                     chain_key_store,
-                                    event_handlers,
+                                    &event_handlers,
                                 )
                                 .await?;
                                 // store the new event offset
@@ -528,12 +528,12 @@ pub async fn process_event(
     signer: Arc<dyn NostrSigner>,
     client_id: NodeId,
     chain_key_store: Arc<dyn ChainKeyServiceApi>,
-    event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    event_handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<(bool, u64)> {
     let (success, time) = match event.kind {
         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
             trace!("Received encrypted direct message: {event:?}");
-            match handle_direct_message(event.clone(), &signer, &client_id, &event_handlers).await {
+            match handle_direct_message(event.clone(), &signer, &client_id, event_handlers).await {
                 Err(e) => {
                     error!("Failed to handle direct message: {e}");
                     (false, 0u64)
@@ -543,7 +543,7 @@ pub async fn process_event(
         }
         Kind::TextNote => {
             trace!("Received text note: {event:?}");
-            match handle_public_event(event.clone(), &client_id, &chain_key_store, &event_handlers)
+            match handle_public_event(event.clone(), &client_id, &chain_key_store, event_handlers)
                 .await
             {
                 Err(e) => {
@@ -575,7 +575,7 @@ pub async fn process_event(
     Ok((success, time))
 }
 
-async fn should_process(
+pub async fn should_process(
     event: Box<Event>,
     local_node_ids: &[NodeId],
     contact_service: &Arc<dyn ContactServiceApi>,
@@ -588,11 +588,11 @@ async fn should_process(
             .unwrap_or(false)
 }
 
-async fn handle_direct_message<T: NostrSigner>(
+pub async fn handle_direct_message<T: NostrSigner>(
     event: Box<Event>,
     signer: &T,
     client_id: &NodeId,
-    event_handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    event_handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<()> {
     if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
         let sender_npub = sender.to_bech32();
@@ -609,7 +609,7 @@ async fn handle_public_event(
     event: Box<Event>,
     node_id: &NodeId,
     chain_key_store: &Arc<dyn ChainKeyServiceApi>,
-    handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<bool> {
     if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
         debug!(
@@ -661,7 +661,7 @@ async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) ->
     Timestamp::from_secs(ts)
 }
 
-async fn add_offset(
+pub async fn add_offset(
     db: &Arc<dyn NostrEventOffsetStoreApi>,
     event_id: EventId,
     time: u64,
@@ -683,7 +683,7 @@ async fn add_offset(
 async fn handle_event(
     event: EventEnvelope,
     node_id: &NodeId,
-    handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
     original_event: Box<nostr::Event>,
 ) -> Result<()> {
     let event_type = &event.event_type;
@@ -829,7 +829,7 @@ mod tests {
         let consumer = NostrConsumer::new(
             vec![Arc::new(client2)],
             Arc::new(contact_service),
-            vec![Box::new(handler)],
+            vec![Arc::new(handler)],
             Arc::new(offset_store),
             Arc::new(chain_key_store),
         );

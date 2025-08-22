@@ -10,8 +10,10 @@ use std::{str::FromStr, sync::Arc};
 
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
+    bill::BillKeys,
     blockchain::{
-        Block, Blockchain,
+        Blockchain,
+        bill::BillOpCode,
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
     company::CompanyKeys,
@@ -21,11 +23,13 @@ use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 
 use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, NotificationHandlerApi};
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct IdentityChainEventProcessor {
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
+    bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bitcoin_network: bitcoin::Network,
 }
@@ -74,6 +78,7 @@ impl IdentityChainEventProcessor {
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
+        bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
@@ -81,6 +86,7 @@ impl IdentityChainEventProcessor {
             blockchain_store,
             identity_store,
             company_invite_handler,
+            bill_invite_handler,
             nostr_contact_processor,
             bitcoin_network,
         }
@@ -187,16 +193,36 @@ impl IdentityChainEventProcessor {
                         .handle_event(event.try_into()?, node_id, None)
                         .await?;
                 }
-                IdentityBlockPayload::RemoveSignatory(payload) => {}
-                IdentityBlockPayload::SignCompanyBill(payload) => {}
-                IdentityBlockPayload::SignPersonalBill(payload) => {}
-                IdentityBlockPayload::Create(_) => {}
+                IdentityBlockPayload::SignPersonalBill(payload) => {
+                    if let Some(bill_key) = payload.bill_key
+                        && payload.operation == BillOpCode::Issue
+                    {
+                        debug!(
+                            "Found personal bill issue block so adding bill {}",
+                            payload.bill_id
+                        );
+                        let secret_key = SecretKey::from_str(&bill_key)
+                            .map_err(|e| Error::Crypto(e.to_string()))?;
+                        let bill_keys = BcrKeys::from_private_key(&secret_key)?;
+                        let invite = ChainInvite::bill(
+                            payload.bill_id.to_string(),
+                            BillKeys {
+                                private_key: bill_keys.get_private_key(),
+                                public_key: bill_keys.pub_key(),
+                            },
+                        );
+                        self.bill_invite_handler
+                            .handle_event(Event::new_bill(invite).try_into()?, node_id, None)
+                            .await?;
+                    }
+                }
+                IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
+                IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
+                IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
             }
 
             // persist data
             self.save_block(block).await?;
-
-            // return the updated identity and chain
             Ok(())
         } else {
             error!("Received invalid identity block");
@@ -214,7 +240,7 @@ impl IdentityChainEventProcessor {
         keys: &BcrKeys,
     ) -> Result<(NodeId, Identity, IdentityBlockchain)> {
         match IdentityBlockchain::new_from_blocks(blocks) {
-            Ok(chain) => {
+            Ok(chain) if chain.is_chain_valid() => {
                 let first_block = chain.get_first_block();
                 // create block is where we build up the company from
                 let payload = match first_block
@@ -233,19 +259,8 @@ impl IdentityChainEventProcessor {
                     }
                 };
 
-                // now process and validate all the blocks
-                for block in chain.blocks().iter() {
-                    // validate the payloads
-                    if !block.validate_plaintext_hash(&keys.get_private_key()) {
-                        error!("Newly received chain block has invalid plaintext hash");
-                        return Err(Error::Blockchain(
-                            "Newly received chain block has invalid plaintext hash".to_string(),
-                        ));
-                    }
-                }
-
                 // initialize identity and chain from first block
-                let mut identity = Identity::from_block_data(payload);
+                let identity = Identity::from_block_data(payload);
                 let node_id = identity.node_id.clone();
                 let return_chain = IdentityBlockchain::new_from_blocks(vec![first_block.clone()])
                     .map_err(|e| Error::Blockchain(e.to_string()))?;
@@ -297,11 +312,12 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, company_invite) = create_mocks();
+        let (chain_store, store, contact, company_invite, bill_invite) = create_mocks();
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -310,7 +326,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, company_invite) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
 
         store
             .expect_get()
@@ -320,6 +336,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -331,7 +348,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_own_node_id() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, company_invite) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
         let identity = get_baseline_identity();
         store
             .expect_get()
@@ -341,6 +358,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -352,7 +370,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_validate_chain_event() {
-        let (chain_store, mut store, contact, company_invite) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
         identity.name = "new name".to_string();
@@ -364,6 +382,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -377,7 +396,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_identity_data() {
-        let (mut chain_store, mut store, contact, company_invite) = create_mocks();
+        let (mut chain_store, mut store, contact, company_invite, bill_invite) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -426,6 +445,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(company_invite),
+            Arc::new(bill_invite),
             Arc::new(contact),
             bitcoin::Network::Testnet,
         );
@@ -460,11 +480,13 @@ pub mod tests {
         MockIdentityStore,
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
+        MockNotificationHandlerApi,
     ) {
         (
             MockIdentityChainStore::new(),
             MockIdentityStore::new(),
             MockNostrContactProcessorApi::new(),
+            MockNotificationHandlerApi::new(),
             MockNotificationHandlerApi::new(),
         )
     }

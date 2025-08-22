@@ -223,9 +223,10 @@ impl BillService {
             &data.drawer_public_data.clone(), // drawer is identified
             &bill_id,
             block,
-            &identity.key_pair,
+            &identity,
             &data.drawer_keys,
             data.timestamp,
+            Some(bill_keys.clone()),
         )
         .await?;
 

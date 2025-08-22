@@ -98,6 +98,7 @@ pub struct IdentitySignPersonBillBlockData {
     pub block_id: u64,
     pub block_hash: String,
     pub operation: BillOpCode,
+    pub bill_key: Option<String>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -491,7 +492,9 @@ impl IdentityBlockchain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::tests::{bill_id_test, empty_identity, node_id_test, valid_optional_address};
+    use crate::tests::tests::{
+        bill_id_test, empty_identity, node_id_test, private_key_test, valid_optional_address,
+    };
 
     #[test]
     fn test_plaintext_hash() {
@@ -551,6 +554,7 @@ mod tests {
                 block_id: 1,
                 block_hash: "some hash".to_string(),
                 operation: BillOpCode::Issue,
+                bill_key: Some(private_key_test().display_secret().to_string()),
             },
             &keys,
             1731593928,

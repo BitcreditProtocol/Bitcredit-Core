@@ -15,7 +15,7 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_transport::{
     NostrConsumer,
-    chain_keys::ChainKeyService,
+    chain_keys::{ChainKeyService, ChainKeyServiceApi},
     create_nostr_clients, create_nostr_consumer, create_notification_service,
     push_notification::{PushApi, PushService},
 };
@@ -32,6 +32,7 @@ pub struct Context {
     pub nostr_consumer: NostrConsumer,
     pub notification_service: Arc<dyn NotificationServiceApi>,
     pub push_service: Arc<dyn PushApi>,
+    pub chain_key_service: Arc<dyn ChainKeyServiceApi>,
     pub cfg: Config,
 }
 
@@ -129,6 +130,7 @@ impl Context {
             nostr_consumer,
             notification_service,
             push_service,
+            chain_key_service,
             cfg,
         })
     }

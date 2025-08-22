@@ -25,6 +25,7 @@ use super::{
     BillChainEventProcessorApi, NotificationHandlerApi, public_chain_helpers::collect_event_chains,
 };
 
+#[derive(Clone)]
 pub struct BillInviteEventHandler {
     transport: Arc<dyn NotificationJsonTransportApi>,
     processor: Arc<dyn BillChainEventProcessorApi>,

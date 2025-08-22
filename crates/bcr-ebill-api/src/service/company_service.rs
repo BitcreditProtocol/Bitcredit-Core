@@ -944,11 +944,15 @@ pub mod tests {
         )
     }
 
+    pub fn get_baseline_company() -> Company {
+        get_baseline_company_data().1.0
+    }
+
     pub fn get_valid_company_block() -> CompanyBlock {
         get_valid_company_chain().get_latest_block().to_owned()
     }
 
-    fn get_valid_company_chain() -> CompanyBlockchain {
+    pub fn get_valid_company_chain() -> CompanyBlockchain {
         let (_id, (company, company_keys)) = get_baseline_company_data();
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(company),

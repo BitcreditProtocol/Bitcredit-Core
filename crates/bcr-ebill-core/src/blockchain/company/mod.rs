@@ -119,6 +119,7 @@ pub struct CompanySignCompanyBillBlockData {
     pub block_id: u64,
     pub block_hash: String,
     pub operation: BillOpCode,
+    pub bill_key: Option<String>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -668,6 +669,7 @@ mod tests {
                 block_id: 1,
                 block_hash: "some hash".to_string(),
                 operation: BillOpCode::Issue,
+                bill_key: Some(private_key_test().display_secret().to_string()),
             },
             &identity_keys,
             &company_keys,

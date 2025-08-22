@@ -48,6 +48,7 @@ document.getElementById("clear_bill_cache").addEventListener("click", clearBillC
 document.getElementById("company_create").addEventListener("click", createCompany);
 document.getElementById("company_update").addEventListener("click", updateCompany);
 document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
+document.getElementById("company_remove_signatory").addEventListener("click", removeSignatory);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -281,6 +282,16 @@ async function addSignatory() {
     signatory_node_id: signatory_node_id,
   });
   console.log("added signatory to company: ", signatory_node_id, company_id);
+}
+
+async function removeSignatory() {
+  let company_id = document.getElementById("company_update_id").value;
+  let signatory_node_id = document.getElementById("company_signatory_id").value;
+  await companyApi.remove_signatory({
+    id: company_id,
+    signatory_node_id: signatory_node_id,
+  });
+  console.log("removed signatory to company: ", signatory_node_id, company_id);
 }
 
 async function triggerContact() {
