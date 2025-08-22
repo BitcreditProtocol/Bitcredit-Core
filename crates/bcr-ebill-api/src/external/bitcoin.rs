@@ -257,7 +257,9 @@ fn payment_state_from_transactions(
     for tx in txs.iter().rev() {
         for vout in tx.vout.iter() {
             // sum up outputs towards the address to check
-            if vout.scriptpubkey_address == *address {
+            if let Some(ref addr) = vout.scriptpubkey_address
+                && addr == address
+            {
                 total += vout.value;
             }
         }
@@ -349,7 +351,7 @@ pub struct Tx {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Vout {
     pub value: u64,
-    pub scriptpubkey_address: String,
+    pub scriptpubkey_address: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -388,7 +390,7 @@ pub mod tests {
             },
             vout: vec![Vout {
                 value: 500,
-                scriptpubkey_address: test_addr.to_owned(),
+                scriptpubkey_address: Some(test_addr.to_owned()),
             }],
         };
 
