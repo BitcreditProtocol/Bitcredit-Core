@@ -8,6 +8,7 @@
         * Add info for if a payment is in the mempool with it's transaction id, as well as how many confirmations it has, in the bill data (breaking DB change - reset IndexedDB)
 * Removed the `gloo` dependency, since it's going to be archived
 * Add chain propagation for company chains and identity chain
+* Small fix to WASM build addressing the rustwasm organization archiving
 
 # 0.4.3
 
