@@ -199,7 +199,7 @@ impl CompanyChainEventProcessor {
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             match data {
-                CompanyBlockPayload::Create(_) => { /* creates a handled on validation */ }
+                CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
                 update @ CompanyBlockPayload::Update(_) => {
                     info!("Updating company {company_id} from block data");
                     company.apply_block_data(&update);
