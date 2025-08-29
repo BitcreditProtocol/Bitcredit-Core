@@ -49,6 +49,7 @@ document.getElementById("company_create").addEventListener("click", createCompan
 document.getElementById("company_update").addEventListener("click", updateCompany);
 document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
 document.getElementById("company_remove_signatory").addEventListener("click", removeSignatory);
+document.getElementById("company_list").addEventListener("click", listCompanies);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -292,6 +293,11 @@ async function removeSignatory() {
     signatory_node_id: signatory_node_id,
   });
   console.log("removed signatory to company: ", signatory_node_id, company_id);
+}
+
+async function listCompanies() {
+  let companies = await companyApi.list();
+  console.log("companies:", companies.companies.length, companies);
 }
 
 async function triggerContact() {
@@ -667,7 +673,7 @@ async function getActiveNotif() {
 
 async function getNotifList() {
   let measured = measure(async () => {
-      return await notificationTriggerApi.list({});
+    return await notificationTriggerApi.list({});
   });
   await measured();
 }

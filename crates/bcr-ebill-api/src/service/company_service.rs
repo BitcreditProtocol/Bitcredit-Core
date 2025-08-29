@@ -340,6 +340,7 @@ impl CompanyServiceApi for CompanyService {
             proof_of_registration_file,
             logo_file,
             signatories: vec![full_identity.identity.node_id.clone()], // add caller as signatory
+            active: true,
         };
         self.store.insert(&company).await?;
 
@@ -935,6 +936,7 @@ pub mod tests {
                     proof_of_registration_file: None,
                     logo_file: None,
                     signatories: vec![node_id_test()],
+                    active: true,
                 },
                 CompanyKeys {
                     private_key: private_key_test(),

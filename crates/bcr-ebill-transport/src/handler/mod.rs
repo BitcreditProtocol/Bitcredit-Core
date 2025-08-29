@@ -711,6 +711,7 @@ mod test_utils {
                     proof_of_registration_file: None,
                     logo_file: None,
                     signatories: vec![node_id_test()],
+                    active: true,
                 },
                 CompanyKeys {
                     private_key: private_key_test(),
