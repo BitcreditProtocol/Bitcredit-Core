@@ -93,6 +93,9 @@ impl Company {
             CompanyBlockPayload::AddSignatory(payload) => {
                 if !self.signatories.contains(&payload.signatory) {
                     self.signatories.push(payload.signatory.to_owned());
+                    if &payload.signatory == our_node_id {
+                        self.active = true;
+                    }
                 }
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {

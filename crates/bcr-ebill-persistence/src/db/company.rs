@@ -38,7 +38,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
         bindings.add(DB_TABLE, Self::DATA_TABLE)?;
         bindings.add(DB_SEARCH_TERM, search_term.to_owned())?;
         let results: Vec<CompanyDb> = self.db
-            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term", bindings).await?;
+            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term AND active != false", bindings).await?;
         results.into_iter().map(|c| c.try_into()).collect()
     }
 
@@ -57,7 +57,15 @@ impl CompanyStoreApi for SurrealCompanyStore {
     }
 
     async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>> {
-        let companies: Vec<CompanyDb> = self.db.select_all(Self::DATA_TABLE).await?;
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::DATA_TABLE)?;
+        let companies: Vec<CompanyDb> = self
+            .db
+            .query(
+                "SELECT * from type::table($table) WHERE active != false",
+                bindings,
+            )
+            .await?;
         let company_keys: Vec<CompanyKeysDb> = self.db.select_all(Self::KEYS_TABLE).await?;
         let companies_map: HashMap<NodeId, CompanyDb> = companies
             .into_iter()
@@ -149,7 +157,7 @@ pub struct CompanyDb {
     pub active: bool,
 }
 
-// needed to migrate existing companies
+// needed to default existing companies to active
 fn active_default() -> bool {
     true
 }
@@ -387,6 +395,52 @@ mod tests {
         assert_eq!(
             companies.get(&company2.id).as_ref().unwrap().1.public_key,
             node_id_test().pub_key()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_all_and_search_only_return_active_companies() {
+        let store = get_store().await;
+        let mut company = get_baseline_company();
+        company.name = "first company".to_string();
+        store.insert(&company).await.unwrap();
+        store
+            .save_key_pair(
+                &node_id_test(),
+                &CompanyKeys {
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
+                },
+            )
+            .await
+            .unwrap();
+        let mut company2 = get_baseline_company();
+        company2.id = node_id_test_other();
+        company2.name = "second company".to_string();
+        company2.active = false;
+
+        store.insert(&company2).await.unwrap();
+        store
+            .save_key_pair(
+                &company2.id,
+                &CompanyKeys {
+                    private_key: private_key_test(),
+                    public_key: node_id_test().pub_key(),
+                },
+            )
+            .await
+            .unwrap();
+        let companies = store.get_all().await.unwrap();
+        assert_eq!(companies.len(), 1);
+        assert_eq!(
+            companies.get(&node_id_test()).as_ref().unwrap().0.name,
+            "first company".to_owned()
+        );
+        let search_results = store.search("company").await.unwrap();
+        assert_eq!(search_results.len(), 1);
+        assert_eq!(
+            search_results.first().unwrap().name,
+            "first company".to_owned()
         );
     }
 }
