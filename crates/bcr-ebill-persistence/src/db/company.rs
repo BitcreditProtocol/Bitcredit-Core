@@ -145,6 +145,13 @@ pub struct CompanyDb {
     pub proof_of_registration_file: Option<FileDb>,
     pub logo_file: Option<FileDb>,
     pub signatories: Vec<NodeId>,
+    #[serde(default = "active_default")]
+    pub active: bool,
+}
+
+// needed to migrate existing companies
+fn active_default() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +177,7 @@ impl TryFrom<CompanyDb> for Company {
             proof_of_registration_file: value.proof_of_registration_file.map(|f| f.into()),
             logo_file: value.logo_file.map(|f| f.into()),
             signatories: value.signatories,
+            active: value.active,
         })
     }
 }
@@ -195,6 +203,7 @@ impl From<&Company> for CompanyDb {
                 .map(|f| (&f).into()),
             logo_file: value.logo_file.clone().map(|f| (&f).into()),
             signatories: value.signatories.clone(),
+            active: value.active,
         }
     }
 }
@@ -249,6 +258,7 @@ mod tests {
             proof_of_registration_file: None,
             logo_file: None,
             signatories: vec![node_id_test()],
+            active: true,
         }
     }
 

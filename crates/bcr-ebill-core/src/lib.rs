@@ -36,6 +36,7 @@ fn network_char(network: &bitcoin::Network) -> char {
         bitcoin::Network::Testnet4 => NETWORK_TESTNET4,
         bitcoin::Network::Signet => unreachable!(),
         bitcoin::Network::Regtest => NETWORK_REGTEST,
+        _ => unreachable!(),
     }
 }
 

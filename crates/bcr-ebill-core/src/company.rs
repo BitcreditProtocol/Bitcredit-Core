@@ -20,11 +20,13 @@ pub struct Company {
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<NodeId>,
+    pub active: bool,
 }
 
 impl Company {
     /// Creates a new company from a block data payload
-    pub fn from_block_data(data: CompanyCreateBlockData) -> Self {
+    pub fn from_block_data(data: CompanyCreateBlockData, our_node_id: &NodeId) -> Self {
+        let active = data.signatories.contains(our_node_id);
         Self {
             id: data.id,
             name: data.name,
@@ -37,10 +39,11 @@ impl Company {
             proof_of_registration_file: data.proof_of_registration_file,
             logo_file: data.logo_file,
             signatories: data.signatories,
+            active,
         }
     }
     /// Applies data from a block to this company.
-    pub fn apply_block_data(&mut self, data: &CompanyBlockPayload) {
+    pub fn apply_block_data(&mut self, data: &CompanyBlockPayload, our_node_id: &NodeId) {
         match data {
             CompanyBlockPayload::Update(payload) => {
                 self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
@@ -94,6 +97,9 @@ impl Company {
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {
                 self.signatories.retain(|i| i != &payload.signatory);
+                if &payload.signatory == our_node_id {
+                    self.active = false;
+                }
             }
             _ => {}
         }

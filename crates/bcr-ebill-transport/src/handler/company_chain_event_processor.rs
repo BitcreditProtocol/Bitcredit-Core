@@ -51,12 +51,19 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             )));
         }
 
+        let identity = self
+            .identity_store
+            .get()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?
+            .node_id;
+
         if let Ok(mut existing_chain) = self.blockchain_store.get_chain(company_id).await {
-            self.add_company_blocks(company_id, &mut existing_chain, blocks)
+            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity)
                 .await
         } else {
             match keys {
-                Some(keys) => self.add_new_chain(blocks, &keys).await,
+                Some(keys) => self.add_new_chain(blocks, &keys, &identity).await,
                 _ => {
                     error!("Received company blocks for unknown company {company_id}");
                     Err(Error::Blockchain(
@@ -109,15 +116,14 @@ impl CompanyChainEventProcessor {
         }
     }
 
-    async fn add_new_chain(&self, blocks: Vec<CompanyBlock>, keys: &CompanyKeys) -> Result<()> {
-        let identity = self
-            .identity_store
-            .get()
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?
-            .node_id;
+    async fn add_new_chain(
+        &self,
+        blocks: Vec<CompanyBlock>,
+        keys: &CompanyKeys,
+        identity: &NodeId,
+    ) -> Result<()> {
         let (company_id, mut company, mut chain, we_are_signatory) =
-            self.get_valid_chain(blocks.clone(), keys, &identity)?;
+            self.get_valid_chain(blocks.clone(), keys, identity)?;
         if we_are_signatory {
             debug!(
                 "adding new chain and company {company_id} with {} blocks",
@@ -138,8 +144,15 @@ impl CompanyChainEventProcessor {
 
             // save all blocks
             for block in blocks.iter().skip(1) {
-                self.add_company_block(&company_id, keys, &mut company, &mut chain, block)
-                    .await?;
+                self.add_company_block(
+                    &company_id,
+                    keys,
+                    &mut company,
+                    &mut chain,
+                    block,
+                    identity,
+                )
+                .await?;
             }
 
             // also add the company to our nostr contacts
@@ -157,6 +170,7 @@ impl CompanyChainEventProcessor {
         company_id: &NodeId,
         chain: &mut CompanyBlockchain,
         blocks: Vec<CompanyBlock>,
+        identity: &NodeId,
     ) -> Result<()> {
         let keys = self
             .company_store
@@ -178,7 +192,7 @@ impl CompanyChainEventProcessor {
                 continue;
             }
 
-            self.add_company_block(company_id, &keys, &mut company, chain, &block)
+            self.add_company_block(company_id, &keys, &mut company, chain, &block, identity)
                 .await?;
             block_height = block.id;
         }
@@ -193,6 +207,7 @@ impl CompanyChainEventProcessor {
         company: &mut Company,
         chain: &mut CompanyBlockchain,
         block: &CompanyBlock,
+        identity: &NodeId,
     ) -> Result<()> {
         if chain.try_add_block(block.clone()) {
             let data = block
@@ -202,7 +217,7 @@ impl CompanyChainEventProcessor {
                 CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
                 update @ CompanyBlockPayload::Update(_) => {
                     info!("Updating company {company_id} from block data");
-                    company.apply_block_data(&update);
+                    company.apply_block_data(&update, identity);
                     self.company_store
                         .update(company_id, company)
                         .await
@@ -213,7 +228,7 @@ impl CompanyChainEventProcessor {
                     self.nostr_contact_processor
                         .ensure_nostr_contact(&payload.signatory)
                         .await;
-                    company.apply_block_data(&CompanyBlockPayload::AddSignatory(payload));
+                    company.apply_block_data(&CompanyBlockPayload::AddSignatory(payload), identity);
                     self.company_store
                         .update(company_id, company)
                         .await
@@ -221,7 +236,7 @@ impl CompanyChainEventProcessor {
                 }
                 update @ CompanyBlockPayload::RemoveSignatory(_) => {
                     info!("Removing signatory from company {company_id}");
-                    company.apply_block_data(&update);
+                    company.apply_block_data(&update, identity);
                     self.company_store
                         .update(company_id, company)
                         .await
@@ -294,17 +309,17 @@ impl CompanyChainEventProcessor {
                 let node_id = payload.id.clone();
 
                 // initialize company from payload
-                let company = Company::from_block_data(payload);
+                let company = Company::from_block_data(payload, identity);
 
                 // check if we are a signatory
                 let we_are_signatory = {
                     let mut aggregate = company.clone();
                     for block in blocks.iter().skip(1) {
                         if let Ok(data) = &block.get_block_data(keys) {
-                            aggregate.apply_block_data(data);
+                            aggregate.apply_block_data(data, identity);
                         }
                     }
-                    aggregate.signatories.contains(identity)
+                    aggregate.active
                 };
 
                 // chain with just the create block
@@ -484,7 +499,7 @@ pub mod tests {
             .returning(|_| Err(bcr_ebill_persistence::Error::NoCompanyBlock))
             .once();
 
-        // in case of a new chain we need to validate if we are a signatory with our identity
+        // we need to validate if we are a signatory with our identity
         identity
             .expect_get()
             .returning(|| Ok(get_baseline_identity().identity))
@@ -536,7 +551,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_company_data() {
-        let (mut chain_store, mut store, mut contact, bill, identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -555,6 +570,12 @@ pub mod tests {
             &keys,
             &data,
         );
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .once();
 
         // checks if we already have the chain
         chain_store
@@ -626,7 +647,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_add_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill, identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
@@ -646,6 +667,12 @@ pub mod tests {
             &keys,
             &data,
         );
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .once();
 
         // checks if we already have the chain
         chain_store
@@ -720,7 +747,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_remove_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill, identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (mut company, keys)) = get_company_data();
         company.signatories.push(new_node_id.clone());
@@ -741,6 +768,12 @@ pub mod tests {
             &keys,
             &data,
         );
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .once();
 
         // checks if we already have the chain
         chain_store

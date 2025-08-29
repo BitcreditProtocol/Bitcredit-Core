@@ -283,6 +283,7 @@ mod tests {
                 proof_of_registration_file: None,
                 logo_file: None,
                 signatories: vec![node_id_test()],
+                active: true,
             }
             .into(),
             &BcrKeys::new(),
@@ -338,6 +339,7 @@ mod tests {
                 proof_of_registration_file: None,
                 logo_file: None,
                 signatories: vec![node_id_test()],
+                active: true,
             }
             .into(),
             &BcrKeys::new(),
