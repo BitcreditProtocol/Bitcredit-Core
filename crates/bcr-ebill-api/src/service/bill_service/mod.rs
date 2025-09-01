@@ -3323,6 +3323,164 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn endorse_bitcredit_bill_multiple_back_and_forth() {
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(&bill_id_test());
+        bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+            identity.identity.node_id.clone(),
+        ));
+
+        let party2_keys = BcrKeys::new();
+        let party2_node_id = NodeId::new(party2_keys.pub_key(), bitcoin::Network::Testnet);
+        let party2_participant = bill_identified_participant_only_node_id(party2_node_id.clone());
+
+        let mut current_chain = get_genesis_chain(Some(bill.clone()));
+        let mut current_timestamp = 1731593928u64;
+
+        for i in 0..10 {
+            let is_even = i % 2 == 0;
+
+            let mut ctx = get_ctx();
+            ctx.bill_store
+                .expect_save_bill_to_cache()
+                .returning(|_, _, _| Ok(()))
+                .times(1);
+            ctx.bill_store.expect_exists().returning(|_| Ok(true));
+
+            let chain_for_ctx = current_chain.clone();
+            ctx.bill_blockchain_store
+                .expect_get_chain()
+                .returning(move |_| Ok(chain_for_ctx.clone()));
+
+            ctx.notification_service
+                .expect_send_bill_is_endorsed_event()
+                .returning(|_| Ok(()));
+
+            expect_populates_identity_block(&mut ctx);
+
+            let service = get_service(ctx);
+
+            // Determine endorser and endorsee based on iteration
+            let (endorser_participant, endorser_keys, endorsee_participant) = if is_even {
+                // Even iterations: Party1 endorses to Party2
+                (
+                    BillParticipant::Ident(
+                        BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                    ),
+                    &identity.key_pair,
+                    BillParticipant::Ident(party2_participant.clone()),
+                )
+            } else {
+                // Odd iterations: Party2 endorses to Party1
+                (
+                    BillParticipant::Ident(party2_participant.clone()),
+                    &party2_keys,
+                    BillParticipant::Ident(
+                        BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                    ),
+                )
+            };
+
+            // Execute the endorsement
+            let result = service
+                .execute_bill_action(
+                    &bill_id_test(),
+                    BillAction::Endorse(endorsee_participant),
+                    &endorser_participant,
+                    endorser_keys,
+                    current_timestamp,
+                )
+                .await;
+
+            assert!(result.is_ok(), "Endorsement {} failed", i + 1);
+            current_chain = result.unwrap();
+
+            // Verify the chain grows by one block each time
+            // The chain should have 1 genesis block plus (i+1) endorsement blocks after each iteration.
+            assert_eq!(current_chain.blocks().len(), 1 + (i + 1)); // Genesis + (i+1) endorsements
+            assert_eq!(
+                current_chain.blocks().last().unwrap().op_code,
+                BillOpCode::Endorse
+            );
+
+            // Verify timestamp ordering: the new block's timestamp should be >= previous block's timestamp
+            let blocks = current_chain.blocks();
+            let new_block_index = blocks.len() - 1;
+            if new_block_index > 0 {
+                let prev_timestamp = blocks[new_block_index - 1].timestamp;
+                let curr_timestamp = blocks[new_block_index].timestamp;
+                assert!(
+                    curr_timestamp >= prev_timestamp,
+                    "Block {} timestamp ({}) is before previous block {} timestamp ({})",
+                    new_block_index,
+                    curr_timestamp,
+                    new_block_index - 1,
+                    prev_timestamp
+                );
+            }
+
+            current_timestamp += 1;
+        }
+
+        // Create a final context to verify the end state
+        let mut final_ctx = get_ctx();
+        final_ctx.bill_store.expect_exists().returning(|_| Ok(true));
+
+        let final_chain = current_chain.clone();
+        final_ctx
+            .bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(final_chain.clone()));
+
+        final_ctx
+            .notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
+
+        let final_service = get_service(final_ctx);
+
+        // After back-and-forth endorsements, the bill should be back with Party1
+        // (start with Party1 and do an even number of transfers)
+        let bill_detail = final_service
+            .get_detail(
+                &bill_id_test(),
+                &identity.identity,
+                &identity.identity.node_id,
+                current_timestamp,
+            )
+            .await;
+        assert!(bill_detail.is_ok());
+
+        let bill_result = bill_detail.unwrap();
+        assert_eq!(
+            bill_result
+                .participants
+                .endorsee
+                .as_ref()
+                .unwrap()
+                .node_id(),
+            identity.identity.node_id,
+        );
+
+        // Verify the endorsement chain
+        let endorsements = final_service
+            .get_endorsements(&bill_id_test(), &identity.identity.node_id)
+            .await;
+        assert!(endorsements.is_ok());
+
+        // Should have 10 endorsements total
+        assert_eq!(endorsements.as_ref().unwrap().len(), 10);
+
+        // The most recent endorsement should be back to party1 (identity)
+        assert_eq!(
+            endorsements.as_ref().unwrap()[0]
+                .pay_to_the_order_of
+                .node_id,
+            identity.identity.node_id
+        );
+    }
+
+    #[tokio::test]
     async fn endorse_bitcredit_bill_anon_baseline() {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
