@@ -5,7 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::Display;
+use std::fmt::{self, Display};
 use uuid::Uuid;
 
 /// A notification as it will be delivered to the UI.
@@ -109,6 +109,12 @@ pub enum BillEventType {
     BillQuoteApproved,
     #[default]
     BillBlock,
+}
+
+impl fmt::Display for BillEventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl BillEventType {

@@ -415,6 +415,7 @@ pub mod tests {
             Some(_) => (),
             None => {
                 let _ = crate::init(crate::Config {
+                    app_url: url::Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
                     bitcoin_network: "testnet".to_string(),
                     esplora_base_url: "https://esplora.minibill.tech".to_string(),
                     db_config: SurrealDbConfig {

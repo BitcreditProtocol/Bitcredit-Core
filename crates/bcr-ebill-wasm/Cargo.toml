@@ -33,3 +33,4 @@ tsify = { version = "0.4.5", features = ["js"] }
 bcr-ebill-api.workspace = true
 bcr-ebill-transport.workspace = true
 base64.workspace = true
+url.workspace = true

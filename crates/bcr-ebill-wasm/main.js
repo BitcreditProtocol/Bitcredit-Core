@@ -58,6 +58,7 @@ document.getElementById("restore_account").addEventListener("click", restoreFrom
 
 let config = {
   log_level: "debug",
+  app_url: "https://bitcredit-dev.minibill.tech",
   // bitcoin_network: "regtest", // local reg test
   // esplora_base_url: "http://localhost:8094", // local reg test via docker-compose
   bitcoin_network: "testnet",

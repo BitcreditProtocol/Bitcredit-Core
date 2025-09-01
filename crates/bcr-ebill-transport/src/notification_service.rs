@@ -865,6 +865,7 @@ mod tests {
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use mockall::predicate::eq;
+    use reqwest::Url;
     use std::sync::Arc;
 
     use crate::test_utils::{
@@ -2023,6 +2024,7 @@ mod tests {
         };
 
         init(Config {
+            app_url: Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
             bitcoin_network: "testnet".to_string(),
             esplora_base_url: "https://esplora.minibill.tech".to_string(),
             db_config: SurrealDbConfig::default(),
