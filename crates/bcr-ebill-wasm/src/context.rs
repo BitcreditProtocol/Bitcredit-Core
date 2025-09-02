@@ -2,7 +2,10 @@
 use super::{CONTEXT, Result};
 use bcr_ebill_api::{
     Config, DbContext,
-    external::{bitcoin::BitcoinClient, file_storage::FileStorageClient, mint::MintClient},
+    external::{
+        bitcoin::BitcoinClient, email::EmailClient, file_storage::FileStorageClient,
+        mint::MintClient,
+    },
     service::{
         bill_service::{BillService, BillServiceApi},
         company_service::{CompanyService, CompanyServiceApi},
@@ -50,15 +53,18 @@ impl Context {
         ));
         let bitcoin_client = Arc::new(BitcoinClient::new());
         let mint_client = Arc::new(MintClient::new());
+        let email_client = Arc::new(EmailClient::new());
 
         let nostr_clients =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
         let notification_service = create_notification_service(
             nostr_clients.clone(),
             db.notification_store.clone(),
+            db.email_notification_store.clone(),
             contact_service.clone(),
             db.queued_message_store.clone(),
             db.nostr_chain_event_store.clone(),
+            email_client,
             cfg.nostr_config.relays.to_owned(),
         )
         .await?;

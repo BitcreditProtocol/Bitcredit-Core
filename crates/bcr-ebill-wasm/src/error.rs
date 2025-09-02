@@ -82,6 +82,7 @@ enum JsErrorType {
     Crypto,
     Persistence,
     Blockchain,
+    InvalidRelayUrl,
     Serialization,
     Init,
     // notification
@@ -181,6 +182,8 @@ fn notification_service_error_data(e: NotificationServiceError) -> JsErrorData {
         NotificationServiceError::Crypto(e) => err_500(e, JsErrorType::Crypto),
         NotificationServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
         NotificationServiceError::Validation(e) => validation_error_data(e),
+        NotificationServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),
+        NotificationServiceError::NotFound => err_404(e, JsErrorType::NotFound),
     }
 }
 
@@ -342,6 +345,7 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::UnknownNodeId(_) => err_400(e, JsErrorType::UnknownNodeId),
         ValidationError::BackupNotSupported => err_400(e, JsErrorType::BackupNotSupported),
         ValidationError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
+        ValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
     }
 }
 

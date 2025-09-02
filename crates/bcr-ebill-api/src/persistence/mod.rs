@@ -10,13 +10,15 @@ use bcr_ebill_persistence::{
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
-        mint::SurrealMintStore, nostr_contact_store::SurrealNostrContactStore,
+        email_notification::SurrealEmailNotificationStore, mint::SurrealMintStore,
+        nostr_contact_store::SurrealNostrContactStore,
         nostr_send_queue::SurrealNostrEventQueueStore, surreal::SurrealWrapper,
     },
     file_upload::FileUploadStoreApi,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
     mint::MintStoreApi,
     nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
+    notification::EmailNotificationStoreApi,
 };
 use log::error;
 use std::sync::Arc;
@@ -45,6 +47,7 @@ pub struct DbContext {
     pub file_upload_store: Arc<dyn FileUploadStoreApi>,
     pub nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     pub notification_store: Arc<dyn NotificationStoreApi>,
+    pub email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     pub backup_store: Arc<dyn BackupStoreApi>,
     pub queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
@@ -101,6 +104,8 @@ pub async fn get_db_context(
     let nostr_event_offset_store =
         Arc::new(SurrealNostrEventOffsetStore::new(surreal_wrapper.clone()));
     let notification_store = Arc::new(SurrealNotificationStore::new(surreal_wrapper.clone()));
+    let email_notification_store =
+        Arc::new(SurrealEmailNotificationStore::new(surreal_wrapper.clone()));
 
     #[cfg(target_arch = "wasm32")]
     let backup_store = Arc::new(SurrealBackupStore {});
@@ -124,6 +129,7 @@ pub async fn get_db_context(
         file_upload_store,
         nostr_event_offset_store,
         notification_store,
+        email_notification_store,
         backup_store,
         queued_message_store,
         nostr_contact_store,

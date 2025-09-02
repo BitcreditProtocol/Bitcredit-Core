@@ -1,7 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bcr_ebill_api::{
-    Config, DbContext, get_config, get_db_context,
+    Config, DbContext,
+    external::email::EmailClientApi,
+    get_config, get_db_context,
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
@@ -15,6 +17,7 @@ use bcr_ebill_core::NodeId;
 use bcr_ebill_persistence::{
     NostrChainEventStoreApi, NotificationStoreApi, company::CompanyStoreApi,
     identity::IdentityStoreApi, nostr::NostrQueuedMessageStoreApi,
+    notification::EmailNotificationStoreApi,
 };
 use chain_keys::ChainKeyServiceApi;
 use handler::{
@@ -105,9 +108,11 @@ pub async fn create_nostr_clients(
 pub async fn create_notification_service(
     clients: Vec<Arc<NostrClient>>,
     notification_store: Arc<dyn NotificationStoreApi>,
+    email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<String>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
     #[allow(clippy::arc_with_non_send_sync)]
@@ -117,9 +122,11 @@ pub async fn create_notification_service(
             .map(|c| c.clone() as Arc<dyn NotificationJsonTransportApi>)
             .collect(),
         notification_store,
+        email_notification_store,
         contact_service,
         queued_message_store,
         chain_event_store,
+        email_client,
         nostr_relays,
     )))
 }

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::nostr::NostrClient;
 use async_trait::async_trait;
+use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::notification_service::event::{
     BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, EventEnvelope,
     IdentityChainEvent,
@@ -18,6 +19,7 @@ use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
 };
+use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use log::{debug, error, warn};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -41,9 +43,11 @@ use bcr_ebill_core::{NodeId, PostalAddress, ServiceTraitBounds};
 pub struct NotificationService {
     notification_transport: Mutex<HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>>,
     notification_store: Arc<dyn NotificationStoreApi>,
+    email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<String>,
 }
 
@@ -56,9 +60,11 @@ impl NotificationService {
     pub fn new(
         notification_transport: Vec<Arc<dyn NotificationJsonTransportApi>>,
         notification_store: Arc<dyn NotificationStoreApi>,
+        email_notification_store: Arc<dyn EmailNotificationStoreApi>,
         contact_service: Arc<dyn ContactServiceApi>,
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+        email_client: Arc<dyn EmailClientApi>,
         nostr_relays: Vec<String>,
     ) -> Self {
         let transports: Mutex<HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>> = Mutex::new(
@@ -70,9 +76,11 @@ impl NotificationService {
         Self {
             notification_transport: transports,
             notification_store,
+            email_notification_store,
             contact_service,
             queued_message_store,
             chain_event_store,
+            email_client,
             nostr_relays,
         }
     }
@@ -848,6 +856,43 @@ impl NotificationServiceApi for NotificationService {
             Ok(None)
         }
     }
+
+    async fn register_email_notifications(
+        &self,
+        relay_url: &str,
+        email: &str,
+        node_id: &NodeId,
+        caller_keys: &BcrKeys,
+    ) -> Result<()> {
+        let challenge = self.email_client.start(relay_url, node_id).await?;
+
+        let preferences_link = self
+            .email_client
+            .register(
+                relay_url,
+                email,
+                caller_keys.get_nostr_keys().secret_key(),
+                &challenge,
+            )
+            .await?;
+        self.email_notification_store
+            .add_email_preferences_link_for_node_id(&preferences_link, node_id)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url> {
+        match self
+            .email_notification_store
+            .get_email_preferences_link_for_node_id(node_id)
+            .await
+        {
+            Ok(Some(link)) => Ok(link),
+            Ok(None) => Err(Error::NotFound),
+            Err(e) => Err(Error::Persistence(e.to_string())),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -869,9 +914,10 @@ mod tests {
     use std::sync::Arc;
 
     use crate::test_utils::{
-        MockContactService, MockNostrChainEventStore, MockNostrQueuedMessageStore,
-        MockNotificationJsonTransport, MockNotificationStore, bill_id_test, get_baseline_identity,
-        get_genesis_chain, node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+        MockContactService, MockEmailClient, MockEmailNotificationStore, MockNostrChainEventStore,
+        MockNostrQueuedMessageStore, MockNotificationJsonTransport, MockNotificationStore,
+        bill_id_test, get_baseline_identity, get_genesis_chain, node_id_test, node_id_test_other,
+        node_id_test_other2, private_key_test,
     };
 
     use super::super::test_utils::{get_identity_public_data, get_test_bitcredit_bill};
@@ -993,9 +1039,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1079,9 +1127,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1131,9 +1181,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1189,9 +1241,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1308,9 +1362,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(event_store),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1384,9 +1440,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1453,9 +1511,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(queue_mock),
             Arc::new(mock_event_store),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -1559,9 +1619,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(mock_event_store),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2000,9 +2062,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(mock_store),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2051,9 +2115,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2095,9 +2161,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(mock_store),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2127,9 +2195,11 @@ mod tests {
         NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         )
     }
@@ -2205,9 +2275,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2270,9 +2342,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2376,9 +2450,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2421,9 +2497,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2491,9 +2569,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2561,9 +2641,11 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
@@ -2587,13 +2669,118 @@ mod tests {
         let service = NotificationService::new(
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
             Arc::new(MockContactService::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
             vec!["ws://test.relay".into()],
         );
 
         let result = service.send_retry_messages().await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_register_email_notifications() {
+        let mut mock_email_notification_store = MockEmailNotificationStore::new();
+        mock_email_notification_store
+            .expect_add_email_preferences_link_for_node_id()
+            .returning(|_, _| Ok(()))
+            .times(1);
+        let mut mock_email_client = MockEmailClient::new();
+        mock_email_client
+            .expect_start()
+            .returning(|_, _| Ok("challenge".to_string()));
+        mock_email_client
+            .expect_register()
+            .returning(|_, _, _, _| Ok(url::Url::parse("http://bit.cr/").unwrap()));
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+
+        let service = NotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(mock_email_notification_store),
+            Arc::new(MockContactService::new()),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(mock_email_client),
+            vec!["ws://test.relay".into()],
+        );
+
+        let result = service
+            .register_email_notifications(
+                "ws://test.relay",
+                "test@example.com",
+                &node_id_test(),
+                &BcrKeys::new(),
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_email_notifications_preferences_link() {
+        let mut mock_email_notification_store = MockEmailNotificationStore::new();
+        mock_email_notification_store
+            .expect_get_email_preferences_link_for_node_id()
+            .returning(|_| Ok(Some(url::Url::parse("http://bit.cr/").unwrap())))
+            .times(1);
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+
+        let service = NotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(mock_email_notification_store),
+            Arc::new(MockContactService::new()),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
+            vec!["ws://test.relay".into()],
+        );
+
+        let result = service
+            .get_email_notifications_preferences_link(&node_id_test())
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(
+            result.as_ref().unwrap(),
+            &url::Url::parse("http://bit.cr/").unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_email_notifications_preferences_link_no_entry() {
+        let mut mock_email_notification_store = MockEmailNotificationStore::new();
+        mock_email_notification_store
+            .expect_get_email_preferences_link_for_node_id()
+            .returning(|_| Ok(None))
+            .times(1);
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+
+        let service = NotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(mock_email_notification_store),
+            Arc::new(MockContactService::new()),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
+            vec!["ws://test.relay".into()],
+        );
+        let result = service
+            .get_email_notifications_preferences_link(&node_id_test())
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::NotFound)));
     }
 }

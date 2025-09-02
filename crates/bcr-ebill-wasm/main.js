@@ -1,10 +1,16 @@
 import * as wasm from '../pkg/index.js';
 
+// file upload
 document.getElementById("fileInput").addEventListener("change", uploadFile);
+
+// notifs
 document.getElementById("notif").addEventListener("click", triggerNotif);
 document.getElementById("get_active_notif_status").addEventListener("click", getActiveNotif);
 document.getElementById("get_notif_list").addEventListener("click", getNotifList);
-document.getElementById("company_create").addEventListener("click", createCompany);
+document.getElementById("register_email_notifications").addEventListener("click", register_email_notifications);
+document.getElementById("get_email_notifications_preferences_link").addEventListener("click", get_email_notifications_preferences_link);
+
+// contacts
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
 document.getElementById("fetch_contacts").addEventListener("click", fetchContacts);
@@ -12,6 +18,8 @@ document.getElementById("remove_contact_avatar").addEventListener("click", remov
 document.getElementById("delete_contact").addEventListener("click", deleteContact);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
+
+// identity
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
 
 // bill actions
@@ -45,6 +53,7 @@ document.getElementById("bill_test_promissory").addEventListener("click", trigge
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 
+// companies
 document.getElementById("company_create").addEventListener("click", createCompany);
 document.getElementById("company_update").addEventListener("click", updateCompany);
 document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
@@ -675,6 +684,20 @@ async function getActiveNotif() {
 async function getNotifList() {
   let measured = measure(async () => {
     return await notificationTriggerApi.list({});
+  });
+  await measured();
+}
+
+async function register_email_notifications() {
+  let measured = measure(async () => {
+    return await notificationTriggerApi.register_email_notifications(config.nostr_relays[0]);
+  });
+  await measured();
+}
+
+async function get_email_notifications_preferences_link() {
+  let measured = measure(async () => {
+    return await notificationTriggerApi.get_email_notifications_preferences_link();
   });
   await measured();
 }

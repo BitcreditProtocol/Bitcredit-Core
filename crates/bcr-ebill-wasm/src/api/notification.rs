@@ -1,12 +1,18 @@
 use super::Result;
 use crate::{
+    api::{bill::get_signer_public_data_and_keys, identity::get_current_identity_node_id},
     context::get_ctx,
     data::{
         NotificationFilters,
         notification::{NotificationStatusWeb, NotificationWeb},
     },
 };
-use bcr_ebill_api::{NotificationFilter, data::NodeId};
+use bcr_ebill_api::{
+    NotificationFilter,
+    data::NodeId,
+    service::Error,
+    util::{Field, ValidationError},
+};
 use log::{error, info};
 use wasm_bindgen::prelude::*;
 
@@ -86,6 +92,47 @@ impl Notification {
             .mark_notification_as_done(notification_id)
             .await?;
         Ok(())
+    }
+
+    #[wasm_bindgen]
+    /// Register email notifications for the currently selected identity
+    pub async fn register_email_notifications(&self, relay_url: &str) -> Result<()> {
+        let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+
+        // check if the given relay URL is one of the current selected identity's relays
+        if !caller_public_data
+            .nostr_relays()
+            .iter()
+            .any(|nr| nr == relay_url)
+        {
+            return Err(Error::Validation(ValidationError::InvalidRelayUrl).into());
+        }
+
+        // check if there is an email set
+        let email = caller_public_data
+            .email()
+            .ok_or(Error::Validation(ValidationError::FieldEmpty(Field::Email)))?;
+
+        get_ctx()
+            .notification_service
+            .register_email_notifications(
+                relay_url,
+                &email,
+                &caller_public_data.node_id(),
+                &caller_keys,
+            )
+            .await?;
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    /// Fetch email notifications preferences link for the currently selected identity
+    pub async fn get_email_notifications_preferences_link(&self) -> Result<String> {
+        let preferences_link = get_ctx()
+            .notification_service
+            .get_email_notifications_preferences_link(&get_current_identity_node_id().await?)
+            .await?;
+        Ok(preferences_link.to_string())
     }
 
     #[wasm_bindgen]

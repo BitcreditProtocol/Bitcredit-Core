@@ -184,4 +184,16 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
 
     /// Attempts to resolve the nostr contact for the given Node Id
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
+
+    /// Register email notifications for the currently selected identity
+    async fn register_email_notifications(
+        &self,
+        relay_url: &str,
+        email: &str,
+        node_id: &NodeId,
+        caller_keys: &BcrKeys,
+    ) -> Result<()>;
+
+    /// Fetch email notifications preferences link for the currently selected identity
+    async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
 }

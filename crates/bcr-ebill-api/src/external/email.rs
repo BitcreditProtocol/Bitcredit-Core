@@ -43,16 +43,16 @@ use crate::{external::file_storage::to_url, get_config};
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait EmailClientApi: ServiceTraitBounds {
-    /// Start register flow, receiving a challenge string
-    async fn start(&self, relay_url: &str, npub: &str) -> Result<StartEmailRegisterResponse>;
-    /// Register for email notifications
+    /// Start register flow, returning a challenge string
+    async fn start(&self, relay_url: &str, node_id: &NodeId) -> Result<String>;
+    /// Register for email notifications, returning an email preferences link
     async fn register(
         &self,
         relay_url: &str,
         email: &str,
         private_key: &nostr::SecretKey,
         challenge: &str,
-    ) -> Result<RegisterEmailNotificationResponse>;
+    ) -> Result<url::Url>;
     /// Send a bill notification email
     async fn send_bill_notification(
         &self,
@@ -69,6 +69,14 @@ pub struct EmailClient {
     cl: reqwest::Client,
 }
 
+impl EmailClient {
+    pub fn new() -> Self {
+        Self {
+            cl: reqwest::Client::new(),
+        }
+    }
+}
+
 impl ServiceTraitBounds for EmailClient {}
 
 #[cfg(test)]
@@ -77,10 +85,9 @@ impl ServiceTraitBounds for MockEmailClientApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EmailClientApi for EmailClient {
-    async fn start(&self, relay_url: &str, npub: &str) -> Result<StartEmailRegisterResponse> {
-        let req = StartEmailRegisterRequest {
-            npub: npub.to_owned(),
-        };
+    async fn start(&self, relay_url: &str, node_id: &NodeId) -> Result<String> {
+        let npub = node_id.npub().to_bech32().map_err(|_| Error::NostrKey)?;
+        let req = StartEmailRegisterRequest { npub };
 
         let resp: StartEmailRegisterResponse = self
             .cl
@@ -91,7 +98,7 @@ impl EmailClientApi for EmailClient {
             .json()
             .await?;
 
-        Ok(resp)
+        Ok(resp.challenge)
     }
 
     async fn register(
@@ -100,7 +107,7 @@ impl EmailClientApi for EmailClient {
         email: &str,
         private_key: &nostr::SecretKey,
         challenge: &str,
-    ) -> Result<RegisterEmailNotificationResponse> {
+    ) -> Result<url::Url> {
         let key_pair = Keypair::from_secret_key(SECP256K1, private_key);
         let msg = Message::from_digest_slice(&hex::decode(challenge).map_err(Error::Hex)?)
             .map_err(Error::Signature)?;
@@ -127,7 +134,10 @@ impl EmailClientApi for EmailClient {
             .json()
             .await?;
 
-        Ok(resp)
+        to_url(
+            relay_url,
+            &format!("notifications/preferences/{}", resp.preferences_token),
+        )
     }
 
     async fn send_bill_notification(

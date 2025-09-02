@@ -896,7 +896,7 @@ impl Default for Bill {
     }
 }
 
-async fn get_signer_public_data_and_keys() -> Result<(BillParticipant, BcrKeys)> {
+pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant, BcrKeys)> {
     let current_identity = get_current_identity().await?;
     let local_node_id = current_identity.personal;
     let (signer_public_data, signer_keys) = match current_identity.company {

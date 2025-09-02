@@ -304,7 +304,6 @@ struct SentBlockNotificationDb {
 
 #[cfg(test)]
 mod tests {
-
     use bcr_ebill_core::bill::BillId;
     use serde_json::json;
     use uuid::Uuid;
