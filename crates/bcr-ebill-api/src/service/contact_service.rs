@@ -372,6 +372,7 @@ impl ContactServiceApi for ContactService {
                 return Ok(());
             }
 
+            // TODO(multi-relay): don't default to first
             if let Some(nostr_relay) = nostr_relays.first() {
                 if !ignore_avatar_file_upload_id {
                     let avatar_file = self
@@ -447,6 +448,7 @@ impl ContactServiceApi for ContactService {
 
         let contact = match t {
             ContactType::Company | ContactType::Person => {
+                // TODO(multi-relay): don't default to first
                 let (avatar_file, proof_document_file) = match nostr_relays.first() {
                     Some(nostr_relay) => {
                         let avatar_file = self
@@ -564,6 +566,7 @@ impl ContactServiceApi for ContactService {
 
         let identity_public_key = self.identity_store.get_key_pair().await?.pub_key();
 
+        // TODO(multi-relay): don't default to first
         let (avatar_file, proof_document_file) = match nostr_relays.first() {
             Some(nostr_relay) => {
                 let avatar_file = self
@@ -649,6 +652,7 @@ impl ContactServiceApi for ContactService {
         debug!("getting file {file_name} for contact with id: {node_id}",);
         validate_node_id_network(node_id)?;
         let nostr_relays = contact.nostr_relays.clone();
+        // TODO(multi-relay): don't default to first
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
             if let Some(avatar_file) = contact.avatar_file

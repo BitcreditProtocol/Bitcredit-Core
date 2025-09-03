@@ -291,6 +291,10 @@ impl NotificationJsonTransportApi for NostrClient {
         self.get_node_id()
     }
 
+    fn get_sender_keys(&self) -> BcrKeys {
+        self.keys.clone()
+    }
+
     async fn send_private_event(
         &self,
         recipient: &BillParticipant,

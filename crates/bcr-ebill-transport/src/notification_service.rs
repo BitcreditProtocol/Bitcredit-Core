@@ -23,6 +23,8 @@ use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use log::{debug, error, warn};
 use serde_json::Value;
 use tokio::sync::Mutex;
+use tokio::task::spawn;
+use tokio_with_wasm::alias as tokio;
 
 use bcr_ebill_api::data::{
     bill::BitcreditBill,
@@ -163,11 +165,11 @@ impl NotificationService {
     async fn send_all_bill_events(
         &self,
         sender: &NodeId,
-        events: HashMap<NodeId, Event<BillChainEventPayload>>,
+        events: &HashMap<NodeId, Event<BillChainEventPayload>>,
     ) -> Result<()> {
         if let Some(node) = self.get_node_transport(sender).await {
-            for (node_id, event_to_process) in events.into_iter() {
-                if let Some(identity) = self.resolve_identity(&node_id).await {
+            for (node_id, event_to_process) in events.iter() {
+                if let Some(identity) = self.resolve_identity(node_id).await {
                     if let Err(e) = node
                         .send_private_event(&identity, event_to_process.clone().try_into()?)
                         .await
@@ -177,7 +179,7 @@ impl NotificationService {
                         );
                         self.queue_retry_message(
                             sender,
-                            &node_id,
+                            node_id,
                             serde_json::to_value(event_to_process)?,
                         )
                         .await?;
@@ -336,6 +338,48 @@ impl NotificationService {
         }
         Ok(())
     }
+
+    /// Attempts to send an email notification for an event to the receiver
+    /// if the receiver does not have email notifications enabled, the relay
+    /// ignores the request and returns a quick 200 OK.
+    async fn send_email_notification(
+        &self,
+        sender: &NodeId,
+        receiver: &NodeId,
+        event: &Event<BillChainEventPayload>,
+    ) {
+        if let Some(node) = self.get_node_transport(sender).await {
+            if let Some(identity) = self.resolve_identity(receiver).await {
+                // TODO(multi-relay): don't default to first, but to notification relay of receiver
+                if let Some(nostr_relay) = identity.nostr_relays().first() {
+                    // send asynchronously and don't fail on error
+                    let email_client = self.email_client.clone();
+                    let relay_clone = nostr_relay.clone();
+                    let rcv_clone = receiver.clone();
+                    let private_key = node.get_sender_keys().get_nostr_keys().secret_key().clone();
+                    let evt_clone = event.clone();
+                    spawn(async move {
+                        if let Err(e) = email_client
+                            .send_bill_notification(
+                                &relay_clone,
+                                evt_clone.data.event_type.to_owned(),
+                                &evt_clone.data.bill_id,
+                                &rcv_clone,
+                                &private_key,
+                            )
+                            .await
+                        {
+                            warn!("Failed to send email notification: {e}");
+                        }
+                    });
+                }
+            } else {
+                warn!("Failed to find recipient in contacts for node_id: {receiver}");
+            }
+        } else {
+            warn!("No transport node found for sender node_id: {sender}");
+        }
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -453,6 +497,10 @@ impl NotificationServiceApi for NotificationService {
 
     async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()> {
         let event_type = BillEventType::BillSigned;
+        let sender = event.sender();
+        let drawer = &event.bill.drawer.node_id;
+        let drawee = &event.bill.drawee.node_id;
+        let payee = &event.bill.payee.node_id();
 
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![
@@ -470,30 +518,63 @@ impl NotificationServiceApi for NotificationService {
         );
 
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
-            .await?;
+        self.send_all_bill_events(&sender, &all_events).await?;
+        // send email(s)
+        if drawer != drawee && drawer != payee {
+            // if we're drawer, but neither drawee, nor payee, send mail to both
+            if let Some(payee_event) = all_events.get(payee) {
+                self.send_email_notification(&event.sender(), payee, payee_event)
+                    .await;
+            }
+
+            if let Some(drawee_event) = all_events.get(drawee) {
+                self.send_email_notification(&event.sender(), drawee, drawee_event)
+                    .await;
+            }
+        } else if drawer == drawee {
+            // if we're drawer & drawee, send mail to payee only
+
+            if let Some(payee_event) = all_events.get(payee) {
+                self.send_email_notification(&event.sender(), payee, payee_event)
+                    .await;
+            }
+        } else if drawer == payee {
+            // if we're drawer & payee, send mail to drawee only
+            if let Some(drawee_event) = all_events.get(drawee) {
+                self.send_email_notification(&event.sender(), drawee, drawee_event)
+                    .await;
+            }
+        }
+
         Ok(())
     }
 
     async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> Result<()> {
+        let payee = event.bill.payee.node_id();
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                event.bill.payee.node_id().clone(),
+                payee.clone(),
                 (BillEventType::BillAccepted, ActionType::CheckBill),
             )]),
             None,
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to payee
+        if let Some(payee_event) = all_events.get(&payee) {
+            self.send_email_notification(&event.sender(), &payee, payee_event)
+                .await;
+        }
         Ok(())
     }
 
     async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> Result<()> {
+        let drawee = event.bill.drawee.node_id.clone();
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                event.bill.drawee.node_id.clone(),
+                drawee.clone(),
                 (
                     BillEventType::BillAcceptanceRequested,
                     ActionType::AcceptBill,
@@ -503,53 +584,78 @@ impl NotificationServiceApi for NotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to drawee
+        if let Some(drawee_event) = all_events.get(&drawee) {
+            self.send_email_notification(&event.sender(), &drawee, drawee_event)
+                .await;
+        }
         Ok(())
     }
 
     async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> Result<()> {
+        let drawee = event.bill.drawee.node_id.clone();
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                event.bill.drawee.node_id.clone(),
+                drawee.clone(),
                 (BillEventType::BillPaymentRequested, ActionType::PayBill),
             )]),
             None,
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to drawee
+        if let Some(drawee_event) = all_events.get(&drawee) {
+            self.send_email_notification(&event.sender(), &drawee, drawee_event)
+                .await;
+        }
         Ok(())
     }
 
     async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()> {
+        let sender = event.sender();
+        let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                event.bill.payee.node_id().clone(),
+                holder.node_id(),
                 (BillEventType::BillPaid, ActionType::CheckBill),
             )]),
             None,
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
-            .await?;
+        self.send_all_bill_events(&sender, &all_events).await?;
+        // Only send email to holder and only if we are drawee
+        if let Some(holder_event) = all_events.get(&holder.node_id())
+            && sender == event.bill.drawee.node_id
+        {
+            self.send_email_notification(&sender, &holder.node_id(), holder_event)
+                .await;
+        }
         Ok(())
     }
 
-    async fn send_bill_is_endorsed_event(&self, bill: &BillChainEvent) -> Result<()> {
-        let all_events = bill.generate_action_messages(
+    async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> Result<()> {
+        let endorsee = event.bill.endorsee.as_ref().unwrap().node_id();
+        let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
-                bill.bill.endorsee.as_ref().unwrap().node_id().clone(),
+                endorsee.clone(),
                 (BillEventType::BillEndorsed, ActionType::CheckBill),
             )]),
             None,
             None,
         );
-        self.send_bill_chain_events(bill).await?;
-        self.send_all_bill_events(&bill.sender(), all_events)
+        self.send_bill_chain_events(event).await?;
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to endorsee
+        if let Some(endorsee_event) = all_events.get(&endorsee) {
+            self.send_email_notification(&event.sender(), &endorsee, endorsee_event)
+                .await;
+        }
         Ok(())
     }
 
@@ -567,8 +673,13 @@ impl NotificationServiceApi for NotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to buyer
+        if let Some(buyer_event) = all_events.get(&buyer.node_id()) {
+            self.send_email_notification(&event.sender(), &buyer.node_id(), buyer_event)
+                .await;
+        }
         Ok(())
     }
 
@@ -586,8 +697,13 @@ impl NotificationServiceApi for NotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to buyer
+        if let Some(buyer_event) = all_events.get(&buyer.node_id()) {
+            self.send_email_notification(&event.sender(), &buyer.node_id(), buyer_event)
+                .await;
+        }
         Ok(())
     }
 
@@ -605,8 +721,13 @@ impl NotificationServiceApi for NotificationService {
             None,
         );
         self.send_bill_chain_events(event).await?;
-        self.send_all_bill_events(&event.sender(), all_events)
+        self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
+        // Only send email to recoursee
+        if let Some(recoursee_event) = all_events.get(&recoursee.node_id) {
+            self.send_email_notification(&event.sender(), &recoursee.node_id, recoursee_event)
+                .await;
+        }
         Ok(())
     }
 
@@ -623,8 +744,12 @@ impl NotificationServiceApi for NotificationService {
             sum: Some(bill.sum),
         });
         if let Some(node) = self.get_node_transport(sender_node_id).await {
-            node.send_private_event(mint, event.try_into()?).await?;
+            node.send_private_event(mint, event.clone().try_into()?)
+                .await?;
         }
+        // Only send email to mint
+        self.send_email_notification(sender_node_id, &mint.node_id(), &event)
+            .await;
         Ok(())
     }
 
@@ -634,14 +759,20 @@ impl NotificationServiceApi for NotificationService {
         rejected_action: ActionType,
     ) -> Result<()> {
         if let Some(event_type) = rejected_action.get_rejected_event_type() {
+            let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
             let all_events = event.generate_action_messages(
                 HashMap::new(),
                 Some(event_type),
                 Some(rejected_action),
             );
 
-            self.send_all_bill_events(&event.sender(), all_events)
+            self.send_all_bill_events(&event.sender(), &all_events)
                 .await?;
+            // Only send email to holder (=requester)
+            if let Some(holder_event) = all_events.get(&holder.node_id()) {
+                self.send_email_notification(&event.sender(), &holder.node_id(), holder_event)
+                    .await;
+            }
         }
         Ok(())
     }
@@ -653,6 +784,9 @@ impl NotificationServiceApi for NotificationService {
         sum: Option<u64>,
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
+        holder: &NodeId,
+        drawee: &NodeId,
+        recoursee: &Option<NodeId>,
     ) -> Result<()> {
         if let Some(node) = self.get_node_transport(sender_node_id).await
             && let Some(event_type) = timed_out_action.get_timeout_event_type()
@@ -669,8 +803,19 @@ impl NotificationServiceApi for NotificationService {
             };
             for (_, recipient) in unique {
                 let event = Event::new_bill(payload.clone());
-                node.send_private_event(&recipient, event.try_into()?)
+                node.send_private_event(&recipient, event.clone().try_into()?)
                     .await?;
+
+                // Only send email to holder, and only if we are drawee, or recoursee
+                if let Some(r) = recoursee {
+                    if sender_node_id == r {
+                        self.send_email_notification(sender_node_id, holder, &event)
+                            .await;
+                    }
+                } else if sender_node_id == drawee {
+                    self.send_email_notification(sender_node_id, holder, &event)
+                        .await;
+                }
             }
         }
         Ok(())
@@ -692,8 +837,13 @@ impl NotificationServiceApi for NotificationService {
                 None,
             );
             self.send_bill_chain_events(event).await?;
-            self.send_all_bill_events(&event.sender(), all_events)
+            self.send_all_bill_events(&event.sender(), &all_events)
                 .await?;
+            // Only send email to recoursee
+            if let Some(recoursee_event) = all_events.get(&recoursee.node_id) {
+                self.send_email_notification(&event.sender(), &recoursee.node_id, recoursee_event)
+                    .await;
+            }
         }
         Ok(())
     }
@@ -1165,6 +1315,8 @@ mod tests {
 
         // resolves node_id
         mock.expect_get_sender_node_id().returning(node_id_test);
+        mock.expect_get_sender_keys()
+            .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
 
         // expect to send payment timeout event to all recipients
         mock.expect_send_private_event()
@@ -1196,6 +1348,9 @@ mod tests {
                 Some(100),
                 ActionType::PayBill,
                 recipients.clone(),
+                &node_id_test(),
+                &node_id_test(),
+                &None,
             )
             .await
             .expect("failed to send event");
@@ -1207,6 +1362,9 @@ mod tests {
                 Some(100),
                 ActionType::AcceptBill,
                 recipients.clone(),
+                &node_id_test(),
+                &node_id_test(),
+                &None,
             )
             .await
             .expect("failed to send event");
@@ -1256,6 +1414,9 @@ mod tests {
                 Some(100),
                 ActionType::CheckBill,
                 recipients.clone(),
+                &node_id_test(),
+                &node_id_test(),
+                &None,
             )
             .await
             .expect("failed to send event");
@@ -1568,6 +1729,10 @@ mod tests {
         chain: &BillBlockchain,
         new_blocks: bool,
     ) -> (NotificationService, BillChainEvent) {
+        let mut mock_email_client = MockEmailClient::new();
+        mock_email_client
+            .expect_send_bill_notification()
+            .returning(|_, _, _, _, _| Ok(()));
         let mut mock_contact_service = MockContactService::new();
         let mut mock = MockNotificationJsonTransport::new();
         for p in participants.into_iter() {
@@ -1578,6 +1743,8 @@ mod tests {
                 .returning(move |_| Ok(Some(BillParticipant::Ident(clone1.0.clone()))));
 
             mock.expect_get_sender_node_id().returning(node_id_test);
+            mock.expect_get_sender_keys()
+                .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
 
             let clone2 = p.clone();
             mock.expect_send_private_event()
@@ -1623,7 +1790,7 @@ mod tests {
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(mock_event_store),
-            Arc::new(MockEmailClient::new()),
+            Arc::new(mock_email_client),
             vec!["ws://test.relay".into()],
         );
 
@@ -2023,18 +2190,47 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_mint_event() {
-        let bill = get_test_bill();
-        let endorsee = bill.endorsee.clone().unwrap();
+        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
+        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let mut chain = get_genesis_chain(Some(bill.clone()));
+        let timestamp = now().timestamp() as u64;
+        let keys = get_baseline_identity().key_pair;
+        let block = BillBlock::create_block_for_accept(
+            bill.id.to_owned(),
+            chain.get_latest_block(),
+            &BillAcceptBlockData {
+                accepter: payer.clone().into(),
+                signatory: None,
+                signing_timestamp: timestamp,
+                signing_address: PostalAddress::default(),
+            },
+            &keys,
+            None,
+            &keys,
+            timestamp,
+        )
+        .unwrap();
 
-        // should send minting requested to endorsee (mint)
-        let service = setup_service_expectation(
-            &endorsee.node_id(),
-            BillEventType::BillMintingRequested,
-            ActionType::CheckBill,
+        chain.try_add_block(block);
+
+        let (service, _event) = setup_chain_expectation(
+            vec![(
+                payee.clone(),
+                BillEventType::BillMintingRequested,
+                Some(ActionType::CheckBill),
+            )],
+            &bill,
+            &chain,
+            false,
         );
 
         service
-            .send_request_to_mint_event(&node_id_test(), &endorsee, &bill)
+            .send_request_to_mint_event(
+                &node_id_test(),
+                &BillParticipant::Ident(payee.clone()),
+                &bill,
+            )
             .await
             .expect("failed to send event");
     }
@@ -2175,53 +2371,6 @@ mod tests {
             .expect("could not mark notification as done");
     }
 
-    fn setup_service_expectation(
-        node_id: &NodeId,
-        event_type: BillEventType,
-        action_type: ActionType,
-    ) -> NotificationService {
-        let node_id = node_id.to_owned();
-        let mut mock = MockNotificationJsonTransport::new();
-        mock.expect_get_sender_node_id().returning(node_id_test);
-        mock.expect_send_private_event()
-            .withf(move |r, e| {
-                let valid_node_id = r.node_id() == node_id;
-                let event: Event<BillChainEventPayload> = e.clone().try_into().unwrap();
-                valid_node_id
-                    && event.data.event_type == event_type
-                    && event.data.action_type == Some(action_type.clone())
-            })
-            .returning(|_, _| Ok(()));
-        NotificationService::new(
-            vec![Arc::new(mock)],
-            Arc::new(MockNotificationStore::new()),
-            Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
-            Arc::new(MockNostrQueuedMessageStore::new()),
-            Arc::new(MockNostrChainEventStore::new()),
-            Arc::new(MockEmailClient::new()),
-            vec!["ws://test.relay".into()],
-        )
-    }
-
-    fn get_test_bill() -> BitcreditBill {
-        get_test_bitcredit_bill(
-            &bill_id_test(),
-            &get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]),
-            &get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]),
-            Some(&get_identity_public_data(
-                &node_id_test_other(),
-                "drawer@example.com",
-                vec![],
-            )),
-            Some(&get_identity_public_data(
-                &node_id_test_other2(),
-                "endorsee@example.com",
-                vec![],
-            )),
-        )
-    }
-
     #[tokio::test]
     async fn test_send_retry_messages_success() {
         let node_id = node_id_test_other();
@@ -2285,6 +2434,59 @@ mod tests {
 
         let result = service.send_retry_messages().await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_email_notification() {
+        let node_id = node_id_test_other();
+        let identity =
+            get_identity_public_data(&node_id, "test@example.com", vec!["ws://test.relay"]);
+        // Set up mocks
+        let mut mock_contact_service = MockContactService::new();
+        mock_contact_service
+            .expect_get_identity_by_node_id()
+            .with(eq(node_id))
+            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
+
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+        mock_transport
+            .expect_send_private_event()
+            .returning(|_, _| Ok(()));
+        mock_transport
+            .expect_get_sender_keys()
+            .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
+
+        let mut mock_email_client = MockEmailClient::new();
+        mock_email_client
+            .expect_send_bill_notification()
+            .returning(|_, _, _, _, _| Ok(()))
+            .times(1);
+
+        let service = NotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
+            Arc::new(mock_contact_service),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(mock_email_client),
+            vec!["ws://test.relay".into()],
+        );
+        let event = Event::new(
+            EventType::Bill,
+            BillChainEventPayload {
+                event_type: BillEventType::BillAccepted,
+                bill_id: bill_id_test(),
+                action_type: Some(ActionType::CheckBill),
+                sum: None,
+            },
+        );
+        service
+            .send_email_notification(&node_id_test(), &node_id_test_other(), &event)
+            .await;
     }
 
     #[tokio::test]

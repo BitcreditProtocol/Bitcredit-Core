@@ -153,11 +153,11 @@ impl EmailClientApi for EmailClient {
             .to_bech32()
             .map_err(|_| Error::NostrKey)?;
 
-        let payload = SendEmailNotificationPayload {
+        let payload = NotificationSendPayload {
             kind: kind.to_string(),
             id: id.to_string(),
-            sender: sender_npub,
             receiver: receiver.npub().to_bech32().map_err(|_| Error::NostrKey)?,
+            sender: sender_npub,
         };
 
         let key_pair = Keypair::from_secret_key(SECP256K1, private_key);
@@ -206,14 +206,14 @@ pub struct RegisterEmailNotificationResponse {
 
 #[derive(Debug, Serialize)]
 pub struct SendEmailNotificationRequest {
-    pub payload: SendEmailNotificationPayload,
+    pub payload: NotificationSendPayload,
     pub signature: String,
 }
 
 #[derive(Debug, Serialize, BorshSerialize)]
-pub struct SendEmailNotificationPayload {
+pub struct NotificationSendPayload {
     pub kind: String,
     pub id: String,
-    pub sender: String,
     pub receiver: String,
+    pub sender: String,
 }

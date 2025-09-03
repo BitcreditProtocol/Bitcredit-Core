@@ -35,7 +35,9 @@ use bcr_ebill_core::bill::{
     BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
     PastPaymentDataSell, PastPaymentResult, PastPaymentStatus, PaymentState,
 };
-use bcr_ebill_core::blockchain::bill::block::BillParticipantBlockData;
+use bcr_ebill_core::blockchain::bill::block::{
+    BillParticipantBlockData, BillRequestRecourseBlockData,
+};
 use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
 use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::constants::{
@@ -215,6 +217,7 @@ impl BillService {
         let bill_keys = self.store.get_keys(bill_id).await?;
         let latest_ts = chain.get_latest_block().timestamp;
         let contacts = self.contact_store.get_map().await?;
+        let mut recoursee = None;
 
         if let Some(action) = match chain.get_latest_block().op_code {
             BillOpCode::RequestToPay | BillOpCode::OfferToSell
@@ -226,6 +229,12 @@ impl BillService {
                 Some(ActionType::AcceptBill)
             }
             BillOpCode::RequestRecourse if (latest_ts + RECOURSE_DEADLINE_SECONDS <= now) => {
+                if let Ok(recourse_block) = chain
+                    .get_latest_block()
+                    .get_decrypted_block::<BillRequestRecourseBlockData>(&bill_keys)
+                {
+                    recoursee = Some(recourse_block.recoursee.node_id());
+                }
                 Some(ActionType::RecourseBill)
             }
             _ => None,
@@ -256,6 +265,9 @@ impl BillService {
                     .get_last_version_bill(&chain, &bill_keys, &identity, &contacts)
                     .await?;
 
+                let holder = bill.endorsee.as_ref().unwrap_or(&bill.payee).node_id();
+                let drawee = &bill.drawee.node_id;
+
                 for node_id in participants {
                     if let Some(contact) = self.contact_store.get(&node_id).await? {
                         recipient_options.push(Some(contact.try_into()?));
@@ -269,11 +281,14 @@ impl BillService {
 
                 self.notification_service
                     .send_request_to_action_timed_out_event(
-                        &identity.node_id,
+                        &identity.node_id, // TODO(company-notifications): how to handle jobs as company participant?
                         bill_id,
                         Some(bill.sum),
                         action.to_owned(),
                         recipients,
+                        &holder,
+                        drawee,
+                        &recoursee,
                     )
                     .await?;
 
@@ -934,6 +949,7 @@ impl BillServiceApi for BillService {
         debug!("getting file {} for bill with id: {bill_id}", file.name);
         validate_bill_id_network(bill_id)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
+        // TODO(multi-relay): don't default to first
         if let Some(nostr_relay) = nostr_relays.first() {
             let file_bytes = self
                 .file_upload_client
@@ -1028,6 +1044,7 @@ impl BillServiceApi for BillService {
             &bill_action,
             &identity.identity,
             &contacts,
+            &signer_public_data.node_id(),
         )
         .await?;
 

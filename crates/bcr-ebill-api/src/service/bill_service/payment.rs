@@ -1,13 +1,16 @@
 use super::Result;
 use super::service::BillService;
-use crate::service::bill_service::{BillAction, BillServiceApi};
+use crate::service::{
+    bill_service::{BillAction, BillServiceApi},
+    notification_service::event::BillChainEvent,
+};
 use bcr_ebill_core::{
     NodeId,
-    bill::{BillId, PaymentState, RecourseReason},
+    bill::{BillId, BillKeys, BitcreditBill, PaymentState, RecourseReason},
     blockchain::{
         Blockchain,
         bill::{
-            BillOpCode, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
+            BillBlockchain, BillOpCode, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
             block::BillRecourseReasonBlockData,
         },
     },
@@ -72,12 +75,40 @@ impl BillService {
                         .await?;
                     // invalidate bill cache, so payment state is updated on next fetch
                     self.store.invalidate_bill_in_cache(bill_id).await?;
+                    // the bill is paid now - trigger notification
+                    if let PaymentState::PaidConfirmed(_) = payment_state
+                        && let Err(e) = self
+                            .trigger_is_paid_notification(identity, &chain, &bill_keys, &bill)
+                            .await
+                    {
+                        log::error!("Could not send is-paid notification for {bill_id}: {e}");
+                    }
                 }
             }
             Err(e) => {
                 log::error!("Error checking payment for {bill_id}: {e}");
             }
         };
+        Ok(())
+    }
+
+    async fn trigger_is_paid_notification(
+        &self,
+        identity: &Identity,
+        blockchain: &BillBlockchain,
+        bill_keys: &BillKeys,
+        last_version_bill: &BitcreditBill,
+    ) -> Result<()> {
+        let chain_event = BillChainEvent::new(
+            last_version_bill,
+            blockchain,
+            bill_keys,
+            true,
+            &identity.node_id, // TODO(company-notifications): how to handle jobs as company participant?
+        )?;
+        self.notification_service
+            .send_bill_is_paid_event(&chain_event)
+            .await?;
         Ok(())
     }
 

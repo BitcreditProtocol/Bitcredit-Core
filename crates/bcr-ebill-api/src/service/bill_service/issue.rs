@@ -156,6 +156,7 @@ impl BillService {
         }
 
         let mut bill_files: Vec<File> = vec![];
+        // TODO(multi-relay): don't default to first
         if let Some(nostr_relay) = nostr_relays.first() {
             for file_upload_id in data.file_upload_ids.iter() {
                 let (file_name, file_bytes) = &self
