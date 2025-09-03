@@ -28,6 +28,7 @@ mod job;
 #[tsify(from_wasm_abi)]
 pub struct Config {
     pub log_level: Option<String>,
+    pub app_url: String,
     pub bitcoin_network: String,
     pub esplora_base_url: String,
     pub nostr_relays: Vec<String>,
@@ -77,6 +78,7 @@ pub async fn initialize_api(
         .expect("can initialize logging");
     let mint_node_id = NodeId::from_str(&config.default_mint_node_id)?;
     let api_config = ApiConfig {
+        app_url: url::Url::parse(&config.app_url).expect("app url is not a valid URL"),
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: config.esplora_base_url,
         db_config: SurrealDbConfig::default(),

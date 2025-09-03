@@ -1,3 +1,9 @@
+# 0.4.5
+
+* Add handling for `RemoveSignatory` from company, which flags the company as not active
+* Add email notifications API
+* Added `app_url` property to config - defaults to `https://bitcredit-dev.minibill.tech` (config break)
+
 # 0.4.4
 
 * Add `num_confirmations_for_payment` config flag and a `payment_config` part of the api config, to configure the amount of confirmations needed until an on-chain payment is considered `paid`
