@@ -1,7 +1,9 @@
 # 0.4.5
 
 * Add handling for `RemoveSignatory` from company, which flags the company as not active
-* Add email notifications API
+* Email Notifications
+    * Add email notifications API
+    * Add email notifications registration API
 * Added `app_url` property to config - defaults to `https://bitcredit-dev.minibill.tech` (config break)
 
 # 0.4.4

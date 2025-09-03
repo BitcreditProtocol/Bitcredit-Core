@@ -17,6 +17,7 @@ pub mod bill_chain;
 pub mod company;
 pub mod company_chain;
 pub mod contact;
+pub mod email_notification;
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod file_upload;
 pub mod identity;

@@ -128,6 +128,22 @@ impl NotificationFilter {
     }
 }
 
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait EmailNotificationStoreApi: ServiceTraitBounds {
+    /// Stores an email preferences link for a given node id
+    async fn add_email_preferences_link_for_node_id(
+        &self,
+        email_preferences_link: &url::Url,
+        node_id: &NodeId,
+    ) -> Result<()>;
+    /// Fetches an email preferences link for a given node id
+    async fn get_email_preferences_link_for_node_id(
+        &self,
+        node_id: &NodeId,
+    ) -> Result<Option<url::Url>>;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tests::tests::{node_id_test, node_id_test_other};

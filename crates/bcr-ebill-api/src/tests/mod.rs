@@ -21,6 +21,7 @@ pub mod tests {
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
     };
+    use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
         BackupStoreApi, ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
         NotificationStoreApi, Result, SurrealDbConfig,
@@ -371,6 +372,22 @@ pub mod tests {
     }
 
     mockall::mock! {
+        pub EmailNotificationStoreApiMock {}
+
+        impl ServiceTraitBounds for EmailNotificationStoreApiMock {}
+
+        #[async_trait]
+        impl EmailNotificationStoreApi for EmailNotificationStoreApiMock {
+            async fn add_email_preferences_link_for_node_id(
+                &self,
+                email_preferences_link: &url::Url,
+                node_id: &NodeId,
+            ) -> Result<()>;
+            async fn get_email_preferences_link_for_node_id(&self, node_id: &NodeId) -> Result<Option<url::Url>>;
+        }
+    }
+
+    mockall::mock! {
         pub FileUploadStoreApiMock {}
 
         impl ServiceTraitBounds for FileUploadStoreApiMock {}
@@ -402,6 +419,7 @@ pub mod tests {
             file_upload_store: Arc::new(MockFileUploadStoreApiMock::new()),
             nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApiMock::new()),
             notification_store: Arc::new(MockNotificationStoreApiMock::new()),
+            email_notification_store: Arc::new(MockEmailNotificationStoreApiMock::new()),
             backup_store: Arc::new(MockBackupStoreApiMock::new()),
             queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
             nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),

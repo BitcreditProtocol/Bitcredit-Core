@@ -1,3 +1,4 @@
+use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::notification_service::NostrConfig;
 use bcr_ebill_api::service::notification_service::event::{EventEnvelope, EventType};
@@ -17,6 +18,7 @@ use bcr_ebill_core::{
 };
 use bcr_ebill_core::{OptionalPostalAddress, PostalAddress};
 use bcr_ebill_persistence::nostr::NostrQueuedMessageStoreApi;
+use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bcr_ebill_persistence::{
     NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
 };
@@ -397,6 +399,8 @@ mockall::mock! {
         ) -> Result<()>;
         async fn send_retry_messages(&self) -> Result<()>;
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
+        async fn register_email_notifications(&self, relay_url: &str, email: &str, node_id: &NodeId, caller_keys: &BcrKeys) -> Result<()>;
+        async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
     }
 }
 
@@ -475,6 +479,22 @@ mockall::mock! {
             block_height: i32,
             action_type: ActionType,
         ) -> bcr_ebill_persistence::Result<bool>;
+    }
+}
+
+mockall::mock! {
+    pub EmailNotificationStore {}
+
+    impl ServiceTraitBounds for EmailNotificationStore {}
+
+    #[async_trait]
+    impl EmailNotificationStoreApi for EmailNotificationStore {
+        async fn add_email_preferences_link_for_node_id(
+            &self,
+            email_preferences_link: &url::Url,
+            node_id: &NodeId,
+        ) -> bcr_ebill_persistence::Result<()>;
+        async fn get_email_preferences_link_for_node_id(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<url::Url>>;
     }
 }
 
@@ -600,4 +620,28 @@ mockall::mock! {
         private_key: &SecretKey,
     ) -> bcr_ebill_api::service::Result<Vec<u8>>;
     }
+}
+
+mockall::mock! {
+    pub EmailClient {}
+    #[async_trait]
+    impl EmailClientApi for EmailClient {
+        async fn start(&self, relay_url: &str, node_id: &NodeId) -> bcr_ebill_api::external::email::Result<String>;
+        async fn register(
+            &self,
+            relay_url: &str,
+            email: &str,
+            private_key: &nostr::SecretKey,
+            challenge: &str,
+        ) -> bcr_ebill_api::external::email::Result<url::Url>;
+        async fn send_bill_notification(
+            &self,
+            relay_url: &str,
+            kind: BillEventType,
+            id: &BillId,
+            receiver: &NodeId,
+            private_key: &nostr::SecretKey,
+        ) -> bcr_ebill_api::external::email::Result<()>;
+    }
+    impl ServiceTraitBounds for EmailClient {}
 }

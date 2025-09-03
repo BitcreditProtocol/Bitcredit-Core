@@ -621,6 +621,10 @@ pub enum ValidationError {
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
     Blockchain(String),
+
+    /// error returned if the relay url was invalid
+    #[error("invalid relay url")]
+    InvalidRelayUrl,
 }
 
 impl From<crate::blockchain::Error> for ValidationError {

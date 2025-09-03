@@ -1,6 +1,7 @@
 pub mod file;
 pub mod numbers_to_words;
 
+pub use bcr_ebill_core::Field;
 pub use bcr_ebill_core::ValidationError;
 pub use bcr_ebill_core::constants::VALID_CURRENCIES;
 pub use bcr_ebill_core::util::crypto;

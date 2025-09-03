@@ -1,4 +1,4 @@
-use crate::util;
+use crate::{external, util};
 use bcr_ebill_core::util::crypto;
 
 pub mod chain_keys;
@@ -49,6 +49,13 @@ pub enum Error {
     /// errors that stem from validation in core
     #[error("Validation Error: {0}")]
     Validation(#[from] bcr_ebill_core::ValidationError),
+
+    #[error("External API error: {0}")]
+    ExternalApi(#[from] external::Error),
+
+    /// errors if something couldn't be found
+    #[error("not found")]
+    NotFound,
 }
 
 impl From<serde_json::Error> for Error {
