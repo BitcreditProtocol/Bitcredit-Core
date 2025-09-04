@@ -4,10 +4,10 @@
 
 Make sure you have all [prerequisites](./prerequisites.md) installed.
 
-You also need the `wasm-pack` tool from [here](https://rustwasm.github.io/wasm-pack/installer/).
+You also need the `wasm-pack` tool from [here](https://drager.github.io/wasm-pack/installer/).
 
 ```bash
-curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+curl https://drager.github.io/wasm-pack/installer/init.sh -sSf | bash
 ```
 
 ### Development

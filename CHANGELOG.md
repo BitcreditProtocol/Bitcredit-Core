@@ -5,6 +5,7 @@
     * Add email notifications API
     * Add email notifications registration API
 * Added `app_url` property to config - defaults to `https://bitcredit-dev.minibill.tech` (config break)
+* Small fix to WASM build addressing the rustwasm organization archiving
 
 # 0.4.4
 
