@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Result, handler::public_chain_helpers::EventContainer};
 use async_trait::async_trait;
 use bcr_ebill_api::{service::notification_service::event::EventEnvelope, util::BcrKeys};
 use bcr_ebill_core::{
@@ -85,6 +85,18 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         bill_id: &BillId,
         sender: nostr::PublicKey,
     ) -> Result<bool>;
+
+    /// Resolves the Bill chain blocks from Nostr for the given bill id.
+    async fn resolve_chain(
+        &self,
+        bill_id: &BillId,
+        bill_keys: &BillKeys,
+    ) -> Result<Vec<Vec<EventContainer>>>;
+
+    /// Tries to resync the chain for the given bill id. This will try to find the bill keys and
+    /// then try to find the chain data for the given bill id. Will add all potentially missing
+    /// blocks to the chain.
+    async fn resync_chain(&self, bill_id: &BillId) -> Result<()>;
 }
 
 #[cfg(test)]

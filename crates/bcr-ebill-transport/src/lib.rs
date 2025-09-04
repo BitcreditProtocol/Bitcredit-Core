@@ -7,7 +7,7 @@ use bcr_ebill_api::{
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
-            Error, NostrConfig, NotificationServiceApi, Result, event::EventType,
+            NostrConfig, NotificationServiceApi, event::EventType,
             transport::NotificationJsonTransportApi,
         },
     },
@@ -38,6 +38,7 @@ pub mod test_utils;
 pub mod transport;
 
 pub use async_broadcast::Receiver;
+pub use bcr_ebill_api::service::notification_service::{Error, Result};
 pub use handler::RestoreAccountService;
 pub use nostr::{NostrClient, NostrConsumer};
 use notification_service::NotificationService;
@@ -156,11 +157,11 @@ pub async fn create_nostr_consumer(
         db_context.bill_blockchain_store.clone(),
         db_context.bill_store.clone(),
         nostr_contact_processor.clone(),
+        transport.clone(),
         get_config().bitcoin_network(),
     ));
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
-        transport.clone(),
         bill_processor.clone(),
         db_context.nostr_chain_event_store.clone(),
     ));
@@ -264,11 +265,11 @@ pub async fn create_restore_account_service(
         db_context.bill_blockchain_store.clone(),
         db_context.bill_store.clone(),
         nostr_contact_processor.clone(),
+        nostr_client.clone(),
         get_config().bitcoin_network(),
     ));
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
-        nostr_client.clone(),
         bill_processor.clone(),
         db_context.nostr_chain_event_store.clone(),
     ));

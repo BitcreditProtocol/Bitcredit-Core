@@ -19,6 +19,7 @@ impl BillService {
         bill_keys: &BillKeys,
         bill_action: &BillAction,
         identity: &Identity,
+        signer_node_id: &NodeId,
         contacts: &HashMap<NodeId, Contact>,
         signer_node_id: &NodeId,
     ) -> Result<()> {

@@ -1,15 +1,11 @@
-use std::{cmp::Reverse, collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use bcr_ebill_api::service::notification_service::{
-    event::{ChainInvite, ChainKeys},
-    transport::NotificationJsonTransportApi,
-};
+use bcr_ebill_api::service::notification_service::event::ChainInvite;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
     blockchain::BlockchainType,
-    util::BcrKeys,
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, warn};
@@ -21,13 +17,10 @@ use crate::{
 use bcr_ebill_api::service::notification_service::event::Event;
 use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
 
-use super::{
-    BillChainEventProcessorApi, NotificationHandlerApi, public_chain_helpers::collect_event_chains,
-};
+use super::{BillChainEventProcessorApi, NotificationHandlerApi};
 
 #[derive(Clone)]
 pub struct BillInviteEventHandler {
-    transport: Arc<dyn NotificationJsonTransportApi>,
     processor: Arc<dyn BillChainEventProcessorApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
@@ -47,21 +40,14 @@ impl NotificationHandlerApi for BillInviteEventHandler {
     ) -> Result<()> {
         debug!("incoming bill chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
-            let events = self
-                .transport
-                .resolve_public_chain(&decoded.data.chain_id, decoded.data.chain_type)
-                .await?;
+            let keys = BillKeys {
+                private_key: decoded.data.keys.private_key.to_owned(),
+                public_key: decoded.data.keys.public_key.to_owned(),
+            };
+            let chain_id = BillId::from_str(&decoded.data.chain_id)?;
 
             let mut inserted_chain: Vec<EventContainer> = Vec::new();
-            if let Ok(chain_data) = self
-                .resolve_chain_data(
-                    &decoded.data.keys,
-                    &decoded.data.chain_id,
-                    decoded.data.chain_type,
-                    &events,
-                )
-                .await
-            {
+            if let Ok(chain_data) = self.processor.resolve_chain(&chain_id, &keys).await {
                 // We try to add shorter and shorter chains until we have a success
                 for data in chain_data.iter() {
                     let blocks = data
@@ -115,31 +101,13 @@ impl ServiceTraitBounds for BillInviteEventHandler {}
 
 impl BillInviteEventHandler {
     pub fn new(
-        transport: Arc<dyn NotificationJsonTransportApi>,
         processor: Arc<dyn BillChainEventProcessorApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     ) -> Self {
         Self {
-            transport,
             processor,
             chain_event_store,
         }
-    }
-
-    /// Parses chain keys, resolves all Nostr events and builds Nostr chains from it.
-    /// Then decrypts the payloads and parses the block contents. Returns all found chains
-    /// in descending order by chain length.
-    async fn resolve_chain_data(
-        &self,
-        keys: &ChainKeys,
-        chain_id: &str,
-        chain_type: BlockchainType,
-        events: &[nostr_sdk::Event],
-    ) -> Result<Vec<Vec<EventContainer>>> {
-        let keys = BcrKeys::from_private_key(&keys.private_key)?;
-        let mut chains = collect_event_chains(events, chain_id, chain_type, &keys);
-        chains.sort_by_key(|v| Reverse(v.len()));
-        Ok(chains)
     }
 
     async fn store_events(
@@ -187,14 +155,13 @@ mod tests {
                 node_id_test, private_key_test,
             },
         },
-        test_utils::MockNotificationJsonTransport,
         transport::create_public_chain_event,
     };
 
     use super::*;
     use bcr_ebill_api::service::notification_service::event::BillBlockEvent;
     use bcr_ebill_core::{blockchain::Blockchain, util::crypto::BcrKeys};
-    use mockall::predicate::eq;
+    use mockall::predicate::{always, eq};
 
     #[test]
     fn test_single_block() {
@@ -243,16 +210,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_single_event_chain_invite() {
-        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+        let (mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (_, chain) = generate_test_chain(1, false);
+        let (bcr_keys, chain) = generate_test_chain(1, false);
+        let chains = collect_event_chains(
+            &chain,
+            &bill_id_test().to_string(),
+            BlockchainType::Bill,
+            &bcr_keys,
+        );
 
         // get events from nostr
-        transport
-            .expect_resolve_public_chain()
-            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
-            .returning(move |_, _| Ok(chain.clone()));
+        processor
+            .expect_resolve_chain()
+            .with(eq(bill_id_test()), always())
+            .returning(move |_, _| Ok(chains.clone()));
 
         // process blocks
         processor
@@ -279,11 +252,7 @@ mod tests {
         .try_into()
         .expect("failed to create envelope");
 
-        let handler = BillInviteEventHandler::new(
-            Arc::new(transport),
-            Arc::new(processor),
-            Arc::new(chain_event_store),
-        );
+        let handler = BillInviteEventHandler::new(Arc::new(processor), Arc::new(chain_event_store));
         handler
             .handle_event(invite, &node_id, Some(Box::new(event.clone())))
             .await
@@ -292,16 +261,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_single_chain_invite() {
-        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+        let (mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (_, chain) = generate_test_chain(3, false);
+        let (bcr_keys, chain) = generate_test_chain(3, false);
+        let chains = collect_event_chains(
+            &chain,
+            &bill_id_test().to_string(),
+            BlockchainType::Bill,
+            &bcr_keys,
+        );
 
         // get events from nostr
-        transport
-            .expect_resolve_public_chain()
-            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
-            .returning(move |_, _| Ok(chain.clone()));
+        processor
+            .expect_resolve_chain()
+            .with(eq(bill_id_test()), always())
+            .returning(move |_, _| Ok(chains.clone()));
 
         // process blocks
         processor
@@ -328,11 +303,7 @@ mod tests {
         .try_into()
         .expect("failed to create envelope");
 
-        let handler = BillInviteEventHandler::new(
-            Arc::new(transport),
-            Arc::new(processor),
-            Arc::new(chain_event_store),
-        );
+        let handler = BillInviteEventHandler::new(Arc::new(processor), Arc::new(chain_event_store));
         handler
             .handle_event(invite, &node_id, Some(Box::new(event.clone())))
             .await
@@ -341,16 +312,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_multiple_chains_invite() {
-        let (mut transport, mut processor, mut chain_event_store) = get_mocks();
+        let (mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (_, chain) = generate_test_chain(3, true);
+        let (bcr_keys, chain) = generate_test_chain(3, true);
+        let chains = collect_event_chains(
+            &chain,
+            &bill_id_test().to_string(),
+            BlockchainType::Bill,
+            &bcr_keys,
+        );
 
         // get events from nostr
-        transport
-            .expect_resolve_public_chain()
-            .with(eq(bill_id_test().to_string()), eq(BlockchainType::Bill))
-            .returning(move |_, _| Ok(chain.clone()));
+        processor
+            .expect_resolve_chain()
+            .with(eq(bill_id_test()), always())
+            .returning(move |_, _| Ok(chains.clone()));
 
         // process blocks
         processor
@@ -385,24 +362,15 @@ mod tests {
         .try_into()
         .expect("failed to create envelope");
 
-        let handler = BillInviteEventHandler::new(
-            Arc::new(transport),
-            Arc::new(processor),
-            Arc::new(chain_event_store),
-        );
+        let handler = BillInviteEventHandler::new(Arc::new(processor), Arc::new(chain_event_store));
         handler
             .handle_event(invite, &node_id, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }
 
-    fn get_mocks() -> (
-        MockNotificationJsonTransport,
-        MockBillChainEventProcessorApi,
-        MockNostrChainEventStore,
-    ) {
+    fn get_mocks() -> (MockBillChainEventProcessorApi, MockNostrChainEventStore) {
         (
-            MockNotificationJsonTransport::new(),
             MockBillChainEventProcessorApi::new(),
             MockNostrChainEventStore::new(),
         )
