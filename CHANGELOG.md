@@ -1,3 +1,7 @@
+# 0.4.6
+
+* Add basic logic for implementing (social) identity proofs
+
 # 0.4.5
 
 * Add handling for `RemoveSignatory` from company, which flags the company as not active
