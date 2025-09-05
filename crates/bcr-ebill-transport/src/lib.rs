@@ -7,18 +7,14 @@ use bcr_ebill_api::{
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
-            Error, NostrConfig, NotificationServiceApi, Result, event::EventType,
+            NostrConfig, NotificationServiceApi, event::EventType,
             transport::NotificationJsonTransportApi,
         },
     },
     util::BcrKeys,
 };
 use bcr_ebill_core::NodeId;
-use bcr_ebill_persistence::{
-    NostrChainEventStoreApi, NotificationStoreApi, company::CompanyStoreApi,
-    identity::IdentityStoreApi, nostr::NostrQueuedMessageStoreApi,
-    notification::EmailNotificationStoreApi,
-};
+use bcr_ebill_persistence::{company::CompanyStoreApi, identity::IdentityStoreApi};
 use chain_keys::ChainKeyServiceApi;
 use handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
@@ -38,6 +34,7 @@ pub mod test_utils;
 pub mod transport;
 
 pub use async_broadcast::Receiver;
+pub use bcr_ebill_api::service::notification_service::{Error, Result};
 pub use handler::RestoreAccountService;
 pub use nostr::{NostrClient, NostrConsumer};
 use notification_service::NotificationService;
@@ -46,7 +43,7 @@ pub use transport::bcr_nostr_tag;
 
 use crate::handler::DirectMessageEventProcessor;
 
-/// Creates a new nostr client configured with the current identity user.
+/// Creates new nostr clients configured with the current identity user and all local companies.
 pub async fn create_nostr_clients(
     config: &Config,
     identity_store: Arc<dyn IdentityStoreApi>,
@@ -106,26 +103,42 @@ pub async fn create_nostr_clients(
 /// Creates a new notification service that will send events via the given Nostr json transport.
 pub async fn create_notification_service(
     clients: Vec<Arc<NostrClient>>,
-    notification_store: Arc<dyn NotificationStoreApi>,
-    email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+    db_context: DbContext,
     contact_service: Arc<dyn ContactServiceApi>,
-    queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
-    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<String>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
+    let transport = match clients.iter().find(|c| c.is_primary()) {
+        Some(client) => client.clone(),
+        None => panic!("Cant create Nostr consumer as there is no nostr client available"),
+    };
+
+    let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
+        transport.clone(),
+        db_context.nostr_contact_store.clone(),
+        get_config().bitcoin_network(),
+    ));
+    let bill_processor = Arc::new(BillChainEventProcessor::new(
+        db_context.bill_blockchain_store.clone(),
+        db_context.bill_store.clone(),
+        nostr_contact_processor.clone(),
+        transport.clone(),
+        get_config().bitcoin_network(),
+    ));
+
     #[allow(clippy::arc_with_non_send_sync)]
     Ok(Arc::new(NotificationService::new(
         clients
             .iter()
             .map(|c| c.clone() as Arc<dyn NotificationJsonTransportApi>)
             .collect(),
-        notification_store,
-        email_notification_store,
+        db_context.notification_store.clone(),
+        db_context.email_notification_store.clone(),
         contact_service,
-        queued_message_store,
-        chain_event_store,
+        db_context.queued_message_store.clone(),
+        db_context.nostr_chain_event_store.clone(),
         email_client,
+        bill_processor,
         nostr_relays,
     )))
 }
@@ -156,11 +169,11 @@ pub async fn create_nostr_consumer(
         db_context.bill_blockchain_store.clone(),
         db_context.bill_store.clone(),
         nostr_contact_processor.clone(),
+        transport.clone(),
         get_config().bitcoin_network(),
     ));
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
-        transport.clone(),
         bill_processor.clone(),
         db_context.nostr_chain_event_store.clone(),
     ));
@@ -264,11 +277,11 @@ pub async fn create_restore_account_service(
         db_context.bill_blockchain_store.clone(),
         db_context.bill_store.clone(),
         nostr_contact_processor.clone(),
+        nostr_client.clone(),
         get_config().bitcoin_network(),
     ));
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
-        nostr_client.clone(),
         bill_processor.clone(),
         db_context.nostr_chain_event_store.clone(),
     ));

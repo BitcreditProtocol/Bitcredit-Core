@@ -404,6 +404,8 @@ mockall::mock! {
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn register_email_notifications(&self, relay_url: &str, email: &str, node_id: &NodeId, caller_keys: &BcrKeys) -> Result<()>;
         async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
+        async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
+
     }
 }
 

@@ -59,11 +59,8 @@ impl Context {
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
         let notification_service = create_notification_service(
             nostr_clients.clone(),
-            db.notification_store.clone(),
-            db.email_notification_store.clone(),
+            db.clone(),
             contact_service.clone(),
-            db.queued_message_store.clone(),
-            db.nostr_chain_event_store.clone(),
             email_client,
             cfg.nostr_config.relays.to_owned(),
         )

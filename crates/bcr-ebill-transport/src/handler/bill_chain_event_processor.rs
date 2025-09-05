@@ -1,5 +1,8 @@
+use crate::handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
 use crate::{Error, Result};
 use async_trait::async_trait;
+use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
 use bcr_ebill_core::bill::BillValidateActionData;
@@ -7,7 +10,7 @@ use bcr_ebill_core::bill::{BillId, BillKeys};
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
-use bcr_ebill_core::blockchain::{Block, Blockchain};
+use bcr_ebill_core::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use log::{debug, error, info, warn};
@@ -70,6 +73,73 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             Ok(false)
         }
     }
+
+    async fn resolve_chain(
+        &self,
+        bill_id: &BillId,
+        bill_keys: &BillKeys,
+    ) -> Result<Vec<Vec<EventContainer>>> {
+        let bcr_keys = BcrKeys::from_private_key(&bill_keys.private_key)?;
+        resolve_event_chains(
+            self.transport.clone(),
+            &bill_id.to_string(),
+            BlockchainType::Bill,
+            &bcr_keys,
+        )
+        .await
+    }
+
+    async fn resync_chain(&self, bill_id: &BillId) -> Result<()> {
+        match (
+            self.bill_blockchain_store.get_chain(bill_id).await,
+            self.bill_store.get_keys(bill_id).await,
+        ) {
+            (Ok(existing_chain), Ok(bill_keys)) => {
+                debug!("starting bill chain resync for {bill_id}");
+                let bcr_keys = BcrKeys::from_private_key(&bill_keys.private_key)?;
+                if let Ok(chain_data) = resolve_event_chains(
+                    self.transport.clone(),
+                    &bill_id.to_string(),
+                    BlockchainType::Bill,
+                    &bcr_keys,
+                )
+                .await
+                {
+                    for data in chain_data.iter() {
+                        let blocks: Vec<BillBlock> = data
+                            .iter()
+                            .filter_map(|d| match d.block.clone() {
+                                BlockData::Bill(block) => Some(block),
+                                _ => None,
+                            })
+                            .collect();
+                        if !data.is_empty()
+                            && self
+                                .add_bill_blocks(bill_id, existing_chain.clone(), blocks)
+                                .await
+                                .is_ok()
+                        {
+                            debug!("resynced bill {bill_id} with {} remote events", data.len());
+                            break;
+                        }
+                    }
+                    debug!("finished bill chain resync for {bill_id}");
+                    Ok(())
+                } else {
+                    let message = format!("Could not refetch chain data from Nostr for {bill_id}");
+                    error!("{message}");
+                    Err(Error::Network(message))
+                }
+            }
+            _ => {
+                let message = format!(
+                    "Could not refetch chain for {bill_id} because the bill keys or chain could not be fetched"
+                );
+                error!("{message}");
+                Err(Error::Persistence(message))
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -77,6 +147,7 @@ pub struct BillChainEventProcessor {
     bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     bill_store: Arc<dyn BillStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+    transport: Arc<dyn NotificationJsonTransportApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -85,12 +156,14 @@ impl BillChainEventProcessor {
         bill_blockchain_store: Arc<dyn BillChainStoreApi>,
         bill_store: Arc<dyn BillStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+        transport: Arc<dyn NotificationJsonTransportApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
             bill_blockchain_store,
             bill_store,
             nostr_contact_processor,
+            transport,
             bitcoin_network,
         }
     }
@@ -117,17 +190,34 @@ impl BillChainEventProcessor {
         })?;
 
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
-        for block in blocks {
-            block_added = self
+        for block in blocks.iter() {
+            block_added = match self
                 .validate_and_save_block(
                     bill_id,
                     &mut chain,
                     &bill_first_version,
                     &bill_keys,
-                    block,
+                    block.clone(),
                     is_paid,
                 )
-                .await?;
+                .await
+            {
+                Ok(added) => Ok(added),
+                Err(e) => {
+                    // if we received a single block (normal block populate) and we are missing blocks, we try to resync
+                    if blocks.len() == 1 && chain.get_latest_block().id + 1 < block.id {
+                        info!(
+                            "Received invalid block {} for bill {bill_id} - missing blocks - try to resync",
+                            block.id
+                        );
+                        self.resync_chain(bill_id).await?;
+                        break;
+                    } else {
+                        println!("Error adding block for bill {bill_id}: {e}");
+                        Err(e)
+                    }
+                }
+            }?;
         }
         // if the bill was changed, we invalidate the cache
         if block_added {
@@ -376,34 +466,43 @@ impl BillChainEventProcessor {
 
 #[cfg(test)]
 mod tests {
+    use bcr_ebill_api::service::notification_service::event::{
+        BillBlockEvent, Event, EventEnvelope,
+    };
     use bcr_ebill_core::{
         NodeId,
         blockchain::bill::block::{
-            BillEndorseBlockData, BillParticipantBlockData, BillRejectBlockData,
+            BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
+            BillRejectBlockData, BillRequestToAcceptBlockData,
         },
         contact::BillIdentParticipant,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::{
-        MockNostrContactProcessorApi,
-        test_utils::{
-            MockBillChainStore, MockBillStore, bill_id_test, empty_address, get_baseline_bill,
-            get_baseline_identity, get_bill_keys, get_genesis_chain, get_test_bitcredit_bill,
-            node_id_test, node_id_test_other, private_key_test,
+    use crate::{
+        handler::{
+            MockNostrContactProcessorApi,
+            test_utils::{
+                MockBillChainStore, MockBillStore, bill_id_test, empty_address, get_baseline_bill,
+                get_baseline_identity, get_bill_keys, get_genesis_chain, get_test_bitcredit_bill,
+                node_id_test, node_id_test_other, private_key_test,
+            },
         },
+        test_utils::MockNotificationJsonTransport,
+        transport::create_public_chain_event,
     };
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (bill_chain_store, bill_store, contact) = create_mocks();
+        let (bill_chain_store, bill_store, contact, transport) = create_mocks();
         BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
     }
@@ -411,7 +510,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -427,6 +526,7 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -443,7 +543,7 @@ mod tests {
         let node_id = node_id_test();
         let npub = node_id.npub();
 
-        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -460,6 +560,7 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -481,7 +582,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, mut contact) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, mut contact, transport) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -507,6 +608,7 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -514,108 +616,6 @@ mod tests {
             .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
             .await
             .expect("Event should be handled");
-    }
-
-    #[tokio::test]
-    async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_validation_fails() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        payee.node_id = node_id_test_other();
-        let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
-        let mut chain = get_genesis_chain(Some(bill.clone()));
-        let keys = get_bill_keys();
-
-        // reject to pay without a request to accept will fail
-        let block = BillBlock::create_block_for_reject_to_pay(
-            bill_id_test(),
-            chain.get_latest_block(),
-            &BillRejectBlockData {
-                rejecter: payer.clone().into(),
-                signatory: None,
-                signing_timestamp: chain.get_latest_block().timestamp + 1000,
-                signing_address: empty_address(),
-            },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            chain.get_latest_block().timestamp + 1000,
-        )
-        .unwrap();
-        assert!(chain.try_add_block(block));
-
-        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
-
-        bill_chain_store
-            .expect_get_chain()
-            .with(eq(bill_id_test()))
-            .times(1)
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
-        // should persist the issue block, but fail the second block
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
-            .times(1)
-            .returning(move |_, _| Ok(()));
-
-        bill_store
-            .expect_save_keys()
-            .with(eq(bill_id_test()), always())
-            .never();
-
-        let handler = BillChainEventProcessor::new(
-            Arc::new(bill_chain_store),
-            Arc::new(bill_store),
-            Arc::new(contact),
-            bitcoin::Network::Testnet,
-        );
-
-        let result = handler
-            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
-            .await;
-
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_signing_check_fails() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        // drawer has a different key than signer, signing check will fail
-        let mut drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        drawer.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
-        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-        let keys = get_bill_keys();
-
-        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
-
-        bill_chain_store
-            .expect_get_chain()
-            .with(eq(bill_id_test()))
-            .times(1)
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
-            .never();
-
-        bill_store
-            .expect_save_keys()
-            .with(eq(bill_id_test()), always())
-            .never();
-
-        let handler = BillChainEventProcessor::new(
-            Arc::new(bill_chain_store),
-            Arc::new(bill_store),
-            Arc::new(contact),
-            bitcoin::Network::Testnet,
-        );
-
-        let result = handler
-            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
-            .await;
-        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -648,7 +648,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, mut contact) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, mut contact, transport) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -679,6 +679,7 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -686,6 +687,269 @@ mod tests {
             .process_chain_data(&bill_id_test(), vec![block.clone()], None)
             .await
             .expect("Event should be handled");
+    }
+
+    #[tokio::test]
+    async fn test_recovers_chain_on_missing_blocks() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        endorsee.node_id = node_id_test_other();
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        let block1 = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: chain.get_latest_block().timestamp + 1000,
+                signing_address: Some(empty_address()),
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            chain.get_latest_block().timestamp + 1000,
+        )
+        .unwrap();
+
+        let block2 = BillBlock::create_block_for_accept(
+            bill_id.clone(),
+            &block1,
+            &BillAcceptBlockData {
+                accepter: payer.clone().into(),
+                signatory: None,
+                signing_timestamp: block1.timestamp + 1000,
+                signing_address: empty_address(),
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            block1.timestamp + 1000,
+        )
+        .unwrap();
+
+        let event1 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id_test(), chain.get_latest_block()),
+            &bill_id,
+        );
+
+        let event2 = generate_test_event(
+            &bcr_keys,
+            Some(event1.clone()),
+            Some(event1.clone()),
+            as_event_payload(&bill_id_test(), &block1),
+            &bill_id,
+        );
+
+        let event3 = generate_test_event(
+            &bcr_keys,
+            Some(event2.clone()),
+            Some(event1.clone()),
+            as_event_payload(&bill_id_test(), &block2),
+            &bill_id,
+        );
+
+        // mock the nostr chain
+        let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
+
+        let (mut bill_chain_store, mut bill_store, mut contact, mut transport) = create_mocks();
+
+        let chain_clone = chain.clone();
+        bill_store
+            .expect_invalidate_bill_in_cache()
+            .returning(|_| Ok(()));
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store.expect_get_keys().returning(move |_| {
+            Ok(BillKeys {
+                private_key: bcr_keys.get_private_key().to_owned(),
+                public_key: bcr_keys.pub_key(),
+            })
+        });
+
+        let expected_bill_id = bill_id.clone();
+        // on chain recovery we ask for the existing chain two times
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(expected_bill_id))
+            .times(2)
+            .returning(move |_| Ok(chain_clone.clone()));
+
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(nostr_chain.clone()))
+            .once();
+
+        // recovery adds the missing block
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id.clone()), eq(block1.clone()))
+            .times(1)
+            .returning(move |_, _| Ok(()));
+
+        // and then the received block
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id.clone()), eq(block2.clone()))
+            .times(1)
+            .returning(move |_, _| Ok(()));
+
+        contact.expect_ensure_nostr_contact().returning(|_| ());
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&bill_id, vec![block2.clone()], None)
+            .await
+            .expect("Event should be handled");
+    }
+
+    fn as_event_payload(id: &BillId, block: &BillBlock) -> EventEnvelope {
+        Event::new_bill(BillBlockEvent {
+            bill_id: id.clone(),
+            block_height: block.id as usize,
+            block: block.clone(),
+        })
+        .try_into()
+        .expect("could not create envelope")
+    }
+
+    fn generate_test_event(
+        keys: &BcrKeys,
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        data: EventEnvelope,
+        bill_id: &BillId,
+    ) -> nostr::Event {
+        create_public_chain_event(
+            &bill_id.to_string(),
+            data,
+            1000,
+            BlockchainType::Bill,
+            keys.clone(),
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
+    #[tokio::test]
+    async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_validation_fails() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let mut payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        payee.node_id = node_id_test_other();
+        let drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
+        let mut chain = get_genesis_chain(Some(bill.clone()));
+        let keys = get_bill_keys();
+
+        // reject to pay without a request to accept will fail
+        let block = BillBlock::create_block_for_reject_to_pay(
+            bill_id_test(),
+            chain.get_latest_block(),
+            &BillRejectBlockData {
+                rejecter: payer.clone().into(),
+                signatory: None,
+                signing_timestamp: chain.get_latest_block().timestamp + 1000,
+                signing_address: empty_address(),
+            },
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            chain.get_latest_block().timestamp + 1000,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(block));
+
+        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(bill_id_test()))
+            .times(1)
+            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+        // should persist the issue block, but fail the second block
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
+            .times(1)
+            .returning(move |_, _| Ok(()));
+
+        bill_store
+            .expect_save_keys()
+            .with(eq(bill_id_test()), always())
+            .never();
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        let result = handler
+            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fails_to_create_new_chain_for_new_chain_event_if_block_signing_check_fails() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        // drawer has a different key than signer, signing check will fail
+        let mut drawer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        drawer.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+        let keys = get_bill_keys();
+
+        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(bill_id_test()))
+            .times(1)
+            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
+            .never();
+
+        bill_store
+            .expect_save_keys()
+            .with(eq(bill_id_test()), always())
+            .never();
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        let result = handler
+            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
+            .await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -712,7 +976,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store.expect_get_keys().returning(|_| {
@@ -736,13 +1000,13 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
         let result = handler
             .process_chain_data(&bill_id_test(), vec![block.clone()], None)
             .await;
-
         assert!(result.is_err());
     }
 
@@ -775,7 +1039,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, contact) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store.expect_get_keys().returning(|_| {
@@ -799,13 +1063,13 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
         let result = handler
             .process_chain_data(&bill_id_test(), vec![block.clone()], None)
             .await;
-
         assert!(result.is_err());
     }
 
@@ -839,7 +1103,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, bill_store, contact) = create_mocks();
+        let (mut bill_chain_store, bill_store, contact, transport) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -853,6 +1117,7 @@ mod tests {
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -865,11 +1130,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_block_for_bill_id_from_different_network() {
-        let (bill_chain_store, bill_store, contact) = create_mocks();
+        let (bill_chain_store, bill_store, contact, transport) = create_mocks();
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
@@ -886,11 +1152,13 @@ mod tests {
         MockBillChainStore,
         MockBillStore,
         MockNostrContactProcessorApi,
+        MockNotificationJsonTransport,
     ) {
         (
             MockBillChainStore::new(),
             MockBillStore::new(),
             MockNostrContactProcessorApi::new(),
+            MockNotificationJsonTransport::new(),
         )
     }
 }

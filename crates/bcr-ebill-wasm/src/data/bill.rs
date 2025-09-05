@@ -133,6 +133,13 @@ pub struct BillCombinedBitcoinKeyWeb {
     pub private_descriptor: String,
 }
 
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ResyncBillPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+}
+
 impl From<BillCombinedBitcoinKey> for BillCombinedBitcoinKeyWeb {
     fn from(val: BillCombinedBitcoinKey) -> Self {
         BillCombinedBitcoinKeyWeb {
