@@ -571,7 +571,7 @@ impl NotificationServiceApi for NotificationService {
     }
 
     async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> Result<()> {
-        let drawee = event.bill.drawee.node_id.clone();
+        let drawee = &event.bill.drawee.node_id;
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
                 drawee.clone(),
@@ -587,15 +587,15 @@ impl NotificationServiceApi for NotificationService {
         self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
         // Only send email to drawee
-        if let Some(drawee_event) = all_events.get(&drawee) {
-            self.send_email_notification(&event.sender(), &drawee, drawee_event)
+        if let Some(drawee_event) = all_events.get(drawee) {
+            self.send_email_notification(&event.sender(), drawee, drawee_event)
                 .await;
         }
         Ok(())
     }
 
     async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> Result<()> {
-        let drawee = event.bill.drawee.node_id.clone();
+        let drawee = &event.bill.drawee.node_id;
         let all_events = event.generate_action_messages(
             HashMap::from_iter(vec![(
                 drawee.clone(),
@@ -608,8 +608,8 @@ impl NotificationServiceApi for NotificationService {
         self.send_all_bill_events(&event.sender(), &all_events)
             .await?;
         // Only send email to drawee
-        if let Some(drawee_event) = all_events.get(&drawee) {
-            self.send_email_notification(&event.sender(), &drawee, drawee_event)
+        if let Some(drawee_event) = all_events.get(drawee) {
+            self.send_email_notification(&event.sender(), drawee, drawee_event)
                 .await;
         }
         Ok(())
