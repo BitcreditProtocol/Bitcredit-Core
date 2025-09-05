@@ -120,7 +120,7 @@ async function start(create_identity) {
       await identityApi.deanonymize({
         t: 0,
         name: "Johanna Smith",
-        email: "jsmith@example.com",
+        email: "mario@zupzup.org",
         postal_address: {
           country: "AT",
           city: "Vienna",
