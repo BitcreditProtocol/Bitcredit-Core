@@ -35,7 +35,7 @@ use crate::{
             PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
             RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
             RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
-            RequestToPayBitcreditBillPayload,
+            RequestToPayBitcreditBillPayload, ResyncBillPayload,
         },
         mint::MintRequestStateResponse,
     },
@@ -844,6 +844,20 @@ impl Bill {
     #[wasm_bindgen]
     pub async fn clear_bill_cache(&self) -> Result<()> {
         get_ctx().bill_service.clear_bill_cache().await?;
+        Ok(())
+    }
+
+    /// Given a bill id, resync the chain via block transport
+    #[wasm_bindgen]
+    pub async fn sync_bill_chain(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ResyncBillPayload")] payload: JsValue,
+    ) -> Result<()> {
+        let payload: ResyncBillPayload = serde_wasm_bindgen::from_value(payload)?;
+        get_ctx()
+            .notification_service
+            .resync_bill_chain(&payload.bill_id)
+            .await?;
         Ok(())
     }
 }

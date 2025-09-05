@@ -52,6 +52,7 @@ document.getElementById("bill_test_self_drafted").addEventListener("click", trig
 document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
+document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
 
 // companies
 document.getElementById("company_create").addEventListener("click", createCompany);
@@ -632,6 +633,15 @@ async function fetchBillSearch() {
 async function clearBillCache() {
   let measured = measure(async () => {
     return await billApi.clear_bill_cache();
+  });
+  await measured();
+}
+
+async function syncBillChain() {
+  let bill_id = document.getElementById("bill_id").value;
+  console.log("syncBillChain", bill_id);
+  let measured = measure(async () => {
+    return await billApi.sync_bill_chain({ bill_id: bill_id });
   });
   await measured();
 }

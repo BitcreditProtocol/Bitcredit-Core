@@ -199,4 +199,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
 
     /// Fetch email notifications preferences link for the currently selected identity
     async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
+
+    /// Resync bill chain
+    async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
 }

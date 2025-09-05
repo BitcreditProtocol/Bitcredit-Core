@@ -95,6 +95,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             self.bill_store.get_keys(bill_id).await,
         ) {
             (Ok(existing_chain), Ok(bill_keys)) => {
+                debug!("starting bill chain resync for {bill_id}");
                 let bcr_keys = BcrKeys::from_private_key(&bill_keys.private_key)?;
                 if let Ok(chain_data) = resolve_event_chains(
                     self.transport.clone(),
@@ -118,9 +119,11 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                 .await
                                 .is_ok()
                         {
+                            debug!("resynced bill {bill_id} with {} remote events", data.len());
                             break;
                         }
                     }
+                    debug!("finished bill chain resync for {bill_id}");
                     Ok(())
                 } else {
                     let message = format!("Could not refetch chain data from Nostr for {bill_id}");

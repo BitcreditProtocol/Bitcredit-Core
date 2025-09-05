@@ -1043,7 +1043,6 @@ impl BillServiceApi for BillService {
             &bill_keys,
             &bill_action,
             &identity.identity,
-            &signer_public_data.node_id(),
             &contacts,
             &signer_public_data.node_id(),
         )
