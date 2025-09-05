@@ -8,6 +8,7 @@
 * Fix issue where the notification sender defaulted to the personal identity instead of the signer identity
 * Added `app_url` property to config - defaults to `https://bitcredit-dev.minibill.tech` (config break)
 * Small fix to WASM build addressing the rustwasm organization archiving
+* Added an API call `sync_bill_chain`, which re-synchronizes a bill via Nostr
 
 # 0.4.4
 
