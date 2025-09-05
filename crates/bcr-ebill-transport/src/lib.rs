@@ -29,7 +29,6 @@ use handler::{
 use log::{debug, error};
 
 pub mod chain_keys;
-pub mod email;
 pub mod handler;
 mod nostr;
 pub mod notification_service;

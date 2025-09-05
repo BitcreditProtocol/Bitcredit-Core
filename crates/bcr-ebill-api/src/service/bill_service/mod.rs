@@ -3948,8 +3948,11 @@ pub mod tests {
                 always(),
                 eq(ActionType::AcceptBill),
                 recipient_check.clone(),
+                always(),
+                always(),
+                always(),
             )
-            .returning(|_, _, _, _, _| Ok(()));
+            .returning(|_, _, _, _, _, _, _, _| Ok(()));
 
         // send pay timeout notification
         ctx.notification_service
@@ -3960,8 +3963,11 @@ pub mod tests {
                 always(),
                 eq(ActionType::PayBill),
                 recipient_check,
+                always(),
+                always(),
+                always(),
             )
-            .returning(|_, _, _, _, _| Ok(()));
+            .returning(|_, _, _, _, _, _, _, _| Ok(()));
 
         // marks accept bill timeout as sent
         ctx.notification_service

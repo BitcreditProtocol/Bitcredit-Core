@@ -312,6 +312,7 @@ impl IdentityServiceApi for IdentityService {
                 return Ok(());
             }
 
+            // TODO(multi-relay): don't default to first
             if let Some(nostr_relay) = nostr_relays.first() {
                 if !ignore_profile_picture_file_upload_id {
                     profile_picture_file = self
@@ -409,6 +410,7 @@ impl IdentityServiceApi for IdentityService {
 
         let identity = match t {
             IdentityType::Ident => {
+                // TODO(multi-relay): don't default to first
                 let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
                     Some(nostr_relay) => {
                         let profile_picture_file = self
@@ -521,6 +523,7 @@ impl IdentityServiceApi for IdentityService {
             &identity_document_file_upload_id,
         )?;
 
+        // TODO(multi-relay): don't default to first
         let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
             Some(nostr_relay) => {
                 let profile_picture_file = self
@@ -608,6 +611,7 @@ impl IdentityServiceApi for IdentityService {
         validate_node_id_network(id)?;
         debug!("getting file {file_name} for identity with id: {id}");
         let nostr_relays = identity.nostr_relays.clone();
+        // TODO(multi-relay): don't default to first
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
 

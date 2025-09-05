@@ -364,6 +364,9 @@ mockall::mock! {
             sum: Option<u64>,
             timed_out_action: ActionType,
             recipients: Vec<BillParticipant>,
+            holder: &NodeId,
+            drawee: &NodeId,
+            recoursee: &Option<NodeId>,
         ) -> Result<()>;
         async fn send_recourse_action_event(
             &self,
@@ -412,6 +415,7 @@ mockall::mock! {
     #[async_trait]
     impl NotificationJsonTransportApi for NotificationJsonTransport {
         fn get_sender_node_id(&self) -> NodeId;
+        fn get_sender_keys(&self) -> BcrKeys;
         async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
         async fn send_public_chain_event(
             &self,

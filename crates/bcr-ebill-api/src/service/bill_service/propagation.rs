@@ -20,6 +20,7 @@ impl BillService {
         bill_action: &BillAction,
         identity: &Identity,
         contacts: &HashMap<NodeId, Contact>,
+        signer_node_id: &NodeId,
     ) -> Result<()> {
         let last_version_bill = self
             .get_last_version_bill(blockchain, bill_keys, identity, contacts)
@@ -30,7 +31,7 @@ impl BillService {
             blockchain,
             bill_keys,
             true,
-            &identity.node_id,
+            signer_node_id,
         )?;
 
         match bill_action {

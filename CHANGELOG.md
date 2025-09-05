@@ -4,6 +4,8 @@
 * Email Notifications
     * Add email notifications API
     * Add email notifications registration API
+    * Add email notifications sending logic
+* Fix issue where the notification sender defaulted to the personal identity instead of the signer identity
 * Added `app_url` property to config - defaults to `https://bitcredit-dev.minibill.tech` (config break)
 * Small fix to WASM build addressing the rustwasm organization archiving
 

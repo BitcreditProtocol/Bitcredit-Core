@@ -300,6 +300,7 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
 
+        // TODO(multi-relay): don't default to first
         let (proof_of_registration_file, logo_file) = match nostr_relays.first() {
             Some(nostr_relay) => {
                 // Save the files locally with the identity public key
@@ -522,6 +523,7 @@ impl CompanyServiceApi for CompanyService {
             return Ok(());
         }
 
+        // TODO(multi-relay): don't default to first
         let (logo_file, proof_of_registration_file) = match nostr_relays.first() {
             Some(nostr_relay) => {
                 let logo_file = if ignore_logo_file_upload_id {
@@ -820,6 +822,7 @@ impl CompanyServiceApi for CompanyService {
         debug!("getting file {file_name} for company with id: {id}",);
         validate_node_id_network(id)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
+        // TODO(multi-relay): don't default to first
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
             if let Some(logo_file) = company.logo_file

@@ -107,6 +107,9 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         sum: Option<u64>,
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
+        holder: &NodeId,
+        drawee: &NodeId,
+        recoursee: &Option<NodeId>,
     ) -> Result<()>;
 
     /// In case an action was rejected or timed out a holder can request a recourse action
