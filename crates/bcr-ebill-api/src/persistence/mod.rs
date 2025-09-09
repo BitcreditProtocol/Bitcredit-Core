@@ -10,12 +10,14 @@ use bcr_ebill_persistence::{
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
-        email_notification::SurrealEmailNotificationStore, mint::SurrealMintStore,
+        email_notification::SurrealEmailNotificationStore,
+        identity_proof::SurrealIdentityProofStore, mint::SurrealMintStore,
         nostr_contact_store::SurrealNostrContactStore,
         nostr_send_queue::SurrealNostrEventQueueStore, surreal::SurrealWrapper,
     },
     file_upload::FileUploadStoreApi,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
+    identity_proof::IdentityProofStoreApi,
     mint::MintStoreApi,
     nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
     notification::EmailNotificationStoreApi,
@@ -53,6 +55,7 @@ pub struct DbContext {
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     pub mint_store: Arc<dyn MintStoreApi>,
     pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    pub identity_proof_store: Arc<dyn IdentityProofStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -99,6 +102,7 @@ pub async fn get_db_context(
 
     let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(surreal_wrapper.clone()));
+    let identity_proof_store = Arc::new(SurrealIdentityProofStore::new(surreal_wrapper.clone()));
     let company_chain_store = Arc::new(SurrealCompanyChainStore::new(surreal_wrapper.clone()));
 
     let nostr_event_offset_store =
@@ -135,5 +139,6 @@ pub async fn get_db_context(
         nostr_contact_store,
         mint_store,
         nostr_chain_event_store,
+        identity_proof_store,
     })
 }

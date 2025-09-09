@@ -1,6 +1,7 @@
 # 0.4.6
 
 * Add basic logic for implementing (social) identity proofs
+* Add persistence, basic service layer and WASM API for identity proofs
 
 # 0.4.5
 

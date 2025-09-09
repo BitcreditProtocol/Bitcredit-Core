@@ -22,6 +22,13 @@ document.getElementById("fetch_contact_file").addEventListener("click", fetchCon
 // identity
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
 
+// identity proofs
+document.getElementById("identity_proof_get_stamp").addEventListener("click", identityProofGetStamp);
+document.getElementById("identity_proof_create").addEventListener("click", identityProofCreate);
+document.getElementById("identity_proof_list").addEventListener("click", identityProofList);
+document.getElementById("identity_proof_archive").addEventListener("click", identityProofArchive);
+document.getElementById("identity_proof_re_check").addEventListener("click", identityProofReCheck);
+
 // bill actions
 document.getElementById("bill_fetch_detail").addEventListener("click", fetchBillDetail);
 document.getElementById("bill_fetch_endorsements").addEventListener("click", fetchBillEndorsements);
@@ -92,6 +99,7 @@ async function start(create_identity) {
 
   let notificationApi = wasm.Api.notification();
   let identityApi = wasm.Api.identity();
+  let identityProofApi = wasm.Api.identity_proof();
   let contactApi = wasm.Api.contact();
   let companyApi = wasm.Api.company();
   let billApi = wasm.Api.bill();
@@ -211,7 +219,7 @@ async function start(create_identity) {
     console.log("notifications: ", notifications);
   }
   console.log("Returning apis..");
-  return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi };
+  return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi, identityProofApi };
 }
 
 let apis = await start(generateIdentity());
@@ -219,6 +227,7 @@ let contactApi = apis.contactApi;
 let companyApi = apis.companyApi;
 let generalApi = apis.generalApi;
 let identityApi = apis.identityApi;
+let identityProofApi = apis.identityProofApi;
 let billApi = apis.billApi;
 window.billApi = billApi;
 window.identityApi = identityApi;
@@ -427,6 +436,32 @@ async function switchIdentity() {
   let node_id = document.getElementById("node_id_identity").value;
   await identityApi.switch({ t: 1, node_id });
   document.getElementById("current_identity").textContent = node_id;
+}
+
+async function identityProofGetStamp() {
+  let stamp = await identityProofApi.get_identity_stamp();
+  document.getElementById("identity_proof_stamp").value = stamp;
+}
+
+async function identityProofCreate() {
+  let stamp = document.getElementById("identity_proof_stamp").value;
+  let url = document.getElementById("identity_proof_url").value;
+  let identity_proof = await identityProofApi.add(url, stamp);
+  document.getElementById("identity_proof_id").value = identity_proof.id;
+}
+async function identityProofList() {
+  let measured = measure(async () => {
+    return await identityProofApi.list();
+  });
+  await measured();
+}
+async function identityProofArchive() {
+  let id = document.getElementById("identity_proof_id").value;
+  await identityProofApi.archive(id);
+}
+async function identityProofReCheck() {
+  let id = document.getElementById("identity_proof_id").value;
+  let identity_proof = await identityProofApi.re_check(id);
 }
 
 async function endorseBill() {
