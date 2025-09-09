@@ -1,6 +1,7 @@
 pub mod bitcoin;
 pub mod email;
 pub mod file_storage;
+pub mod identity_proof;
 pub mod mint;
 pub mod time;
 
@@ -28,4 +29,8 @@ pub enum Error {
     /// all errors originating from the external email API
     #[error("External EmailApi error: {0}")]
     ExternalEmailApi(#[from] email::Error),
+
+    /// all errors originating from the external identity proof API
+    #[error("External Identity Proof error: {0}")]
+    ExternalIdentityProofApi(#[from] identity_proof::Error),
 }
