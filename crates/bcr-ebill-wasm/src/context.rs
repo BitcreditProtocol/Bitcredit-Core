@@ -4,13 +4,14 @@ use bcr_ebill_api::{
     Config, DbContext,
     external::{
         bitcoin::BitcoinClient, email::EmailClient, file_storage::FileStorageClient,
-        mint::MintClient,
+        identity_proof::IdentityProofClient, mint::MintClient,
     },
     service::{
         bill_service::{BillService, BillServiceApi},
         company_service::{CompanyService, CompanyServiceApi},
         contact_service::{ContactService, ContactServiceApi},
         file_upload_service::{FileUploadService, FileUploadServiceApi},
+        identity_proof_service::{IdentityProofService, IdentityProofServiceApi},
         identity_service::{IdentityService, IdentityServiceApi},
         notification_service::NotificationServiceApi,
         search_service::{SearchService, SearchServiceApi},
@@ -30,6 +31,7 @@ pub struct Context {
     pub search_service: Arc<dyn SearchServiceApi>,
     pub bill_service: Arc<dyn BillServiceApi>,
     pub identity_service: Arc<dyn IdentityServiceApi>,
+    pub identity_proof_service: Arc<dyn IdentityProofServiceApi>,
     pub company_service: Arc<dyn CompanyServiceApi>,
     pub file_upload_service: Arc<dyn FileUploadServiceApi>,
     pub nostr_consumer: NostrConsumer,
@@ -54,6 +56,7 @@ impl Context {
         let bitcoin_client = Arc::new(BitcoinClient::new());
         let mint_client = Arc::new(MintClient::new());
         let email_client = Arc::new(EmailClient::new());
+        let identity_proof_client = Arc::new(IdentityProofClient::new());
 
         let nostr_clients =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
@@ -81,6 +84,7 @@ impl Context {
             db.mint_store.clone(),
             mint_client,
         ));
+
         let identity_service = IdentityService::new(
             db.identity_store.clone(),
             db.file_upload_store.clone(),
@@ -88,6 +92,9 @@ impl Context {
             db.identity_chain_store.clone(),
             notification_service.clone(),
         );
+
+        let identity_proof_service =
+            IdentityProofService::new(db.identity_proof_store.clone(), identity_proof_client);
 
         let company_service = CompanyService::new(
             db.company_store.clone(),
@@ -128,6 +135,7 @@ impl Context {
             search_service: Arc::new(search_service),
             bill_service,
             identity_service: Arc::new(identity_service),
+            identity_proof_service: Arc::new(identity_proof_service),
             company_service: Arc::new(company_service),
             file_upload_service: Arc::new(file_upload_service),
             nostr_consumer,

@@ -136,6 +136,10 @@ enum JsErrorType {
     UnknownNodeId,
     BackupNotSupported,
     CallerMustBeSignatory,
+    InvalidBase58,
+    InvalidSignature,
+    InvalidUrl,
+    InvalidIdentityProofStatus,
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -346,6 +350,12 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::BackupNotSupported => err_400(e, JsErrorType::BackupNotSupported),
         ValidationError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
         ValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
+        ValidationError::InvalidBase58 => err_400(e, JsErrorType::InvalidBase58),
+        ValidationError::InvalidSignature => err_400(e, JsErrorType::InvalidSignature),
+        ValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
+        ValidationError::InvalidIdentityProofStatus(_) => {
+            err_400(e, JsErrorType::InvalidIdentityProofStatus)
+        }
     }
 }
 

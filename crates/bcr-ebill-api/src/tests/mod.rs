@@ -16,11 +16,13 @@ pub mod tests {
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
         identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
+        identity_proof::{IdentityProof, IdentityProofStatus},
         mint::{MintOffer, MintRequest, MintRequestStatus},
         nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
         notification::{ActionType, Notification, NotificationType},
         util::crypto::BcrKeys,
     };
+    use bcr_ebill_persistence::identity_proof::IdentityProofStoreApi;
     use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
         BackupStoreApi, ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
@@ -329,6 +331,26 @@ pub mod tests {
     }
 
     mockall::mock! {
+        pub IdentityProofStore {}
+
+        impl ServiceTraitBounds for IdentityProofStore {}
+
+        #[async_trait]
+        impl IdentityProofStoreApi for IdentityProofStore {
+            async fn list_by_node_id(&self, node_id: &NodeId) -> Result<Vec<IdentityProof>>;
+            async fn add(&self, identity_proof: &IdentityProof) -> Result<()>;
+            async fn archive(&self, id: &str) -> Result<()>;
+            async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>>;
+            async fn update_status_by_id(
+                &self,
+                id: &str,
+                status: &IdentityProofStatus,
+                status_last_checked_timestamp: u64,
+            ) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
         pub NotificationStoreApiMock {}
 
         impl ServiceTraitBounds for NotificationStoreApiMock {}
@@ -425,6 +447,7 @@ pub mod tests {
             nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
             mint_store: Arc::new(MockMintStore::new()),
             nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
+            identity_proof_store: Arc::new(MockIdentityProofStore::new()),
         }
     }
 

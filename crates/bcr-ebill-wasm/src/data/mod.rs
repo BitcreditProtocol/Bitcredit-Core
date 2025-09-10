@@ -18,6 +18,7 @@ pub mod bill;
 pub mod company;
 pub mod contact;
 pub mod identity;
+pub mod identity_proof;
 pub mod mint;
 pub mod notification;
 

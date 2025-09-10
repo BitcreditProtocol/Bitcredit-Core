@@ -24,6 +24,7 @@ pub const DB_OP_CODE: &str = "op_code";
 pub const DB_COMPANY_ID: &str = "company_id";
 pub const DB_BILL_ID: &str = "bill_id";
 pub const DB_STATUS: &str = "status";
+pub const DB_STATUS_LAST_CHECKED_TIMESTAMP: &str = "status_last_checked_timestamp";
 pub const DB_STATUS_OFFERED: &str = "status_offered";
 pub const DB_STATUS_PENDING: &str = "status_pending";
 pub const DB_STATUS_ACCEPTED: &str = "status_accepted";
