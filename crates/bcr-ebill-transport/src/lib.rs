@@ -104,7 +104,6 @@ pub async fn create_nostr_clients(
 pub async fn create_notification_service(
     clients: Vec<Arc<NostrClient>>,
     db_context: DbContext,
-    contact_service: Arc<dyn ContactServiceApi>,
     email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<String>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
@@ -134,7 +133,8 @@ pub async fn create_notification_service(
             .collect(),
         db_context.notification_store.clone(),
         db_context.email_notification_store.clone(),
-        contact_service,
+        db_context.contact_store,
+        db_context.nostr_contact_store,
         db_context.queued_message_store.clone(),
         db_context.nostr_chain_event_store.clone(),
         email_client,

@@ -16,9 +16,12 @@ use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::company::Company;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
+use bcr_ebill_core::nostr_contact::TrustLevel;
 use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_persistence::ContactStoreApi;
 use bcr_ebill_persistence::nostr::{
-    NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStoreApi,
+    NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
+    NostrQueuedMessageStoreApi,
 };
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use log::{debug, error, warn};
@@ -35,7 +38,6 @@ use bcr_ebill_api::data::{
 use bcr_ebill_api::data::{validate_bill_id_network, validate_node_id_network};
 use bcr_ebill_api::get_config;
 use bcr_ebill_api::persistence::notification::{NotificationFilter, NotificationStoreApi};
-use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::notification_service::{Error, NotificationServiceApi, Result};
 use bcr_ebill_core::notification::{ActionType, BillEventType};
 use bcr_ebill_core::{NodeId, PostalAddress, ServiceTraitBounds};
@@ -47,7 +49,8 @@ pub struct NotificationService {
     notification_transport: Mutex<HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>>,
     notification_store: Arc<dyn NotificationStoreApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
-    contact_service: Arc<dyn ContactServiceApi>,
+    contact_store: Arc<dyn ContactStoreApi>,
+    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     email_client: Arc<dyn EmailClientApi>,
@@ -65,7 +68,8 @@ impl NotificationService {
         notification_transport: Vec<Arc<dyn NotificationJsonTransportApi>>,
         notification_store: Arc<dyn NotificationStoreApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
-        contact_service: Arc<dyn ContactServiceApi>,
+        contact_store: Arc<dyn ContactStoreApi>,
+        nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         email_client: Arc<dyn EmailClientApi>,
@@ -82,7 +86,8 @@ impl NotificationService {
             notification_transport: transports,
             notification_store,
             email_notification_store,
-            contact_service,
+            contact_store,
+            nostr_contact_store,
             queued_message_store,
             chain_event_store,
             email_client,
@@ -119,14 +124,10 @@ impl NotificationService {
         match self.get_local_identity(node_id).await {
             Some(id) => Some(id),
             None => {
-                if let Ok(Some(identity)) =
-                    self.contact_service.get_identity_by_node_id(node_id).await
-                {
+                if let Some(identity) = self.resolve_node_contact(node_id).await {
                     Some(identity)
-                } else if let Ok(Some(nostr)) = self
-                    .contact_service
-                    .get_nostr_contact_by_node_id(node_id)
-                    .await
+                } else if let Ok(Some(nostr)) = self.nostr_contact_store.by_node_id(node_id).await
+                    && nostr.trust_level != TrustLevel::None
                 {
                     // we have no contact but a nostr contact of a participant
                     Some(BillParticipant::Anon(BillAnonParticipant {
@@ -138,6 +139,17 @@ impl NotificationService {
                     None
                 }
             }
+        }
+    }
+
+    async fn resolve_node_contact(&self, node_id: &NodeId) -> Option<BillParticipant> {
+        if validate_node_id_network(node_id).is_err() {
+            return None;
+        }
+        if let Ok(Some(identity)) = self.contact_store.get(node_id).await {
+            identity.try_into().ok()
+        } else {
+            None
         }
     }
 
@@ -334,9 +346,9 @@ impl NotificationService {
         node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
-        if let (Some(node), Ok(Some(identity))) = (
+        if let (Some(node), Some(identity)) = (
             self.get_node_transport(sender).await,
-            self.contact_service.get_identity_by_node_id(node_id).await,
+            self.resolve_node_contact(node_id).await,
         ) {
             node.send_private_event(&identity, message).await?;
         }
@@ -1070,17 +1082,17 @@ mod tests {
     };
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
+    use bcr_ebill_core::contact::Contact;
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use mockall::predicate::eq;
-    use reqwest::Url;
     use std::sync::Arc;
 
     use crate::handler::MockBillChainEventProcessorApi;
     use crate::test_utils::{
-        MockContactService, MockEmailClient, MockEmailNotificationStore, MockNostrChainEventStore,
-        MockNostrQueuedMessageStore, MockNotificationJsonTransport, MockNotificationStore,
-        bill_id_test, get_baseline_identity, get_genesis_chain, node_id_test, node_id_test_other,
-        node_id_test_other2, private_key_test,
+        MockContactStore, MockEmailClient, MockEmailNotificationStore, MockNostrChainEventStore,
+        MockNostrContactStore, MockNostrQueuedMessageStore, MockNotificationJsonTransport,
+        MockNotificationStore, bill_id_test, get_baseline_identity, get_genesis_chain,
+        init_test_cfg, node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
     };
 
     use super::super::test_utils::{get_identity_public_data, get_test_bitcredit_bill};
@@ -1113,6 +1125,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
@@ -1154,21 +1167,17 @@ mod tests {
         )
         .unwrap();
 
-        let mut mock_contact_service = MockContactService::new();
+        let mut mock_contact_store = MockContactStore::new();
 
-        // every participant should receive events
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id_test_other2()))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(buyer.clone()))));
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id_test()))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id_test_other()))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&buyer))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&payer))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&payee))));
 
         let mut mock = MockNotificationJsonTransport::new();
 
@@ -1228,7 +1237,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(mock_event_store),
             Arc::new(MockEmailClient::new()),
@@ -1259,6 +1269,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_does_not_send_non_rejectable_action() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
@@ -1300,12 +1311,10 @@ mod tests {
         )
         .unwrap();
 
-        let mut mock_contact_service = MockContactService::new();
+        let mut mock_contact_store = MockContactStore::new();
 
         // no participant should receive events
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .never();
+        mock_contact_store.expect_get().never();
 
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_node_id().returning(node_id_test);
@@ -1317,7 +1326,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -1333,6 +1343,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_event() {
+        init_test_cfg();
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test(),
@@ -1374,7 +1385,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -1413,6 +1425,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
+        init_test_cfg();
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test(),
@@ -1441,7 +1454,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -1464,8 +1478,26 @@ mod tests {
             .expect("failed to send event");
     }
 
+    fn as_contact(id: &BillIdentParticipant) -> Contact {
+        Contact {
+            t: id.t.clone(),
+            node_id: id.node_id.clone(),
+            name: id.name.to_string(),
+            email: id.email.clone(),
+            postal_address: Some(id.postal_address.clone()),
+            nostr_relays: id.nostr_relays.clone(),
+            identification_number: None,
+            avatar_file: None,
+            proof_document_file: None,
+            date_of_birth_or_registration: None,
+            country_of_birth_or_registration: None,
+            city_of_birth_or_registration: None,
+        }
+    }
+
     #[tokio::test]
     async fn test_send_recourse_action_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
@@ -1507,19 +1539,19 @@ mod tests {
         )
         .unwrap();
 
-        let mut mock_contact_service = MockContactService::new();
+        let mut mock_contact_store = MockContactStore::new();
 
         let buyer_clone = buyer.clone();
         // participants should receive events
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .returning(move |_| Ok(Some(BillParticipant::Ident(buyer_clone.clone()))));
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&buyer_clone))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&payee))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&payer))));
 
         let mut mock = MockNotificationJsonTransport::new();
 
@@ -1566,7 +1598,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(event_store),
             Arc::new(MockEmailClient::new()),
@@ -1587,6 +1620,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event_does_not_send_non_recurse_action() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
@@ -1628,13 +1662,6 @@ mod tests {
         )
         .unwrap();
 
-        let mut mock_contact_service = MockContactService::new();
-
-        // participants should receive events
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .never();
-
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_node_id().returning(node_id_test);
 
@@ -1645,7 +1672,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -1661,22 +1689,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_to_send_is_added_to_retry_queue() {
+        init_test_cfg();
         // given a payer and payee with a new bill
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(payer.node_id.clone()))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(payer.clone()))));
-
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(payee.node_id.clone()))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(payee.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&payer))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&payee))));
 
         let mut mock = MockNotificationJsonTransport::new();
         mock.expect_get_sender_node_id().returning(node_id_test);
@@ -1717,7 +1743,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(queue_mock),
             Arc::new(mock_event_store),
             Arc::new(MockEmailClient::new()),
@@ -1778,14 +1805,14 @@ mod tests {
         mock_email_client
             .expect_send_bill_notification()
             .returning(|_, _, _, _, _| Ok(()));
-        let mut mock_contact_service = MockContactService::new();
+        let mut mock_contact_store = MockContactStore::new();
         let mut mock = MockNotificationJsonTransport::new();
         for p in participants.into_iter() {
             let clone1 = p.clone();
-            mock_contact_service
-                .expect_get_identity_by_node_id()
-                .with(eq(p.0.node_id.clone()))
-                .returning(move |_| Ok(Some(BillParticipant::Ident(clone1.0.clone()))));
+            mock_contact_store
+                .expect_get()
+                .with(eq(clone1.0.node_id.clone()))
+                .returning(move |_| Ok(Some(as_contact(&clone1.0))));
 
             mock.expect_get_sender_node_id().returning(node_id_test);
             mock.expect_get_sender_keys()
@@ -1832,7 +1859,8 @@ mod tests {
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(mock_event_store),
             Arc::new(mock_email_client),
@@ -1858,6 +1886,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_signed_event() {
+        init_test_cfg();
         // given a payer and payee with a new bill
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
@@ -1888,6 +1917,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_accepted_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -1934,6 +1964,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_accept_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -1980,6 +2011,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_pay_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2027,6 +2059,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_paid_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2049,6 +2082,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_endorsed_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let endorsee =
@@ -2079,6 +2113,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_offer_to_sell_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
@@ -2131,6 +2166,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_sold_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
@@ -2183,6 +2219,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_recourse_paid_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let recoursee =
@@ -2236,6 +2273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_mint_event() {
+        init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
         let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2283,6 +2321,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_client_notifications() {
+        init_test_cfg();
         let mut mock_store = MockNotificationStore::new();
         let result =
             Notification::new_bill_notification(&bill_id_test(), &node_id_test(), "desc", None);
@@ -2305,7 +2344,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(mock_store),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2323,33 +2363,13 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_network_failures() {
+        init_test_cfg();
         let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
         let filter = NotificationFilter {
             node_ids: vec![mainnet_node_id.clone()],
             ..Default::default()
         };
-
-        init(Config {
-            app_url: Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
-            bitcoin_network: "testnet".to_string(),
-            esplora_base_url: "https://esplora.minibill.tech".to_string(),
-            db_config: SurrealDbConfig::default(),
-            data_dir: ".".to_string(),
-            nostr_config: bcr_ebill_api::NostrConfig {
-                only_known_contacts: true,
-                relays: vec![],
-            },
-            mint_config: MintConfig {
-                default_mint_url: "http://localhost:4242/".into(),
-                default_mint_node_id: node_id_test_other(),
-            },
-            payment_config: PaymentConfig {
-                num_confirmations_for_payment: 6,
-            },
-            dev_mode_config: DevModeConfig { on: false },
-        })
-        .unwrap();
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2360,7 +2380,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2392,6 +2413,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_mark_notification_done() {
+        init_test_cfg();
         let mut mock_store = MockNotificationStore::new();
         mock_store
             .expect_mark_as_done()
@@ -2407,7 +2429,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(mock_store),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2423,6 +2446,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_success() {
+        init_test_cfg();
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender_id = node_id_test();
@@ -2442,11 +2466,10 @@ mod tests {
         let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2475,7 +2498,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2489,15 +2513,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_email_notification() {
+        init_test_cfg();
         let node_id = node_id_test_other();
         let identity =
             get_identity_public_data(&node_id, "test@example.com", vec!["ws://test.relay"]);
         // Set up mocks
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2520,7 +2544,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(mock_email_client),
@@ -2543,6 +2568,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_send_failure() {
+        init_test_cfg();
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender_id = node_id_test();
@@ -2563,11 +2589,10 @@ mod tests {
         let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2597,7 +2622,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2611,6 +2637,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_multiple_messages() {
+        init_test_cfg();
         let node_id1 = node_id_test_other();
         let sender_id = node_id_test();
         let node_id2 = node_id_test_other2();
@@ -2649,15 +2676,13 @@ mod tests {
         let identity2 = get_identity_public_data(&node_id2, "test2@example.com", vec![]);
 
         // Set up mocks
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id1))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity1.clone()))));
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id2))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity2.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity1))));
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity2))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
 
@@ -2706,7 +2731,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2720,6 +2746,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_invalid_payload() {
+        init_test_cfg();
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender = node_id_test();
@@ -2754,7 +2781,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2768,6 +2796,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_fail_retry_error() {
+        init_test_cfg();
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender = node_id_test();
@@ -2788,11 +2817,10 @@ mod tests {
         let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2827,7 +2855,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2841,6 +2870,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_succeed_retry_error() {
+        init_test_cfg();
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender = node_id_test();
@@ -2861,11 +2891,10 @@ mod tests {
         let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
 
         // Set up mocks
-        let mut mock_contact_service = MockContactService::new();
-        mock_contact_service
-            .expect_get_identity_by_node_id()
-            .with(eq(node_id))
-            .returning(move |_| Ok(Some(BillParticipant::Ident(identity.clone()))));
+        let mut mock_contact_store = MockContactStore::new();
+        mock_contact_store
+            .expect_get()
+            .returning(move |_| Ok(Some(as_contact(&identity))));
 
         let mut mock_transport = MockNotificationJsonTransport::new();
         mock_transport
@@ -2900,7 +2929,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(mock_contact_service),
+            Arc::new(mock_contact_store),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2914,6 +2944,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_no_messages() {
+        init_test_cfg();
         let mut mock_queue = MockNostrQueuedMessageStore::new();
         mock_queue
             .expect_get_retry_messages()
@@ -2929,7 +2960,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(mock_queue),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -2943,6 +2975,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_email_notifications() {
+        init_test_cfg();
         let mut mock_email_notification_store = MockEmailNotificationStore::new();
         mock_email_notification_store
             .expect_add_email_preferences_link_for_node_id()
@@ -2964,7 +2997,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(mock_email_notification_store),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(mock_email_client),
@@ -2985,6 +3019,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link() {
+        init_test_cfg();
         let mut mock_email_notification_store = MockEmailNotificationStore::new();
         mock_email_notification_store
             .expect_get_email_preferences_link_for_node_id()
@@ -2999,7 +3034,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(mock_email_notification_store),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
@@ -3019,6 +3055,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link_no_entry() {
+        init_test_cfg();
         let mut mock_email_notification_store = MockEmailNotificationStore::new();
         mock_email_notification_store
             .expect_get_email_preferences_link_for_node_id()
@@ -3033,7 +3070,8 @@ mod tests {
             vec![Arc::new(mock_transport)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(mock_email_notification_store),
-            Arc::new(MockContactService::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
