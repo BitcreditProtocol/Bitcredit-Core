@@ -744,6 +744,23 @@ mod tests {
     }
 
     #[test]
+    fn encrypt_decrypt_with_derived_key() {
+        let msg = "Hello, this is a very important message!"
+            .to_string()
+            .into_bytes();
+        let keypair = BcrKeys::new()
+            .derive_keypair(BlockchainType::Identity, 0)
+            .expect("Failed to derive identity keypair");
+
+        let encrypted = encrypt_ecies(&msg, &keypair.public_key());
+        assert!(encrypted.is_ok());
+        let decrypted = decrypt_ecies(encrypted.as_ref().unwrap(), &keypair.secret_key());
+        assert!(decrypted.is_ok());
+
+        assert_eq!(&msg, decrypted.as_ref().unwrap());
+    }
+
+    #[test]
     fn encrypt_decrypt_ecies_hardcoded_creds() {
         let msg = "Important!".to_string().into_bytes();
 
