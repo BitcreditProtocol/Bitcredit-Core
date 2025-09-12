@@ -456,8 +456,10 @@ impl NostrConsumer {
                 if current_client.is_primary() {
                     let mut contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
                     info!("Found {} contacts to subscribe to", contacts.len());
-                    // we also subscribe to our own public key
-                    contacts.push(current_client.keys.get_nostr_keys().public_key());
+                    // we also subscribe to our own local public keys
+                    let mut local_npubs =
+                        local_node_ids.iter().map(|n| n.npub()).collect::<Vec<_>>();
+                    contacts.append(&mut local_npubs);
                     info!("Subscribing to public Nostr events for client {client_id}");
                     current_client
                         .subscribe(
