@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::{bill::BillKeys, company::CompanyKeys};
+use crate::{bill::BillKeys, blockchain::BlockchainType, company::CompanyKeys};
 
 use super::{base58_decode, base58_encode};
 use bip39::Mnemonic;
@@ -10,6 +10,8 @@ use bitcoin::{
         self, Keypair, Message, PublicKey, SECP256K1, Scalar, SecretKey, rand, schnorr::Signature,
     },
 };
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -38,6 +40,9 @@ pub enum Error {
 
     #[error("Mnemonic seed phrase error {0}")]
     Mnemonic(#[from] bip39::Error),
+
+    #[error("Crypto error: {0}")]
+    Crypto(String),
 }
 
 // -------------------- Keypair --------------------------
@@ -126,6 +131,11 @@ impl BcrKeys {
     pub fn get_key_pair(&self) -> Keypair {
         self.inner
     }
+
+    /// Derives a keypair from the private key, using a chain type and an index.
+    pub fn derive_keypair(&self, chain_type: BlockchainType, index: u32) -> Result<Keypair> {
+        derive_keypair(&self.get_private_key(), chain_type, index)
+    }
 }
 
 impl Default for BcrKeys {
@@ -163,6 +173,29 @@ impl TryFrom<&BillKeys> for BcrKeys {
 
     fn try_from(keys: &BillKeys) -> Result<Self> {
         BcrKeys::from_private_key(&keys.private_key)
+    }
+}
+
+pub trait DeriveKeypair {
+    /// Derives the first keypair with a chain type from context.
+    fn derive_keypair(&self) -> Result<Keypair>;
+}
+
+impl DeriveKeypair for BillKeys {
+    fn derive_keypair(&self) -> Result<Keypair> {
+        derive_keypair(&self.private_key, BlockchainType::Bill, 0)
+    }
+}
+
+impl DeriveKeypair for CompanyKeys {
+    fn derive_keypair(&self) -> Result<Keypair> {
+        derive_keypair(&self.private_key, BlockchainType::Company, 0)
+    }
+}
+
+impl DeriveKeypair for BcrKeys {
+    fn derive_keypair(&self) -> Result<Keypair> {
+        derive_keypair(&self.get_private_key(), BlockchainType::Identity, 0)
     }
 }
 
@@ -299,6 +332,37 @@ fn keypair_from_mnemonic(mnemonic: &Mnemonic) -> Result<Keypair> {
     Ok(Keypair::from_secret_key(SECP256K1, &secret))
 }
 
+/// Allows us to drerive a keypair from a parent key, using a chain type and an index. This is
+/// simmilar to BIP32 but with different chain types and using priv instead of xpriv keys.
+fn derive_keypair(
+    parent_key: &SecretKey,
+    chain_type: BlockchainType,
+    index: u32,
+) -> Result<Keypair> {
+    let mut hasher = Sha256::new();
+    hasher.update(chain_type.to_string().into_bytes());
+    let chain_type_hash = hasher.finalize();
+
+    let mut msg = Vec::with_capacity(4 + 32);
+    msg.extend_from_slice(&index.to_be_bytes());
+    msg.extend_from_slice(&chain_type_hash);
+
+    type HmacSha512 = Hmac<Sha512>;
+    let mut mac = HmacSha512::new_from_slice(parent_key.secret_bytes().as_slice())
+        .map_err(|e| Error::Crypto(e.to_string()))?;
+    mac.update(&msg);
+    let i: [u8; 32] = mac.finalize().into_bytes()[0..32]
+        .try_into()
+        .expect("Mac should be 32 bytes");
+    let candidate = SecretKey::from_slice(&i)?;
+    if candidate[..] != [0u8; 32] {
+        Ok(Keypair::from_secret_key(SECP256K1, &candidate))
+    } else {
+        // key is zero, try again
+        derive_keypair(parent_key, chain_type, index + 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use nostr::nips::nip19::ToBech32;
@@ -309,6 +373,75 @@ mod tests {
     fn priv_key() -> SecretKey {
         SecretKey::from_str("926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3")
             .unwrap()
+    }
+
+    #[test]
+    fn test_derive_keypair() {
+        let expected =
+            SecretKey::from_str("11bd676b4231ebd549fa12c0acf62a415b3f88b1ed110c9cc2c6f63ac4f85667")
+                .unwrap();
+        let keypair = derive_keypair(&priv_key(), BlockchainType::Bill, 0).unwrap();
+        assert_eq!(
+            keypair.secret_key(),
+            expected,
+            "keypair should be derived deterministically"
+        );
+
+        let expected_company =
+            SecretKey::from_str("5807c32decb208ba8d1647f9b6bfd39d744c1999f7e06594a8d41dd5ff542a68")
+                .unwrap();
+        let keypair_company = derive_keypair(&priv_key(), BlockchainType::Company, 0).unwrap();
+        assert!(
+            keypair_company.secret_key() != keypair.secret_key(),
+            "keypair should be different for different chains"
+        );
+        assert_eq!(
+            keypair_company.secret_key(),
+            expected_company,
+            "company keypair should be derived deterministically"
+        );
+
+        let expected2 =
+            SecretKey::from_str("6cc0e196571db869d88857fdaa94fa54ca69b4339d0e5cdf2e4ff7f5cf4fe5f7")
+                .unwrap();
+        let keypair2 = derive_keypair(&priv_key(), BlockchainType::Bill, 1).unwrap();
+        assert_eq!(
+            keypair2.secret_key(),
+            expected2,
+            "keypair should change with different index"
+        );
+    }
+
+    #[test]
+    fn test_derive_keypair_from_bcr_keys() {
+        let expected =
+            SecretKey::from_str("11bd676b4231ebd549fa12c0acf62a415b3f88b1ed110c9cc2c6f63ac4f85667")
+                .unwrap();
+        let bcr_keys = BcrKeys::from_private_key(&priv_key()).expect("could not parse keys");
+        let keypair = bcr_keys
+            .derive_keypair(BlockchainType::Bill, 0)
+            .expect("could not derive keypair");
+        assert_eq!(
+            keypair.secret_key(),
+            expected,
+            "keypair should be derived deterministically"
+        );
+    }
+
+    #[test]
+    fn test_derive_keypair_from_bill_keys() {
+        let expected =
+            SecretKey::from_str("11bd676b4231ebd549fa12c0acf62a415b3f88b1ed110c9cc2c6f63ac4f85667")
+                .unwrap();
+        let bcr_keys = BcrKeys::from_private_key(&priv_key()).expect("could not parse keys");
+        let bill_keys = BillKeys {
+            private_key: bcr_keys.get_private_key(),
+            public_key: bcr_keys.pub_key(),
+        };
+        let keypair = bill_keys
+            .derive_keypair()
+            .expect("could not derive keypair from bill keys");
+        assert_eq!(keypair.secret_key(), expected);
     }
 
     #[test]
