@@ -30,7 +30,7 @@ It contains the following options:
     let config = {
         bitcoin_network: "testnet",
         esplora_base_url: "https://esplora.minibill.tech",
-        nostr_relays: ["wss://bitcr-cloud-run-05-550030097098.europe-west1.run.app"],
+        nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         data_dir: ".",
         job_runner_initial_delay_seconds: 1,

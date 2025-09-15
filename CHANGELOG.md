@@ -2,6 +2,7 @@
 
 * Add basic logic for implementing (social) identity proofs
 * Add persistence, basic service layer and WASM API for identity proofs
+* Changed default relay to `wss://bcr-relay-dev.minibill.tech`
 
 # 0.4.5
 
