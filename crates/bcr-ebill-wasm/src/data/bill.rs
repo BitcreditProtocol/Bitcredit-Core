@@ -545,6 +545,7 @@ pub struct BillStatusWeb {
     pub mint: BillMintStatusWeb,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
+    pub last_block_time: u64,
 }
 
 impl From<BillStatus> for BillStatusWeb {
@@ -557,6 +558,7 @@ impl From<BillStatus> for BillStatusWeb {
             mint: val.mint.into(),
             redeemed_funds_available: val.redeemed_funds_available,
             has_requested_funds: val.has_requested_funds,
+            last_block_time: val.last_block_time,
         }
     }
 }

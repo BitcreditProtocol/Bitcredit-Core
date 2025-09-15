@@ -161,7 +161,9 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn get_endorsements(
         &self,
         bill_id: &BillId,
+        identity: &Identity,
         current_identity_node_id: &NodeId,
+        current_timestamp: u64,
     ) -> Result<Vec<Endorsement>>;
 
     /// Clear the bill cache
@@ -3464,7 +3466,12 @@ pub mod tests {
 
         // Verify the endorsement chain
         let endorsements = final_service
-            .get_endorsements(&bill_id_test(), &identity.identity.node_id)
+            .get_endorsements(
+                &bill_id_test(),
+                &identity.identity,
+                &identity.identity.node_id,
+                1731593928,
+            )
             .await;
         assert!(endorsements.is_ok());
 
@@ -4003,11 +4010,19 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        ctx.notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
 
         let service = get_service(ctx);
 
         let res = service
-            .get_endorsements(&bill_id_test(), &identity.identity.node_id)
+            .get_endorsements(
+                &bill_id_test(),
+                &identity.identity,
+                &identity.identity.node_id,
+                1731593928,
+            )
             .await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 0);
@@ -4016,6 +4031,9 @@ pub mod tests {
     #[tokio::test]
     async fn get_endorsements_multi_with_anon() {
         let mut ctx = get_ctx();
+        ctx.notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
         let drawer = bill_identified_participant_only_node_id(NodeId::new(
@@ -4127,7 +4145,12 @@ pub mod tests {
         let service = get_service(ctx);
 
         let res = service
-            .get_endorsements(&bill_id_test(), &identity.identity.node_id)
+            .get_endorsements(
+                &bill_id_test(),
+                &identity.identity,
+                &identity.identity.node_id,
+                1731593928,
+            )
             .await;
         assert!(res.is_ok());
         // with duplicates, anon are also counted
@@ -4147,6 +4170,9 @@ pub mod tests {
     #[tokio::test]
     async fn get_endorsements_multi() {
         let mut ctx = get_ctx();
+        ctx.notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
         let drawer = bill_identified_participant_only_node_id(NodeId::new(
@@ -4259,7 +4285,12 @@ pub mod tests {
         let service = get_service(ctx);
 
         let res = service
-            .get_endorsements(&bill_id_test(), &identity.identity.node_id)
+            .get_endorsements(
+                &bill_id_test(),
+                &identity.identity,
+                &identity.identity.node_id,
+                1731593928,
+            )
             .await;
         assert!(res.is_ok());
         // with duplicates
@@ -6891,13 +6922,23 @@ pub mod tests {
         ));
         assert!(matches!(
             service
-                .get_endorsements(&mainnet_bill_id, &node_id_test())
+                .get_endorsements(
+                    &mainnet_bill_id,
+                    &identity.identity,
+                    &node_id_test(),
+                    1731593928
+                )
                 .await,
             Err(Error::Validation(ValidationError::InvalidBillId))
         ));
         assert!(matches!(
             service
-                .get_endorsements(&bill_id_test(), &mainnet_node_id)
+                .get_endorsements(
+                    &bill_id_test(),
+                    &identity.identity,
+                    &mainnet_node_id,
+                    1731593928
+                )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
         ));

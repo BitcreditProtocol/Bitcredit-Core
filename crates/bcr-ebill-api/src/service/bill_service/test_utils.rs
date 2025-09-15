@@ -83,6 +83,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
                 node_id_test_other2(),
             )),
             endorsee: None,
+            endorsements: vec![],
             endorsements_count: 5,
             all_participant_node_ids: vec![
                 node_id_test(),
@@ -139,6 +140,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             },
             redeemed_funds_available: false,
             has_requested_funds: false,
+            last_block_time: 1731593928,
         },
         current_waiting_state: None,
     }

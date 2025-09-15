@@ -4,6 +4,7 @@ use super::service::BillService;
 use super::{Error, Result};
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{BillMintStatus, BillWaitingStatePaymentData, PaymentState};
+use bcr_ebill_core::blockchain::Block;
 use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::identity::IdentityType;
@@ -150,7 +151,8 @@ impl BillService {
         let time_of_drawing = first_version_bill.signing_timestamp;
 
         let bill_participants = chain.get_all_nodes_from_bill(bill_keys)?;
-        let endorsements_count = chain.get_endorsements_for_bill(bill_keys).len() as u64;
+        let endorsements = chain.get_endorsements_for_bill(bill_keys);
+        let endorsements_count = endorsements.len() as u64;
 
         let holder = match bill.endorsee {
             None => &bill.payee,
@@ -293,6 +295,7 @@ impl BillService {
         }
 
         let last_block = chain.get_latest_block();
+        let last_block_time = last_block.timestamp();
         let current_waiting_state = match last_block.op_code {
             BillOpCode::OfferToSell => {
                 if let OfferToSellWaitingForPayment::Yes(payment_info) = chain
@@ -559,6 +562,7 @@ impl BillService {
             mint: BillMintStatus { has_mint_requests },
             redeemed_funds_available,
             has_requested_funds,
+            last_block_time,
         };
 
         let participants = BillParticipants {
@@ -566,6 +570,7 @@ impl BillService {
             drawer: bill.drawer,
             payee: bill.payee,
             endorsee: bill.endorsee,
+            endorsements,
             endorsements_count,
             all_participant_node_ids: bill_participants,
         };
