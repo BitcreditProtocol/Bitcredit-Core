@@ -29,7 +29,7 @@ impl Notification {
     #[wasm_bindgen(unchecked_return_type = "NotificationStatusWeb[]")]
     pub async fn active_notifications_for_node_ids(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "Vec<String>")] node_ids: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "string[]")] node_ids: JsValue,
     ) -> Result<JsValue> {
         let node_ids_parsed: Vec<NodeId> = serde_wasm_bindgen::from_value(node_ids)?;
         let notification_status = get_ctx()
