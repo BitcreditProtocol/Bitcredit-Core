@@ -3,6 +3,7 @@ pub mod bill_service;
 pub mod company_service;
 pub mod contact_service;
 pub mod file_upload_service;
+pub mod identity_proof_service;
 pub mod identity_service;
 pub mod notification_service;
 pub mod search_service;

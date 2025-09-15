@@ -14,6 +14,7 @@ pub mod company;
 pub mod constants;
 pub mod contact;
 pub mod identity;
+pub mod identity_proof;
 pub mod mint;
 pub mod nostr_contact;
 pub mod notification;
@@ -625,6 +626,22 @@ pub enum ValidationError {
     /// error returned if the relay url was invalid
     #[error("invalid relay url")]
     InvalidRelayUrl,
+
+    /// error returned if the string wasn't valid base58
+    #[error("invalid base58")]
+    InvalidBase58,
+
+    /// error returned if the string is not a valid signature
+    #[error("invalid signature")]
+    InvalidSignature,
+
+    /// error returned if the string is not a valid url
+    #[error("invalid url")]
+    InvalidUrl,
+
+    /// error returned if the identity proof status was invalid
+    #[error("invalid identity proof status: {0}")]
+    InvalidIdentityProofStatus(String),
 }
 
 impl From<crate::blockchain::Error> for ValidationError {

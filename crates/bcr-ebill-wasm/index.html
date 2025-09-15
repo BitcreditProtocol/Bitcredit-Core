@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#000000">
     <title>E-Bill PWA</title>
+    <style>
+        button, input {
+            margin: 2px 0 2px 0;
+        }
+    </style>
 </head>
 <body>
     <h1>E-Bill PWA</h1>
@@ -14,14 +19,12 @@
         <div>
             File Upload Id: <input type="text" id="file_upload_id"/>
             <button type="button" id="fetch_temp">fetch file by id and display</button>
-            <br />
             <img id="uploaded_file"/>
         </div>
         <div>
             Contact node id: <input type="text" id="contact_id"/>
             File name: <input type="text" id="contact_file_name"/>
             <button type="button" id="fetch_contact_file">fetch file by node id and file name</button>
-            <br />
             <img id="attached_file"/>
         </div>
     </div>
@@ -51,10 +54,25 @@
         </div>
     </div>
     <div>
+        <h2>Identity Proof Testing</h2>
+        <div>
+            <button type="button" id="identity_proof_get_stamp">Get Identity Proof Stamp</button>
+            <div>Identity Proof Stamp: <input type="text" id="identity_proof_stamp"/></div>
+            <div>Identity Proof URL: <input type="text" id="identity_proof_url"/></div>
+            <button type="button" id="identity_proof_create">Add Identity Proof for Current Identity</button>
+            <br/>
+            <button type="button" id="identity_proof_list">Fetch Identity Proofs for Current Identity</button>
+            <div>Identity Proof ID: <input type="text" id="identity_proof_id"/></div>
+            <button type="button" id="identity_proof_archive">Archive Identity Proof with ID for Current Identity</button>
+            <br/>
+            <button type="button" id="identity_proof_re_check">Re-Check Identity Proof with ID for Current Identity</button>
+        </div>
+    </div>
+    <div>
         <h2>Company Testing</h2>
         <div>Company Id: <span id="companies"></span></div>
         <button type="button" id="company_create">Create Company</button>
-        <div style="margin-top: 10px;">Company Id: <input type="text" id="company_update_id"/></div>
+        <div>Company Id: <input type="text" id="company_update_id"/></div>
         <div>Company Name: <input type="text" id="company_update_name"/></div>
         <div>Signatory Node Id: <input type="text" id="company_signatory_id"/></div>
         <button type="button" id="company_update">Update Company name</button>
@@ -78,18 +96,13 @@
         <div>
             <button type="button" id="clear_bill_cache">Clear Bill Cache</button>
             <br />
-            <br />
             Contact Id: <input type="text" id="node_id_bill"/>
-            <br />
             <br />
             <button type="button" id="bill_test_self_drafted">Create self-drafted bill with contact node id</button>
             <br />
-            <br />
             <button type="button" id="bill_test_promissory">Create promissory bill with contact node id</button>
             <br />
-            <br />
             <button type="button" id="bill_test_promissory_blank">Create blank promissory bill with contact node id</button>
-            <br />
             <br />
             Bill Id: <input type="text" id="endorse_bill_id"/>
             Endorsee Id: <input type="text" id="endorsee_id"/>
@@ -101,12 +114,10 @@
             <button type="button" id="offer_to_sell_bill">Offer To Sell</button>
             <button type="button" id="req_to_recourse_bill">Request to Recourse</button>
             <br />
-            <br />
             <button type="button" id="reject_accept">Reject Acceptance</button>
             <button type="button" id="reject_pay">Reject Payment</button>
             <button type="button" id="reject_buying">Reject to Buy</button>
             <button type="button" id="reject_recourse">Reject to Recourse</button>
-            <br />
             <br />
             <button type="button" id="request_to_mint">Request to Mint</button>
             <button type="button" id="get_mint_state">Get Mint State</button>
@@ -119,7 +130,7 @@
         </div>
         <h2>Bill Performance</h2>
         <div>
-            Bill Id: <input type="text" id="bill_id"/><br /><br />
+            Bill Id: <input type="text" id="bill_id"/><br />
             <button type="button" id="bill_fetch_detail">Fetch Detail</button>
             <button type="button" id="bill_fetch_endorsements">Fetch Endorsements</button>
             <button type="button" id="bill_fetch_past_endorsees">Fetch Past Endorsees</button>

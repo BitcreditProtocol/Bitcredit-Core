@@ -6,6 +6,7 @@ pub mod contact;
 pub mod db;
 pub mod file_upload;
 pub mod identity;
+pub mod identity_proof;
 pub mod mint;
 pub mod nostr;
 pub mod notification;
