@@ -674,6 +674,7 @@ impl BillBlockchain {
         Ok(nodes)
     }
 
+    /// Returns all endorsements for the bill (including anonymous holders)
     pub fn get_endorsements_for_bill(&self, bill_keys: &BillKeys) -> Vec<Endorsement> {
         let mut result: Vec<Endorsement> = vec![];
         // iterate from the back to the front, collecting all endorsement blocks
@@ -683,28 +684,26 @@ impl BillBlockchain {
                 continue;
             }
             if let Ok(Some(holder_from_block)) = block.get_holder_from_block(bill_keys) {
-                // we ignore blocks with an anonymous holder
-                if let BillParticipantBlockData::Ident(holder_data) = holder_from_block.holder {
-                    result.push(Endorsement {
-                        pay_to_the_order_of: holder_data.clone().into(),
-                        signed: LightSignedBy {
-                            data: holder_from_block.signer.clone().into(),
-                            signatory: holder_from_block.signatory.map(|s| {
-                                LightBillIdentParticipant {
-                                    // signatories are always identified people
-                                    t: ContactType::Person,
-                                    name: s.name,
-                                    node_id: s.node_id,
-                                }
-                            }),
-                        },
-                        signing_timestamp: block.timestamp,
-                        signing_address: match holder_from_block.signer {
-                            BillParticipantBlockData::Anon(_) => None,
-                            BillParticipantBlockData::Ident(data) => Some(data.postal_address),
-                        },
-                    });
-                }
+                let holder_data = holder_from_block.holder;
+                result.push(Endorsement {
+                    pay_to_the_order_of: holder_data.clone().into(),
+                    signed: LightSignedBy {
+                        data: holder_from_block.signer.clone().into(),
+                        signatory: holder_from_block.signatory.map(|s| {
+                            LightBillIdentParticipant {
+                                // signatories are always identified people
+                                t: ContactType::Person,
+                                name: s.name,
+                                node_id: s.node_id,
+                            }
+                        }),
+                    },
+                    signing_timestamp: block.timestamp,
+                    signing_address: match holder_from_block.signer {
+                        BillParticipantBlockData::Anon(_) => None,
+                        BillParticipantBlockData::Ident(data) => Some(data.postal_address),
+                    },
+                });
             }
         }
 
@@ -729,6 +728,7 @@ impl BillBlockchain {
         result
     }
 
+    /// Returns past endorsees, which can be recoursed against (no recourse blocks, no anon)
     pub fn get_past_endorsees_for_bill(
         &self,
         bill_keys: &BillKeys,

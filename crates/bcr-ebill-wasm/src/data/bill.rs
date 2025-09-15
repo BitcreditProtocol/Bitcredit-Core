@@ -207,7 +207,7 @@ impl From<LightSignedBy> for LightSignedByWeb {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct EndorsementWeb {
-    pub pay_to_the_order_of: LightBillIdentParticipantWithAddressWeb,
+    pub pay_to_the_order_of: LightBillParticipantWeb,
     pub signed: LightSignedByWeb,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddressWeb>,

@@ -3475,7 +3475,7 @@ pub mod tests {
         assert_eq!(
             endorsements.as_ref().unwrap()[0]
                 .pay_to_the_order_of
-                .node_id,
+                .node_id(),
             identity.identity.node_id
         );
     }
@@ -4130,15 +4130,15 @@ pub mod tests {
             .get_endorsements(&bill_id_test(), &identity.identity.node_id)
             .await;
         assert!(res.is_ok());
-        // with duplicates
-        assert_eq!(res.as_ref().unwrap().len(), 2);
+        // with duplicates, anon are also counted
+        assert_eq!(res.as_ref().unwrap().len(), 3);
         // mint was last, so it's first
         assert_eq!(
-            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id(),
             mint_endorsee_clone.node_id
         );
         assert_eq!(
-            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
+            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id(),
             sell_endorsee_clone.node_id
         );
         // endorsee is not in the list, since they're anon
@@ -4266,15 +4266,15 @@ pub mod tests {
         assert_eq!(res.as_ref().unwrap().len(), 3);
         // mint was last, so it's first
         assert_eq!(
-            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id(),
             mint_endorsee_clone.node_id
         );
         assert_eq!(
-            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
+            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id(),
             sell_endorsee_clone.node_id
         );
         assert_eq!(
-            res.as_ref().unwrap()[2].pay_to_the_order_of.node_id,
+            res.as_ref().unwrap()[2].pay_to_the_order_of.node_id(),
             endorse_endorsee_clone.node_id
         );
     }

@@ -2,7 +2,9 @@
 
 * Add basic logic for implementing (social) identity proofs
 * Add persistence, basic service layer and WASM API for identity proofs
+* Fix block propagation inconsistencies with company identities
 * Changed default relay to `wss://bcr-relay-dev.minibill.tech`
+* Change `endorsements` endpoint, making sure all endorsees (also anon) are displayed (breaking for API because of the return type)
 
 # 0.4.5
 

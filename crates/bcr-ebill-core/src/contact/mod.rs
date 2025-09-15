@@ -164,6 +164,15 @@ pub enum LightBillParticipant {
     Ident(LightBillIdentParticipantWithAddress),
 }
 
+impl LightBillParticipant {
+    pub fn node_id(&self) -> NodeId {
+        match self {
+            LightBillParticipant::Ident(data) => data.node_id.clone(),
+            LightBillParticipant::Anon(data) => data.node_id.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LightBillAnonParticipant {
     pub node_id: NodeId,

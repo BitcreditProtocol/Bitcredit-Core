@@ -2,9 +2,7 @@ use std::str::FromStr;
 
 use super::{
     File, PostalAddress,
-    contact::{
-        BillIdentParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
-    },
+    contact::{BillIdentParticipant, LightBillIdentParticipant},
     notification::Notification,
 };
 use crate::{
@@ -539,7 +537,7 @@ pub struct PastEndorsee {
 
 #[derive(Debug)]
 pub struct Endorsement {
-    pub pay_to_the_order_of: LightBillIdentParticipantWithAddress,
+    pub pay_to_the_order_of: LightBillParticipant,
     pub signed: LightSignedBy,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>,
