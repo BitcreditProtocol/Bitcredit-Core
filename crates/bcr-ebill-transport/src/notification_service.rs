@@ -1024,10 +1024,11 @@ impl NotificationServiceApi for NotificationService {
         }
     }
 
-    async fn publish_contact(&self, node_id: &NodeId, _: &NostrContactData) -> Result<()> {
+    async fn publish_contact(&self, node_id: &NodeId, data: &NostrContactData) -> Result<()> {
         let transports = self.notification_transport.lock().await;
-        if let Some(_transport) = transports.get(node_id) {
-            todo!("Publish contact and relays");
+        if let Some(transport) = transports.get(node_id) {
+            transport.publish_metadata(&data.metadata).await?;
+            transport.publish_relay_list(data.relays.clone()).await?;
         }
         Ok(())
     }

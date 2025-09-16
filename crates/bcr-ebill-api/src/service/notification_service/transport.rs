@@ -6,7 +6,7 @@ use bcr_ebill_core::{
 #[cfg(test)]
 use mockall::automock;
 
-use nostr::{Event, Filter};
+use nostr::{Event, Filter, types::RelayUrl};
 
 use super::{NostrContactData, Result, event::EventEnvelope};
 
@@ -52,4 +52,10 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
     async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
     /// Resolves all private messages matching the filter
     async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
+
+    /// Publishes the metadata (contact info) via the Nostr client
+    async fn publish_metadata(&self, data: &nostr::nips::nip01::Metadata) -> Result<()>;
+
+    /// Publishes the relay list via the Nostr client
+    async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()>;
 }
