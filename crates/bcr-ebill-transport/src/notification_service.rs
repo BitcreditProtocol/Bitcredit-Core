@@ -1024,6 +1024,14 @@ impl NotificationServiceApi for NotificationService {
         }
     }
 
+    async fn publish_contact(&self, node_id: &NodeId, _: &NostrContactData) -> Result<()> {
+        let transports = self.notification_transport.lock().await;
+        if let Some(_transport) = transports.get(node_id) {
+            todo!("Publish contact and relays");
+        }
+        Ok(())
+    }
+
     async fn register_email_notifications(
         &self,
         relay_url: &str,
@@ -1072,7 +1080,6 @@ impl NotificationServiceApi for NotificationService {
 #[cfg(test)]
 mod tests {
     use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
-    use bcr_ebill_api::{Config, DevModeConfig, MintConfig, PaymentConfig, SurrealDbConfig, init};
     use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
