@@ -287,6 +287,7 @@ pub struct BillStatus {
     pub mint: BillMintStatus,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
+    pub last_block_time: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +354,7 @@ pub struct BillParticipants {
     pub drawer: BillIdentParticipant,
     pub payee: BillParticipant,
     pub endorsee: Option<BillParticipant>,
+    pub endorsements: Vec<Endorsement>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<NodeId>,
 }
@@ -527,7 +529,7 @@ pub enum BillsFilterRole {
     Contingent,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PastEndorsee {
     pub pay_to_the_order_of: LightBillIdentParticipant,
     pub signed: LightSignedBy,
@@ -535,7 +537,7 @@ pub struct PastEndorsee {
     pub signing_address: Option<PostalAddress>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Endorsement {
     pub pay_to_the_order_of: LightBillParticipant,
     pub signed: LightSignedBy,
@@ -543,7 +545,7 @@ pub struct Endorsement {
     pub signing_address: Option<PostalAddress>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LightSignedBy {
     pub data: LightBillParticipant,
     pub signatory: Option<LightBillIdentParticipant>,

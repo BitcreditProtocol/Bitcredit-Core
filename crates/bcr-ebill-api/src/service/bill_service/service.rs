@@ -43,7 +43,9 @@ use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
-use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, Contact};
+use bcr_ebill_core::contact::{
+    BillAnonParticipant, BillParticipant, Contact, LightBillParticipant,
+};
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
@@ -700,7 +702,26 @@ impl BillServiceApi for BillService {
                 match bill_role {
                     BillRole::Payee => payee_sum += sum,
                     BillRole::Payer => payer_sum += sum,
-                    BillRole::Contingent => contingent_sum += sum,
+                    BillRole::Contingent => {
+                        // if we're in the guarantee chain, but only anonymously, we don't count it
+                        let endorsements = bill.participants.endorsements;
+                        let mut in_guarantee_chain_as_non_anon = false;
+                        for endorsement in endorsements.iter() {
+                            let holder = &endorsement.pay_to_the_order_of;
+                            // we're in the chain as non-anon
+                            if &holder.node_id() == current_identity_node_id
+                                && matches!(holder, LightBillParticipant::Ident(_))
+                            {
+                                in_guarantee_chain_as_non_anon = true;
+                                break;
+                            }
+                        }
+                        if in_guarantee_chain_as_non_anon
+                            || &bill.participants.drawer.node_id == current_identity_node_id
+                        {
+                            contingent_sum += sum
+                        }
+                    }
                 };
             }
         }
@@ -1399,31 +1420,21 @@ impl BillServiceApi for BillService {
     async fn get_endorsements(
         &self,
         bill_id: &BillId,
+        identity: &Identity,
         current_identity_node_id: &NodeId,
+        current_timestamp: u64,
     ) -> Result<Vec<Endorsement>> {
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(current_identity_node_id)?;
-        match self.store.exists(bill_id).await {
-            Ok(true) => (),
-            _ => {
-                return Err(Error::NotFound);
-            }
-        };
-
-        let chain = self.blockchain_store.get_chain(bill_id).await?;
-        let bill_keys = self.store.get_keys(bill_id).await?;
-
-        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
-        // active identity is not part of the bill
-        if !bill_participants
-            .iter()
-            .any(|p| p == current_identity_node_id)
-        {
-            debug!("caller is not a participant of bill {bill_id}");
-            return Err(Error::NotFound);
-        }
-
-        let result = chain.get_endorsements_for_bill(&bill_keys);
+        let bill = self
+            .get_detail(
+                bill_id,
+                identity,
+                current_identity_node_id,
+                current_timestamp,
+            )
+            .await?;
+        let result = bill.participants.endorsements;
         Ok(result)
     }
 

@@ -5,6 +5,8 @@
 * Fix block propagation inconsistencies with company identities
 * Changed default relay to `wss://bcr-relay-dev.minibill.tech`
 * Change `endorsements` endpoint, making sure all endorsees (also anon) are displayed (breaking for API because of the return type)
+* Add `last_block_time` to `status` of `BitcreditBillResult` (breaking DB and API), so bill responses can be ordered by their last change
+* For the balance endpoint, don't add to `contingency`, if the current user is only in the guarantee chain as an anon endorsee (breaking DB change)
 
 # 0.4.5
 

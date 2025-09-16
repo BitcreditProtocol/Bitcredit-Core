@@ -105,6 +105,7 @@ pub mod tests {
                     node_id_test_other2(),
                 )),
                 endorsee: None,
+                endorsements: vec![],
                 endorsements_count: 5,
                 all_participant_node_ids: vec![],
             },
@@ -157,6 +158,7 @@ pub mod tests {
                 },
                 redeemed_funds_available: false,
                 has_requested_funds: false,
+                last_block_time: 1731593928,
             },
             current_waiting_state: None,
         }

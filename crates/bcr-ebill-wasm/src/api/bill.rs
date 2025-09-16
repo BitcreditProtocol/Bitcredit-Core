@@ -94,9 +94,16 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "EndorsementsResponse")]
     pub async fn endorsements(&self, id: &str) -> Result<JsValue> {
         let bill_id = BillId::from_str(id)?;
+        let current_timestamp = util::date::now().timestamp() as u64;
+        let identity = get_ctx().identity_service.get_identity().await?;
         let result = get_ctx()
             .bill_service
-            .get_endorsements(&bill_id, &get_current_identity_node_id().await?)
+            .get_endorsements(
+                &bill_id,
+                &identity,
+                &get_current_identity_node_id().await?,
+                current_timestamp,
+            )
             .await?;
         let res = serde_wasm_bindgen::to_value(&EndorsementsResponse {
             endorsements: result.into_iter().map(|e| e.into()).collect(),

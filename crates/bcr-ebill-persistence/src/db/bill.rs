@@ -9,11 +9,14 @@ use bcr_ebill_core::bill::{
     BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillMintStatus,
     BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
     BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-    BillWaitingStatePaymentData, BitcreditBillResult, InMempoolData, PaidData, PaymentState,
+    BillWaitingStatePaymentData, BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy,
+    PaidData, PaymentState,
 };
 use bcr_ebill_core::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
+    LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
+    LightBillParticipant,
 };
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode, util};
@@ -570,6 +573,7 @@ pub struct BillStatusDb {
     pub mint: BillMintStatusDb,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
+    pub last_block_time: u64,
 }
 
 impl From<BillStatusDb> for BillStatus {
@@ -582,6 +586,7 @@ impl From<BillStatusDb> for BillStatus {
             mint: value.mint.into(),
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
+            last_block_time: value.last_block_time,
         }
     }
 }
@@ -596,6 +601,7 @@ impl From<&BillStatus> for BillStatusDb {
             mint: (&value.mint).into(),
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
+            last_block_time: value.last_block_time,
         }
     }
 }
@@ -814,6 +820,7 @@ pub struct BillParticipantsDb {
     pub drawer: BillIdentParticipantDb,
     pub payee: BillParticipantDb,
     pub endorsee: Option<BillParticipantDb>,
+    pub endorsements: Vec<EndorsementDb>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<NodeId>,
 }
@@ -825,6 +832,11 @@ impl From<BillParticipantsDb> for BillParticipants {
             drawer: value.drawer.into(),
             payee: value.payee.into(),
             endorsee: value.endorsee.map(|e| e.into()),
+            endorsements: value
+                .endorsements
+                .iter()
+                .map(|e| e.clone().into())
+                .collect(),
             endorsements_count: value.endorsements_count,
             all_participant_node_ids: value.all_participant_node_ids,
         }
@@ -838,8 +850,118 @@ impl From<&BillParticipants> for BillParticipantsDb {
             drawer: (&value.drawer).into(),
             payee: (&value.payee).into(),
             endorsee: value.endorsee.as_ref().map(|e| e.into()),
+            endorsements: value.endorsements.iter().map(|e| e.into()).collect(),
             endorsements_count: value.endorsements_count,
             all_participant_node_ids: value.all_participant_node_ids.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EndorsementDb {
+    pub pay_to_the_order_of: BillParticipantDb,
+    pub signed: LightSignedByDb,
+    pub signing_timestamp: u64,
+    pub signing_address: Option<PostalAddressDb>,
+}
+
+impl From<EndorsementDb> for Endorsement {
+    fn from(value: EndorsementDb) -> Self {
+        Self {
+            pay_to_the_order_of: value.pay_to_the_order_of.into(),
+            signed: value.signed.into(),
+            signing_timestamp: value.signing_timestamp,
+            signing_address: value.signing_address.as_ref().map(|e| e.clone().into()),
+        }
+    }
+}
+
+impl From<&Endorsement> for EndorsementDb {
+    fn from(value: &Endorsement) -> Self {
+        Self {
+            pay_to_the_order_of: (&value.pay_to_the_order_of).into(),
+            signed: (&value.signed).into(),
+            signing_timestamp: value.signing_timestamp,
+            signing_address: value.signing_address.as_ref().map(|e| e.to_owned().into()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LightSignedByDb {
+    pub data: BillParticipantDb,
+    pub signatory: Option<LightBillIdentParticipantDb>,
+}
+
+impl From<LightSignedByDb> for LightSignedBy {
+    fn from(value: LightSignedByDb) -> Self {
+        Self {
+            data: value.data.into(),
+            signatory: value.signatory.map(|s| s.into()),
+        }
+    }
+}
+
+impl From<&LightSignedBy> for LightSignedByDb {
+    fn from(value: &LightSignedBy) -> Self {
+        Self {
+            data: (&value.data).into(),
+            signatory: value.signatory.as_ref().map(|s| s.into()),
+        }
+    }
+}
+
+impl From<&LightBillParticipant> for BillParticipantDb {
+    fn from(value: &LightBillParticipant) -> Self {
+        match value {
+            LightBillParticipant::Anon(data) => BillParticipantDb::Anon(data.into()),
+            LightBillParticipant::Ident(data) => BillParticipantDb::Ident(data.into()),
+        }
+    }
+}
+
+impl From<&LightBillAnonParticipant> for BillAnonParticipantDb {
+    fn from(value: &LightBillAnonParticipant) -> Self {
+        Self {
+            node_id: value.node_id.to_owned(),
+        }
+    }
+}
+
+impl From<&LightBillIdentParticipantWithAddress> for BillIdentParticipantDb {
+    fn from(value: &LightBillIdentParticipantWithAddress) -> Self {
+        Self {
+            t: value.t.to_owned(),
+            node_id: value.node_id.to_owned(),
+            name: value.name.to_owned(),
+            postal_address: value.postal_address.to_owned().into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LightBillIdentParticipantDb {
+    pub t: ContactType,
+    pub name: String,
+    pub node_id: NodeId,
+}
+
+impl From<LightBillIdentParticipantDb> for LightBillIdentParticipant {
+    fn from(value: LightBillIdentParticipantDb) -> Self {
+        Self {
+            t: value.t,
+            name: value.name,
+            node_id: value.node_id,
+        }
+    }
+}
+
+impl From<&LightBillIdentParticipant> for LightBillIdentParticipantDb {
+    fn from(value: &LightBillIdentParticipant) -> Self {
+        Self {
+            t: value.t.to_owned(),
+            name: value.name.to_owned(),
+            node_id: value.node_id.to_owned(),
         }
     }
 }
@@ -861,6 +983,34 @@ pub struct BillIdentParticipantDb {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BillAnonParticipantDb {
     pub node_id: NodeId,
+}
+
+impl From<BillParticipantDb> for LightBillParticipant {
+    fn from(value: BillParticipantDb) -> Self {
+        match value {
+            BillParticipantDb::Anon(data) => LightBillParticipant::Anon(data.into()),
+            BillParticipantDb::Ident(data) => LightBillParticipant::Ident(data.into()),
+        }
+    }
+}
+
+impl From<BillAnonParticipantDb> for LightBillAnonParticipant {
+    fn from(value: BillAnonParticipantDb) -> Self {
+        Self {
+            node_id: value.node_id,
+        }
+    }
+}
+
+impl From<BillIdentParticipantDb> for LightBillIdentParticipantWithAddress {
+    fn from(value: BillIdentParticipantDb) -> Self {
+        Self {
+            t: value.t,
+            name: value.name,
+            node_id: value.node_id,
+            postal_address: value.postal_address.into(),
+        }
+    }
 }
 
 impl From<BillParticipantDb> for BillParticipant {
