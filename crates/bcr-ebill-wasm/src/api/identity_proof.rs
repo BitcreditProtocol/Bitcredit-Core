@@ -52,13 +52,18 @@ impl IdentityProof {
     /// Add identity proof for the currently selected identity
     #[wasm_bindgen(unchecked_return_type = "IdentityProofWeb")]
     pub async fn add(&self, url: &str, stamp: &str) -> Result<JsValue> {
-        let (signer_public_data, _) = get_signer_public_data_and_keys().await?;
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
         let parsed_url =
             Url::parse(url).map_err(|_| Error::Validation(ValidationError::InvalidUrl))?;
         let parsed_stamp = IdentityProofStamp::from_str(stamp)?;
         let identity_proof: IdentityProofWeb = get_ctx()
             .identity_proof_service
-            .add(&signer_public_data.node_id(), &parsed_url, &parsed_stamp)
+            .add(
+                &signer_public_data,
+                &signer_keys,
+                &parsed_url,
+                &parsed_stamp,
+            )
             .await?
             .into();
         let res = serde_wasm_bindgen::to_value(&identity_proof)?;
@@ -80,10 +85,10 @@ impl IdentityProof {
     /// returning the new result
     #[wasm_bindgen(unchecked_return_type = "IdentityProofWeb")]
     pub async fn re_check(&self, id: &str) -> Result<JsValue> {
-        let (signer_public_data, _) = get_signer_public_data_and_keys().await?;
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
         let identity_proof: IdentityProofWeb = get_ctx()
             .identity_proof_service
-            .re_check(&signer_public_data.node_id(), id)
+            .re_check(&signer_public_data, &signer_keys, id)
             .await?
             .into();
         let res = serde_wasm_bindgen::to_value(&identity_proof)?;

@@ -6,7 +6,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds, ValidationError,
+    contact::BillParticipant,
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
+    util::BcrKeys,
 };
 use bcr_ebill_persistence::identity_proof::IdentityProofStoreApi;
 use url::Url;
@@ -19,14 +21,20 @@ pub trait IdentityProofServiceApi: ServiceTraitBounds {
     /// Adds a new identity proof for the given node id and Url
     async fn add(
         &self,
-        node_id: &NodeId,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
         url: &Url,
         stamp: &IdentityProofStamp,
     ) -> Result<IdentityProof>;
     /// Archives the identity proof for the given id
     async fn archive(&self, node_id: &NodeId, id: &str) -> Result<()>;
     /// Re-checks (via the URL) the identity proof for the given ID, persisting and returning the result
-    async fn re_check(&self, node_id: &NodeId, id: &str) -> Result<IdentityProof>;
+    async fn re_check(
+        &self,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        id: &str,
+    ) -> Result<IdentityProof>;
 }
 
 /// The identity proof service is responsible for managing identity proofs for local identities
@@ -60,15 +68,33 @@ impl IdentityProofServiceApi for IdentityProofService {
 
     async fn add(
         &self,
-        node_id: &NodeId,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
         url: &Url,
         stamp: &IdentityProofStamp,
     ) -> Result<IdentityProof> {
         let now = util::date::now().timestamp() as u64;
-        if !stamp.verify_against_node_id(node_id) {
+        let node_id = signer_public_data.node_id();
+        if !stamp.verify_against_node_id(&node_id) {
             return Err(Error::Validation(ValidationError::InvalidSignature));
         }
-        let status = self.identity_proof_client.check_url(stamp, url).await;
+
+        // TODO(multi-relay): don't default to first, but to default relay of receiver with this capability
+        let nostr_relay = match signer_public_data.nostr_relays().first() {
+            Some(r) => r.to_string(),
+            None => {
+                return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+            }
+        };
+        let status = self
+            .identity_proof_client
+            .check_url(
+                &nostr_relay,
+                stamp,
+                signer_keys.get_nostr_keys().secret_key(),
+                url,
+            )
+            .await;
         let checked = util::date::now().timestamp() as u64;
 
         // only add, if the check was successful
@@ -79,7 +105,7 @@ impl IdentityProofServiceApi for IdentityProofService {
         }
 
         let identity_proof = IdentityProof {
-            node_id: node_id.to_owned(),
+            node_id,
             stamp: stamp.to_owned(),
             url: url.to_owned(),
             timestamp: now,
@@ -107,17 +133,36 @@ impl IdentityProofServiceApi for IdentityProofService {
         }
     }
 
-    async fn re_check(&self, node_id: &NodeId, id: &str) -> Result<IdentityProof> {
+    async fn re_check(
+        &self,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        id: &str,
+    ) -> Result<IdentityProof> {
         match self.store.get_by_id(id).await? {
             Some(mut identity_proof) => {
-                if &identity_proof.node_id != node_id {
+                if identity_proof.node_id != signer_public_data.node_id() {
                     // does not belong to the caller - can't re-check
                     return Err(Error::NotFound);
                 }
+
+                // TODO(multi-relay): don't default to first, but to default relay of receiver with this capability
+                let nostr_relay = match signer_public_data.nostr_relays().first() {
+                    Some(r) => r.to_string(),
+                    None => {
+                        return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+                    }
+                };
+
                 // re-check the status
                 let status = self
                     .identity_proof_client
-                    .check_url(&identity_proof.stamp, &identity_proof.url)
+                    .check_url(
+                        &nostr_relay,
+                        &identity_proof.stamp,
+                        signer_keys.get_nostr_keys().secret_key(),
+                        &identity_proof.url,
+                    )
                     .await;
                 let checked = util::date::now().timestamp() as u64;
 
@@ -141,7 +186,8 @@ pub mod tests {
     use crate::{
         external::identity_proof::MockIdentityProofApi,
         tests::tests::{
-            MockIdentityProofStore, node_id_test, node_id_test_other, private_key_test,
+            MockIdentityProofStore, bill_identified_participant_only_node_id, node_id_test,
+            node_id_test_other, private_key_test,
         },
     };
 
@@ -156,12 +202,16 @@ pub mod tests {
             .returning(|_, _, _| Ok(()));
         ctx.identity_proof_client
             .expect_check_url()
-            .returning(|_, _| IdentityProofStatus::Success);
+            .returning(|_, _, _, _| IdentityProofStatus::Success);
         let service = get_service(ctx);
+
+        let mut signer = bill_identified_participant_only_node_id(node_id_test());
+        signer.nostr_relays = vec!["some relay".to_owned()];
 
         let res = service
             .add(
-                &node_id_test(),
+                &BillParticipant::Ident(signer),
+                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                 &Url::parse("https://bit.cr/").expect("valid url"),
                 &IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
             )
@@ -182,12 +232,15 @@ pub mod tests {
             .returning(|_, _, _| Ok(()));
         ctx.identity_proof_client
             .expect_check_url()
-            .returning(|_, _| IdentityProofStatus::NotFound);
+            .returning(|_, _, _, _| IdentityProofStatus::NotFound);
         let service = get_service(ctx);
+        let mut signer = bill_identified_participant_only_node_id(node_id_test());
+        signer.nostr_relays = vec!["some relay".to_owned()];
 
         let res = service
             .add(
-                &node_id_test(),
+                &BillParticipant::Ident(signer),
+                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                 &Url::parse("https://bit.cr/").expect("valid url"),
                 &IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
             )
@@ -272,10 +325,18 @@ pub mod tests {
             .returning(|_, _, _| Ok(()));
         ctx.identity_proof_client
             .expect_check_url()
-            .returning(|_, _| IdentityProofStatus::NotFound);
+            .returning(|_, _, _, _| IdentityProofStatus::NotFound);
         let service = get_service(ctx);
+        let mut signer = bill_identified_participant_only_node_id(node_id_test());
+        signer.nostr_relays = vec!["some relay".to_owned()];
 
-        let res = service.re_check(&node_id_test(), "some_id").await;
+        let res = service
+            .re_check(
+                &BillParticipant::Ident(signer),
+                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                "some_id",
+            )
+            .await;
         assert!(res.is_ok());
         assert!(matches!(
             res.as_ref().unwrap().status,
@@ -297,8 +358,16 @@ pub mod tests {
             }))
         });
         let service = get_service(ctx);
+        let mut signer = bill_identified_participant_only_node_id(node_id_test());
+        signer.nostr_relays = vec!["some relay".to_owned()];
 
-        let res = service.re_check(&node_id_test(), "some_id").await;
+        let res = service
+            .re_check(
+                &BillParticipant::Ident(signer),
+                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                "some_id",
+            )
+            .await;
         assert!(res.is_err());
     }
 
@@ -307,8 +376,16 @@ pub mod tests {
         let mut ctx = get_ctx();
         ctx.store.expect_get_by_id().returning(|_| Ok(None));
         let service = get_service(ctx);
+        let mut signer = bill_identified_participant_only_node_id(node_id_test());
+        signer.nostr_relays = vec!["some relay".to_owned()];
 
-        let res = service.re_check(&node_id_test(), "some_id").await;
+        let res = service
+            .re_check(
+                &BillParticipant::Ident(signer),
+                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                "some_id",
+            )
+            .await;
         assert!(res.is_err());
     }
 
