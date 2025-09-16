@@ -2,7 +2,10 @@
 #[allow(clippy::module_inception)]
 pub mod tests {
     use crate::service::notification_service::{self, chain_keys::ChainKeyServiceApi};
-    use crate::{CONFIG, DbContext, MintConfig, NostrConfig, PaymentConfig, data::bill::BillKeys};
+    use crate::{
+        CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
+        data::bill::BillKeys,
+    };
     use async_trait::async_trait;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
@@ -476,6 +479,9 @@ pub mod tests {
                     },
                     payment_config: PaymentConfig {
                         num_confirmations_for_payment: 6,
+                    },
+                    dev_mode_config: DevModeConfig {
+                        on: false
                     }
                 });
             }

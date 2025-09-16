@@ -1,3 +1,17 @@
+# 0.4.7
+
+* Added basic Dev Mode
+    * Can be activated using the config flag `dev_mode: true`
+    * If activated, it's possible to fetch a full JSON Bill Chain by ID with the bill data decrypted for debugging
+        * Endpoint: `dev_mode_get_full_bill_chain(bill_id: string): Promise<string[]>` on `Bill` api
+        * The resulting nested list of JSON strings can be consumed like this:
+        ```javascript
+        await billApi.dev_mode_get_full_bill_chain(bill_id).map((b) => {
+          const block = JSON.parse(b);
+          return { ...block, data: JSON.parse(block.data) };
+        })
+        ```
+
 # 0.4.6
 
 * Add basic logic for implementing (social) identity proofs

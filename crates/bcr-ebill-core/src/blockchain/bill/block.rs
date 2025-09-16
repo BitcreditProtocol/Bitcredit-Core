@@ -59,7 +59,7 @@ pub struct BillBlockDataToHash {
 }
 
 /// Data for reject to accept/pay/recourse
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRejectBlockData {
     pub rejecter: BillIdentParticipantBlockData, // reject to accept/pay/recourse has to be identified
     pub signatory: Option<BillSignatoryBlockData>,
@@ -82,7 +82,7 @@ impl Validate for BillRejectBlockData {
 }
 
 /// Data for reject to buy
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRejectToBuyBlockData {
     pub rejecter: BillParticipantBlockData, // reject to buy can be done by anon
     pub signatory: Option<BillSignatoryBlockData>,
@@ -104,7 +104,7 @@ impl Validate for BillRejectToBuyBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillIssueBlockData {
     pub id: BillId,
     pub country_of_issuing: String,
@@ -200,7 +200,7 @@ impl BillIssueBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillAcceptBlockData {
     pub accepter: BillIdentParticipantBlockData, // accepter is drawer and has to be identified
     pub signatory: Option<BillSignatoryBlockData>,
@@ -222,7 +222,7 @@ impl Validate for BillAcceptBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToPayBlockData {
     pub requester: BillParticipantBlockData, // requester is holder and can be anon
     pub currency: String,
@@ -247,7 +247,7 @@ impl Validate for BillRequestToPayBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToAcceptBlockData {
     pub requester: BillParticipantBlockData, // requester is holder and can be anon
     pub signatory: Option<BillSignatoryBlockData>,
@@ -269,7 +269,7 @@ impl Validate for BillRequestToAcceptBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillMintBlockData {
     pub endorser: BillParticipantBlockData, // bill can be minted by anon
     pub endorsee: BillParticipantBlockData, // mints can be anon
@@ -302,7 +302,7 @@ impl Validate for BillMintBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillOfferToSellBlockData {
     pub seller: BillParticipantBlockData, // seller is holder and can be anon
     pub buyer: BillParticipantBlockData,  // buyer can be anon
@@ -340,7 +340,7 @@ impl Validate for BillOfferToSellBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillSellBlockData {
     pub seller: BillParticipantBlockData, // seller is holder and can be anon
     pub buyer: BillParticipantBlockData,  // buyer can be anon
@@ -378,7 +378,7 @@ impl Validate for BillSellBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillEndorseBlockData {
     pub endorser: BillParticipantBlockData, // endorser is holder and can be anon
     pub endorsee: BillParticipantBlockData, // endorsee can be anon
@@ -406,7 +406,7 @@ impl Validate for BillEndorseBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestRecourseBlockData {
     pub recourser: BillIdentParticipantBlockData, // anon can't do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
@@ -418,7 +418,7 @@ pub struct BillRequestRecourseBlockData {
     pub signing_address: PostalAddress, // address of the endorser
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum BillRecourseReasonBlockData {
     Accept,
     Pay,
@@ -446,7 +446,7 @@ impl Validate for BillRequestRecourseBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRecourseBlockData {
     pub recourser: BillIdentParticipantBlockData, // anon can't do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
@@ -481,7 +481,7 @@ impl Validate for BillRecourseBlockData {
 }
 
 /// Participant in a bill transaction - either anonymous, or identified
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum BillParticipantBlockData {
     Anon(BillAnonParticipantBlockData),
     Ident(BillIdentParticipantBlockData),
@@ -547,7 +547,7 @@ impl Validate for BillParticipantBlockData {
 }
 
 /// Anon bill participany data
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BillAnonParticipantBlockData {
     pub node_id: NodeId,
 }
@@ -559,7 +559,7 @@ impl Validate for BillAnonParticipantBlockData {
 }
 
 /// Legal data for parties of a bill within the liability chain
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BillIdentParticipantBlockData {
     pub t: ContactType,
     pub node_id: NodeId,
@@ -654,7 +654,7 @@ impl From<BillIdentParticipantBlockData> for LightBillIdentParticipant {
 }
 
 /// The name and node_id of a company signatory
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillSignatoryBlockData {
     pub node_id: NodeId,
     pub name: String,

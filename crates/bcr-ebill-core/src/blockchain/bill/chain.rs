@@ -10,6 +10,7 @@ use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
 use crate::NodeId;
 use crate::bill::{BillKeys, Endorsement, LightSignedBy, PastEndorsee, PastPaymentStatus};
+use crate::blockchain::bill::block::BillRejectToBuyBlockData;
 use crate::blockchain::{Block, Blockchain, Error};
 use crate::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
 use crate::contact::{
@@ -89,6 +90,64 @@ impl BillBlockPlaintextWrapper {
             }
             _ => Ok(None),
         }
+    }
+
+    /// This is only used for dev mode
+    pub fn to_json_text(&self) -> Result<String> {
+        let mut block = self.block.clone();
+        let block_data_string: String = match self.block.op_code() {
+            BillOpCode::Issue => {
+                Self::borsh_to_json_string::<BillIssueBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::Accept => {
+                Self::borsh_to_json_string::<BillAcceptBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::Endorse => {
+                Self::borsh_to_json_string::<BillEndorseBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::RequestToAccept => Self::borsh_to_json_string::<
+                BillRequestToAcceptBlockData,
+            >(&self.plaintext_data_bytes)?,
+            BillOpCode::RequestToPay => {
+                Self::borsh_to_json_string::<BillRequestToPayBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::OfferToSell => {
+                Self::borsh_to_json_string::<BillOfferToSellBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::Sell => {
+                Self::borsh_to_json_string::<BillSellBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::Mint => {
+                Self::borsh_to_json_string::<BillMintBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::RejectToAccept => {
+                Self::borsh_to_json_string::<BillRejectBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::RejectToPay => {
+                Self::borsh_to_json_string::<BillRejectBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::RejectToBuy => {
+                Self::borsh_to_json_string::<BillRejectToBuyBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::RejectToPayRecourse => {
+                Self::borsh_to_json_string::<BillRejectBlockData>(&self.plaintext_data_bytes)?
+            }
+            BillOpCode::RequestRecourse => Self::borsh_to_json_string::<
+                BillRequestRecourseBlockData,
+            >(&self.plaintext_data_bytes)?,
+            BillOpCode::Recourse => {
+                Self::borsh_to_json_string::<BillRecourseBlockData>(&self.plaintext_data_bytes)?
+            }
+        };
+        block.data = block_data_string;
+        serde_json::to_string(&block).map_err(|e| Error::JSON(e.to_string()))
+    }
+
+    fn borsh_to_json_string<T: borsh::BorshDeserialize + serde::Serialize>(
+        bytes: &[u8],
+    ) -> Result<String> {
+        let block_data: T = borsh::from_slice(bytes)?;
+        serde_json::to_string(&block_data).map_err(|e| Error::JSON(e.to_string()))
     }
 }
 
@@ -937,9 +996,9 @@ impl BillBlockchain {
                 BillOpCode::RejectToPay => {
                     borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
                 }
-                BillOpCode::RejectToBuy => {
-                    borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
-                }
+                BillOpCode::RejectToBuy => borsh::to_vec(
+                    &block.get_decrypted_block::<BillRejectToBuyBlockData>(bill_keys)?,
+                )?,
                 BillOpCode::RejectToPayRecourse => {
                     borsh::to_vec(&block.get_decrypted_block::<BillRejectBlockData>(bill_keys)?)?
                 }

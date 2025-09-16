@@ -11,8 +11,11 @@ use wasm_bindgen::prelude::*;
 #[tsify(into_wasm_abi)]
 pub struct IdentityProofWeb {
     pub id: String,
+    #[tsify(type = "string")]
     pub node_id: NodeId,
+    #[tsify(type = "string")]
     pub stamp: IdentityProofStamp,
+    #[tsify(type = "string")]
     pub url: Url,
     pub timestamp: u64,
     pub status: IdentityProofStatusWeb,
@@ -33,7 +36,8 @@ impl From<IdentityProof> for IdentityProofWeb {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
 pub enum IdentityProofStatusWeb {
     Success,
     NotFound,
