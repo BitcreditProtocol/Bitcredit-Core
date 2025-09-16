@@ -770,6 +770,7 @@ impl NotificationServiceApi for NotificationService {
                 Some(rejected_action),
             );
 
+            self.send_bill_chain_events(event).await?;
             self.send_all_bill_events(&event.sender(), &all_events)
                 .await?;
             // Only send email to holder (=requester)
@@ -1198,13 +1199,38 @@ mod tests {
             .returning(|_, _| Ok(()))
             .times(3);
 
+        let previous_hash = chain.get_latest_block().previous_hash.to_owned();
+        let mut mock_event_store = MockNostrChainEventStore::new();
+        // lookup parent event
+        mock_event_store
+            .expect_find_by_block_hash()
+            .with(eq(previous_hash.to_owned()))
+            .returning(|_| Ok(None));
+
+        // sends the public chain event for each of the events
+        mock.expect_send_public_chain_event()
+            .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()))
+            .times(4);
+
+        // afterwards we store the block event we have sent
+        mock_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(4);
+
+        // this is only required for the test as it contains an invite block so it tries to send an
+        // invite to new participants as well and the test data doesn't have them all.
+        mock.expect_send_private_event()
+            .withf(|_, e| e.event_type == EventType::BillChainInvite)
+            .returning(|_, _| Ok(()));
+
         let service = NotificationService::new(
             vec![Arc::new(mock)],
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockEmailNotificationStore::new()),
             Arc::new(mock_contact_service),
             Arc::new(MockNostrQueuedMessageStore::new()),
-            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(mock_event_store),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
             vec!["ws://test.relay".into()],
