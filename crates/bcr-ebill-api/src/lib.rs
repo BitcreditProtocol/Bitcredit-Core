@@ -31,6 +31,7 @@ pub struct Config {
     pub nostr_config: NostrConfig,
     pub mint_config: MintConfig,
     pub payment_config: PaymentConfig,
+    pub dev_mode_config: DevModeConfig,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -45,6 +46,13 @@ impl Config {
             _ => Network::Testnet,
         }
     }
+}
+
+/// Developer Mode specific configuration
+#[derive(Debug, Clone, Default)]
+pub struct DevModeConfig {
+    /// Whether dev mode is on
+    pub on: bool,
 }
 
 /// Payment specific configuration

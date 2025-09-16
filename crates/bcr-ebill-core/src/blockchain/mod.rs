@@ -69,6 +69,10 @@ pub enum Error {
     /// The given blockchain type string could not be converted to a valid type
     #[error("Invalid blockchain type: {0}")]
     InvalidBlockchainType(String),
+
+    /// Errors from JSON serialization
+    #[error("JSON serialization error: {0}")]
+    JSON(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -60,6 +60,7 @@ document.getElementById("bill_test_promissory").addEventListener("click", trigge
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
+document.getElementById("dev_mode_get_bill_chain").addEventListener("click", devModeGetBillChain);
 
 // companies
 document.getElementById("company_create").addEventListener("click", createCompany);
@@ -91,6 +92,7 @@ let config = {
   // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
   default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
   num_confirmations_for_payment: 6,
+  dev_mode: true,
 };
 
 async function start(create_identity) {
@@ -677,6 +679,19 @@ async function syncBillChain() {
   console.log("syncBillChain", bill_id);
   let measured = measure(async () => {
     return await billApi.sync_bill_chain({ bill_id: bill_id });
+  });
+  await measured();
+}
+
+async function devModeGetBillChain() {
+  let bill_id = document.getElementById("dev_mode_bill_id").value;
+  console.log("devModeGetBillChain", bill_id);
+  let measured = measure(async () => {
+    let res = await billApi.dev_mode_get_full_bill_chain(bill_id);
+      return res.map((b) => {
+          const block = JSON.parse(b);
+          return { ...block, data: JSON.parse(block.data) };
+      })
   });
   await measured();
 }

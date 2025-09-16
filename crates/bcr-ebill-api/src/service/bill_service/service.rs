@@ -38,6 +38,7 @@ use bcr_ebill_core::bill::{
 use bcr_ebill_core::blockchain::bill::block::{
     BillParticipantBlockData, BillRequestRecourseBlockData,
 };
+use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
 use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
 use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::constants::{
@@ -1798,5 +1799,44 @@ impl BillServiceApi for BillService {
         } else {
             Err(Error::RejectMintRequestNotOffered)
         }
+    }
+
+    async fn dev_mode_get_full_bill_chain(
+        &self,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
+    ) -> Result<Vec<BillBlockPlaintextWrapper>> {
+        // if dev mode is off - we return an error
+        if !get_config().dev_mode_config.on {
+            error!("Called dev mode operation with dev mode disabled - please enable!");
+            return Err(Error::InvalidOperation);
+        }
+
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(current_identity_node_id)?;
+
+        // if there is no such bill, we return an error
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
+
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let bill_participant_node_ids = chain.get_all_nodes_from_bill(&bill_keys)?;
+
+        // if currently active identity is not part of the bill, we can't access it
+        if !bill_participant_node_ids
+            .iter()
+            .any(|p| p == current_identity_node_id)
+        {
+            return Err(Error::NotFound);
+        }
+
+        let plaintext_chain = chain.get_chain_with_plaintext_block_data(&bill_keys)?;
+
+        Ok(plaintext_chain)
     }
 }

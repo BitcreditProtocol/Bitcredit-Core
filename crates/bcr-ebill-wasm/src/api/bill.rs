@@ -39,6 +39,7 @@ use crate::{
         },
         mint::MintRequestStateResponse,
     },
+    error::WasmError,
 };
 
 use super::identity::get_current_identity;
@@ -866,6 +867,26 @@ impl Bill {
             .resync_bill_chain(&payload.bill_id)
             .await?;
         Ok(())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub async fn dev_mode_get_full_bill_chain(&self, bill_id: &str) -> Result<JsValue> {
+        let parsed_bill_id = BillId::from_str(bill_id)?;
+        let plaintext_chain = get_ctx()
+            .bill_service
+            .dev_mode_get_full_bill_chain(&parsed_bill_id, &get_current_identity_node_id().await?)
+            .await?;
+        let json_string_chain: Result<Vec<String>> = plaintext_chain
+            .into_iter()
+            .map(|plaintext_block| {
+                plaintext_block
+                    .to_json_text()
+                    .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+            })
+            .collect();
+
+        let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
+        Ok(res)
     }
 }
 

@@ -1059,7 +1059,7 @@ impl NotificationServiceApi for NotificationService {
 #[cfg(test)]
 mod tests {
     use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
-    use bcr_ebill_api::{Config, MintConfig, PaymentConfig, SurrealDbConfig, init};
+    use bcr_ebill_api::{Config, DevModeConfig, MintConfig, PaymentConfig, SurrealDbConfig, init};
     use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
@@ -2321,6 +2321,7 @@ mod tests {
             payment_config: PaymentConfig {
                 num_confirmations_for_payment: 6,
             },
+            dev_mode_config: DevModeConfig { on: false },
         })
         .unwrap();
 

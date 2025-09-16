@@ -13,6 +13,7 @@ use crate::util::BcrKeys;
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::bill::{BillAction, BillIssueData, PastPaymentResult};
+use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
 
 pub use error::Error;
 #[cfg(test)]
@@ -218,6 +219,13 @@ pub trait BillServiceApi: ServiceTraitBounds {
 
     /// Check mint state for all bills
     async fn check_mint_state_for_all_bills(&self) -> Result<()>;
+
+    /// If dev mode is on, return the full bill chain with decrypted data
+    async fn dev_mode_get_full_bill_chain(
+        &self,
+        bill_id: &BillId,
+        current_identity_node_id: &NodeId,
+    ) -> Result<Vec<BillBlockPlaintextWrapper>>;
 }
 
 #[cfg(test)]
