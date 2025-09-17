@@ -3,6 +3,7 @@ use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
+use crate::identity_proof::IdentityProofStamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
 use borsh::{from_slice, to_vec};
@@ -20,6 +21,7 @@ pub enum IdentityOpCode {
     CreateCompany,
     AddSignatory,
     RemoveSignatory,
+    IdentityProof,
 }
 
 #[derive(BorshSerialize)]
@@ -133,6 +135,16 @@ pub struct IdentityRemoveSignatoryBlockData {
     pub signatory: NodeId,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct IdentityProofBlockData {
+    pub stamp: IdentityProofStamp,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_url",
+        deserialize_with = "crate::util::borsh::deserialize_url"
+    )]
+    pub url: url::Url,
+}
+
 #[derive(Debug)]
 pub enum IdentityBlockPayload {
     Create(IdentityCreateBlockData),
@@ -142,6 +154,7 @@ pub enum IdentityBlockPayload {
     CreateCompany(IdentityCreateCompanyBlockData),
     AddSignatory(IdentityAddSignatoryBlockData),
     RemoveSignatory(IdentityRemoveSignatoryBlockData),
+    IdentityProof(IdentityProofBlockData),
 }
 
 impl Block for IdentityBlock {
@@ -378,6 +391,22 @@ impl IdentityBlock {
         Ok(block)
     }
 
+    pub fn create_block_for_identity_proof(
+        previous_block: &Self,
+        data: &IdentityProofBlockData,
+        keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            previous_block,
+            data,
+            keys,
+            timestamp,
+            IdentityOpCode::IdentityProof,
+        )?;
+        Ok(block)
+    }
+
     fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
         previous_block: &Self,
         data: &T,
@@ -424,6 +453,9 @@ impl IdentityBlock {
             IdentityOpCode::AddSignatory => IdentityBlockPayload::AddSignatory(from_slice(&data)?),
             IdentityOpCode::RemoveSignatory => {
                 IdentityBlockPayload::RemoveSignatory(from_slice(&data)?)
+            }
+            IdentityOpCode::IdentityProof => {
+                IdentityBlockPayload::IdentityProof(from_slice(&data)?)
             }
         };
         Ok(result)
@@ -618,7 +650,19 @@ mod tests {
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
 
-        assert_eq!(chain.blocks().len(), 7);
+        let identity_proof_block = IdentityBlock::create_block_for_identity_proof(
+            chain.get_latest_block(),
+            &IdentityProofBlockData {
+                stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
+                url: url::Url::parse("https://bit.cr").unwrap(),
+            },
+            &keys,
+            1731593929,
+        );
+        assert!(identity_proof_block.is_ok());
+        chain.try_add_block(identity_proof_block.unwrap());
+
+        assert_eq!(chain.blocks().len(), 8);
         assert!(chain.is_chain_valid());
         for block in chain.blocks() {
             assert!(block.validate_plaintext_hash(&keys.get_private_key()));

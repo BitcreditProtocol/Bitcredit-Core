@@ -1,6 +1,7 @@
 use crate::{Error, Result, handler::NotificationHandlerApi};
 use async_trait::async_trait;
 use bcr_ebill_api::{
+    Block,
     service::notification_service::event::{ChainInvite, Event},
     util::BcrKeys,
 };
@@ -16,10 +17,12 @@ use bcr_ebill_core::{
         company::{CompanyBlock, CompanyBlockPayload, CompanyBlockchain},
     },
     company::{Company, CompanyKeys},
+    identity_proof::{IdentityProof, IdentityProofStatus},
 };
 use bcr_ebill_persistence::{
     company::{CompanyChainStoreApi, CompanyStoreApi},
     identity::IdentityStoreApi,
+    identity_proof::IdentityProofStoreApi,
 };
 
 use super::{CompanyChainEventProcessorApi, NostrContactProcessorApi};
@@ -29,6 +32,7 @@ pub struct CompanyChainEventProcessor {
     blockchain_store: Arc<dyn CompanyChainStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
+    identity_proof_store: Arc<dyn IdentityProofStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     bitcoin_network: bitcoin::Network,
@@ -102,6 +106,7 @@ impl CompanyChainEventProcessor {
         blockchain_store: Arc<dyn CompanyChainStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
+        identity_proof_store: Arc<dyn IdentityProofStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         bitcoin_network: bitcoin::Network,
@@ -110,6 +115,7 @@ impl CompanyChainEventProcessor {
             blockchain_store,
             company_store,
             identity_store,
+            identity_proof_store,
             nostr_contact_processor,
             bitcoin_network,
             bill_invite_handler,
@@ -241,6 +247,15 @@ impl CompanyChainEventProcessor {
                         .update(company_id, company)
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
+                    // if we are removed, set all identity proofs for this node id to archived
+                    if let CompanyBlockPayload::RemoveSignatory(payload) = update
+                        && &payload.signatory == identity
+                    {
+                        self.identity_proof_store
+                            .archive_by_node_id(company_id)
+                            .await
+                            .map_err(|e| Error::Persistence(e.to_string()))?;
+                    }
                 }
                 CompanyBlockPayload::SignBill(payload) => {
                     if let Some(bill_key) = payload.bill_key
@@ -267,6 +282,37 @@ impl CompanyChainEventProcessor {
                                 payload.bill_id
                             );
                         }
+                    }
+                }
+                CompanyBlockPayload::IdentityProof(payload) => {
+                    let identity_proofs = self
+                        .identity_proof_store
+                        .list_by_node_id(company_id)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                    // If there is already an identity proof for this node id and block id, we don't do anything
+                    if !identity_proofs.iter().any(|ip| ip.block_id == block.id()) {
+                        debug!(
+                            "Add identity proof with block id {} for company {}",
+                            block.id(),
+                            company_id
+                        );
+                        // otherwise, we add the proof to the DB with a last_checked_timestamp at creation time
+                        // so it will be checked soon
+                        let proof_to_add = IdentityProof {
+                            node_id: company_id.to_owned(),
+                            stamp: payload.stamp,
+                            url: payload.url,
+                            timestamp: block.timestamp(),
+                            status: IdentityProofStatus::Success,
+                            status_last_checked_timestamp: block.timestamp(),
+                            block_id: block.id(),
+                        };
+
+                        self.identity_proof_store
+                            .add(&proof_to_add)
+                            .await
+                            .map_err(|e| Error::Persistence(e.to_string()))?;
                     }
                 }
             }
@@ -370,10 +416,12 @@ pub mod tests {
             Blockchain,
             company::{
                 CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain,
-                CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+                CompanyIdentityProofBlockData, CompanyRemoveSignatoryBlockData,
+                CompanyUpdateBlockData, SignatoryType,
             },
         },
         company::{Company, CompanyKeys},
+        identity_proof::IdentityProofStamp,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -383,8 +431,8 @@ pub mod tests {
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
             MockNostrContactProcessorApi, MockNotificationHandlerApi,
             test_utils::{
-                MockCompanyChainStore, MockCompanyStore, MockIdentityStore, get_company_data,
-                node_id_test,
+                MockCompanyChainStore, MockCompanyStore, MockIdentityProofStore, MockIdentityStore,
+                get_company_data, node_id_test, private_key_test,
             },
         },
         test_utils::get_baseline_identity,
@@ -392,11 +440,12 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, bill, identity) = create_mocks();
+        let (chain_store, store, contact, bill, identity, identity_proof_store) = create_mocks();
         CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -406,7 +455,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, bill, identity) = create_mocks();
+        let (chain_store, mut store, contact, bill, identity, identity_proof_store) =
+            create_mocks();
 
         store
             .expect_get()
@@ -417,6 +467,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -432,7 +483,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_signatory() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, bill, identity) = create_mocks();
+        let (chain_store, mut store, contact, bill, identity, identity_proof_store) =
+            create_mocks();
         let (_, (company, _)) = get_company_data();
         store
             .expect_get()
@@ -443,6 +495,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -458,7 +511,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, bill, identity) = create_mocks();
+        let (chain_store, mut store, contact, bill, identity, identity_proof_store) =
+            create_mocks();
         let (_, (mut company, _)) = get_company_data();
         company.signatories = vec![NodeId::new(keys.pub_key(), bitcoin::Network::Testnet)];
         store
@@ -470,6 +524,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -484,7 +539,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_create_company_data() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity, identity_proof_store) =
+            create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -538,6 +594,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -551,7 +608,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_company_data() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity, identity_proof_store) =
+            create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -634,6 +692,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -647,7 +706,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_add_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity, identity_proof_store) =
+            create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
@@ -734,6 +794,7 @@ pub mod tests {
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -747,7 +808,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_remove_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity) = create_mocks();
+        let (mut chain_store, mut store, mut contact, bill, mut identity, mut identity_proof_store) =
+            create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (mut company, keys)) = get_company_data();
         company.signatories.push(new_node_id.clone());
@@ -831,10 +893,108 @@ pub mod tests {
             .returning(|_| ())
             .never();
 
+        // no need to archive identity proofs, since we are not removed
+        identity_proof_store
+            .expect_archive_by_node_id()
+            .returning(|_| Ok(()))
+            .never();
+
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
             Arc::new(identity),
+            Arc::new(identity_proof_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    #[tokio::test]
+    async fn test_process_identity_proof() {
+        let (mut chain_store, mut store, contact, bill, mut identity, mut identity_proof_store) =
+            create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data = CompanyIdentityProofBlockData {
+            stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
+            url: url::Url::parse("https://bit.cr").unwrap(),
+        };
+        let update_block = get_company_identity_proof_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .once();
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(chain.clone()))
+            .once();
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .once();
+
+        // return no proofs
+        identity_proof_store
+            .expect_list_by_node_id()
+            .returning(|_| Ok(vec![]));
+        // has to add it
+        identity_proof_store
+            .expect_add()
+            .returning(|_| Ok(()))
+            .times(1);
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity),
+            Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
             bitcoin::Network::Testnet,
@@ -917,12 +1077,31 @@ pub mod tests {
         .expect("could not create block")
     }
 
+    fn get_company_identity_proof_block(
+        node_id: NodeId,
+        previous_block: &CompanyBlock,
+        keys: &BcrKeys,
+        company_keys: &CompanyKeys,
+        data: &CompanyIdentityProofBlockData,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_identity_proof(
+            node_id,
+            previous_block,
+            data,
+            keys,
+            company_keys,
+            1731594928,
+        )
+        .expect("could not create block")
+    }
+
     fn create_mocks() -> (
         MockCompanyChainStore,
         MockCompanyStore,
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
         MockIdentityStore,
+        MockIdentityProofStore,
     ) {
         (
             MockCompanyChainStore::new(),
@@ -930,6 +1109,7 @@ pub mod tests {
             MockNostrContactProcessorApi::new(),
             MockNotificationHandlerApi::new(),
             MockIdentityStore::new(),
+            MockIdentityProofStore::new(),
         )
     }
 }

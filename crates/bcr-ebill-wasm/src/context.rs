@@ -93,8 +93,15 @@ impl Context {
             notification_service.clone(),
         );
 
-        let identity_proof_service =
-            IdentityProofService::new(db.identity_proof_store.clone(), identity_proof_client);
+        let identity_proof_service = IdentityProofService::new(
+            db.identity_proof_store.clone(),
+            identity_proof_client,
+            db.identity_chain_store.clone(),
+            db.company_chain_store.clone(),
+            notification_service.clone(),
+            db.identity_store.clone(),
+            db.company_store.clone(),
+        );
 
         let company_service = CompanyService::new(
             db.company_store.clone(),

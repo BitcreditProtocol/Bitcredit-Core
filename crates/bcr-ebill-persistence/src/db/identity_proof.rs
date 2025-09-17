@@ -71,6 +71,20 @@ impl IdentityProofStoreApi for SurrealIdentityProofStore {
         Ok(())
     }
 
+    async fn archive_by_node_id(&self, node_id: &NodeId) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::IDENTITY_PROOF_TABLE)?;
+        bindings.add(DB_NODE_ID, node_id.to_owned())?;
+
+        self.db
+            .query_check(
+                "UPDATE type::table($table) SET archived = true WHERE node_id = $node_id",
+                bindings,
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::IDENTITY_PROOF_TABLE)?;
@@ -124,6 +138,7 @@ pub struct IdentityProofDb {
     pub timestamp: u64,
     pub status: IdentityProofStatusDb,
     pub status_last_checked_timestamp: u64,
+    pub block_id: u64,
     pub archived: bool,
 }
 
@@ -141,6 +156,7 @@ impl From<&IdentityProof> for IdentityProofDb {
             timestamp: value.timestamp,
             status: value.status.clone().into(),
             status_last_checked_timestamp: value.status_last_checked_timestamp,
+            block_id: value.block_id,
             archived: false,
         }
     }
@@ -155,6 +171,7 @@ impl From<IdentityProofDb> for IdentityProof {
             timestamp: value.timestamp,
             status: value.status.into(),
             status_last_checked_timestamp: value.status_last_checked_timestamp,
+            block_id: value.block_id,
         }
     }
 }
@@ -212,6 +229,7 @@ mod tests {
             timestamp: 1731593928,
             status: IdentityProofStatus::Success,
             status_last_checked_timestamp: 1731593929,
+            block_id: 2,
         };
 
         // add it

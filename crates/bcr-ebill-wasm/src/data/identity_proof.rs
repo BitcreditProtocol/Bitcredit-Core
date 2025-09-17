@@ -20,6 +20,7 @@ pub struct IdentityProofWeb {
     pub timestamp: u64,
     pub status: IdentityProofStatusWeb,
     pub status_last_checked_timestamp: u64,
+    pub block_id: u64,
 }
 
 impl From<IdentityProof> for IdentityProofWeb {
@@ -32,6 +33,7 @@ impl From<IdentityProof> for IdentityProofWeb {
             timestamp: value.timestamp,
             status: value.status.into(),
             status_last_checked_timestamp: value.status_last_checked_timestamp,
+            block_id: value.block_id,
         }
     }
 }

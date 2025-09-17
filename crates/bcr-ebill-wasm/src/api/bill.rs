@@ -941,9 +941,9 @@ impl Default for Bill {
 pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant, BcrKeys)> {
     let current_identity = get_current_identity().await?;
     let local_node_id = current_identity.personal;
+    let identity = get_ctx().identity_service.get_full_identity().await?;
     let (signer_public_data, signer_keys) = match current_identity.company {
         None => {
-            let identity = get_ctx().identity_service.get_full_identity().await?;
             match identity.identity.t {
                 IdentityType::Ident => {
                     match BillIdentParticipant::new(identity.identity) {
@@ -976,8 +976,11 @@ pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant
                 ))
                 .into());
             }
+            let mut as_ident = BillIdentParticipant::from(company);
+            // use nostr relays from personal identity
+            as_ident.nostr_relays = identity.identity.nostr_relays;
             (
-                BillParticipant::Ident(BillIdentParticipant::from(company)),
+                BillParticipant::Ident(as_ident),
                 BcrKeys::from_private_key(&keys.private_key).map_err(Error::CryptoUtil)?,
             )
         }
