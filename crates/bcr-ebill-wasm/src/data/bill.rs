@@ -741,6 +741,7 @@ pub struct LightBitcreditBillWeb {
     pub issue_date: String,
     pub time_of_drawing: u64,
     pub time_of_maturity: u64,
+    pub last_block_time: u64,
 }
 
 impl From<LightBitcreditBillResult> for LightBitcreditBillWeb {
@@ -757,6 +758,7 @@ impl From<LightBitcreditBillResult> for LightBitcreditBillWeb {
             issue_date: val.issue_date,
             time_of_drawing: val.time_of_drawing,
             time_of_maturity: val.time_of_maturity,
+            last_block_time: val.last_block_time,
         }
     }
 }
