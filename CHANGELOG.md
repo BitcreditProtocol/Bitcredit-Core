@@ -1,3 +1,7 @@
+# 0.4.9
+
+* Identity Proof now requests URLs via nostr-relay HTTP proxy
+
 # 0.4.8
 
 * Fix reject block propagation
