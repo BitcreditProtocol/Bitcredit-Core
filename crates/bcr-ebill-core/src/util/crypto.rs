@@ -332,8 +332,8 @@ fn keypair_from_mnemonic(mnemonic: &Mnemonic) -> Result<Keypair> {
     Ok(Keypair::from_secret_key(SECP256K1, &secret))
 }
 
-/// Allows us to drerive a keypair from a parent key, using a chain type and an index. This is
-/// simmilar to BIP32 but with different chain types and using priv instead of xpriv keys.
+/// Allows us to derive a keypair from a parent key, using a chain type and an index. This is
+/// similar to BIP32 but with different chain types and using priv instead of xpriv keys.
 fn derive_keypair(
     parent_key: &SecretKey,
     chain_type: BlockchainType,
