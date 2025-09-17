@@ -1,3 +1,8 @@
+# 0.4.8
+
+* Fix reject block propagation
+* Add `last_block_time` to `LightBitcreditBillResult`
+
 # 0.4.7
 
 * Added basic Dev Mode
