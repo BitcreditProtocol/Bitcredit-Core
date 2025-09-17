@@ -20,6 +20,7 @@ use crate::get_config;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
 use crate::service::notification_service::event::{CompanyChainEvent, IdentityChainEvent};
+use crate::service::notification_service::{BcrMetadata, NostrContactData};
 use crate::util::BcrKeys;
 use crate::util::file::UploadFileType;
 use crate::{
@@ -30,6 +31,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::util::base58_encode;
+use bcr_ebill_core::util::crypto::DeriveKeypair;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError};
 use log::{debug, error, info};
 use std::sync::Arc;
@@ -212,6 +215,47 @@ impl CompanyService {
             .await?;
         Ok(())
     }
+
+    async fn on_company_contact_change(&self, company: &Company, keys: &CompanyKeys) -> Result<()> {
+        debug!("Company change, publishing our company contact to nostr profile");
+        let relays = get_config().nostr_config.relays.clone();
+        let bcr_data = get_bcr_data(company, keys, relays.clone())?;
+        let contact_data = NostrContactData::new(&company.name, relays, bcr_data);
+        debug!("Publishing company contact data: {contact_data:?}");
+        self.notification_service
+            .publish_contact(&company.id, &contact_data)
+            .await?;
+        Ok(())
+    }
+}
+
+/// Derives an identity child key, encrypts the contact data from company with it and returns the bcr metadata
+fn get_bcr_data(company: &Company, keys: &CompanyKeys, relays: Vec<String>) -> Result<BcrMetadata> {
+    // we derive via BcrKeys bcs it creates a Identity chain keypair
+    let bcr_keys: BcrKeys = keys.clone().try_into()?;
+    let derived_keys = bcr_keys.derive_keypair()?;
+    let contact = Contact {
+        t: ContactType::Company,
+        node_id: company.id.clone(),
+        name: company.name.clone(),
+        email: Some(company.email.to_owned()),
+        postal_address: Some(company.postal_address.clone()),
+        date_of_birth_or_registration: company.registration_date.to_owned(),
+        country_of_birth_or_registration: company.country_of_registration.to_owned(),
+        city_of_birth_or_registration: company.city_of_registration.to_owned(),
+        identification_number: company.registration_number.to_owned(),
+        avatar_file: company.logo_file.to_owned(),
+        proof_document_file: None,
+        nostr_relays: relays,
+    };
+    let payload = serde_json::to_string(&contact)?;
+    let encrypted = base58_encode(&util::crypto::encrypt_ecies(
+        payload.as_bytes(),
+        &derived_keys.public_key(),
+    )?);
+    Ok(BcrMetadata {
+        contact_data: encrypted,
+    })
 }
 
 impl ServiceTraitBounds for CompanyService {}
@@ -385,6 +429,10 @@ impl CompanyServiceApi for CompanyService {
                 &new_block,
                 &full_identity.key_pair,
             ))
+            .await?;
+
+        // publish our company contact to nostr
+        self.on_company_contact_change(&company, &company_keys)
             .await?;
 
         debug!("company with id {id} created");
@@ -590,6 +638,10 @@ impl CompanyServiceApi for CompanyService {
             .await?;
         let company_chain = self.company_blockchain_store.get_chain(id).await?;
         self.populate_block(&company, &company_chain, &company_keys, None)
+            .await?;
+
+        // publish our company contact to nostr
+        self.on_company_contact_change(&company, &company_keys)
             .await?;
 
         debug!("company with id {id} updated");
@@ -1198,6 +1250,11 @@ pub mod tests {
             .expect_send_company_chain_events()
             .returning(|_| Ok(()))
             .once();
+        // publishes contact info to nostr
+        notification
+            .expect_publish_contact()
+            .returning(|_, _| Ok(()))
+            .once();
 
         let service = get_service(
             storage,
@@ -1321,6 +1378,11 @@ pub mod tests {
         notification
             .expect_send_company_chain_events()
             .returning(|_| Ok(()))
+            .once();
+        // publishes contact info to nostr
+        notification
+            .expect_publish_contact()
+            .returning(|_, _| Ok(()))
             .once();
 
         let node_id_clone = node_id.clone();
