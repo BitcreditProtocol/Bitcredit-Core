@@ -345,7 +345,6 @@ pub async fn get_mock_nostr_client() -> NostrClient {
     let config = NostrConfig::new(
         keys.clone(),
         vec![url],
-        "Test relay user".to_owned(),
         true,
         NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
     );

@@ -758,7 +758,6 @@ mod tests {
         let config1 = NostrConfig::new(
             keys1.clone(),
             vec![url.to_string()],
-            "BcrDamus1".to_string(),
             true,
             NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet),
         );
@@ -769,7 +768,6 @@ mod tests {
         let config2 = NostrConfig::new(
             keys2.clone(),
             vec![url.to_string()],
-            "BcrDamus2".to_string(),
             true,
             NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
         );

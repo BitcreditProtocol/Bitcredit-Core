@@ -153,7 +153,7 @@ impl NotificationService {
         }
     }
 
-    async fn add_company_client(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
+    async fn add_company_client(&self, _company: &Company, keys: &BcrKeys) -> Result<()> {
         let config = get_config();
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
 
@@ -166,7 +166,6 @@ impl NotificationService {
         let nostr_config = NostrConfig::new(
             keys.clone(),
             config.nostr_config.relays.clone(),
-            company.name.clone(),
             false,
             node_id.clone(),
         );

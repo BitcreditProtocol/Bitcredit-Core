@@ -66,6 +66,7 @@ impl Context {
             file_upload_client.clone(),
             db.identity_store.clone(),
             db.nostr_contact_store.clone(),
+            notification_service.clone(),
             &cfg,
         ));
 

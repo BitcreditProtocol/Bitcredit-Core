@@ -166,6 +166,7 @@ impl From<WasmError> for JsValue {
                 ServiceError::CryptoUtil(e) => err_500(e, JsErrorType::Crypto),
                 ServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
                 ServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
+                ServiceError::Json(e) => err_500(e, JsErrorType::NotificationMessage),
             },
             WasmError::BillService(e) => bill_service_error_data(e),
             WasmError::Validation(e) => validation_error_data(e),

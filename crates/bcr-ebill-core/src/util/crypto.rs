@@ -133,7 +133,7 @@ impl BcrKeys {
     }
 
     /// Derives a keypair from the private key, using a chain type and an index.
-    pub fn derive_keypair(&self, chain_type: BlockchainType, index: u32) -> Result<Keypair> {
+    pub fn derive_chain_keypair(&self, chain_type: BlockchainType, index: u32) -> Result<Keypair> {
         derive_keypair(&self.get_private_key(), chain_type, index)
     }
 }
@@ -419,7 +419,7 @@ mod tests {
                 .unwrap();
         let bcr_keys = BcrKeys::from_private_key(&priv_key()).expect("could not parse keys");
         let keypair = bcr_keys
-            .derive_keypair(BlockchainType::Bill, 0)
+            .derive_chain_keypair(BlockchainType::Bill, 0)
             .expect("could not derive keypair");
         assert_eq!(
             keypair.secret_key(),
@@ -749,7 +749,7 @@ mod tests {
             .to_string()
             .into_bytes();
         let keypair = BcrKeys::new()
-            .derive_keypair(BlockchainType::Identity, 0)
+            .derive_chain_keypair(BlockchainType::Identity, 0)
             .expect("Failed to derive identity keypair");
 
         let encrypted = encrypt_ecies(&msg, &keypair.public_key());

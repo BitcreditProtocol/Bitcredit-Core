@@ -54,14 +54,9 @@ pub async fn create_nostr_clients(
         error!("Failed to get or create nostr key pair for nostr client: {e}");
         Error::Crypto("Failed to get or create nostr key pair".to_string())
     })?;
-    let nostr_name = match identity_store.get().await {
-        Ok(identity) => identity.get_nostr_name(),
-        _ => "New user".to_owned(),
-    };
     let mut configs: Vec<NostrConfig> = vec![NostrConfig::new(
         keys.clone(),
         config.nostr_config.relays.clone(),
-        nostr_name,
         true,
         NodeId::new(keys.pub_key(), get_config().bitcoin_network()),
     )];
@@ -75,12 +70,11 @@ pub async fn create_nostr_clients(
         }
     };
 
-    for (_, (company, keys)) in companies.iter() {
+    for (_, (_company, keys)) in companies.iter() {
         if let Ok(k) = BcrKeys::try_from(keys) {
             configs.push(NostrConfig::new(
                 k.clone(),
                 config.nostr_config.relays.clone(),
-                company.name.clone(),
                 false,
                 NodeId::new(k.pub_key(), get_config().bitcoin_network()),
             ));
@@ -261,7 +255,6 @@ pub async fn create_restore_account_service(
     let nostr_config = NostrConfig::new(
         keys.clone(),
         config.nostr_config.relays.clone(),
-        "Recovery user".to_string(),
         true,
         node_id,
     );
