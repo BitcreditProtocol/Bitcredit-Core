@@ -6,12 +6,11 @@ use super::{base58_decode, base58_encode};
 use bip39::Mnemonic;
 use bitcoin::{
     Network,
+    hashes::{Hash, HashEngine, Hmac, HmacEngine, sha256, sha512},
     secp256k1::{
         self, Keypair, Message, PublicKey, SECP256K1, Scalar, SecretKey, rand, schnorr::Signature,
     },
 };
-use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -339,28 +338,16 @@ fn derive_keypair(
     chain_type: BlockchainType,
     index: u32,
 ) -> Result<Keypair> {
-    let mut hasher = Sha256::new();
-    hasher.update(chain_type.to_string().into_bytes());
-    let chain_type_hash = hasher.finalize();
-
+    let chain_type_hash = sha256::Hash::hash(chain_type.to_string().into_bytes().as_slice());
     let mut msg = Vec::with_capacity(4 + 32);
     msg.extend_from_slice(&index.to_be_bytes());
-    msg.extend_from_slice(&chain_type_hash);
+    msg.extend_from_slice(&chain_type_hash.to_byte_array());
 
-    type HmacSha512 = Hmac<Sha512>;
-    let mut mac = HmacSha512::new_from_slice(parent_key.secret_bytes().as_slice())
-        .map_err(|e| Error::Crypto(e.to_string()))?;
-    mac.update(&msg);
-    let i: [u8; 32] = mac.finalize().into_bytes()[0..32]
-        .try_into()
-        .expect("Mac should be 32 bytes");
-    let candidate = SecretKey::from_slice(&i)?;
-    if candidate[..] != [0u8; 32] {
-        Ok(Keypair::from_secret_key(SECP256K1, &candidate))
-    } else {
-        // key is zero, try again
-        derive_keypair(parent_key, chain_type, index + 1)
-    }
+    let mut mac: HmacEngine<sha512::Hash> = HmacEngine::new(parent_key.secret_bytes().as_slice());
+    mac.input(&msg);
+    let hmac_result: Hmac<sha512::Hash> = Hmac::from_engine(mac);
+    let secret_key = SecretKey::from_slice(&hmac_result[..32])?;
+    Ok(Keypair::from_secret_key(SECP256K1, &secret_key))
 }
 
 #[cfg(test)]

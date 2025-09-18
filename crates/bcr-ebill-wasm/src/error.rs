@@ -140,6 +140,7 @@ enum JsErrorType {
     InvalidSignature,
     InvalidUrl,
     InvalidIdentityProofStatus,
+    Json,
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -166,7 +167,7 @@ impl From<WasmError> for JsValue {
                 ServiceError::CryptoUtil(e) => err_500(e, JsErrorType::Crypto),
                 ServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
                 ServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
-                ServiceError::Json(e) => err_500(e, JsErrorType::NotificationMessage),
+                ServiceError::Json(e) => err_500(e, JsErrorType::Json),
             },
             WasmError::BillService(e) => bill_service_error_data(e),
             WasmError::Validation(e) => validation_error_data(e),
