@@ -39,3 +39,16 @@ pub fn deserialize_vec_url<R: std::io::Read>(reader: &mut R) -> std::io::Result<
         })
         .collect()
 }
+
+pub fn serialize_url<W: std::io::Write>(url: &url::Url, writer: &mut W) -> std::io::Result<()> {
+    let url_str: String = url.to_string();
+    borsh::BorshSerialize::serialize(&url_str, writer)?;
+    Ok(())
+}
+
+pub fn deserialize_url<R: std::io::Read>(reader: &mut R) -> std::io::Result<url::Url> {
+    let url_str: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
+    let url = url::Url::from_str(&url_str)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    Ok(url)
+}

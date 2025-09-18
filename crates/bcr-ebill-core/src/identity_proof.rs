@@ -42,6 +42,7 @@ pub struct IdentityProof {
     pub timestamp: u64,
     pub status: IdentityProofStatus,
     pub status_last_checked_timestamp: u64,
+    pub block_id: u64,
 }
 
 impl IdentityProof {
@@ -52,7 +53,7 @@ impl IdentityProof {
 }
 
 /// This is the string users are supposed to post on their social media to prove their identity
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IdentityProofStamp {
     inner: Signature,
 }

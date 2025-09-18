@@ -326,6 +326,7 @@ mod test_utils {
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         identity::{Identity, IdentityType, IdentityWithAll},
+        identity_proof::{IdentityProof, IdentityProofStatus},
         nostr_contact::NostrPublicKey,
         notification::{ActionType, Notification, NotificationType},
         util::BcrKeys,
@@ -335,6 +336,7 @@ mod test_utils {
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         identity::{IdentityChainStoreApi, IdentityStoreApi},
+        identity_proof::IdentityProofStoreApi,
         nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
@@ -500,6 +502,27 @@ mod test_utils {
             async fn get_current_identity(&self) -> Result<bcr_ebill_core::identity::ActiveIdentityState>;
             async fn set_current_identity(&self, identity_state: &bcr_ebill_core::identity::ActiveIdentityState) -> Result<()>;
             async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
+        }
+    }
+
+    mock! {
+        pub IdentityProofStore {}
+
+        impl ServiceTraitBounds for IdentityProofStore {}
+
+        #[async_trait]
+        impl IdentityProofStoreApi for IdentityProofStore {
+            async fn list_by_node_id(&self, node_id: &NodeId) -> Result<Vec<IdentityProof>>;
+            async fn add(&self, identity_proof: &IdentityProof) -> Result<()>;
+            async fn archive(&self, id: &str) -> Result<()>;
+            async fn archive_by_node_id(&self, node_id: &NodeId) -> Result<()>;
+            async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>>;
+            async fn update_status_by_id(
+                &self,
+                id: &str,
+                status: &IdentityProofStatus,
+                status_last_checked_timestamp: u64,
+            ) -> Result<()>;
         }
     }
 

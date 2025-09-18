@@ -176,6 +176,7 @@ pub async fn create_nostr_consumer(
         db_context.company_chain_store.clone(),
         db_context.company_store.clone(),
         db_context.identity_store.clone(),
+        db_context.identity_proof_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
         get_config().bitcoin_network(),
@@ -190,6 +191,7 @@ pub async fn create_nostr_consumer(
     let identity_processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
         db_context.identity_store.clone(),
+        db_context.identity_proof_store.clone(),
         Arc::new(company_invite_handler.clone()),
         bill_invite_handler.clone(),
         nostr_contact_processor.clone(),
@@ -283,6 +285,7 @@ pub async fn create_restore_account_service(
         db_context.company_chain_store.clone(),
         db_context.company_store.clone(),
         db_context.identity_store.clone(),
+        db_context.identity_proof_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
         config.bitcoin_network(),
@@ -297,6 +300,7 @@ pub async fn create_restore_account_service(
     let processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
         db_context.identity_store.clone(),
+        db_context.identity_proof_store.clone(),
         company_invite_handler.clone(),
         bill_invite_handler.clone(),
         nostr_contact_processor,

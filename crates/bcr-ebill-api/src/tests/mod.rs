@@ -343,6 +343,7 @@ pub mod tests {
             async fn list_by_node_id(&self, node_id: &NodeId) -> Result<Vec<IdentityProof>>;
             async fn add(&self, identity_proof: &IdentityProof) -> Result<()>;
             async fn archive(&self, id: &str) -> Result<()>;
+            async fn archive_by_node_id(&self, node_id: &NodeId) -> Result<()>;
             async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>>;
             async fn update_status_by_id(
                 &self,

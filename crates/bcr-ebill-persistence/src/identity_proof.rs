@@ -15,6 +15,8 @@ pub trait IdentityProofStoreApi: ServiceTraitBounds {
     async fn add(&self, identity_proof: &IdentityProof) -> Result<()>;
     /// Archive identity proof
     async fn archive(&self, id: &str) -> Result<()>;
+    /// Archive all identity proofs for the given node id
+    async fn archive_by_node_id(&self, node_id: &NodeId) -> Result<()>;
     /// Get identity proof by id
     async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>>;
     /// Updates the status an identity proof by id

@@ -3,6 +3,7 @@ use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
+use crate::identity_proof::IdentityProofStamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{
     File, OptionalPostalAddress, PostalAddress,
@@ -21,6 +22,7 @@ pub enum CompanyOpCode {
     AddSignatory,
     RemoveSignatory,
     SignCompanyBill,
+    IdentityProof,
 }
 
 #[derive(BorshSerialize)]
@@ -133,6 +135,16 @@ pub struct CompanyRemoveSignatoryBlockData {
     pub signatory: NodeId,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct CompanyIdentityProofBlockData {
+    pub stamp: IdentityProofStamp,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_url",
+        deserialize_with = "crate::util::borsh::deserialize_url"
+    )]
+    pub url: url::Url,
+}
+
 #[derive(Debug)]
 pub enum CompanyBlockPayload {
     Create(CompanyCreateBlockData),
@@ -140,6 +152,7 @@ pub enum CompanyBlockPayload {
     SignBill(CompanySignCompanyBillBlockData),
     AddSignatory(CompanyAddSignatoryBlockData),
     RemoveSignatory(CompanyRemoveSignatoryBlockData),
+    IdentityProof(CompanyIdentityProofBlockData),
 }
 
 impl Block for CompanyBlock {
@@ -418,6 +431,27 @@ impl CompanyBlock {
         Ok(block)
     }
 
+    pub fn create_block_for_identity_proof(
+        company_id: NodeId,
+        previous_block: &Self,
+        data: &CompanyIdentityProofBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: &CompanyKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            company_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            None,
+            timestamp,
+            CompanyOpCode::IdentityProof,
+        )?;
+        Ok(block)
+    }
+
     pub fn get_block_data(&self, company_keys: &CompanyKeys) -> Result<CompanyBlockPayload> {
         let data = self.get_decrypted_block(company_keys)?;
         let result: CompanyBlockPayload = match self.op_code {
@@ -428,6 +462,7 @@ impl CompanyBlock {
                 CompanyBlockPayload::RemoveSignatory(from_slice(&data)?)
             }
             CompanyOpCode::SignCompanyBill => CompanyBlockPayload::SignBill(from_slice(&data)?),
+            CompanyOpCode::IdentityProof => CompanyBlockPayload::IdentityProof(from_slice(&data)?),
         };
         Ok(result)
     }
