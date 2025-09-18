@@ -21,15 +21,18 @@ use bcr_ebill_core::{
     company::CompanyKeys,
     contact::{BillParticipant, ContactType},
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
-    util::BcrKeys,
+    util::{BcrKeys, date::now},
 };
 use bcr_ebill_persistence::{
     company::{CompanyChainStoreApi, CompanyStoreApi},
     identity::{IdentityChainStoreApi, IdentityStoreApi},
     identity_proof::IdentityProofStoreApi,
 };
-use log::debug;
+use chrono::Days;
+use log::{debug, error, info, warn};
 use url::Url;
+
+const IDENTITY_PROOFS_CHECK_AFTER_DAYS: u64 = 14; // check every two weeks
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -53,6 +56,8 @@ pub trait IdentityProofServiceApi: ServiceTraitBounds {
         signer_keys: &BcrKeys,
         id: &str,
     ) -> Result<IdentityProof>;
+    /// Job to re-check identity proofs which haven't been checked for a while
+    async fn re_check_outdated_identity_proofs(&self) -> Result<()>;
 }
 
 /// The identity proof service is responsible for managing identity proofs for local identities
@@ -296,6 +301,85 @@ impl IdentityProofServiceApi for IdentityProofService {
                 return Err(Error::NotFound);
             }
         }
+    }
+
+    async fn re_check_outdated_identity_proofs(&self) -> Result<()> {
+        let two_weeks_ago = now()
+            .checked_sub_days(Days::new(IDENTITY_PROOFS_CHECK_AFTER_DAYS))
+            .expect("is a valid date")
+            .timestamp() as u64;
+        let identity_proofs = self
+            .store
+            .get_with_status_last_checked_timestamp_before(two_weeks_ago)
+            .await?;
+
+        if identity_proofs.is_empty() {
+            return Ok(());
+        }
+
+        let full_identity = self.identity_store.get_full().await?;
+        let companies = self.company_store.get_all().await?;
+
+        // TODO(multi-relay): don't default to first, but to default relay of receiver with this capability
+        let nostr_relay = match full_identity.identity.nostr_relays.first() {
+            Some(r) => r.to_string(),
+            None => {
+                return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+            }
+        };
+
+        for identity_proof in identity_proofs.iter() {
+            let node_id = &identity_proof.node_id;
+            // get private key for identity proof node id
+            let private_key = if &full_identity.identity.node_id == node_id {
+                full_identity
+                    .key_pair
+                    .get_nostr_keys()
+                    .secret_key()
+                    .to_owned()
+            } else if let Some((_company, company_keys)) = companies.get(node_id) {
+                nostr::Keys::new(company_keys.private_key.into())
+                    .secret_key()
+                    .to_owned()
+            } else {
+                warn!(
+                    "No local identity available for node id {} and identity proof {}",
+                    &node_id,
+                    &identity_proof.id()
+                );
+                continue;
+            };
+            info!("Re-checking identity proof {}", &identity_proof.id());
+            // re-check the status
+            let status = self
+                .identity_proof_client
+                .check_url(
+                    &nostr_relay,
+                    &identity_proof.stamp,
+                    &private_key,
+                    &identity_proof.url,
+                )
+                .await;
+            let checked = util::date::now().timestamp() as u64;
+
+            // update the status in the DB
+            if let Err(e) = self
+                .store
+                .update_status_by_id(&identity_proof.id(), &status, checked)
+                .await
+            {
+                error!(
+                    "Could not persist new status for identity proof {}: {e}",
+                    &identity_proof.id()
+                );
+            }
+            info!(
+                "Re-checked identity proof {} - result: {}",
+                &identity_proof.id(),
+                status
+            );
+        }
+        Ok(())
     }
 }
 
