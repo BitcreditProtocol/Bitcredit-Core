@@ -53,6 +53,9 @@ pub enum Error {
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Json error: {0}")]
+    Json(#[from] serde_json::Error),
+
     /// error returned if the given file upload id is not a temp file we have
     #[error("No file found for file upload id")]
     NoFileForFileUploadId,

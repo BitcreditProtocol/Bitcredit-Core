@@ -45,14 +45,6 @@ impl Context {
     pub async fn new(cfg: Config, db: DbContext) -> Result<Self> {
         let db_ctx = db.clone();
         let file_upload_client = Arc::new(FileStorageClient::new());
-        let contact_service = Arc::new(ContactService::new(
-            db.contact_store.clone(),
-            db.file_upload_store.clone(),
-            file_upload_client.clone(),
-            db.identity_store.clone(),
-            db.nostr_contact_store.clone(),
-            &cfg,
-        ));
         let bitcoin_client = Arc::new(BitcoinClient::new());
         let mint_client = Arc::new(MintClient::new());
         let email_client = Arc::new(EmailClient::new());
@@ -63,11 +55,20 @@ impl Context {
         let notification_service = create_notification_service(
             nostr_clients.clone(),
             db.clone(),
-            contact_service.clone(),
             email_client,
             cfg.nostr_config.relays.to_owned(),
         )
         .await?;
+
+        let contact_service = Arc::new(ContactService::new(
+            db.contact_store.clone(),
+            db.file_upload_store.clone(),
+            file_upload_client.clone(),
+            db.identity_store.clone(),
+            db.nostr_contact_store.clone(),
+            notification_service.clone(),
+            &cfg,
+        ));
 
         let bill_service = Arc::new(BillService::new(
             db.bill_store.clone(),

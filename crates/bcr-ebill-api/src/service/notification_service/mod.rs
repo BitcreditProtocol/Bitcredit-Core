@@ -8,6 +8,7 @@ mod service;
 pub mod transport;
 
 use log::error;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use bcr_ebill_core::NodeId;
@@ -83,29 +84,43 @@ pub struct NostrContactData {
     pub relays: Vec<RelayUrl>,
 }
 
+impl NostrContactData {
+    pub fn new(name: &str, relays: Vec<String>, bcr_data: BcrMetadata) -> Self {
+        // At some point we might want to add more metadata like payment info
+        let mut metadata = Metadata::new().name(name).display_name(name);
+        if let Ok(custom) = serde_json::to_value(bcr_data) {
+            metadata = metadata.custom_field("bcr", custom);
+        }
+
+        Self {
+            metadata,
+            relays: relays.into_iter().filter_map(|r| r.parse().ok()).collect(),
+        }
+    }
+}
+
+/// Our custom data on nostr Metadata messages
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BcrMetadata {
+    /// Encrypted private contact data for sharing with trusted contacts
+    pub contact_data: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct NostrConfig {
     pub keys: BcrKeys,
     pub relays: Vec<String>,
-    pub name: String,
     pub default_timeout: Duration,
     pub is_primary: bool,
     pub node_id: NodeId,
 }
 
 impl NostrConfig {
-    pub fn new(
-        keys: BcrKeys,
-        relays: Vec<String>,
-        name: String,
-        is_primary: bool,
-        node_id: NodeId,
-    ) -> Self {
+    pub fn new(keys: BcrKeys, relays: Vec<String>, is_primary: bool, node_id: NodeId) -> Self {
         assert!(!relays.is_empty());
         Self {
             keys,
             relays,
-            name,
             default_timeout: Duration::from_secs(20),
             is_primary,
             node_id,

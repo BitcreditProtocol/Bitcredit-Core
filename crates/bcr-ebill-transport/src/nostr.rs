@@ -9,7 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipant};
 use log::{debug, error, info, trace, warn};
-use nostr::signer::NostrSigner;
+use nostr::{nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp,
@@ -63,11 +63,10 @@ pub struct NostrClient {
 }
 
 impl NostrClient {
-    /// Creates a new nostr client with the given config and publishes the metadata and relay list.
+    /// Creates a new nostr client with the given config and publishes the relay list.
     pub async fn new(config: &NostrConfig) -> Result<Self> {
         let client = NostrClient::default(config).await?;
-        client.publish_metadata().await?;
-        client.publish_relay_list().await?;
+        client.publish_relay_list(config.relays.clone()).await?;
         Ok(client)
     }
 
@@ -95,24 +94,15 @@ impl NostrClient {
         Ok(client)
     }
 
-    async fn publish_metadata(&self) -> Result<()> {
-        let metadata = Metadata::new()
-            .name(&self.config.name)
-            .display_name(&self.config.name);
-        self.client.set_metadata(&metadata).await.map_err(|e| {
-            error!("Failed to send user metadata with Nostr client: {e}");
-            Error::Network("Failed to send user metadata with Nostr client".to_string())
+    async fn publish_relay_list(&self, relays: Vec<String>) -> Result<()> {
+        let urls = relays
+            .iter()
+            .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None)))
+            .collect();
+        self.update_relay_list(urls).await.map_err(|e| {
+            error!("Failed to update relay list: {e}");
+            Error::Network("Failed to update relay list".to_string())
         })?;
-        Ok(())
-    }
-
-    async fn publish_relay_list(&self) -> Result<()> {
-        self.update_relay_list(self.config.relays.clone())
-            .await
-            .map_err(|e| {
-                error!("Failed to update relay list: {e}");
-                Error::Network("Failed to update relay list".to_string())
-            })?;
         Ok(())
     }
 
@@ -195,12 +185,11 @@ impl NostrClient {
     }
 
     /// Updates our relay list on all our configured write relays.
-    async fn update_relay_list(&self, relays: Vec<String>) -> Result<()> {
-        let event = EventBuilder::relay_list(
-            relays
-                .iter()
-                .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None))),
-        );
+    async fn update_relay_list(
+        &self,
+        relays: Vec<(RelayUrl, Option<RelayMetadata>)>,
+    ) -> Result<()> {
+        let event = EventBuilder::relay_list(relays);
         self.client.send_event_builder(event).await.map_err(|e| {
             error!("Failed to send Nostr relay list: {e}");
             Error::Network("Failed to send Nostr relay list".to_string())
@@ -382,6 +371,24 @@ impl NotificationJsonTransportApi for NostrClient {
         Ok(self
             .fetch_events(filter, Some(SortOrder::Asc), None)
             .await?)
+    }
+
+    async fn publish_metadata(&self, data: &Metadata) -> Result<()> {
+        self.client.set_metadata(data).await.map_err(|e| {
+            error!("Failed to send user metadata with Nostr client: {e}");
+            Error::Network("Failed to send user metadata with Nostr client".to_string())
+        })?;
+        Ok(())
+    }
+
+    async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()> {
+        self.update_relay_list(relays.into_iter().map(|r| (r, None)).collect())
+            .await
+            .map_err(|e| {
+                error!("Failed to send relay list with Nostr client: {e}");
+                Error::Network("Failed to send relay list with Nostr client".to_string())
+            })?;
+        Ok(())
     }
 }
 
@@ -751,7 +758,6 @@ mod tests {
         let config1 = NostrConfig::new(
             keys1.clone(),
             vec![url.to_string()],
-            "BcrDamus1".to_string(),
             true,
             NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet),
         );
@@ -762,7 +768,6 @@ mod tests {
         let config2 = NostrConfig::new(
             keys2.clone(),
             vec![url.to_string()],
-            "BcrDamus2".to_string(),
             true,
             NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
         );

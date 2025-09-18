@@ -188,6 +188,10 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     /// Attempts to resolve the nostr contact for the given Node Id
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
 
+    /// Publish contact data for NodeId to nostr. Will only publish if the NodeId points to a
+    /// registered nostr client and therefore is our own.
+    async fn publish_contact(&self, node_id: &NodeId, contact: &NostrContactData) -> Result<()>;
+
     /// Register email notifications for the currently selected identity
     async fn register_email_notifications(
         &self,

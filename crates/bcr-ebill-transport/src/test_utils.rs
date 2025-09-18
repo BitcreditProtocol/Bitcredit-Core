@@ -4,23 +4,24 @@ use bcr_ebill_api::service::notification_service::NostrConfig;
 use bcr_ebill_api::service::notification_service::event::{EventEnvelope, EventType};
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::util::BcrKeys;
+use bcr_ebill_api::{Config, DevModeConfig, SurrealDbConfig};
 use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
 use bcr_ebill_core::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
-use bcr_ebill_core::contact::{BillIdentParticipant, Contact, ContactType};
-use bcr_ebill_core::identity::{Identity, IdentityType, IdentityWithAll};
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
     bill::BillId,
     blockchain::BlockchainType,
     contact::BillParticipant,
+    contact::{BillIdentParticipant, Contact, ContactType},
+    identity::{Identity, IdentityType, IdentityWithAll},
+    nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
     notification::{ActionType, BillEventType, Notification},
 };
-use bcr_ebill_core::{OptionalPostalAddress, PostalAddress};
-use bcr_ebill_persistence::nostr::NostrQueuedMessageStoreApi;
+use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi};
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bcr_ebill_persistence::{
-    NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
+    ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -30,11 +31,9 @@ use crate::handler::NotificationHandlerApi;
 use super::nostr::NostrClient;
 use serde::{Serialize, de::DeserializeOwned};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
-use bcr_ebill_api::service::notification_service::{
-    NostrContactData, NotificationServiceApi, Result,
-    event::{BillChainEvent, CompanyChainEvent, Event, IdentityChainEvent},
-};
+use bcr_ebill_api::service::notification_service::{NostrContactData, Result, event::Event};
 
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 
@@ -72,6 +71,40 @@ impl<T: Serialize + DeserializeOwned> TestEventHandler<T> {
             called: Mutex::new(false),
             received_event: Mutex::new(None),
             accepted_event,
+        }
+    }
+}
+
+static CONFIG: OnceLock<Config> = OnceLock::new();
+pub fn init_test_cfg() {
+    match CONFIG.get() {
+        Some(_) => (),
+        None => {
+            let _ = bcr_ebill_api::init(Config {
+                app_url: url::Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
+                bitcoin_network: "testnet".to_string(),
+                esplora_base_url: "https://esplora.minibill.tech".to_string(),
+                db_config: SurrealDbConfig {
+                    connection_string: "ws://localhost:8800".to_string(),
+                    ..SurrealDbConfig::default()
+                },
+                data_dir: ".".to_string(),
+                nostr_config: bcr_ebill_api::NostrConfig {
+                    only_known_contacts: false,
+                    relays: vec!["ws://localhost:8080".to_string()],
+                },
+                mint_config: bcr_ebill_api::MintConfig {
+                    default_mint_url: "http://localhost:4242/".into(),
+                    default_mint_node_id: NodeId::from_str(
+                        "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
+                    )
+                    .unwrap(),
+                },
+                payment_config: bcr_ebill_api::PaymentConfig {
+                    num_confirmations_for_payment: 6,
+                },
+                dev_mode_config: DevModeConfig { on: false },
+            });
         }
     }
 }
@@ -312,101 +345,12 @@ pub async fn get_mock_nostr_client() -> NostrClient {
     let config = NostrConfig::new(
         keys.clone(),
         vec![url],
-        "Test relay user".to_owned(),
         true,
         NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
     );
     NostrClient::new(&config)
         .await
         .expect("could not create mock nostr client")
-}
-
-mockall::mock! {
-    pub NotificationService {}
-
-    impl ServiceTraitBounds for NotificationService {}
-
-    #[async_trait]
-    impl NotificationServiceApi for NotificationService {
-        async fn add_company_transport(&self, company: &bcr_ebill_core::company::Company, keys: &BcrKeys) -> Result<()>;
-        async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
-        async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
-        async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()>;
-        async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> Result<()>;
-        async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> Result<()>;
-        async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> Result<()>;
-        async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()>;
-        async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> Result<()>;
-        async fn send_offer_to_sell_event(
-            &self,
-            event: &BillChainEvent,
-            buyer: &BillParticipant,
-        ) -> Result<()>;
-        async fn send_bill_is_sold_event(
-            &self,
-            event: &BillChainEvent,
-            buyer: &BillParticipant,
-        ) -> Result<()>;
-        async fn send_bill_recourse_paid_event(
-            &self,
-            event: &BillChainEvent,
-            recoursee: &BillIdentParticipant,
-        ) -> Result<()>;
-        async fn send_request_to_action_rejected_event(
-            &self,
-            event: &BillChainEvent,
-            rejected_action: bcr_ebill_core::notification::ActionType,
-        ) -> Result<()>;
-        async fn send_request_to_action_timed_out_event(
-            &self,
-            sender_node_id: &NodeId,
-            bill_id: &BillId,
-            sum: Option<u64>,
-            timed_out_action: ActionType,
-            recipients: Vec<BillParticipant>,
-            holder: &NodeId,
-            drawee: &NodeId,
-            recoursee: &Option<NodeId>,
-        ) -> Result<()>;
-        async fn send_recourse_action_event(
-            &self,
-            event: &BillChainEvent,
-            action: ActionType,
-            recoursee: &BillIdentParticipant,
-        ) -> Result<()>;
-        async fn send_request_to_mint_event(&self, sender_node_id: &NodeId, mint: &BillParticipant, bill: &BitcreditBill) -> Result<()>;
-        async fn send_new_quote_event(&self, quote: &BitcreditBill) -> Result<()>;
-        async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> Result<()>;
-        async fn get_client_notifications(
-            &self,
-            filter: bcr_ebill_api::NotificationFilter,
-        ) -> Result<Vec<bcr_ebill_core::notification::Notification>>;
-        async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
-        async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
-        async fn get_active_bill_notifications(&self, bill_ids: &[BillId]) -> HashMap<BillId, Notification>;
-        async fn get_active_notification_status_for_node_ids(
-            &self,
-            node_ids: &[NodeId],
-        ) -> Result<std::collections::HashMap<NodeId,bool> >;
-        async fn check_bill_notification_sent(
-            &self,
-            bill_id: &BillId,
-            block_height: i32,
-            action: ActionType,
-        ) -> Result<bool>;
-        async fn mark_bill_notification_sent(
-            &self,
-            bill_id: &BillId,
-            block_height: i32,
-            action: ActionType,
-        ) -> Result<()>;
-        async fn send_retry_messages(&self) -> Result<()>;
-        async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
-        async fn register_email_notifications(&self, relay_url: &str, email: &str, node_id: &NodeId, caller_keys: &BcrKeys) -> Result<()>;
-        async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
-        async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
-
-    }
 }
 
 mockall::mock! {
@@ -432,6 +376,9 @@ mockall::mock! {
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
         async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
+        async fn publish_metadata(&self, data: &nostr::nips::nip01::Metadata) -> Result<()>;
+        async fn publish_relay_list(&self, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
+
     }
 }
 
@@ -650,4 +597,37 @@ mockall::mock! {
         ) -> bcr_ebill_api::external::email::Result<()>;
     }
     impl ServiceTraitBounds for EmailClient {}
+}
+
+mockall::mock! {
+    pub ContactStore {}
+
+    impl ServiceTraitBounds for ContactStore {}
+
+    #[async_trait]
+    impl ContactStoreApi for ContactStore {
+        async fn search(&self, search_term: &str) -> bcr_ebill_persistence::Result<Vec<Contact>>;
+        async fn get_map(&self) -> bcr_ebill_persistence::Result<HashMap<NodeId, Contact>>;
+        async fn get(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<Contact>>;
+        async fn insert(&self, node_id: &NodeId, data: Contact) -> bcr_ebill_persistence::Result<()>;
+        async fn delete(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<()>;
+        async fn update(&self, node_id: &NodeId, data: Contact) -> bcr_ebill_persistence::Result<()>;
+    }
+}
+
+mockall::mock! {
+    pub NostrContactStore {}
+
+    impl ServiceTraitBounds for NostrContactStore {}
+
+    #[async_trait]
+    impl NostrContactStoreApi for NostrContactStore {
+        async fn by_node_id(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
+        async fn by_npub(&self, npub: &NostrPublicKey) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
+        async fn upsert(&self, data: &NostrContact) -> bcr_ebill_persistence::Result<()>;
+        async fn delete(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<()>;
+        async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> bcr_ebill_persistence::Result<()>;
+        async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> bcr_ebill_persistence::Result<()>;
+        async fn get_npubs(&self, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrPublicKey>>;
+    }
 }
