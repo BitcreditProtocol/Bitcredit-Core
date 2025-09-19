@@ -26,4 +26,9 @@ pub trait IdentityProofStoreApi: ServiceTraitBounds {
         status: &IdentityProofStatus,
         status_last_checked_timestamp: u64,
     ) -> Result<()>;
+    /// Get all identity proofs that haven't been checked since the given timestamp
+    async fn get_with_status_last_checked_timestamp_before(
+        &self,
+        before_timestamp: u64,
+    ) -> Result<Vec<IdentityProof>>;
 }

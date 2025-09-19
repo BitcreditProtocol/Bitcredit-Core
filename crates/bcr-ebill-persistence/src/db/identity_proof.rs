@@ -126,6 +126,24 @@ impl IdentityProofStoreApi for SurrealIdentityProofStore {
             .await?;
         Ok(())
     }
+
+    async fn get_with_status_last_checked_timestamp_before(
+        &self,
+        before_timestamp: u64,
+    ) -> Result<Vec<IdentityProof>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::IDENTITY_PROOF_TABLE)?;
+        bindings.add(DB_STATUS_LAST_CHECKED_TIMESTAMP, before_timestamp)?;
+
+        let result: Vec<IdentityProofDb> = self
+            .db
+            .query(
+                "SELECT * from type::table($table) WHERE status_last_checked_timestamp < $status_last_checked_timestamp AND archived = false",
+                bindings,
+            )
+            .await?;
+        Ok(result.iter().map(|r| r.to_owned().into()).collect())
+    }
 }
 
 /// An identity proof

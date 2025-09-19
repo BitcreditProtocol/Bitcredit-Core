@@ -28,7 +28,7 @@ pub struct Notification {
     pub description: String,
     /// The datetime when the notification was created
     pub datetime: DateTimeUtc,
-    /// Whether the notification is active or not. If active the user shold still perform
+    /// Whether the notification is active or not. If active the user should still perform
     /// some action to dismiss the notification.
     pub active: bool,
     /// Additional data to be used for notification specific logic
