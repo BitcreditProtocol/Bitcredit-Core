@@ -1,6 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {
+    use crate::CourtConfig;
     use crate::service::notification_service::{self, chain_keys::ChainKeyServiceApi};
     use crate::{
         CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
@@ -487,6 +488,9 @@ pub mod tests {
                     },
                     dev_mode_config: DevModeConfig {
                         on: false
+                    },
+                    court_config: CourtConfig {
+                        default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap()
                     }
                 });
             }

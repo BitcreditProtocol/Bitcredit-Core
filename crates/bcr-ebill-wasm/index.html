@@ -97,13 +97,13 @@
             <button type="button" id="clear_bill_cache">Clear Bill Cache</button>
             <br />
             Contact Id: <input type="text" id="node_id_bill"/>
-            <br />
+            <h3>Creation</h3>
             <button type="button" id="bill_test_self_drafted">Create self-drafted bill with contact node id</button>
             <br />
             <button type="button" id="bill_test_promissory">Create promissory bill with contact node id</button>
             <br />
             <button type="button" id="bill_test_promissory_blank">Create blank promissory bill with contact node id</button>
-            <br />
+            <h3>Actions</h3>
             Bill Id: <input type="text" id="endorse_bill_id"/>
             Endorsee Id: <input type="text" id="endorsee_id"/>
             <button type="button" id="endorse_bill">Endorse bill to Endorsee</button>
@@ -119,14 +119,21 @@
             <button type="button" id="reject_buying">Reject to Buy</button>
             <button type="button" id="reject_recourse">Reject to Recourse</button>
             <br />
+            <h3>Minting</h3>
             <button type="button" id="request_to_mint">Request to Mint</button>
             <button type="button" id="get_mint_state">Get Mint State</button>
             <button type="button" id="check_mint_state">Check Mint State</button>
+            <br />
              Mint Request Id: <input type="text" id="mint_req_id"/>
             <button type="button" id="cancel_req_to_mint">Cancel Mint Request</button>
             <button type="button" id="accept_mint_offer">Accept Mint Offer</button>
             <button type="button" id="reject_mint_offer">Reject Mint Offer</button>
+            <h3>Share with Court</h3>
+             Bill Id: <input type="text" id="court_bill_id"/>
             <br />
+             Court Node Id: <input type="text" id="court_node_id"/>
+            <br />
+            <button type="button" id="share_bill_with_court">Share Bill with Court</button>
             <h3>Dev Mode</h3>
             Bill Id: <input type="text" id="dev_mode_bill_id"/>
             <button type="button" id="dev_mode_get_bill_chain">Get Full Bill Chain as JSON</button>

@@ -893,3 +893,12 @@ impl From<LightBillIdentParticipant> for LightBillIdentParticipantWeb {
         }
     }
 }
+
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ShareBillWithCourtPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub court_node_id: NodeId,
+}

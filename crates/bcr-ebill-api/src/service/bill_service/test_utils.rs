@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     data::identity::IdentityWithAll,
-    external::{self, file_storage::MockFileStorageClientApi},
+    external::{self, court::MockCourtClientApi, file_storage::MockFileStorageClientApi},
     service::{
         company_service::tests::get_valid_company_block,
         contact_service::tests::get_baseline_contact,
@@ -56,6 +56,7 @@ pub struct MockBillContext {
     pub notification_service: MockNotificationServiceApi,
     pub mint_store: MockMintStore,
     pub mint_client: MockMintClientApi,
+    pub court_client: MockCourtClientApi,
 }
 
 pub fn get_baseline_identity() -> IdentityWithAll {
@@ -297,6 +298,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         Arc::new(ctx.company_store),
         Arc::new(ctx.mint_store),
         Arc::new(ctx.mint_client),
+        Arc::new(ctx.court_client),
     )
 }
 
@@ -314,6 +316,7 @@ pub fn get_ctx() -> MockBillContext {
         notification_service: MockNotificationServiceApi::new(),
         mint_store: MockMintStore::new(),
         mint_client: MockMintClientApi::new(),
+        court_client: MockCourtClientApi::new(),
     }
 }
 
