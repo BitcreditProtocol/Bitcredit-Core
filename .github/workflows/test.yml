@@ -2,7 +2,7 @@ name: Test coverage
 
 on:
   push:
-    branches: [ "*" ]
+    branches: [ "**" ]
 
 permissions:
   contents: read
