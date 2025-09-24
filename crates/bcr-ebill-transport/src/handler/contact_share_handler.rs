@@ -49,7 +49,7 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                 )?;
                 let contact = serde_json::from_slice::<Contact>(&decrypted)?;
                 debug!(
-                    "sucessfully decrypted shared contact data for {node_id} storing keys and contact"
+                    "successfully decrypted shared contact data for {node_id} storing keys and contact"
                 );
                 if let Ok(Some(_)) = self.contact_store.get(&decoded.data.node_id).await {
                     self.contact_store
@@ -77,7 +77,7 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?;
 
-                debug!("sucessfully updated shared contact data and stored keys for {node_id}");
+                debug!("successfully updated shared contact data and stored keys for {node_id}");
             }
         } else {
             warn!("Could not decode event to ContactShareEvent {event:?}");

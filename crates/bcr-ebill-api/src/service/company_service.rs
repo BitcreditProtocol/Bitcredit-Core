@@ -232,7 +232,7 @@ impl CompanyService {
     }
 }
 
-/// Derives an identity child key, encrypts the contact data from company with it and returns the bcr metadata
+/// Derives a company contact encryption key, encrypts the contact data with it and returns the BCR metadata.
 fn get_bcr_data(company: &Company, keys: &CompanyKeys, relays: Vec<String>) -> Result<BcrMetadata> {
     let derived_keys = keys.derive_keypair()?;
     let contact = Contact {
