@@ -97,6 +97,14 @@ impl NostrContactData {
             relays: relays.into_iter().filter_map(|r| r.parse().ok()).collect(),
         }
     }
+
+    pub fn get_bcr_metadata(&self) -> Option<BcrMetadata> {
+        self.metadata
+            .custom
+            .get("bcr")
+            .cloned()
+            .and_then(|c| serde_json::from_value(c).ok())
+    }
 }
 
 /// Our custom data on nostr Metadata messages

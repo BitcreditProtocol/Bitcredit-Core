@@ -7,8 +7,8 @@ use crate::nostr::NostrClient;
 use async_trait::async_trait;
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::notification_service::event::{
-    BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, EventEnvelope,
-    IdentityChainEvent,
+    BillChainEvent, BillChainEventPayload, CompanyChainEvent, ContactShareEvent, Event,
+    EventEnvelope, IdentityChainEvent,
 };
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::service::notification_service::{NostrConfig, NostrContactData};
@@ -205,6 +205,29 @@ impl NotificationService {
             }
         } else {
             warn!("No transport node found for sender node_id: {sender}");
+        }
+        Ok(())
+    }
+
+    async fn send_private_event(
+        &self,
+        sender: &NodeId,
+        recipient: &NodeId,
+        relays: &[String],
+        message: EventEnvelope,
+    ) -> Result<()> {
+        if let Some(transport) = self.get_node_transport(sender).await {
+            let recipient = BillParticipant::Anon(BillAnonParticipant {
+                node_id: recipient.to_owned(),
+                email: None,
+                nostr_relays: relays.to_vec(),
+            });
+            transport.send_private_event(&recipient, message).await?;
+        } else {
+            warn!("No transport node found for sender node_id: {sender}");
+            return Err(Error::Network(
+                "No transport found for node {sender}".to_string(),
+            ));
         }
         Ok(())
     }
@@ -1072,6 +1095,35 @@ impl NotificationServiceApi for NotificationService {
     async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()> {
         self.bill_chain_event_processor
             .resync_chain(bill_id)
+            .await?;
+        Ok(())
+    }
+
+    /// Shares derived keys for private contact information via DM.
+    async fn share_contact_details_keys(
+        &self,
+        recipient: &NodeId,
+        contact_id: &NodeId,
+        keys: &BcrKeys,
+    ) -> Result<()> {
+        let relays = match self.nostr_contact_store.by_node_id(recipient).await {
+            Ok(Some(contact)) => contact.relays,
+            _ => self
+                .resolve_contact(recipient)
+                .await?
+                .map(|c| c.relays.iter().map(|r| r.as_str().to_owned()).collect())
+                .unwrap_or_default(),
+        };
+        if relays.is_empty() {
+            error!("No relays found for contact {recipient}");
+            return Err(Error::NotFound);
+        }
+        let event = Event::new_contact_share(ContactShareEvent {
+            node_id: contact_id.to_owned(),
+            private_key: keys.get_private_key(),
+        });
+
+        self.send_private_event(contact_id, recipient, &relays, event.try_into()?)
             .await?;
         Ok(())
     }

@@ -1,6 +1,7 @@
 mod bill_events;
 mod blockchain_event;
 mod company_events;
+mod contact;
 mod identity_events;
 
 use crate::service::notification_service::{Error, Result};
@@ -12,6 +13,7 @@ pub use blockchain_event::{
     BillBlockEvent, ChainInvite, ChainKeys, CompanyBlockEvent, IdentityBlockEvent,
 };
 pub use company_events::CompanyChainEvent;
+pub use contact::ContactShareEvent;
 pub use identity_events::IdentityChainEvent;
 
 /// The global event type that is used for all events.
@@ -29,6 +31,8 @@ pub enum EventType {
     CompanyChain,
     /// Private company invites with keys
     CompanyChainInvite,
+    /// Share private company or identity contact details
+    ContactShare,
 }
 
 impl EventType {
@@ -39,6 +43,8 @@ impl EventType {
             EventType::BillChainInvite,
             EventType::IdentityChain,
             EventType::CompanyChain,
+            EventType::CompanyChainInvite,
+            EventType::ContactShare,
         ]
     }
 }
@@ -84,6 +90,10 @@ impl<T: Serialize> Event<T> {
     }
     pub fn new_company_invite(data: T) -> Self {
         Self::new(EventType::CompanyChainInvite, data)
+    }
+
+    pub fn new_contact_share(data: T) -> Self {
+        Self::new(EventType::ContactShare, data)
     }
 }
 

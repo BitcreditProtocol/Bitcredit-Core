@@ -156,3 +156,23 @@ pub struct SeedPhrase {
     /// The seed phrase of the current private key
     pub seed_phrase: String,
 }
+
+#[derive(Tsify, Debug, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct ShareContactTo {
+    /// The node id of the identity to share the contact details to
+    #[tsify(type = "string")]
+    pub recipient: NodeId,
+}
+
+#[derive(Tsify, Debug, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct ShareCompanyContactTo {
+    /// The node id of the identity to share the contact details to
+    #[tsify(type = "string")]
+    pub recipient: NodeId,
+
+    /// The node id of the company to share the contact details for
+    #[tsify(type = "string")]
+    pub company_id: NodeId,
+}

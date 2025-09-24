@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
 
 use crate::{ValidationError, contact::Contact};
@@ -21,12 +22,17 @@ pub struct NostrContact {
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
     pub handshake_status: HandshakeStatus,
+    /// The keys to decrypt private nostr contact details.
+    pub contact_private_key: Option<SecretKey>,
 }
 
 impl NostrContact {
     /// Creates a new Nostr contact from a contact. This is used when we have a contact and want to
     /// create the Nostr contact from it. Handshake is set to complete and we trust the contact.
-    pub fn from_contact(contact: &Contact) -> Result<Self, ValidationError> {
+    pub fn from_contact(
+        contact: &Contact,
+        private_key: Option<SecretKey>,
+    ) -> Result<Self, ValidationError> {
         let npub = contact.node_id.npub();
         Ok(Self {
             npub,
@@ -34,12 +40,13 @@ impl NostrContact {
             relays: contact.nostr_relays.clone(),
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
+            contact_private_key: private_key,
         })
     }
 
     /// Merges contact data into a nostr contact. This assumes at that point the handskake is
     /// complete and we trust the contact.
-    pub fn merge_contact(&self, contact: &Contact) -> Self {
+    pub fn merge_contact(&self, contact: &Contact, private_key: Option<SecretKey>) -> Self {
         let mut relays: BTreeSet<String> = BTreeSet::from_iter(self.relays.clone());
         relays.extend(contact.nostr_relays.clone());
         Self {
@@ -48,6 +55,7 @@ impl NostrContact {
             relays: relays.into_iter().collect(),
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
+            contact_private_key: private_key.or(self.contact_private_key),
         }
     }
 }

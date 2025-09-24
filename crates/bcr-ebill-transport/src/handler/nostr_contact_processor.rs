@@ -60,6 +60,7 @@ impl NostrContactProcessorApi for NostrContactProcessor {
                     relays,
                     trust_level: TrustLevel::Participant,
                     handshake_status: HandshakeStatus::None,
+                    contact_private_key: None,
                 },
             )
             .await;

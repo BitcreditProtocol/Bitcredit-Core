@@ -21,6 +21,7 @@ document.getElementById("fetch_contact_file").addEventListener("click", fetchCon
 
 // identity
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
+document.getElementById("share_contact_to").addEventListener("click", shareContact);
 
 // identity proofs
 document.getElementById("identity_proof_get_stamp").addEventListener("click", identityProofGetStamp);
@@ -69,6 +70,7 @@ document.getElementById("company_update").addEventListener("click", updateCompan
 document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
 document.getElementById("company_remove_signatory").addEventListener("click", removeSignatory);
 document.getElementById("company_list").addEventListener("click", listCompanies);
+document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -320,6 +322,13 @@ async function removeSignatory() {
   console.log("removed signatory to company: ", signatory_node_id, company_id);
 }
 
+async function shareCompanyContact() {
+  let node_id = document.getElementById("company_update_id").value;
+  let share_to_node_id = document.getElementById("company_signatory_id").value;
+  console.log("sharing contact details to identity: ", node_id);
+  await companyApi.share_contact_details({ recipient: share_to_node_id, company_id: node_id });
+}
+
 async function listCompanies() {
   let companies = await companyApi.list();
   console.log("companies:", companies.companies.length, companies);
@@ -441,6 +450,12 @@ async function switchIdentity() {
   let node_id = document.getElementById("node_id_identity").value;
   await identityApi.switch({ t: 1, node_id });
   document.getElementById("current_identity").textContent = node_id;
+}
+
+async function shareContact() {
+  let node_id = document.getElementById("node_id_identity").value;
+  console.log("sharing contact details to identity: ", node_id);
+  await identityApi.share_contact_details({ recipient: node_id });
 }
 
 async function identityProofGetStamp() {
@@ -700,10 +715,10 @@ async function devModeGetBillChain() {
   console.log("devModeGetBillChain", bill_id);
   let measured = measure(async () => {
     let res = await billApi.dev_mode_get_full_bill_chain(bill_id);
-      return res.map((b) => {
-          const block = JSON.parse(b);
-          return { ...block, data: JSON.parse(block.data) };
-      })
+    return res.map((b) => {
+      const block = JSON.parse(b);
+      return { ...block, data: JSON.parse(block.data) };
+    })
   });
   await measured();
 }
