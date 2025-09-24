@@ -2,6 +2,8 @@
 
 * Identity Proof now requests URLs via nostr-relay HTTP proxy
 * Added identity and company blocks for identity proofs (breaking DB change)
+* Add job to regularly check identity proofs
+* Add `default_court_url` to config and add API to share a bill with a court
 
 # 0.4.8
 

@@ -4,7 +4,7 @@ use bcr_ebill_api::service::notification_service::NostrConfig;
 use bcr_ebill_api::service::notification_service::event::{EventEnvelope, EventType};
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::util::BcrKeys;
-use bcr_ebill_api::{Config, DevModeConfig, SurrealDbConfig};
+use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
 use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
 use bcr_ebill_core::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
@@ -104,6 +104,9 @@ pub fn init_test_cfg() {
                     num_confirmations_for_payment: 6,
                 },
                 dev_mode_config: DevModeConfig { on: false },
+                court_config: CourtConfig {
+                    default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
+                },
             });
         }
     }

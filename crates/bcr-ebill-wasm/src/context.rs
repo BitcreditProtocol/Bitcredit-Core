@@ -3,8 +3,8 @@ use super::{CONTEXT, Result};
 use bcr_ebill_api::{
     Config, DbContext,
     external::{
-        bitcoin::BitcoinClient, email::EmailClient, file_storage::FileStorageClient,
-        identity_proof::IdentityProofClient, mint::MintClient,
+        bitcoin::BitcoinClient, court::CourtClient, email::EmailClient,
+        file_storage::FileStorageClient, identity_proof::IdentityProofClient, mint::MintClient,
     },
     service::{
         bill_service::{BillService, BillServiceApi},
@@ -47,6 +47,7 @@ impl Context {
         let file_upload_client = Arc::new(FileStorageClient::new());
         let bitcoin_client = Arc::new(BitcoinClient::new());
         let mint_client = Arc::new(MintClient::new());
+        let court_client = Arc::new(CourtClient::new());
         let email_client = Arc::new(EmailClient::new());
         let identity_proof_client = Arc::new(IdentityProofClient::new());
 
@@ -84,6 +85,7 @@ impl Context {
             db.company_store.clone(),
             db.mint_store.clone(),
             mint_client,
+            court_client,
         ));
 
         let identity_service = IdentityService::new(

@@ -226,6 +226,15 @@ pub trait BillServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<BillBlockPlaintextWrapper>>;
+
+    /// Shares a bill with the configured court and the given court node id
+    async fn share_bill_with_court(
+        &self,
+        bill_id: &BillId,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        court_node_id: &NodeId,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -6824,6 +6833,30 @@ pub mod tests {
             .await;
         assert!(res.is_ok());
     }
+    #[tokio::test]
+    async fn test_share_bill_with_court() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_genesis_chain(None)));
+        ctx.court_client
+            .expect_share_with_court()
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service(ctx);
+        let res = service
+            .share_bill_with_court(
+                &bill_id_test(),
+                &BillParticipant::Ident(
+                    BillIdentParticipant::new(identity.identity.clone()).unwrap(),
+                ),
+                &identity.key_pair,
+                &node_id_test_other(),
+            )
+            .await;
+        assert!(res.is_ok());
+    }
 
     #[tokio::test]
     async fn wrong_network_failures() {
@@ -7118,6 +7151,28 @@ pub mod tests {
                     &mainnet_participant,
                     &BcrKeys::new(),
                     1731593928
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidNodeId))
+        ));
+        assert!(matches!(
+            service
+                .share_bill_with_court(
+                    &mainnet_bill_id,
+                    &participant,
+                    &BcrKeys::new(),
+                    &node_id_test_other(),
+                )
+                .await,
+            Err(Error::Validation(ValidationError::InvalidBillId))
+        ));
+        assert!(matches!(
+            service
+                .share_bill_with_court(
+                    &bill_id_test(),
+                    &mainnet_participant,
+                    &BcrKeys::new(),
+                    &node_id_test_other(),
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))

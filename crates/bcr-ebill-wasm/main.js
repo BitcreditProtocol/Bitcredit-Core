@@ -61,6 +61,7 @@ document.getElementById("bill_test_promissory_blank").addEventListener("click", 
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
 document.getElementById("dev_mode_get_bill_chain").addEventListener("click", devModeGetBillChain);
+document.getElementById("share_bill_with_court").addEventListener("click", shareBillWithCourt);
 
 // companies
 document.getElementById("company_create").addEventListener("click", createCompany);
@@ -93,6 +94,8 @@ let config = {
   default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
   num_confirmations_for_payment: 6,
   dev_mode: true,
+  default_court_url: "http://localhost:8000",
+  // default_court_url: "https://court-dev.minibill.tech"
 };
 
 async function start(create_identity) {
@@ -679,6 +682,15 @@ async function syncBillChain() {
   console.log("syncBillChain", bill_id);
   let measured = measure(async () => {
     return await billApi.sync_bill_chain({ bill_id: bill_id });
+  });
+  await measured();
+}
+
+async function shareBillWithCourt() {
+  let bill_id = document.getElementById("court_bill_id").value;
+  let court_node_id = document.getElementById("court_node_id").value;
+  let measured = measure(async () => {
+    return await billApi.share_bill_with_court({ bill_id: bill_id, court_node_id: court_node_id });
   });
   await measured();
 }

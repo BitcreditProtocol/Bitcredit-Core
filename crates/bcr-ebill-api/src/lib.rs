@@ -32,6 +32,7 @@ pub struct Config {
     pub mint_config: MintConfig,
     pub payment_config: PaymentConfig,
     pub dev_mode_config: DevModeConfig,
+    pub court_config: CourtConfig,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -46,6 +47,13 @@ impl Config {
             _ => Network::Testnet,
         }
     }
+}
+
+/// Court specific configuration
+#[derive(Debug, Clone)]
+pub struct CourtConfig {
+    /// The default court URL
+    pub default_url: url::Url,
 }
 
 /// Developer Mode specific configuration

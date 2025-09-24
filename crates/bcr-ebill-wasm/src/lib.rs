@@ -5,7 +5,7 @@ use bcr_ebill_api::{
     Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
     init,
 };
-use bcr_ebill_api::{DevModeConfig, PaymentConfig};
+use bcr_ebill_api::{CourtConfig, DevModeConfig, PaymentConfig};
 use context::{Context, get_ctx};
 use job::run_jobs;
 use log::info;
@@ -39,6 +39,7 @@ pub struct Config {
     pub default_mint_node_id: String,
     pub num_confirmations_for_payment: usize,
     pub dev_mode: bool,
+    pub default_court_url: String,
 }
 
 pub type Result<T> = std::result::Result<T, error::WasmError>;
@@ -94,6 +95,10 @@ pub async fn initialize_api(
         },
         dev_mode_config: DevModeConfig {
             on: config.dev_mode,
+        },
+        court_config: CourtConfig {
+            default_url: url::Url::parse(&config.default_court_url)
+                .expect("court url is not a valid URL"),
         },
     };
     init(api_config.clone())?;

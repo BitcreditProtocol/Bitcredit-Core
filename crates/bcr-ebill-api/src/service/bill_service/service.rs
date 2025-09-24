@@ -16,6 +16,7 @@ use crate::data::{
 };
 use crate::data::{validate_bill_id_network, validate_node_id_network};
 use crate::external::bitcoin::BitcoinClientApi;
+use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
@@ -74,6 +75,7 @@ pub struct BillService {
     pub company_store: Arc<dyn CompanyStoreApi>,
     pub mint_store: Arc<dyn MintStoreApi>,
     pub mint_client: Arc<dyn MintClientApi>,
+    pub court_client: Arc<dyn CourtClientApi>,
 }
 impl ServiceTraitBounds for BillService {}
 
@@ -92,6 +94,7 @@ impl BillService {
         company_store: Arc<dyn CompanyStoreApi>,
         mint_store: Arc<dyn MintStoreApi>,
         mint_client: Arc<dyn MintClientApi>,
+        court_client: Arc<dyn CourtClientApi>,
     ) -> Self {
         Self {
             store,
@@ -107,6 +110,7 @@ impl BillService {
             company_store,
             mint_store,
             mint_client,
+            court_client,
         }
     }
 
@@ -1512,6 +1516,7 @@ impl BillServiceApi for BillService {
         }
 
         // Upload existing files for the mint
+        // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_mint = match mint_anon_participant.nostr_relays().first() {
             Some(relay_url) => {
                 self.upload_bill_files_for_node_id(
@@ -1838,5 +1843,73 @@ impl BillServiceApi for BillService {
         let plaintext_chain = chain.get_chain_with_plaintext_block_data(&bill_keys)?;
 
         Ok(plaintext_chain)
+    }
+
+    async fn share_bill_with_court(
+        &self,
+        bill_id: &BillId,
+        signer_public_data: &BillParticipant,
+        signer_keys: &BcrKeys,
+        court_node_id: &NodeId,
+    ) -> Result<()> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&signer_public_data.node_id())?;
+        let court_url = get_config().court_config.default_url.clone();
+        debug!(
+            "Executing share with court {court_node_id} with court {} for bill {bill_id}",
+            court_url
+        );
+        let blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let participants = blockchain.get_all_nodes_from_bill(&bill_keys)?;
+        // Can only share bills we are part of
+        if !participants.contains(&signer_public_data.node_id()) {
+            return Err(Error::NotFound);
+        }
+
+        let identity = self.identity_store.get().await?;
+        let contacts = self.contact_store.get_map().await?;
+        let bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity, &contacts)
+            .await?;
+
+        // Upload existing files for the court to our relay
+        // TODO(multi-relay): don't default to first, but to file upload relay of receiver
+        let file_urls_for_court = match signer_public_data.nostr_relays().first() {
+            Some(relay_url) => {
+                self.upload_bill_files_for_node_id(
+                    bill_id,
+                    &bill_keys.private_key,
+                    court_node_id,
+                    relay_url,
+                    &bill.files,
+                )
+                .await?
+            }
+            None => {
+                warn!("caller does not have a nostr relay",);
+                return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+            }
+        };
+
+        // Send request to share with court
+        let bill_to_share = create_bill_to_share_with_external_party(
+            bill_id,
+            &blockchain,
+            &bill_keys,
+            &court_node_id.pub_key(),
+            signer_keys,
+            &file_urls_for_court,
+        )?;
+
+        self.court_client
+            .share_with_court(&court_url, bill_to_share, signer_keys)
+            .await?;
+
+        debug!(
+            "Executed share with court {court_node_id} with court {} for bill {bill_id}",
+            court_url
+        );
+        Ok(())
     }
 }

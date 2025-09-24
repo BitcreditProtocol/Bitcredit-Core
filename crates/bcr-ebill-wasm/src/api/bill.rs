@@ -35,7 +35,7 @@ use crate::{
             PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
             RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
             RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
-            RequestToPayBitcreditBillPayload, ResyncBillPayload,
+            RequestToPayBitcreditBillPayload, ResyncBillPayload, ShareBillWithCourtPayload,
         },
         mint::MintRequestStateResponse,
     },
@@ -887,6 +887,25 @@ impl Bill {
 
         let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
         Ok(res)
+    }
+
+    #[wasm_bindgen]
+    pub async fn share_bill_with_court(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ShareBillWithCourtPayload")] payload: JsValue,
+    ) -> Result<()> {
+        let payload: ShareBillWithCourtPayload = serde_wasm_bindgen::from_value(payload)?;
+        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+        get_ctx()
+            .bill_service
+            .share_bill_with_court(
+                &payload.bill_id,
+                &signer_public_data,
+                &signer_keys,
+                &payload.court_node_id,
+            )
+            .await?;
+        Ok(())
     }
 }
 
