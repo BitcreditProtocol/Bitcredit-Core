@@ -5,7 +5,7 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
         identity::{
             ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
-            SwitchIdentity,
+            ShareContactTo, SwitchIdentity,
         },
     },
 };
@@ -317,6 +317,19 @@ impl Identity {
         )
         .await?;
         recovery_service.restore_account().await?;
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub async fn share_contact_details(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ShareContactTo")] payload: JsValue,
+    ) -> Result<()> {
+        let share_contact_to: ShareContactTo = serde_wasm_bindgen::from_value(payload)?;
+        get_ctx()
+            .identity_service
+            .share_contact_details(&share_contact_to.recipient)
+            .await?;
         Ok(())
     }
 }

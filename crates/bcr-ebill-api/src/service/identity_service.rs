@@ -105,6 +105,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
 
     /// Returns the local key pair
     async fn get_keys(&self) -> Result<BcrKeys>;
+
+    /// Shares derived keys for private identity contact information. Recipient is the given node id.
+    async fn share_contact_details(&self, share_to: &NodeId) -> Result<()>;
 }
 
 /// The identity service is responsible for managing the local identity
@@ -729,6 +732,16 @@ impl IdentityServiceApi for IdentityService {
 
     async fn get_keys(&self) -> Result<BcrKeys> {
         Ok(self.store.get_key_pair().await?)
+    }
+
+    async fn share_contact_details(&self, share_to: &NodeId) -> Result<()> {
+        let identity = self.get_full_identity().await?;
+        let derived_keys = identity.key_pair.derive_keypair()?;
+        let keys = BcrKeys::from_private_key(&derived_keys.secret_key())?;
+        self.notification_service
+            .share_contact_details_keys(share_to, &identity.identity.node_id, &keys)
+            .await?;
+        Ok(())
     }
 }
 

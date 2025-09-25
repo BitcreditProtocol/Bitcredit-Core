@@ -41,7 +41,7 @@ use notification_service::NotificationService;
 pub use push_notification::{PushApi, PushService};
 pub use transport::bcr_nostr_tag;
 
-use crate::handler::DirectMessageEventProcessor;
+use crate::handler::{ContactShareEventHandler, DirectMessageEventProcessor};
 
 /// Creates new nostr clients configured with the current identity user and all local companies.
 pub async fn create_nostr_clients(
@@ -230,6 +230,11 @@ pub async fn create_nostr_consumer(
             db_context.identity_store.clone(),
             identity_processor.clone(),
             db_context.nostr_chain_event_store.clone(),
+        )),
+        Arc::new(ContactShareEventHandler::new(
+            transport.clone(),
+            db_context.contact_store.clone(),
+            db_context.nostr_contact_store.clone(),
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());

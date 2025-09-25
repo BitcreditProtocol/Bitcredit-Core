@@ -8,7 +8,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    NodeId, SecretKey, ServiceTraitBounds,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
 };
 use serde::{Deserialize, Serialize};
@@ -123,6 +123,8 @@ pub struct NostrContactDb {
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
     pub handshake_status: HandshakeStatus,
+    /// The keys to decrypt private contact details.
+    pub contact_private_key: Option<SecretKey>,
 }
 
 impl From<NostrContact> for NostrContactDb {
@@ -136,6 +138,7 @@ impl From<NostrContact> for NostrContactDb {
             relays: contact.relays,
             trust_level: contact.trust_level,
             handshake_status: contact.handshake_status,
+            contact_private_key: contact.contact_private_key,
         }
     }
 }
@@ -149,6 +152,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
             relays: db.relays,
             trust_level: db.trust_level,
             handshake_status: db.handshake_status,
+            contact_private_key: db.contact_private_key,
         })
     }
 }
@@ -345,6 +349,7 @@ mod tests {
             relays: vec!["test_relay".to_string()],
             trust_level: TrustLevel::None,
             handshake_status: HandshakeStatus::None,
+            contact_private_key: None,
         }
     }
 }

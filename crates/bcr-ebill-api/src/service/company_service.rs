@@ -111,6 +111,9 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         file_name: &str,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
+
+    /// Shares derived keys for given company contact information.
+    async fn share_contact_details(&self, share_to: &NodeId, company_id: NodeId) -> Result<()>;
 }
 
 /// The company service is responsible for managing the companies
@@ -229,11 +232,9 @@ impl CompanyService {
     }
 }
 
-/// Derives an identity child key, encrypts the contact data from company with it and returns the bcr metadata
+/// Derives a company contact encryption key, encrypts the contact data with it and returns the BCR metadata.
 fn get_bcr_data(company: &Company, keys: &CompanyKeys, relays: Vec<String>) -> Result<BcrMetadata> {
-    // we derive via BcrKeys bcs it creates a Identity chain keypair
-    let bcr_keys: BcrKeys = keys.clone().try_into()?;
-    let derived_keys = bcr_keys.derive_keypair()?;
+    let derived_keys = keys.derive_keypair()?;
     let contact = Contact {
         t: ContactType::Company,
         node_id: company.id.clone(),
@@ -907,6 +908,16 @@ impl CompanyServiceApi for CompanyService {
         } else {
             return Err(super::Error::NotFound);
         }
+    }
+
+    async fn share_contact_details(&self, share_to: &NodeId, company_id: NodeId) -> Result<()> {
+        let company_keys = self.store.get_key_pair(&company_id).await?;
+        let derived_keys = company_keys.derive_keypair()?;
+        let keys = BcrKeys::from_private_key(&derived_keys.secret_key())?;
+        self.notification_service
+            .share_contact_details_keys(share_to, &company_id, &keys)
+            .await?;
+        Ok(())
     }
 }
 

@@ -264,6 +264,15 @@ impl OptionalPostalAddress {
         }
     }
 
+    pub fn from_postal_address(address: &PostalAddress) -> Self {
+        Self {
+            country: Some(address.country.clone()),
+            city: Some(address.city.clone()),
+            zip: address.zip.clone(),
+            address: Some(address.address.clone()),
+        }
+    }
+
     pub fn is_fully_set(&self) -> bool {
         self.country.is_some() && self.city.is_some() && self.address.is_some()
     }

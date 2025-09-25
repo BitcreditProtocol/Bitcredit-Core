@@ -23,6 +23,7 @@ use crate::{
             EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
         },
         has_field,
+        identity::ShareCompanyContactTo,
     },
 };
 
@@ -257,6 +258,19 @@ impl Company {
                 company_payload.signatory_node_id.clone(),
                 timestamp,
             )
+            .await?;
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub async fn share_contact_details(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ShareCompanyContactTo")] payload: JsValue,
+    ) -> Result<()> {
+        let share_to: ShareCompanyContactTo = serde_wasm_bindgen::from_value(payload)?;
+        get_ctx()
+            .company_service
+            .share_contact_details(&share_to.recipient, share_to.company_id)
             .await?;
         Ok(())
     }

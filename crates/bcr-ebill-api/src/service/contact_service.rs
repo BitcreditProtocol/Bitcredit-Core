@@ -210,8 +210,8 @@ impl ContactService {
             .by_node_id(&contact.node_id)
             .await?
         {
-            Some(nostr_contact) => nostr_contact.merge_contact(contact),
-            None => NostrContact::from_contact(contact)?,
+            Some(nostr_contact) => nostr_contact.merge_contact(contact, None),
+            None => NostrContact::from_contact(contact, None)?,
         };
         self.nostr_contact_store.upsert(&nostr_contact).await?;
         Ok(())
@@ -1267,6 +1267,7 @@ pub mod tests {
                 relays: vec![],
                 trust_level: TrustLevel::Participant,
                 handshake_status: HandshakeStatus::None,
+                contact_private_key: None,
             }))
         });
         let result = get_service(
