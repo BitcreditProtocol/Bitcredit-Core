@@ -4,6 +4,8 @@
 * Added identity and company blocks for identity proofs (breaking DB change)
 * Add job to regularly check identity proofs
 * Add `default_court_url` to config and add API to share a bill with a court
+* Add API to share company and identity details with an external party
+* Removed the concept of an `Authorized Signer`
 
 # 0.4.8
 

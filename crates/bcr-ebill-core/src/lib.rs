@@ -288,6 +288,38 @@ impl OptionalPostalAddress {
         }
         None
     }
+
+    fn validate_to_be_non_optional(&self) -> Result<(), ValidationError> {
+        if self.country.is_none() {
+            return Err(ValidationError::FieldEmpty(Field::Country));
+        }
+
+        if is_blank(&self.country) {
+            return Err(ValidationError::FieldEmpty(Field::Country));
+        }
+
+        if self.city.is_none() {
+            return Err(ValidationError::FieldEmpty(Field::City));
+        }
+
+        if is_blank(&self.city) {
+            return Err(ValidationError::FieldEmpty(Field::City));
+        }
+
+        if is_blank(&self.zip) {
+            return Err(ValidationError::FieldEmpty(Field::Zip));
+        }
+
+        if self.address.is_none() {
+            return Err(ValidationError::FieldEmpty(Field::Address));
+        }
+
+        if is_blank(&self.address) {
+            return Err(ValidationError::FieldEmpty(Field::Address));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -559,14 +591,6 @@ pub enum ValidationError {
     /// error returned if the signatory is not a signatory of the company
     #[error("Caller must be signatory for company")]
     CallerMustBeSignatory,
-
-    /// error returned if the drawer is not a bill issuer
-    #[error("Drawer is not a bill issuer - does not have a postal address set")]
-    DrawerIsNotBillIssuer,
-
-    /// error returned if the identity is not a bill issuer
-    #[error("Identity is not a bill issuer - does not have a postal address set")]
-    IdentityIsNotBillIssuer,
 
     /// error returned if the signatory is not in the contacts
     #[error("Node Id {0} is not a person in the contacts.")]

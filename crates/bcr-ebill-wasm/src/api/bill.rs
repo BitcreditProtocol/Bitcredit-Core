@@ -971,10 +971,8 @@ pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant
                             identity.key_pair,
                         ),
                         Err(_) => {
-                            // only non-anon bill issuers with a postal address can sign a bill
-                            return Err(
-                                Error::Validation(ValidationError::DrawerIsNotBillIssuer).into()
-                            );
+                            // only non-anon bill issuers can sign a bill
+                            return Err(Error::Validation(ValidationError::SignerCantBeAnon).into());
                         }
                     }
                 }
