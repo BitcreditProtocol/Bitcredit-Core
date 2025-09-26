@@ -120,7 +120,6 @@ async function start(create_identity) {
     console.log("local identity:", identity);
   } catch (err) {
     if (create_identity) {
-
       console.log("No local identity found - creating anon identity..");
       await identityApi.create({
         t: 1,

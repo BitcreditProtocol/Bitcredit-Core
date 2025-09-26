@@ -23,7 +23,7 @@ pub fn validate_bill_issue(data: &BillIssueData) -> Result<(u64, BillType), Vali
 
     // anon users can't issue bill
     if let BillParticipant::Anon(_) = data.drawer_public_data {
-        return Err(ValidationError::DrawerIsNotBillIssuer);
+        return Err(ValidationError::SignerCantBeAnon);
     }
 
     let issue_date_ts = util::date::date_string_to_timestamp(&data.issue_date, None)?;

@@ -304,17 +304,19 @@ impl IdentityServiceApi for IdentityService {
                 changed = true;
             }
 
-            util::update_optional_field(
-                &mut identity.postal_address.country,
-                &postal_address.country,
-                &mut changed,
-            );
+            if let Some(ref country_to_set) = postal_address.country
+                && identity.postal_address.country != Some(country_to_set.trim().to_string())
+            {
+                identity.postal_address.country = Some(country_to_set.trim().to_owned());
+                changed = true;
+            }
 
-            util::update_optional_field(
-                &mut identity.postal_address.city,
-                &postal_address.city,
-                &mut changed,
-            );
+            if let Some(ref city_to_set) = postal_address.city
+                && identity.postal_address.city != Some(city_to_set.trim().to_string())
+            {
+                identity.postal_address.city = Some(city_to_set.trim().to_owned());
+                changed = true;
+            }
 
             util::update_optional_field(
                 &mut identity.postal_address.zip,
@@ -322,11 +324,12 @@ impl IdentityServiceApi for IdentityService {
                 &mut changed,
             );
 
-            util::update_optional_field(
-                &mut identity.postal_address.address,
-                &postal_address.address,
-                &mut changed,
-            );
+            if let Some(ref address_to_set) = postal_address.address
+                && identity.postal_address.address != Some(address_to_set.trim().to_string())
+            {
+                identity.postal_address.address = Some(address_to_set.trim().to_owned());
+                changed = true;
+            }
 
             util::update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
 
@@ -755,7 +758,7 @@ mod tests {
         service::notification_service::MockNotificationServiceApi,
         tests::tests::{
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            empty_identity, empty_optional_address, init_test_cfg,
+            empty_identity, empty_optional_address, filled_optional_address, init_test_cfg,
         },
     };
     use mockall::predicate::eq;
@@ -814,7 +817,7 @@ mod tests {
                 IdentityType::Ident,
                 "name".to_string(),
                 Some("email".to_string()),
-                empty_optional_address(),
+                filled_optional_address(),
                 None,
                 None,
                 None,
@@ -918,7 +921,7 @@ mod tests {
                 IdentityType::Ident,
                 "name".to_string(),
                 Some("email".to_string()),
-                empty_optional_address(),
+                filled_optional_address(),
                 None,
                 None,
                 None,

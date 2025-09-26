@@ -45,7 +45,6 @@ enum JsErrorType {
     InvalidPaymentAddress,
     InvalidContentType,
     IdentityCantBeAnon,
-    IdentityIsNotBillIssuer,
     InvalidContactType,
     InvalidIdentityType,
     InvalidDate,
@@ -123,7 +122,6 @@ enum JsErrorType {
     BillIsInRecourseAndWaitingForPayment,
     BillWasRequestedToPay,
     // general
-    DrawerIsNotBillIssuer,
     SignatoryNotInContacts,
     SignatoryAlreadySignatory,
     CantRemoveLastSignatory,
@@ -238,9 +236,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
             err_400(e, JsErrorType::SelfDraftedBillCantBeBlank)
         }
         ValidationError::IdentityCantBeAnon => err_400(e, JsErrorType::IdentityCantBeAnon),
-        ValidationError::IdentityIsNotBillIssuer => {
-            err_400(e, JsErrorType::IdentityIsNotBillIssuer)
-        }
         ValidationError::SignerCantBeAnon => err_400(e, JsErrorType::SignerCantBeAnon),
         ValidationError::RequestToMintForBillAndMintAlreadyActive => {
             err_400(e, JsErrorType::RequestToMintForBillAndMintAlreadyActive)
@@ -331,7 +326,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::CallerIsNotRecoursee => err_400(e, JsErrorType::CallerIsNotRecoursee),
         ValidationError::RequestAlreadyRejected => err_400(e, JsErrorType::RequestAlreadyRejected),
         ValidationError::CallerIsNotHolder => err_400(e, JsErrorType::CallerIsNotHolder),
-        ValidationError::DrawerIsNotBillIssuer => err_400(e, JsErrorType::DrawerIsNotBillIssuer),
         ValidationError::CallerMustBeSignatory => err_400(e, JsErrorType::CallerMustBeSignatory),
         ValidationError::SignatoryNotInContacts(_) => {
             err_400(e, JsErrorType::SignatoryNotInContacts)
