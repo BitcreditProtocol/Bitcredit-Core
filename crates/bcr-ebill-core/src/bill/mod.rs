@@ -260,7 +260,7 @@ pub struct BillWaitingForPaymentState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForRecourseState {
-    pub recourser: BillIdentParticipant,
+    pub recourser: BillParticipant,
     pub recoursee: BillIdentParticipant,
     pub payment_data: BillWaitingStatePaymentData,
 }
@@ -598,7 +598,7 @@ pub struct PastPaymentDataPayment {
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataRecourse {
     pub time_of_request: u64,
-    pub recourser: BillIdentParticipant,
+    pub recourser: BillParticipant,
     pub recoursee: BillIdentParticipant,
     pub currency: String,
     pub sum: String,

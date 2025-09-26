@@ -331,14 +331,17 @@ pub fn request_to_recourse_block(
         id.to_owned(),
         first_block,
         &BillRequestRecourseBlockData {
-            recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+            recourser: BillParticipant::Ident(bill_identified_participant_only_node_id(
+                node_id_test(),
+            ))
+            .into(),
             recoursee: recoursee.to_owned().into(),
             sum: 15000,
             currency: "sat".to_string(),
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: None,
             signing_timestamp: timestamp,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,

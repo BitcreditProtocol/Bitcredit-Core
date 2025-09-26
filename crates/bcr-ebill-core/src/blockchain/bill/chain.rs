@@ -514,7 +514,7 @@ impl BillBlockchain {
             let block_data_decrypted: BillRequestRecourseBlockData =
                 request_to_recourse_block.get_decrypted_block(bill_keys)?;
 
-            if *node_id != block_data_decrypted.recourser.node_id {
+            if *node_id != block_data_decrypted.recourser.node_id() {
                 // node id is not beneficiary - skip
                 continue;
             }

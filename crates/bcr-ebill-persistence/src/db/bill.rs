@@ -539,7 +539,7 @@ impl From<&BillWaitingForPaymentState> for BillWaitingForPaymentStateDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingForRecourseStateDb {
-    pub recourser: BillIdentParticipantDb,
+    pub recourser: BillParticipantDb,
     pub recoursee: BillIdentParticipantDb,
     pub payment_data: BillWaitingStatePaymentDataDb,
 }
@@ -1861,7 +1861,9 @@ pub mod tests {
             bill_id_test(),
             &first_block,
             &BillRequestRecourseBlockData {
-                recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+                recourser: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(node_id_test()).into(),
+                ),
                 recoursee: bill_identified_participant_only_node_id(NodeId::new(
                     BcrKeys::new().pub_key(),
                     bitcoin::Network::Testnet,
@@ -1872,7 +1874,7 @@ pub mod tests {
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: now,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1951,7 +1953,9 @@ pub mod tests {
             bill_id_test(),
             &first_block,
             &BillRequestRecourseBlockData {
-                recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+                recourser: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(node_id_test()).into(),
+                ),
                 recoursee: bill_identified_participant_only_node_id(NodeId::new(
                     BcrKeys::new().pub_key(),
                     bitcoin::Network::Testnet,
@@ -1962,7 +1966,7 @@ pub mod tests {
                 sum: 15000,
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
-                signing_address: empty_address(),
+                signing_address: Some(empty_address()),
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,

@@ -1394,7 +1394,7 @@ impl BillServiceApi for BillService {
         for past_sell_payment in past_recourse_payments {
             let address_to_pay = self.bitcoin_client.get_address_to_pay(
                 &bill_keys.public_key,
-                &past_sell_payment.0.recourser.node_id.pub_key(),
+                &past_sell_payment.0.recourser.node_id().pub_key(),
             )?;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                 &address_to_pay,

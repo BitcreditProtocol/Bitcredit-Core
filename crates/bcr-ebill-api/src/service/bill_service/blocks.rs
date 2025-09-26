@@ -129,43 +129,44 @@ impl BillService {
                     timestamp,
                 )?
             }
-            // has to be ident to req recourse
+            // can be anon to req recourse
             BillAction::RequestRecourse(recoursee, recourse_reason) => {
                 validate_node_id_network(&recoursee.node_id)?;
-                if let BillParticipant::Ident(signer) = signer_public_data {
-                    let (sum, currency, reason) = match *recourse_reason {
-                        RecourseReason::Accept => (
-                            bill.sum,
-                            bill.currency.clone(),
-                            BillRecourseReasonBlockData::Accept,
-                        ),
-                        RecourseReason::Pay(sum, ref currency) => {
-                            (sum, currency.to_owned(), BillRecourseReasonBlockData::Pay)
-                        }
-                    };
-                    let block_data = BillRequestRecourseBlockData {
-                        recourser: signer.clone().into(),
-                        recoursee: recoursee.clone().into(),
-                        sum,
-                        currency: currency.to_owned(),
-                        recourse_reason: reason,
-                        signatory: signing_keys.signatory_identity,
-                        signing_timestamp: timestamp,
-                        signing_address: signer.postal_address.clone(),
-                    };
-                    block_data.validate()?;
-                    BillBlock::create_block_for_request_recourse(
-                        bill_id.to_owned(),
-                        previous_block,
-                        &block_data,
-                        &signing_keys.signatory_keys,
-                        signing_keys.company_keys.as_ref(),
-                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
-                        timestamp,
-                    )?
-                } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
-                }
+                let (sum, currency, reason) = match *recourse_reason {
+                    RecourseReason::Accept => (
+                        bill.sum,
+                        bill.currency.clone(),
+                        BillRecourseReasonBlockData::Accept,
+                    ),
+                    RecourseReason::Pay(sum, ref currency) => {
+                        (sum, currency.to_owned(), BillRecourseReasonBlockData::Pay)
+                    }
+                };
+                let block_data = BillRequestRecourseBlockData {
+                    recourser: if holder_is_anon {
+                        // if holder is anon, we need to continue as anon
+                        signer_public_data.as_anon().into()
+                    } else {
+                        signer_public_data.clone().into()
+                    },
+                    recoursee: recoursee.clone().into(),
+                    sum,
+                    currency: currency.to_owned(),
+                    recourse_reason: reason,
+                    signatory: signing_keys.signatory_identity,
+                    signing_timestamp: timestamp,
+                    signing_address: signer_public_data.postal_address(),
+                };
+                block_data.validate()?;
+                BillBlock::create_block_for_request_recourse(
+                    bill_id.to_owned(),
+                    previous_block,
+                    &block_data,
+                    &signing_keys.signatory_keys,
+                    signing_keys.company_keys.as_ref(),
+                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    timestamp,
+                )?
             }
             // has to be ident to recourse
             BillAction::Recourse(recoursee, sum, currency, recourse_reason) => {

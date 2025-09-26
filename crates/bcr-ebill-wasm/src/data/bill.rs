@@ -379,7 +379,7 @@ impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataRecourseWeb {
     pub time_of_request: u64,
-    pub recourser: BillIdentParticipantWeb,
+    pub recourser: BillParticipantWeb,
     pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
@@ -521,7 +521,7 @@ impl From<BillWaitingForPaymentState> for BillWaitingForPaymentStateWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForRecourseStateWeb {
-    pub recourser: BillIdentParticipantWeb,
+    pub recourser: BillParticipantWeb,
     pub recoursee: BillIdentParticipantWeb,
     pub payment_data: BillWaitingStatePaymentDataWeb,
 }

@@ -5363,7 +5363,10 @@ pub mod tests {
                     bill_id_test(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: bill_identified_participant_only_node_id(payee.node_id()).into(),
+                        recourser: BillParticipant::Ident(
+                            bill_identified_participant_only_node_id(payee.node_id()),
+                        )
+                        .into(),
                         recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                             .unwrap()
                             .into(),
@@ -5372,7 +5375,7 @@ pub mod tests {
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5431,7 +5434,10 @@ pub mod tests {
                     bill_id_test(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: bill_identified_participant_only_node_id(payee.node_id()).into(),
+                        recourser: BillParticipant::Ident(
+                            bill_identified_participant_only_node_id(payee.node_id()),
+                        )
+                        .into(),
                         recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                             .unwrap()
                             .into(),
@@ -5440,7 +5446,7 @@ pub mod tests {
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5502,9 +5508,10 @@ pub mod tests {
                     bill_id_test(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: BillIdentParticipant::new(get_baseline_identity().identity)
-                            .unwrap()
-                            .into(),
+                        recourser: BillParticipant::Ident(
+                            BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+                        )
+                        .into(),
                         recoursee: bill_identified_participant_only_node_id(recoursee.clone())
                             .into(),
                         currency: "sat".to_string(),
@@ -5512,7 +5519,7 @@ pub mod tests {
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5577,7 +5584,10 @@ pub mod tests {
                     bill_id_test(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: BillIdentParticipant::from(company_clone.clone()).into(),
+                        recourser: BillParticipant::Ident(BillIdentParticipant::from(
+                            company_clone.clone(),
+                        ))
+                        .into(),
                         recoursee: bill_identified_participant_only_node_id(recoursee.clone())
                             .into(),
                         currency: "sat".to_string(),
@@ -5588,7 +5598,7 @@ pub mod tests {
                             name: get_baseline_identity().identity.name.clone(),
                         }),
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
@@ -5714,7 +5724,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn request_recourse_fails_for_anon() {
+    async fn request_recourse_works_for_anon() {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
@@ -5794,6 +5804,8 @@ pub mod tests {
         ctx.notification_service
             .expect_send_recourse_action_event()
             .returning(|_, _, _| Ok(()));
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
         let service = get_service(ctx);
 
         let res = service
@@ -5808,11 +5820,9 @@ pub mod tests {
                 1731593928,
             )
             .await;
-        assert!(res.is_err());
-        assert!(matches!(
-            res.as_ref().unwrap_err(),
-            Error::Validation(ValidationError::SignerCantBeAnon)
-        ));
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 5);
+        assert!(res.unwrap().blocks()[4].op_code == BillOpCode::RequestRecourse);
     }
 
     #[tokio::test]
@@ -5951,16 +5961,17 @@ pub mod tests {
                     bill_id_test(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: BillIdentParticipant::new(identity_clone.clone())
-                            .unwrap()
-                            .into(),
+                        recourser: BillParticipant::Ident(
+                            BillIdentParticipant::new(identity_clone.clone()).unwrap(),
+                        )
+                        .into(),
                         recoursee: recoursee_clone.clone().into(),
                         sum: 15000,
                         currency: "sat".to_string(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
@@ -6032,16 +6043,17 @@ pub mod tests {
                     bill_id_test(),
                     chain.get_latest_block(),
                     &BillRequestRecourseBlockData {
-                        recourser: BillIdentParticipant::new(identity_clone.clone())
-                            .unwrap()
-                            .into(),
+                        recourser: BillParticipant::Ident(
+                            BillIdentParticipant::new(identity_clone.clone()).unwrap(),
+                        )
+                        .into(),
                         recoursee: recoursee_clone.clone().into(),
                         sum: 15000,
                         currency: "sat".to_string(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: 1731593927,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
