@@ -474,7 +474,7 @@ impl BillService {
                     }
 
                     let recourser = self
-                        .extend_bill_chain_identity_data_from_contacts_or_identity(
+                        .extend_bill_chain_participant_data_from_contacts_or_identity(
                             payment_info.recourser.clone(),
                             local_identity,
                             &contacts,
@@ -490,7 +490,7 @@ impl BillService {
 
                     let address_to_pay = self.bitcoin_client.get_address_to_pay(
                         &bill_keys.public_key,
-                        &payment_info.recourser.node_id.pub_key(),
+                        &payment_info.recourser.node_id().pub_key(),
                     )?;
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
@@ -768,7 +768,7 @@ impl BillService {
             }
             Some(BillCurrentWaitingState::Recourse(state)) => {
                 state.recourser = self
-                    .extend_bill_chain_identity_data_from_contacts_or_identity(
+                    .extend_bill_chain_participant_data_from_contacts_or_identity(
                         state.recourser.clone().into(),
                         identity,
                         contacts,

@@ -250,7 +250,7 @@ impl Validate for BillValidateActionData {
                     if payment_info.sum != *sum
                         || payment_info.currency != *currency
                         || payment_info.recoursee.node_id != recoursee.node_id
-                        || payment_info.recourser.node_id != self.signer_node_id
+                        || payment_info.recourser.node_id() != self.signer_node_id
                         || payment_info.reason != recourse_reason
                     {
                         return Err(ValidationError::BillRecourseDataInvalid);
@@ -767,14 +767,14 @@ mod tests {
             bill_id_test(),
             chain.get_latest_block(),
             &BillRequestRecourseBlockData {
-                recourser: valid_bill_identified_participant().into(),
+                recourser: BillParticipant::Ident(valid_bill_identified_participant()).into(),
                 recoursee: valid_other_bill_identified_participant().into(),
                 sum: 500,
                 currency: "sat".into(),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1,
-                signing_address: valid_address(),
+                signing_address: Some(valid_address()),
             },
             &keys(),
             None,

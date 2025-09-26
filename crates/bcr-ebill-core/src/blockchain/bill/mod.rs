@@ -12,7 +12,7 @@ pub use chain::BillBlockchain;
 use crate::{
     PublicKey, SecretKey,
     bill::{BillId, BillKeys},
-    blockchain::Result,
+    blockchain::{Result, bill::block::BillParticipantBlockData},
     contact::BillParticipant,
     util::{self, BcrKeys},
 };
@@ -61,7 +61,7 @@ pub struct PaymentInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoursePaymentInfo {
-    pub recourser: BillIdentParticipantBlockData, // recourser has to be identified
+    pub recourser: BillParticipantBlockData, // recourser can be anon
     pub recoursee: BillIdentParticipantBlockData, // recoursee has to be identified
     pub sum: u64,
     pub currency: String,
