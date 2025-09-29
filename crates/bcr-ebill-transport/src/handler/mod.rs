@@ -482,6 +482,7 @@ mod test_utils {
             async fn set_handshake_status(&self, node_id: &NodeId, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
+            async fn search(&self, search_term: &str, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<bcr_ebill_core::nostr_contact::NostrContact>>;
 
         }
     }

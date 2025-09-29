@@ -632,5 +632,6 @@ mockall::mock! {
         async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> bcr_ebill_persistence::Result<()>;
         async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> bcr_ebill_persistence::Result<()>;
         async fn get_npubs(&self, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrPublicKey>>;
+        async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
     }
 }

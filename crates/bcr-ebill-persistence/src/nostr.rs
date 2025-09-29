@@ -89,8 +89,11 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// Sets a new trust level for the contact. This is used to track the trust level of the
     /// contact.
     async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
-    // returns all npubs that have a trust level higher than or equal to the given level.
+    /// returns all npubs that have a trust level higher than or equal to the given level.
     async fn get_npubs(&self, min_trust_level: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
+    /// Searches for a contact by name
+    async fn search(&self, search_term: &str, levels: Vec<TrustLevel>)
+    -> Result<Vec<NostrContact>>;
 }
 
 /// Allows us to keep track of Nostr chain events and have an archive of signed events that
