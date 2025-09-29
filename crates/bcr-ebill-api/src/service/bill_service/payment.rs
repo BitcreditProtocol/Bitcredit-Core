@@ -128,7 +128,7 @@ impl BillService {
             // calculate payment address
             let payment_address = self.bitcoin_client.get_address_to_pay(
                 &bill_keys.public_key,
-                &payment_info.recourser.node_id.pub_key(),
+                &payment_info.recourser.node_id().pub_key(),
             )?;
             // check if paid
             if let Ok(payment_state) = self
@@ -164,7 +164,7 @@ impl BillService {
                         "bill {bill_id} is recourse-paid - creating recourse block if we're recourser"
                     );
                     // If we are the recourser and a bill issuer and it's paid, we add a Recourse block
-                    if payment_info.recourser.node_id == identity.identity.node_id {
+                    if payment_info.recourser.node_id() == identity.identity.node_id {
                         if let Ok(signer_identity) =
                             BillIdentParticipant::new(identity.identity.clone())
                         {
@@ -207,7 +207,7 @@ impl BillService {
                         self.company_store.get_all().await?;
                     // If a local company is the recourser, create the recourse block as that company
                     if let Some(recourser_company) =
-                        local_companies.get(&payment_info.recourser.node_id)
+                        local_companies.get(&payment_info.recourser.node_id())
                         && recourser_company
                             .0
                             .signatories

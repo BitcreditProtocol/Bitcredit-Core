@@ -6,6 +6,8 @@
 * Add `default_court_url` to config and add API to share a bill with a court
 * Add API to share company and identity details with an external party
 * Removed the concept of an `Authorized Signer`
+* Fix it so that Anon holders of a bill can do recourse (breaking DB and API change)
+    * `recourser` went from `BillIdentParticipant` to `BillParticipant`
 
 # 0.4.8
 

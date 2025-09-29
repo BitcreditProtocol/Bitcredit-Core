@@ -408,14 +408,14 @@ impl Validate for BillEndorseBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestRecourseBlockData {
-    pub recourser: BillIdentParticipantBlockData, // anon can't do recourse
+    pub recourser: BillParticipantBlockData, // anon can do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
     pub sum: u64,
     pub currency: String,
     pub recourse_reason: BillRecourseReasonBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the endorser
+    pub signing_address: Option<PostalAddress>, // address of the recourser
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -429,7 +429,7 @@ impl Validate for BillRequestRecourseBlockData {
         self.recourser.validate()?;
         self.recoursee.validate()?;
 
-        if self.recoursee.node_id == self.recourser.node_id {
+        if self.recoursee.node_id == self.recourser.node_id() {
             return Err(ValidationError::RecourserCantBeRecoursee);
         }
 
@@ -1338,7 +1338,7 @@ impl BillBlock {
             RequestRecourse => {
                 let block_data_decrypted: BillRequestRecourseBlockData =
                     self.get_decrypted_block(bill_keys)?;
-                nodes.insert(block_data_decrypted.recourser.node_id);
+                nodes.insert(block_data_decrypted.recourser.node_id());
                 nodes.insert(block_data_decrypted.recoursee.node_id);
             }
             Recourse => {
@@ -1380,7 +1380,7 @@ impl BillBlock {
             }
             RequestRecourse => {
                 let block: BillRequestRecourseBlockData = self.get_decrypted_block(bill_keys)?;
-                Ok(Some(block.recourser.node_id))
+                Ok(Some(block.recourser.node_id()))
             }
             RequestToPay => {
                 let block: BillRequestToPayBlockData = self.get_decrypted_block(bill_keys)?;
@@ -1572,7 +1572,7 @@ impl BillBlock {
                 };
                 data.validate()?;
                 (
-                    data.recourser.node_id,
+                    data.recourser.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::RequestRecourse(data.recoursee.into(), reason)),
                 )
@@ -2080,14 +2080,14 @@ pub mod tests {
             bill_id_test(),
             &get_first_block(),
             &BillRequestRecourseBlockData {
-                recourser: recourser.clone().into(),
+                recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
                 sum: 15000,
                 currency: "sat".to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: recourser.postal_address,
+                signing_address: Some(recourser.postal_address),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -2494,14 +2494,14 @@ pub mod tests {
             bill_id_test(),
             &issue_block,
             &BillRequestRecourseBlockData {
-                recourser: signer.clone().into(),
+                recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
                 currency: "sat".to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -2951,7 +2951,7 @@ pub mod tests {
             bill_id_test(),
             &issue_block,
             &BillRequestRecourseBlockData {
-                recourser: signer.clone().into(),
+                recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
                 currency: "sat".to_string(),
@@ -2961,7 +2961,7 @@ pub mod tests {
                     name: "signatory name".to_string(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -3419,14 +3419,14 @@ pub mod tests {
 
     fn valid_req_to_recourse_block_data() -> BillRequestRecourseBlockData {
         BillRequestRecourseBlockData {
-            recourser: valid_bill_identity_block_data(),
+            recourser: valid_bill_participant_block_data(),
             recoursee: other_valid_bill_identity_block_data(),
             currency: "sat".into(),
             sum: 500,
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 
@@ -3437,11 +3437,11 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_recourser(BillRequestRecourseBlockData { recourser: invalid_bill_identity_block_data(), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
+    #[case::invalid_recourser(BillRequestRecourseBlockData { recourser: invalid_bill_participant_block_data(), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_recoursee(BillRequestRecourseBlockData { recoursee: invalid_bill_identity_block_data(), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_sum(BillRequestRecourseBlockData { sum: 0, ..valid_req_to_recourse_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillRequestRecourseBlockData { currency: "invalidcurrency".into(), ..valid_req_to_recourse_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_signing_address(BillRequestRecourseBlockData { signing_address: invalid_address(), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRequestRecourseBlockData { signing_address: Some(invalid_address()), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::invalid_signatory(BillRequestRecourseBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_req_to_recourse_block_data(
         #[case] block: BillRequestRecourseBlockData,

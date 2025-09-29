@@ -46,6 +46,7 @@ document.getElementById("accept_bill").addEventListener("click", acceptBill);
 document.getElementById("req_to_pay_bill").addEventListener("click", requestToPayBill);
 document.getElementById("offer_to_sell_bill").addEventListener("click", offerToSellBill);
 document.getElementById("req_to_recourse_bill").addEventListener("click", requestToRecourseBill);
+document.getElementById("req_to_recourse_bill_payment").addEventListener("click", requestToRecourseBillPayment);
 document.getElementById("reject_accept").addEventListener("click", rejectAcceptBill);
 document.getElementById("reject_pay").addEventListener("click", rejectPayBill);
 document.getElementById("reject_buying").addEventListener("click", rejectBuyingBill);
@@ -539,6 +540,15 @@ async function requestToRecourseBill() {
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
     return await billApi.request_to_recourse_bill_acceptance({ bill_id, recoursee: endorsee });
+  });
+  await measured();
+}
+
+async function requestToRecourseBillPayment() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let endorsee = document.getElementById("endorsee_id").value;
+  let measured = measure(async () => {
+    return await billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "sat", sum: "1500" });
   });
   await measured();
 }
