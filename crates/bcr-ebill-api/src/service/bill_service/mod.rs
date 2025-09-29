@@ -672,7 +672,7 @@ pub mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.as_ref().unwrap_err(),
-            Error::Validation(ValidationError::DrawerIsNotBillIssuer)
+            Error::Validation(ValidationError::SignerCantBeAnon)
         ));
     }
 

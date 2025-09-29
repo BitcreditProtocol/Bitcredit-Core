@@ -307,7 +307,7 @@ impl BillIdentParticipant {
                 email: identity.email,
                 nostr_relays: identity.nostr_relays,
             }),
-            None => Err(ValidationError::IdentityIsNotBillIssuer),
+            None => Err(ValidationError::IdentityCantBeAnon),
         }
     }
 }

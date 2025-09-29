@@ -506,6 +506,15 @@ pub mod tests {
         }
     }
 
+    pub fn filled_optional_address() -> OptionalPostalAddress {
+        OptionalPostalAddress {
+            country: Some("AT".to_string()),
+            city: Some("Vienna".to_string()),
+            zip: None,
+            address: Some("Some Address 1".to_string()),
+        }
+    }
+
     pub fn empty_optional_address() -> OptionalPostalAddress {
         OptionalPostalAddress {
             country: None,
