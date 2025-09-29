@@ -517,7 +517,7 @@ mockall::mock! {
     impl ServiceTraitBounds for ContactService {}
     #[async_trait]
     impl ContactServiceApi for ContactService {
-    async fn search(&self, search_term: &str) -> bcr_ebill_api::service::Result<Vec<Contact>>;
+    async fn search(&self, search_term: &str, include_logical: Option<bool>, include_contact: Option<bool>) -> bcr_ebill_api::service::Result<Vec<Contact>>;
     async fn get_contacts(&self) -> bcr_ebill_api::service::Result<Vec<Contact>>;
     async fn get_contact(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Contact>;
     async fn get_identity_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<BillParticipant>>;

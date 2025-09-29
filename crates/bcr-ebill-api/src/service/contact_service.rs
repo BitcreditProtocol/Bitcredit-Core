@@ -39,8 +39,14 @@ impl ServiceTraitBounds for MockContactServiceApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait ContactServiceApi: ServiceTraitBounds {
-    /// Searches contacts for the search term
-    async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
+    /// Searches contacts and logical contacts for the search term. Both are included by default
+    /// and can be disabled by setting the include_logical and include_contact parameters to false.
+    async fn search(
+        &self,
+        search_term: &str,
+        include_logical: Option<bool>,
+        include_contact: Option<bool>,
+    ) -> Result<Vec<Contact>>;
     /// Returns all contacts in short form
     async fn get_contacts(&self) -> Result<Vec<Contact>>;
 
@@ -223,8 +229,53 @@ impl ServiceTraitBounds for ContactService {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl ContactServiceApi for ContactService {
-    async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
-        let contacts = self.store.search(search_term).await?;
+    async fn search(
+        &self,
+        search_term: &str,
+        include_logical: Option<bool>,
+        include_contact: Option<bool>,
+    ) -> Result<Vec<Contact>> {
+        let mut contacts = if include_contact.unwrap_or(true) {
+            self.store.search(search_term).await?
+        } else {
+            vec![]
+        };
+        let mut nostr_contacts = if include_logical.unwrap_or(true) {
+            let nostr = self
+                .nostr_contact_store
+                .search(
+                    search_term,
+                    vec![TrustLevel::Trusted, TrustLevel::Participant],
+                )
+                .await?;
+            let lookup: Vec<String> = contacts.iter().map(|c| c.node_id.npub().to_hex()).collect();
+            nostr
+                .into_iter()
+                .filter_map(|c| {
+                    if !lookup.contains(&c.npub.to_hex()) && c.name.is_some() {
+                        Some(Contact {
+                            node_id: c.node_id.clone(),
+                            t: ContactType::Anon,
+                            name: c.name.unwrap(),
+                            email: None,
+                            postal_address: None,
+                            date_of_birth_or_registration: None,
+                            country_of_birth_or_registration: None,
+                            city_of_birth_or_registration: None,
+                            identification_number: None,
+                            avatar_file: None,
+                            proof_document_file: None,
+                            nostr_relays: c.relays,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        contacts.append(&mut nostr_contacts);
         Ok(contacts)
     }
 
@@ -705,11 +756,11 @@ pub mod tests {
         },
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, NODE_ID_TEST_STR, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
-            empty_optional_address, init_test_cfg, node_id_test,
+            MockNostrContactStore, NODE_ID_TEST_STR, empty_address, empty_optional_address,
+            init_test_cfg, node_id_test,
         },
     };
-    use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrPublicKey};
+    use bcr_ebill_core::nostr_contact::HandshakeStatus;
     use std::collections::HashMap;
     use util::BcrKeys;
 
@@ -1259,10 +1310,11 @@ pub mod tests {
             mut nostr_contact,
             notification,
         ) = get_storages();
-        let pub_key = NostrPublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
+        let pub_key = node_id_test().npub();
         nostr_contact.expect_by_npub().returning(|_| {
             Ok(Some(NostrContact {
-                npub: NostrPublicKey::parse(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap(),
+                npub: node_id_test().npub(),
+                node_id: node_id_test(),
                 name: None,
                 relays: vec![],
                 trust_level: TrustLevel::Participant,

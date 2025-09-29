@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
 
-use crate::{ValidationError, contact::Contact};
+use crate::{NodeId, ValidationError, contact::Contact};
 
 /// Make key type clear
 pub type NostrPublicKey = nostr::key::PublicKey;
@@ -13,6 +13,8 @@ pub type NostrPublicKey = nostr::key::PublicKey;
 pub struct NostrContact {
     /// Our node id. This is the node id and acts as the primary key.
     pub npub: NostrPublicKey,
+    /// The node id of this contact
+    pub node_id: NodeId,
     /// The Nostr name of the contact as retreived via Nostr metadata.
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
@@ -36,6 +38,7 @@ impl NostrContact {
         let npub = contact.node_id.npub();
         Ok(Self {
             npub,
+            node_id: contact.node_id.clone(),
             name: Some(contact.name.clone()),
             relays: contact.nostr_relays.clone(),
             trust_level: TrustLevel::Trusted,
@@ -51,6 +54,7 @@ impl NostrContact {
         relays.extend(contact.nostr_relays.clone());
         Self {
             npub: self.npub,
+            node_id: self.node_id.clone(),
             name: Some(contact.name.clone()),
             relays: relays.into_iter().collect(),
             trust_level: TrustLevel::Trusted,

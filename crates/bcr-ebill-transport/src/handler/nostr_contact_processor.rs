@@ -56,6 +56,7 @@ impl NostrContactProcessorApi for NostrContactProcessor {
                 node_id,
                 &NostrContact {
                     npub: node_id.npub(),
+                    node_id: node_id.clone(),
                     name: contact.metadata.name,
                     relays,
                     trust_level: TrustLevel::Participant,

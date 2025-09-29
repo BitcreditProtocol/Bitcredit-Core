@@ -134,6 +134,8 @@ fn update_field_query(field_name: &str) -> String {
 pub struct NostrContactDb {
     /// Our node id. This is the node id and acts as the primary key.
     pub id: Thing,
+    /// The node id of this contact
+    pub node_id: NodeId,
     /// The Nostr name of the contact as retreived via Nostr metadata.
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
@@ -154,6 +156,7 @@ impl From<NostrContact> for NostrContactDb {
                 SurrealNostrContactStore::TABLE.to_owned(),
                 contact.npub.to_hex(),
             )),
+            node_id: contact.node_id,
             name: contact.name,
             relays: contact.relays,
             trust_level: contact.trust_level,
@@ -168,6 +171,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
     fn try_from(db: NostrContactDb) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             npub: NostrPublicKey::parse(&db.id.id.to_raw()).map_err(|_| Error::EncodingError)?,
+            node_id: db.node_id,
             name: db.name,
             relays: db.relays,
             trust_level: db.trust_level,
@@ -187,10 +191,9 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_and_retrieve_by_node_id() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(npub.to_hex().as_str(), None);
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -215,9 +218,9 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_and_retrieve_by_npub() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(npub.to_hex().as_str(), None);
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -227,7 +230,7 @@ mod tests {
 
         // Retrieve the contact by node_id
         let retrieved = store
-            .by_npub(&npub)
+            .by_npub(&node_id.npub())
             .await
             .expect("Failed to retrieve contact by npub")
             .expect("Contact by npub not found");
@@ -238,10 +241,9 @@ mod tests {
     #[tokio::test]
     async fn test_delete_contact() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(npub.to_hex().as_str(), None);
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -266,10 +268,9 @@ mod tests {
     #[tokio::test]
     async fn test_set_handshake_status() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(npub.to_hex().as_str(), None);
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -296,10 +297,9 @@ mod tests {
     #[tokio::test]
     async fn test_set_trust_level() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(npub.to_hex().as_str(), None);
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -326,10 +326,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_npubs() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(&npub.to_hex(), None);
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -355,10 +354,9 @@ mod tests {
     #[tokio::test]
     async fn test_search() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(&npub.to_hex(), Some("Albert".to_string()));
+        let contact = get_test_contact(&node_id, Some("Albert".to_string()));
 
         // Upsert the contact
         store
@@ -373,9 +371,8 @@ mod tests {
             .expect("Failed to set trust level");
 
         let keys2 = BcrKeys::new();
-        let npub2 = keys2.get_nostr_keys().public_key();
         let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
-        let contact2 = get_test_contact(&npub2.to_hex(), Some("Berta".to_string()));
+        let contact2 = get_test_contact(&node_id2, Some("Berta".to_string()));
 
         // Upsert the contact
         store
@@ -390,8 +387,8 @@ mod tests {
             .expect("Failed to set trust level");
 
         let keys3 = BcrKeys::new();
-        let npub3 = keys3.get_nostr_keys().public_key();
-        let contact3 = get_test_contact(&npub3.to_hex(), Some("Bertrand".to_string()));
+        let node_id3 = NodeId::new(keys3.pub_key(), bitcoin::Network::Testnet);
+        let contact3 = get_test_contact(&node_id3, Some("Bertrand".to_string()));
 
         // Upsert the contact
         store
@@ -441,9 +438,10 @@ mod tests {
         })
     }
 
-    fn get_test_contact(node_id: &str, name: Option<String>) -> NostrContact {
+    fn get_test_contact(node_id: &NodeId, name: Option<String>) -> NostrContact {
         NostrContact {
-            npub: NostrPublicKey::from_hex(node_id).unwrap(),
+            npub: node_id.npub(),
+            node_id: node_id.clone(),
             name: name.or(Some("contact_name".to_string())),
             relays: vec!["test_relay".to_string()],
             trust_level: TrustLevel::None,
