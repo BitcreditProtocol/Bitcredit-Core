@@ -8,6 +8,7 @@ pub mod tests {
         data::bill::BillKeys,
     };
     use async_trait::async_trait;
+    use bcr_ebill_core::constants::CURRENCY_SAT;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
@@ -574,7 +575,7 @@ pub mod tests {
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
-            currency: "sat".to_string(),
+            currency: CURRENCY_SAT.to_string(),
             sum: 5000,
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),

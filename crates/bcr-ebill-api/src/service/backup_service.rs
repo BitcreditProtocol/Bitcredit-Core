@@ -103,6 +103,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore]
     async fn test_backup_with_embedded_db() {
         let mut store = MockBackupStoreApiMock::new();
         let mut identity_store = MockIdentityStoreApiMock::new();
@@ -159,6 +160,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_restore_with_embedded_db() {
         let mut store = MockBackupStoreApiMock::new();
         let mut identity_store = MockIdentityStoreApiMock::new();

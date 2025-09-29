@@ -94,8 +94,6 @@ enum JsErrorType {
     BillAcceptanceExpired,
     BillWasRejectedToPay,
     BillPaymentExpired,
-    BillWasRejectedToRecourse,
-    BillRequestToRecourseExpired,
     BillWasRecoursedToTheEnd,
     BillAlreadyRequestedToAccept,
     BillNotAccepted,
@@ -266,12 +264,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::BillAcceptanceExpired => err_400(e, JsErrorType::BillAcceptanceExpired),
         ValidationError::BillWasRejectedToPay => err_400(e, JsErrorType::BillWasRejectedToPay),
         ValidationError::BillPaymentExpired => err_400(e, JsErrorType::BillPaymentExpired),
-        ValidationError::BillWasRejectedToRecourse => {
-            err_400(e, JsErrorType::BillWasRejectedToRecourse)
-        }
-        ValidationError::BillRequestToRecourseExpired => {
-            err_400(e, JsErrorType::BillRequestToRecourseExpired)
-        }
         ValidationError::BillWasRecoursedToTheEnd => {
             err_400(e, JsErrorType::BillWasRecoursedToTheEnd)
         }

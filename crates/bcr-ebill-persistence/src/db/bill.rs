@@ -1239,6 +1239,7 @@ pub mod tests {
                 BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
             },
         },
+        constants::CURRENCY_SAT,
         contact::BillParticipant,
     };
     use chrono::Months;
@@ -1312,7 +1313,7 @@ pub mod tests {
                         requester: BillParticipantBlockData::Ident(
                             bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
@@ -1526,7 +1527,7 @@ pub mod tests {
                         requester: BillParticipantBlockData::Ident(
                             bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
@@ -1599,7 +1600,7 @@ pub mod tests {
                     ))
                     .into(),
                 ),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 sum: 15000,
                 payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                 signatory: None,
@@ -1638,7 +1639,7 @@ pub mod tests {
                             ))
                             .into(),
                         ),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                         signatory: None,
@@ -1697,7 +1698,7 @@ pub mod tests {
                     ))
                     .into(),
                 ),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 sum: 15000,
                 payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                 signatory: None,
@@ -1869,7 +1870,7 @@ pub mod tests {
                     bitcoin::Network::Testnet,
                 ))
                 .into(),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 sum: 15000,
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
@@ -1905,7 +1906,7 @@ pub mod tests {
                         ))
                         .into(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now,
@@ -1961,7 +1962,7 @@ pub mod tests {
                     bitcoin::Network::Testnet,
                 ))
                 .into(),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 sum: 15000,
                 signatory: None,

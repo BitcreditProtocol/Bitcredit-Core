@@ -127,6 +127,7 @@ impl BillChainEventHandler {
 mod tests {
     use std::str::FromStr;
 
+    use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
         bill::{BillId, BillKeys, BitcreditBill},
@@ -355,7 +356,7 @@ mod tests {
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
-            currency: "sat".to_string(),
+            currency: CURRENCY_SAT.to_string(),
             sum: 500,
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),
