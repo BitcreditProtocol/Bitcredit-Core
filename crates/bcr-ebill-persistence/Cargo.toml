@@ -37,6 +37,3 @@ surrealdb = { workspace = true, default-features = false, features = ["protocol-
 [dev-dependencies]
 surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
 base64.workspace = true
-
-[features]
-embedded-db = ["surrealdb/kv-rocksdb"]

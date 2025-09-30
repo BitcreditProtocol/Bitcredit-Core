@@ -92,48 +92,9 @@ impl BackupServiceApi for BackupService {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
-    use mockall::predicate::eq;
-    use tokio::io::AsyncWriteExt;
-    use util::BcrKeys;
-
     use crate::tests::tests::{MockBackupStoreApiMock, MockIdentityStoreApiMock};
 
     use super::*;
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_backup_with_embedded_db() {
-        let mut store = MockBackupStoreApiMock::new();
-        let mut identity_store = MockIdentityStoreApiMock::new();
-        let surreal_db_config = SurrealDbConfig {
-            connection_string: "rocksdb://test".to_string(),
-            database: "test".to_string(),
-            namespace: "test".to_string(),
-        };
-
-        identity_store
-            .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::new()))
-            .once();
-
-        store
-            .expect_backup()
-            .returning(|| Ok(vec![0, 1, 0, 1, 0, 0, 1, 0]))
-            .once();
-
-        let (tx, _) = watch::channel(false);
-        let service = BackupService::new(
-            Arc::new(store),
-            Arc::new(identity_store),
-            surreal_db_config,
-            tx,
-        );
-
-        let result = service.backup().await;
-        assert!(result.is_ok());
-    }
 
     #[tokio::test]
     async fn test_backup_with_external_socket_db_should_fail() {
@@ -157,66 +118,5 @@ mod tests {
 
         let result = service.backup().await;
         assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_restore_with_embedded_db() {
-        let mut store = MockBackupStoreApiMock::new();
-        let mut identity_store = MockIdentityStoreApiMock::new();
-        let surreal_db_config = SurrealDbConfig {
-            connection_string: "rocksdb://test".to_string(),
-            database: "test".to_string(),
-            namespace: "test".to_string(),
-        };
-
-        let keys = BcrKeys::new();
-
-        let backup_str = "-- ------------------------------
--- OPTION
--- ------------------------------
-
-OPTION IMPORT;
-
--- ------------------------------
--- TABLE: bill_chain
--- ------------------------------
-
-DEFINE TABLE bill_chain TYPE ANY SCHEMALESS PERMISSIONS NONE;";
-
-        let encrypted_bytes =
-            util::crypto::encrypt_ecies(backup_str.as_bytes(), &keys.pub_key()).unwrap();
-
-        let temp_dir = env::temp_dir();
-        let file_path = temp_dir.join("test.surql");
-        let mut test_file = File::create(file_path.as_path()).await.unwrap();
-        test_file.write_all(&encrypted_bytes).await.unwrap();
-
-        identity_store
-            .expect_get_key_pair()
-            .returning(move || Ok(keys.clone()))
-            .once();
-
-        store
-            .expect_drop_db()
-            .with(eq("test"))
-            .returning(|_| Ok(()))
-            .once();
-
-        store.expect_restore().returning(|_| Ok(())).once();
-
-        let (tx, mut rx) = watch::channel(false);
-        let service = BackupService::new(
-            Arc::new(store),
-            Arc::new(identity_store),
-            surreal_db_config,
-            tx,
-        );
-
-        let result = service.restore(&temp_dir.join("test.surql")).await;
-        assert!(result.is_ok());
-
-        let should_reboot = *rx.borrow_and_update();
-        assert!(should_reboot);
     }
 }

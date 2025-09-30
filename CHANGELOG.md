@@ -14,6 +14,9 @@
     * It's now possible to recourse against the same person again
     * The last person in the chain can now reject a recourse (was broken before)
     * `get_past_endorsees` is calculated differently now - holders can only recourse against parties before the first block where they became a holder in the bill, even if they have multiple endorsement blocks in the bill
+* Cleanup deps, replace `bcr-wdc-*` deps with `bcr-common`, improve Github workflows
+* Implement the concept of `logical contacts`, which combine nostr contacts and contacts from the contact book (breaking DB change)
+    * Added a `contactApi.search` call, where callers can search and filter for contacts from contact book, logical, or both
 
 # 0.4.8
 

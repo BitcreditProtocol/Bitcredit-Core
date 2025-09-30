@@ -320,37 +320,37 @@ pub mod tests {
         // parsing errors
         assert!(matches!(
             NodeId::from_str("invalid_nonsense").unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
         assert!(matches!(
             NodeId::from_str("bitcrinvalid_nonsense").unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
         assert!(matches!(
             NodeId::from_str("bitcrtinvalid_nonsense").unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
         assert!(matches!(
             NodeId::from_str(
                 "bitcrt205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef"
             )
             .unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
         assert!(matches!(
             NodeId::from_str(
                 "bitcrk03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef"
             )
             .unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
         assert!(matches!(
             NodeId::from_str("bitcrt").unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
         assert!(matches!(
             NodeId::from_str("").unwrap_err(),
-            ValidationError::InvalidNodeId
+            bcr_common::core::Error::InvalidNodeId
         ));
 
         // serialization / deserialization
@@ -417,38 +417,38 @@ pub mod tests {
         // parsing errors
         assert!(matches!(
             BillId::from_str("invalid_nonsense").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str("bitcrinvalid_nonsense").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str("bitcrtinvalid_nonsense").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str("bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str("bitcrtBBT5a1eNZ8zEUkU2rppXBDrZJjARoxPkZtBgFo2RLz3yy").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str(
                 "bitcrk03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef"
             )
             .unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str("bitcrt").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
         assert!(matches!(
             BillId::from_str("").unwrap_err(),
-            ValidationError::InvalidBillId
+            bcr_common::core::Error::InvalidBillId
         ));
 
         // serialization / deserialization

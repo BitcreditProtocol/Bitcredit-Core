@@ -3,7 +3,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use bcr_ebill_api::service::notification_service::event::ChainInvite;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    NodeId, ServiceTraitBounds, ValidationError,
     bill::{BillId, BillKeys},
     blockchain::BlockchainType,
 };
@@ -44,7 +44,8 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                 private_key: decoded.data.keys.private_key.to_owned(),
                 public_key: decoded.data.keys.public_key.to_owned(),
             };
-            let chain_id = BillId::from_str(&decoded.data.chain_id)?;
+            let chain_id =
+                BillId::from_str(&decoded.data.chain_id).map_err(ValidationError::from)?;
 
             let mut inserted_chain: Vec<EventContainer> = Vec::new();
             if let Ok(chain_data) = self.processor.resolve_chain(&chain_id, &keys).await {
@@ -61,7 +62,8 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                         && self
                             .processor
                             .process_chain_data(
-                                &BillId::from_str(&decoded.data.chain_id)?,
+                                &BillId::from_str(&decoded.data.chain_id)
+                                    .map_err(ValidationError::from)?,
                                 blocks,
                                 Some(BillKeys {
                                     public_key: decoded.data.keys.public_key.to_owned(),

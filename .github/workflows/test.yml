@@ -49,14 +49,19 @@ jobs:
           echo "After cleanup:"
           df -h
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-          components: llvm-tools-preview
+      - name: Switch rust version
+        run: rustup default stable
+
+      - name: Update rust
+        run: rustup update stable
+
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
 
       - name: Activate cache
         uses: Swatinem/rust-cache@v2.8.0
+        with:
+          prefix-key: "ebill-01"
 
       - name: Install grcov
         uses: taiki-e/install-action@v2

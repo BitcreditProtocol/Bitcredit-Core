@@ -20,7 +20,7 @@ use wasm_bindgen::prelude::*;
 pub struct Contact;
 
 async fn get_file(node_id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
-    let parsed_node_id = NodeId::from_str(node_id)?;
+    let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
     let contact = get_ctx()
         .contact_service
         .get_contact(&parsed_node_id)
@@ -126,7 +126,7 @@ impl Contact {
 
     #[wasm_bindgen(unchecked_return_type = "ContactWeb")]
     pub async fn detail(&self, node_id: &str) -> Result<JsValue> {
-        let parsed_node_id = NodeId::from_str(node_id)?;
+        let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
         let contact: ContactWeb = get_ctx()
             .contact_service
             .get_contact(&parsed_node_id)
@@ -138,7 +138,7 @@ impl Contact {
 
     #[wasm_bindgen]
     pub async fn remove(&self, node_id: &str) -> Result<()> {
-        let parsed_node_id = NodeId::from_str(node_id)?;
+        let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
         get_ctx().contact_service.delete(&parsed_node_id).await?;
         Ok(())
     }

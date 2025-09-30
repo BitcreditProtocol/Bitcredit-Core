@@ -5,7 +5,7 @@ use bcr_ebill_api::service::notification_service::{
     event::ChainInvite, transport::NotificationJsonTransportApi,
 };
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    NodeId, ServiceTraitBounds, ValidationError,
     blockchain::{BlockchainType, company::CompanyBlock},
     company::CompanyKeys,
     util::BcrKeys,
@@ -70,7 +70,8 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                         && self
                             .processor
                             .process_chain_data(
-                                &NodeId::from_str(&decoded.data.chain_id)?,
+                                &NodeId::from_str(&decoded.data.chain_id)
+                                    .map_err(ValidationError::from)?,
                                 blocks,
                                 Some(CompanyKeys {
                                     public_key: decoded.data.keys.public_key.to_owned(),
