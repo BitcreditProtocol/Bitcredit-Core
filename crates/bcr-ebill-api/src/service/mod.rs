@@ -59,4 +59,8 @@ pub enum Error {
     /// error returned if the given file upload id is not a temp file we have
     #[error("No file found for file upload id")]
     NoFileForFileUploadId,
+
+    /// errors stemming from trying to do invalid operations
+    #[error("invalid operation")]
+    InvalidOperation,
 }

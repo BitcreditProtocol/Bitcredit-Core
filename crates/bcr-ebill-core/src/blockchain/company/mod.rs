@@ -3,6 +3,7 @@ use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
+use crate::blockchain::{Error, borsh_to_json_string};
 use crate::identity_proof::IdentityProofStamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{
@@ -54,7 +55,7 @@ pub struct CompanyBlockData {
     key: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyBlock {
     pub company_id: NodeId,
     pub id: u64,
@@ -62,6 +63,10 @@ pub struct CompanyBlock {
     pub hash: String,
     pub timestamp: u64,
     pub data: String,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
     pub public_key: PublicKey,
     pub signatory_node_id: NodeId,
     pub previous_hash: String,
@@ -69,7 +74,42 @@ pub struct CompanyBlock {
     pub op_code: CompanyOpCode,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+pub struct CompanyBlockPlaintextWrapper {
+    pub block: CompanyBlock,
+    pub plaintext_data_bytes: Vec<u8>,
+}
+
+impl CompanyBlockPlaintextWrapper {
+    /// This is only used for dev mode
+    pub fn to_json_text(&self) -> Result<String> {
+        let mut block = self.block.clone();
+        let block_data_string: String = match self.block.op_code() {
+            CompanyOpCode::Create => {
+                borsh_to_json_string::<CompanyCreateBlockData>(&self.plaintext_data_bytes)?
+            }
+            CompanyOpCode::Update => {
+                borsh_to_json_string::<CompanyUpdateBlockData>(&self.plaintext_data_bytes)?
+            }
+            CompanyOpCode::AddSignatory => {
+                borsh_to_json_string::<CompanyAddSignatoryBlockData>(&self.plaintext_data_bytes)?
+            }
+            CompanyOpCode::RemoveSignatory => {
+                borsh_to_json_string::<CompanyRemoveSignatoryBlockData>(&self.plaintext_data_bytes)?
+            }
+            CompanyOpCode::SignCompanyBill => {
+                borsh_to_json_string::<CompanySignCompanyBillBlockData>(&self.plaintext_data_bytes)?
+            }
+            CompanyOpCode::IdentityProof => {
+                borsh_to_json_string::<CompanyIdentityProofBlockData>(&self.plaintext_data_bytes)?
+            }
+        };
+        block.data = block_data_string;
+        serde_json::to_string(&block).map_err(|e| Error::JSON(e.to_string()))
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyCreateBlockData {
     pub id: NodeId,
     pub name: String,
@@ -102,7 +142,9 @@ impl From<Company> for CompanyCreateBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Default, PartialEq,
+)]
 pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
@@ -115,7 +157,7 @@ pub struct CompanyUpdateBlockData {
     pub proof_of_registration_file: Option<File>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanySignCompanyBillBlockData {
     pub bill_id: BillId,
     pub block_id: u64,
@@ -124,18 +166,18 @@ pub struct CompanySignCompanyBillBlockData {
     pub bill_key: Option<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyAddSignatoryBlockData {
     pub signatory: NodeId,
     pub t: SignatoryType,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyRemoveSignatoryBlockData {
     pub signatory: NodeId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyIdentityProofBlockData {
     pub stamp: IdentityProofStamp,
     #[borsh(
@@ -453,7 +495,7 @@ impl CompanyBlock {
     }
 
     pub fn get_block_data(&self, company_keys: &CompanyKeys) -> Result<CompanyBlockPayload> {
-        let data = self.get_decrypted_block(company_keys)?;
+        let data = self.get_decrypted_block_bytes(company_keys)?;
         let result: CompanyBlockPayload = match self.op_code {
             CompanyOpCode::Create => CompanyBlockPayload::Create(from_slice(&data)?),
             CompanyOpCode::Update => CompanyBlockPayload::Update(from_slice(&data)?),
@@ -467,7 +509,7 @@ impl CompanyBlock {
         Ok(result)
     }
 
-    fn get_decrypted_block(&self, company_keys: &CompanyKeys) -> Result<Vec<u8>> {
+    fn get_decrypted_block_bytes(&self, company_keys: &CompanyKeys) -> Result<Vec<u8>> {
         let bytes = util::base58_decode(&self.data)?;
         let block_data: CompanyBlockData = from_slice(&bytes)?;
         let decoded_data_bytes = util::base58_decode(&block_data.data)?;
@@ -594,6 +636,42 @@ impl CompanyBlockchain {
                 Ok(chain)
             }
         }
+    }
+
+    pub fn get_chain_with_plaintext_block_data(
+        &self,
+        company_keys: &CompanyKeys,
+    ) -> Result<Vec<CompanyBlockPlaintextWrapper>> {
+        let mut result = Vec::with_capacity(self.blocks().len());
+        for block in self.blocks.iter() {
+            let plaintext_data_bytes = match block.op_code() {
+                CompanyOpCode::Create => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::Update => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::AddSignatory => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::RemoveSignatory => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::SignCompanyBill => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::IdentityProof => block.get_decrypted_block_bytes(company_keys)?,
+            };
+
+            if block.plaintext_hash != util::sha256_hash(&plaintext_data_bytes) {
+                return Err(Error::BlockInvalid);
+            }
+
+            result.push(CompanyBlockPlaintextWrapper {
+                block: block.clone(),
+                plaintext_data_bytes,
+            });
+        }
+
+        // Validate the chain from the wrapper
+        CompanyBlockchain::new_from_blocks(
+            result
+                .iter()
+                .map(|wrapper| wrapper.block.to_owned())
+                .collect::<Vec<CompanyBlock>>(),
+        )?;
+
+        Ok(result)
     }
 }
 

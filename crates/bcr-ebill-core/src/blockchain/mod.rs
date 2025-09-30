@@ -302,3 +302,10 @@ pub trait Blockchain {
             .unwrap_or_else(|| self.get_first_block().clone())
     }
 }
+
+fn borsh_to_json_string<T: borsh::BorshDeserialize + serde::Serialize>(
+    bytes: &[u8],
+) -> Result<String> {
+    let block_data: T = borsh::from_slice(bytes)?;
+    serde_json::to_string(&block_data).map_err(|e| Error::JSON(e.to_string()))
+}

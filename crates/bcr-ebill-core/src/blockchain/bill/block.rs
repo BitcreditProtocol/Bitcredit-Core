@@ -1259,13 +1259,19 @@ impl BillBlock {
         &self,
         bill_keys: &BillKeys,
     ) -> Result<T> {
+        let decrypted_bytes = self.get_decrypted_block_bytes(bill_keys)?;
+        let deserialized = from_slice::<T>(&decrypted_bytes)?;
+        Ok(deserialized)
+    }
+
+    /// Decrypts the block data using the bill's private key, returning the deserialized data
+    pub(super) fn get_decrypted_block_bytes(&self, bill_keys: &BillKeys) -> Result<Vec<u8>> {
         let bytes = util::base58_decode(&self.data)?;
         let block_data: BillBlockData = from_slice(&bytes)?;
         let decoded_data_bytes = util::base58_decode(&block_data.data)?;
         let decrypted_bytes =
             util::crypto::decrypt_ecies(&decoded_data_bytes, &bill_keys.private_key)?;
-        let deserialized = from_slice::<T>(&decrypted_bytes)?;
-        Ok(deserialized)
+        Ok(decrypted_bytes)
     }
 
     /// Extracts a list of unique node IDs involved in a block operation.

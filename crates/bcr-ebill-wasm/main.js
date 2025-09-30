@@ -22,6 +22,7 @@ document.getElementById("fetch_contact_file").addEventListener("click", fetchCon
 // identity
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
 document.getElementById("share_contact_to").addEventListener("click", shareContact);
+document.getElementById("dev_mode_get_identity_chain").addEventListener("click", devModeGetIdentityChain);
 
 // identity proofs
 document.getElementById("identity_proof_get_stamp").addEventListener("click", identityProofGetStamp);
@@ -72,6 +73,7 @@ document.getElementById("company_add_signatory").addEventListener("click", addSi
 document.getElementById("company_remove_signatory").addEventListener("click", removeSignatory);
 document.getElementById("company_list").addEventListener("click", listCompanies);
 document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
+document.getElementById("dev_mode_get_company_chain").addEventListener("click", devModeGetCompanyChain);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -724,6 +726,31 @@ async function devModeGetBillChain() {
   console.log("devModeGetBillChain", bill_id);
   let measured = measure(async () => {
     let res = await billApi.dev_mode_get_full_bill_chain(bill_id);
+    return res.map((b) => {
+      const block = JSON.parse(b);
+      return { ...block, data: JSON.parse(block.data) };
+    })
+  });
+  await measured();
+}
+
+async function devModeGetIdentityChain() {
+  console.log("devModeGetIdentityChain");
+  let measured = measure(async () => {
+    let res = await identityApi.dev_mode_get_full_identity_chain();
+    return res.map((b) => {
+      const block = JSON.parse(b);
+      return { ...block, data: JSON.parse(block.data) };
+    })
+  });
+  await measured();
+}
+
+async function devModeGetCompanyChain() {
+  let company_id = document.getElementById("dev_mode_company_id").value;
+  console.log("devModeGetCompanyChain", company_id);
+  let measured = measure(async () => {
+    let res = await companyApi.dev_mode_get_full_company_chain(company_id);
     return res.map((b) => {
       const block = JSON.parse(b);
       return { ...block, data: JSON.parse(block.data) };

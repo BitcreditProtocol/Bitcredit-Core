@@ -3,6 +3,7 @@ use super::bill::BillOpCode;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
+use crate::blockchain::{Error, borsh_to_json_string};
 use crate::identity_proof::IdentityProofStamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
@@ -12,7 +13,7 @@ use log::error;
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
-#[derive(BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum IdentityOpCode {
     Create,
     Update,
@@ -35,20 +36,65 @@ pub struct IdentityBlockDataToHash {
     op_code: IdentityOpCode,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityBlock {
     pub id: u64,
     pub plaintext_hash: String,
     pub hash: String,
     pub timestamp: u64,
     pub data: String,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
     pub public_key: PublicKey,
     pub previous_hash: String,
     pub signature: String,
     pub op_code: IdentityOpCode,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+pub struct IdentityBlockPlaintextWrapper {
+    pub block: IdentityBlock,
+    pub plaintext_data_bytes: Vec<u8>,
+}
+
+impl IdentityBlockPlaintextWrapper {
+    /// This is only used for dev mode
+    pub fn to_json_text(&self) -> Result<String> {
+        let mut block = self.block.clone();
+        let block_data_string: String = match self.block.op_code() {
+            IdentityOpCode::Create => {
+                borsh_to_json_string::<IdentityCreateBlockData>(&self.plaintext_data_bytes)?
+            }
+            IdentityOpCode::Update => {
+                borsh_to_json_string::<IdentityUpdateBlockData>(&self.plaintext_data_bytes)?
+            }
+            IdentityOpCode::AddSignatory => {
+                borsh_to_json_string::<IdentityAddSignatoryBlockData>(&self.plaintext_data_bytes)?
+            }
+            IdentityOpCode::RemoveSignatory => borsh_to_json_string::<
+                IdentityRemoveSignatoryBlockData,
+            >(&self.plaintext_data_bytes)?,
+            IdentityOpCode::SignPersonBill => {
+                borsh_to_json_string::<IdentitySignPersonBillBlockData>(&self.plaintext_data_bytes)?
+            }
+            IdentityOpCode::SignCompanyBill => borsh_to_json_string::<
+                IdentitySignCompanyBillBlockData,
+            >(&self.plaintext_data_bytes)?,
+            IdentityOpCode::CreateCompany => {
+                borsh_to_json_string::<IdentityCreateCompanyBlockData>(&self.plaintext_data_bytes)?
+            }
+            IdentityOpCode::IdentityProof => {
+                borsh_to_json_string::<IdentityProofBlockData>(&self.plaintext_data_bytes)?
+            }
+        };
+        block.data = block_data_string;
+        serde_json::to_string(&block).map_err(|e| Error::JSON(e.to_string()))
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
     pub node_id: NodeId,
     pub name: String,
@@ -81,7 +127,9 @@ impl From<Identity> for IdentityCreateBlockData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Default, Debug, Clone, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Default, Debug, Clone, PartialEq,
+)]
 pub struct IdentityUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
@@ -94,7 +142,7 @@ pub struct IdentityUpdateBlockData {
     pub identity_document_file: Option<File>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentitySignPersonBillBlockData {
     pub bill_id: BillId,
     pub block_id: u64,
@@ -103,7 +151,7 @@ pub struct IdentitySignPersonBillBlockData {
     pub bill_key: Option<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentitySignCompanyBillBlockData {
     pub bill_id: BillId,
     pub block_id: u64,
@@ -112,14 +160,14 @@ pub struct IdentitySignCompanyBillBlockData {
     pub operation: BillOpCode,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateCompanyBlockData {
     pub company_id: NodeId,
     pub company_key: String,
     pub block_hash: String,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityAddSignatoryBlockData {
     pub company_id: NodeId,
     pub block_id: u64,
@@ -127,7 +175,7 @@ pub struct IdentityAddSignatoryBlockData {
     pub signatory: NodeId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityRemoveSignatoryBlockData {
     pub company_id: NodeId,
     pub block_id: u64,
@@ -135,7 +183,7 @@ pub struct IdentityRemoveSignatoryBlockData {
     pub signatory: NodeId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityProofBlockData {
     pub stamp: IdentityProofStamp,
     #[borsh(
@@ -437,7 +485,7 @@ impl IdentityBlock {
     }
 
     pub fn get_block_data(&self, keys: &BcrKeys) -> Result<IdentityBlockPayload> {
-        let data = self.get_decrypted_block(keys)?;
+        let data = self.get_decrypted_block_bytes(keys)?;
         let result: IdentityBlockPayload = match self.op_code {
             IdentityOpCode::Create => IdentityBlockPayload::Create(from_slice(&data)?),
             IdentityOpCode::Update => IdentityBlockPayload::Update(from_slice(&data)?),
@@ -461,7 +509,7 @@ impl IdentityBlock {
         Ok(result)
     }
 
-    fn get_decrypted_block(&self, keys: &BcrKeys) -> Result<Vec<u8>> {
+    fn get_decrypted_block_bytes(&self, keys: &BcrKeys) -> Result<Vec<u8>> {
         let bytes = util::base58_decode(&self.data)?;
         let decrypted_bytes = util::crypto::decrypt_ecies(&bytes, &keys.get_private_key())?;
         Ok(decrypted_bytes)
@@ -518,6 +566,44 @@ impl IdentityBlockchain {
                 Ok(chain)
             }
         }
+    }
+
+    pub fn get_chain_with_plaintext_block_data(
+        &self,
+        keys: &BcrKeys,
+    ) -> Result<Vec<IdentityBlockPlaintextWrapper>> {
+        let mut result = Vec::with_capacity(self.blocks().len());
+        for block in self.blocks.iter() {
+            let plaintext_data_bytes = match block.op_code() {
+                IdentityOpCode::Create => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::Update => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::AddSignatory => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::RemoveSignatory => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::SignCompanyBill => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::IdentityProof => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::SignPersonBill => block.get_decrypted_block_bytes(keys)?,
+                IdentityOpCode::CreateCompany => block.get_decrypted_block_bytes(keys)?,
+            };
+
+            if block.plaintext_hash != util::sha256_hash(&plaintext_data_bytes) {
+                return Err(Error::BlockInvalid);
+            }
+
+            result.push(IdentityBlockPlaintextWrapper {
+                block: block.clone(),
+                plaintext_data_bytes,
+            });
+        }
+
+        // Validate the chain from the wrapper
+        IdentityBlockchain::new_from_blocks(
+            result
+                .iter()
+                .map(|wrapper| wrapper.block.to_owned())
+                .collect::<Vec<IdentityBlock>>(),
+        )?;
+
+        Ok(result)
     }
 }
 

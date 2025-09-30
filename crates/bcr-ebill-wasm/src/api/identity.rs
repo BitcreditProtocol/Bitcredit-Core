@@ -8,6 +8,7 @@ use crate::{
             ShareContactTo, SwitchIdentity,
         },
     },
+    error::WasmError,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
@@ -331,6 +332,25 @@ impl Identity {
             .share_contact_details(&share_contact_to.recipient)
             .await?;
         Ok(())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub async fn dev_mode_get_full_identity_chain(&self) -> Result<JsValue> {
+        let plaintext_chain = get_ctx()
+            .identity_service
+            .dev_mode_get_full_identity_chain()
+            .await?;
+        let json_string_chain: Result<Vec<String>> = plaintext_chain
+            .into_iter()
+            .map(|plaintext_block| {
+                plaintext_block
+                    .to_json_text()
+                    .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+            })
+            .collect();
+
+        let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
+        Ok(res)
     }
 }
 
