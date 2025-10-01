@@ -25,6 +25,7 @@ use crate::{
         has_field,
         identity::ShareCompanyContactTo,
     },
+    error::WasmError,
 };
 
 async fn get_file(id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
@@ -273,6 +274,26 @@ impl Company {
             .share_contact_details(&share_to.recipient, share_to.company_id)
             .await?;
         Ok(())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub async fn dev_mode_get_full_company_chain(&self, company_id: &str) -> Result<JsValue> {
+        let parsed_company_id = NodeId::from_str(company_id)?;
+        let plaintext_chain = get_ctx()
+            .company_service
+            .dev_mode_get_full_company_chain(&parsed_company_id)
+            .await?;
+        let json_string_chain: Result<Vec<String>> = plaintext_chain
+            .into_iter()
+            .map(|plaintext_block| {
+                plaintext_block
+                    .to_json_text()
+                    .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+            })
+            .collect();
+
+        let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
+        Ok(res)
     }
 }
 

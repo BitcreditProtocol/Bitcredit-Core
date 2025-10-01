@@ -3,6 +3,7 @@ use super::notification_service::NotificationServiceApi;
 use super::notification_service::event::IdentityChainEvent;
 use crate::data::validate_node_id_network;
 use crate::external::file_storage::FileStorageClientApi;
+use crate::service::Error;
 use crate::service::notification_service::{BcrMetadata, NostrContactData};
 use crate::util::file::UploadFileType;
 use crate::{get_config, util};
@@ -17,6 +18,7 @@ use crate::data::{
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
+use bcr_ebill_core::blockchain::identity::IdentityBlockPlaintextWrapper;
 use bcr_ebill_core::contact::{Contact, ContactType};
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
@@ -108,6 +110,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
 
     /// Shares derived keys for private identity contact information. Recipient is the given node id.
     async fn share_contact_details(&self, share_to: &NodeId) -> Result<()>;
+
+    /// If dev mode is on, return the full identity chain with decrypted data
+    async fn dev_mode_get_full_identity_chain(&self) -> Result<Vec<IdentityBlockPlaintextWrapper>>;
 }
 
 /// The identity service is responsible for managing the local identity
@@ -745,6 +750,26 @@ impl IdentityServiceApi for IdentityService {
             .share_contact_details_keys(share_to, &identity.identity.node_id, &keys)
             .await?;
         Ok(())
+    }
+
+    async fn dev_mode_get_full_identity_chain(&self) -> Result<Vec<IdentityBlockPlaintextWrapper>> {
+        // if dev mode is off - we return an error
+        if !get_config().dev_mode_config.on {
+            error!("Called dev mode operation with dev mode disabled - please enable!");
+            return Err(Error::InvalidOperation);
+        }
+
+        // if there is identity yet, we return an error
+        if !self.identity_exists().await {
+            return Err(Error::NotFound);
+        }
+
+        let chain = self.blockchain_store.get_chain().await?;
+        let keys = self.store.get_key_pair().await?;
+
+        let plaintext_chain = chain.get_chain_with_plaintext_block_data(&keys)?;
+
+        Ok(plaintext_chain)
     }
 }
 

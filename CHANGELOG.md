@@ -8,6 +8,7 @@
 * Removed the concept of an `Authorized Signer`
 * Fix it so that Anon holders of a bill can do recourse (breaking DB and API change)
     * `recourser` went from `BillIdentParticipant` to `BillParticipant`
+* Added endpoints `identityApi.dev_mode_get_full_identity_chain()` and `companyApi.dev_mode_get_full_company_chain(company_id)` to show the full identity and company chains as JSON in dev mode
 
 # 0.4.8
 

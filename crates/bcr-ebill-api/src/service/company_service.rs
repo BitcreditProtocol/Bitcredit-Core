@@ -19,6 +19,7 @@ use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
+use crate::service::Error;
 use crate::service::notification_service::event::{CompanyChainEvent, IdentityChainEvent};
 use crate::service::notification_service::{BcrMetadata, NostrContactData};
 use crate::util::BcrKeys;
@@ -30,6 +31,7 @@ use crate::{
     util,
 };
 use async_trait::async_trait;
+use bcr_ebill_core::blockchain::company::CompanyBlockPlaintextWrapper;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
@@ -114,6 +116,12 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
 
     /// Shares derived keys for given company contact information.
     async fn share_contact_details(&self, share_to: &NodeId, company_id: NodeId) -> Result<()>;
+
+    /// If dev mode is on, return the full company chain with decrypted data
+    async fn dev_mode_get_full_company_chain(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<CompanyBlockPlaintextWrapper>>;
 }
 
 /// The company service is responsible for managing the companies
@@ -918,6 +926,30 @@ impl CompanyServiceApi for CompanyService {
             .share_contact_details_keys(share_to, &company_id, &keys)
             .await?;
         Ok(())
+    }
+
+    async fn dev_mode_get_full_company_chain(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<CompanyBlockPlaintextWrapper>> {
+        // if dev mode is off - we return an error
+        if !get_config().dev_mode_config.on {
+            error!("Called dev mode operation with dev mode disabled - please enable!");
+            return Err(Error::InvalidOperation);
+        }
+        validate_node_id_network(id)?;
+
+        // if there is no such company, we return an error
+        if !self.store.exists(id).await {
+            return Err(Error::NotFound);
+        }
+
+        let chain = self.company_blockchain_store.get_chain(id).await?;
+        let company_keys = self.store.get_key_pair(id).await?;
+
+        let plaintext_chain = chain.get_chain_with_plaintext_block_data(&company_keys)?;
+
+        Ok(plaintext_chain)
     }
 }
 
