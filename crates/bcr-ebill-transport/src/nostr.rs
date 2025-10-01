@@ -560,7 +560,7 @@ pub async fn process_event(
                 .await
             {
                 Err(e) => {
-                    error!("Failed to handle public chain event: {e}");
+                    debug!("Skipping public chain event with missing chain keys: {e}");
                     (false, 0u64)
                 }
                 Ok(v) => {

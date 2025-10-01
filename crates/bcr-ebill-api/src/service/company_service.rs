@@ -36,6 +36,7 @@ use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError};
+use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -132,6 +133,7 @@ pub struct CompanyService {
     file_upload_client: Arc<dyn FileStorageClientApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     contact_store: Arc<dyn ContactStoreApi>,
+    nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
     company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     notification_service: Arc<dyn NotificationServiceApi>,
@@ -144,6 +146,7 @@ impl CompanyService {
         file_upload_client: Arc<dyn FileStorageClientApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
+        nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
         company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
         notification_service: Arc<dyn NotificationServiceApi>,
@@ -154,6 +157,7 @@ impl CompanyService {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_blockchain_store,
             company_blockchain_store,
             notification_service,
@@ -256,6 +260,7 @@ fn get_bcr_data(company: &Company, keys: &CompanyKeys, relays: Vec<String>) -> R
         avatar_file: company.logo_file.to_owned(),
         proof_document_file: None,
         nostr_relays: relays,
+        is_logical: false,
     };
     let payload = serde_json::to_string(&contact)?;
     let encrypted = base58_encode(&util::crypto::encrypt_ecies(
@@ -277,15 +282,47 @@ impl CompanyServiceApi for CompanyService {
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
         }
+        let identity = self.identity_store.get().await?;
         let company = self.store.get(id).await?;
         let contacts = self.contact_store.get_map().await?;
 
-        let signatory_contacts: Vec<Contact> = company
+        // we add all where we have a contact
+        let mut signatory_contacts: Vec<Contact> = company
             .signatories
             .iter()
             .filter_map(|node_id| contacts.get(node_id))
             .cloned()
             .collect();
+
+        // if we are signatory and not yet in signatory contacts, add our identity contact
+        if company.signatories.contains(&identity.node_id)
+            && !signatory_contacts
+                .iter()
+                .any(|c| c.node_id == identity.node_id)
+        {
+            signatory_contacts.push(identity.as_contact());
+        }
+
+        // if we are still missing some signatory details try to fill them from nostr contacts
+        if signatory_contacts.len() < company.signatories.len() {
+            let missing = company
+                .signatories
+                .iter()
+                .filter(|s| !signatory_contacts.iter().any(|c| c.node_id == **s))
+                .cloned()
+                .collect::<Vec<NodeId>>();
+
+            let nostr_contacts: Vec<Contact> = self
+                .nostr_contact_store
+                .by_node_ids(missing)
+                .await?
+                .into_iter()
+                .filter_map(|c| c.into_contact())
+                .collect();
+
+            signatory_contacts.extend(nostr_contacts);
+        }
+
         Ok(signatory_contacts)
     }
 
@@ -446,7 +483,6 @@ impl CompanyServiceApi for CompanyService {
 
         debug!("company with id {id} created");
 
-        // TODO NOSTR: create company topic and subscribe to it
         // TODO NOSTR: upload files to nostr
 
         // clean up temporary file uploads, if there are any, logging any errors
@@ -961,16 +997,18 @@ pub mod tests {
         data::identity::IdentityWithAll,
         external::file_storage::MockFileStorageClientApi,
         service::{
-            contact_service::tests::get_baseline_contact,
+            bill_service::test_utils::get_baseline_identity,
+            contact_service::tests::{get_baseline_contact, get_baseline_nostr_contact},
             notification_service::MockNotificationServiceApi,
         },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            empty_address, empty_identity, empty_optional_address, node_id_test,
-            node_id_test_other, node_id_test_other2, private_key_test,
+            MockNostrContactStore, empty_address, empty_identity, empty_optional_address,
+            node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
         },
     };
+    use mockall::predicate::eq;
     use std::{collections::HashMap, str::FromStr};
     use util::BcrKeys;
 
@@ -980,6 +1018,7 @@ pub mod tests {
         mock_file_upload_client: MockFileStorageClientApi,
         mock_identity_storage: MockIdentityStoreApiMock,
         mock_contacts_storage: MockContactStoreApiMock,
+        mock_nostr_contact_store: MockNostrContactStore,
         mock_identity_chain_storage: MockIdentityChainStoreApiMock,
         mock_company_chain_storage: MockCompanyChainStoreApiMock,
         notification_service: MockNotificationServiceApi,
@@ -990,6 +1029,7 @@ pub mod tests {
             Arc::new(mock_file_upload_client),
             Arc::new(mock_identity_storage),
             Arc::new(mock_contacts_storage),
+            Arc::new(mock_nostr_contact_store),
             Arc::new(mock_identity_chain_storage),
             Arc::new(mock_company_chain_storage),
             Arc::new(notification_service),
@@ -1005,6 +1045,7 @@ pub mod tests {
         MockIdentityChainStoreApiMock,
         MockCompanyChainStoreApiMock,
         MockNotificationServiceApi,
+        MockNostrContactStore,
     ) {
         (
             MockCompanyStoreApiMock::new(),
@@ -1015,6 +1056,7 @@ pub mod tests {
             MockIdentityChainStoreApiMock::new(),
             MockCompanyChainStoreApiMock::new(),
             MockNotificationServiceApi::new(),
+            MockNostrContactStore::new(),
         )
     }
 
@@ -1074,6 +1116,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_get_all().returning(|| {
             let mut map = HashMap::new();
@@ -1087,6 +1130,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1109,6 +1153,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_get_all().returning(|| {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
@@ -1121,6 +1166,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1140,6 +1186,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage
@@ -1154,6 +1201,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1175,6 +1223,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         let service = get_service(
@@ -1183,6 +1232,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1202,6 +1252,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -1215,6 +1266,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1234,6 +1286,7 @@ pub mod tests {
             mut identity_chain_store,
             mut company_chain_store,
             mut notification,
+            nostr_contact_store,
         ) = get_storages();
         company_chain_store
             .expect_add_block()
@@ -1305,6 +1358,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1352,6 +1406,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_save_key_pair().returning(|_, _| Ok(()));
         storage.expect_insert().returning(|_| {
@@ -1372,6 +1427,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1406,6 +1462,7 @@ pub mod tests {
             identity_chain_store,
             mut company_chain_store,
             mut notification,
+            nostr_contact_store,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -1465,6 +1522,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1500,6 +1558,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         let service = get_service(
@@ -1508,6 +1567,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1543,6 +1603,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         storage.expect_get().returning(|_| {
@@ -1563,6 +1624,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1598,6 +1660,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         let keys = BcrKeys::new();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
@@ -1630,6 +1693,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1665,6 +1729,7 @@ pub mod tests {
             mut identity_chain_store,
             mut company_chain_store,
             mut notification,
+            nostr_contact_store,
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
@@ -1732,6 +1797,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1753,6 +1819,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
@@ -1778,6 +1845,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1799,6 +1867,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         contact_store
@@ -1817,6 +1886,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1838,6 +1908,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         identity_store.expect_get_full().returning(|| {
@@ -1853,6 +1924,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1874,6 +1946,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         identity_store.expect_get_full().returning(|| {
@@ -1903,6 +1976,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1924,6 +1998,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         identity_store.expect_get_full().returning(|| {
@@ -1956,6 +2031,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -1977,6 +2053,7 @@ pub mod tests {
             mut identity_chain_store,
             mut company_chain_store,
             mut notification,
+            nostr_contact_store,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -2036,6 +2113,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2057,6 +2135,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         identity_store.expect_get_full().returning(|| {
@@ -2072,6 +2151,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2094,6 +2174,7 @@ pub mod tests {
             mut identity_chain_store,
             mut company_chain_store,
             mut notification,
+            nostr_contact_store,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -2165,6 +2246,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2190,6 +2272,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -2214,6 +2297,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2235,6 +2319,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -2257,6 +2342,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2278,6 +2364,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -2307,6 +2394,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2335,6 +2423,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
 
         file_upload_client
@@ -2357,6 +2446,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2403,6 +2493,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         file_upload_client.expect_upload().returning(|_, _| {
             Err(crate::external::Error::ExternalFileStorageApi(
@@ -2415,6 +2506,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2445,6 +2537,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         file_upload_client.expect_upload().returning(|_, _| {
             Err(crate::external::Error::ExternalFileStorageApi(
@@ -2457,6 +2550,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2481,11 +2575,12 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
+            mut identity_store,
             mut contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
+            mut nostr_contact_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -2502,12 +2597,26 @@ pub mod tests {
             Ok(map)
         });
 
+        identity_store
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity));
+
+        // should also try to look up the other signatory contact in nostr contacts
+        nostr_contact_store
+            .expect_by_node_ids()
+            .with(eq(vec![node_id_test_other()]))
+            .returning(|_| {
+                let contact = get_baseline_nostr_contact();
+                Ok(vec![contact])
+            });
+
         let service = get_service(
             storage,
             file_upload_store,
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,
@@ -2515,7 +2624,7 @@ pub mod tests {
 
         let res = service.list_signatories(&node_id_test()).await;
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert_eq!(res.as_ref().unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -2529,6 +2638,7 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            nostr_contact_store,
         ) = get_storages();
         let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
         let service = get_service(
@@ -2537,6 +2647,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             contact_store,
+            nostr_contact_store,
             identity_chain_store,
             company_chain_store,
             notification,

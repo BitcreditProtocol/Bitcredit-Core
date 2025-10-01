@@ -115,6 +115,7 @@ impl From<ContactDb> for Contact {
             avatar_file: contact.avatar_file.map(|f| f.into()),
             proof_document_file: contact.proof_document_file.map(|f| f.into()),
             nostr_relays: contact.nostr_relays,
+            is_logical: false,
         }
     }
 }
@@ -160,6 +161,7 @@ pub mod tests {
             avatar_file: None,
             proof_document_file: None,
             nostr_relays: vec![],
+            is_logical: false,
         }
     }
 

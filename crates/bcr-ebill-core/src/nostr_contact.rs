@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
 
-use crate::{NodeId, ValidationError, contact::Contact};
+use crate::{
+    NodeId, ValidationError,
+    contact::{Contact, ContactType},
+};
 
 /// Make key type clear
 pub type NostrPublicKey = nostr::key::PublicKey;
@@ -11,7 +14,7 @@ pub type NostrPublicKey = nostr::key::PublicKey;
 /// Data we need to communicate with a Nostr contact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NostrContact {
-    /// Our node id. This is the node id and acts as the primary key.
+    /// Our node id npub. This is the node id and acts as the primary key.
     pub npub: NostrPublicKey,
     /// The node id of this contact
     pub node_id: NodeId,
@@ -60,6 +63,29 @@ impl NostrContact {
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
             contact_private_key: private_key.or(self.contact_private_key),
+        }
+    }
+
+    /// Returns a lightweight version of the contact if all required data is present.
+    pub fn into_contact(self) -> Option<Contact> {
+        if self.name.is_some() {
+            Some(Contact {
+                node_id: self.node_id,
+                t: ContactType::Anon,
+                name: self.name.unwrap(),
+                email: None,
+                postal_address: None,
+                date_of_birth_or_registration: None,
+                country_of_birth_or_registration: None,
+                city_of_birth_or_registration: None,
+                identification_number: None,
+                avatar_file: None,
+                proof_document_file: None,
+                nostr_relays: self.relays,
+                is_logical: true,
+            })
+        } else {
+            None
         }
     }
 }

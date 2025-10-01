@@ -248,25 +248,13 @@ impl ContactServiceApi for ContactService {
                     vec![TrustLevel::Trusted, TrustLevel::Participant],
                 )
                 .await?;
-            let lookup: Vec<String> = contacts.iter().map(|c| c.node_id.npub().to_hex()).collect();
+            let lookup: Vec<NodeId> = contacts.iter().map(|c| c.node_id.clone()).collect();
             nostr
                 .into_iter()
                 .filter_map(|c| {
-                    if !lookup.contains(&c.npub.to_hex()) && c.name.is_some() {
-                        Some(Contact {
-                            node_id: c.node_id.clone(),
-                            t: ContactType::Anon,
-                            name: c.name.unwrap(),
-                            email: None,
-                            postal_address: None,
-                            date_of_birth_or_registration: None,
-                            country_of_birth_or_registration: None,
-                            city_of_birth_or_registration: None,
-                            identification_number: None,
-                            avatar_file: None,
-                            proof_document_file: None,
-                            nostr_relays: c.relays,
-                        })
+                    // only return nostr  contacts that are not in contacts and have a name
+                    if !lookup.contains(&c.node_id) {
+                        c.into_contact()
                     } else {
                         None
                     }
@@ -544,6 +532,7 @@ impl ContactServiceApi for ContactService {
                     avatar_file,
                     proof_document_file,
                     nostr_relays,
+                    is_logical: false,
                 }
             }
             ContactType::Anon => {
@@ -560,6 +549,7 @@ impl ContactServiceApi for ContactService {
                     avatar_file: None,
                     proof_document_file: None,
                     nostr_relays: get_config().nostr_config.relays.clone(), // Use the configured relays for now
+                    is_logical: false,
                 }
             }
         };
@@ -662,6 +652,7 @@ impl ContactServiceApi for ContactService {
             avatar_file,
             proof_document_file,
             nostr_relays: self.config.nostr_config.relays.clone(),
+            is_logical: false,
         };
 
         debug!("contact {t:?} with node_id {node_id} created");
@@ -757,7 +748,7 @@ pub mod tests {
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
             MockNostrContactStore, NODE_ID_TEST_STR, empty_address, empty_optional_address,
-            init_test_cfg, node_id_test,
+            init_test_cfg, node_id_test, node_id_test_other,
         },
     };
     use bcr_ebill_core::nostr_contact::HandshakeStatus;
@@ -778,6 +769,19 @@ pub mod tests {
             avatar_file: None,
             proof_document_file: None,
             nostr_relays: vec![],
+            is_logical: false,
+        }
+    }
+
+    pub fn get_baseline_nostr_contact() -> NostrContact {
+        NostrContact {
+            npub: node_id_test_other().npub(),
+            node_id: node_id_test_other(),
+            name: Some("Other Contact".to_string()),
+            relays: vec![],
+            trust_level: TrustLevel::Participant,
+            handshake_status: HandshakeStatus::None,
+            contact_private_key: None,
         }
     }
 

@@ -626,6 +626,7 @@ mockall::mock! {
     #[async_trait]
     impl NostrContactStoreApi for NostrContactStore {
         async fn by_node_id(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
+        async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
         async fn by_npub(&self, npub: &NostrPublicKey) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
         async fn upsert(&self, data: &NostrContact) -> bcr_ebill_persistence::Result<()>;
         async fn delete(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<()>;

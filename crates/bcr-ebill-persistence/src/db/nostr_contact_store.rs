@@ -3,7 +3,7 @@ use super::{
     surreal::{Bindings, SurrealWrapper},
 };
 use crate::{
-    constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL},
+    constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL},
     nostr::NostrContactStoreApi,
 };
 use async_trait::async_trait;
@@ -41,6 +41,21 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         let npub = node_id.npub();
         self.by_npub(&npub).await
     }
+
+    async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_NODE_ID, node_ids)?;
+        let query =
+            format!("SELECT * from type::table(${DB_TABLE}) WHERE {DB_NODE_ID} IN ${DB_NODE_ID}");
+        let result: Vec<NostrContactDb> = self.db.query(&query, bindings).await?;
+        let values = result
+            .into_iter()
+            .map(|c| c.to_owned().try_into().ok())
+            .collect::<Option<Vec<NostrContact>>>();
+        Ok(values.unwrap_or_default())
+    }
+
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>> {
         let result: Option<NostrContactDb> = self.db.select_one(Self::TABLE, npub.to_hex()).await?;
@@ -426,6 +441,43 @@ mod tests {
             .await
             .expect("Could not search");
         assert_eq!(result.len(), 1, "Search did not filter by name");
+    }
+
+    #[tokio::test]
+    async fn test_by_node_ids() {
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let store = get_store().await;
+        let contact = get_test_contact(&node_id, Some("Albert".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        let keys2 = BcrKeys::new();
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+        let contact2 = get_test_contact(&node_id2, Some("Berta".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact2)
+            .await
+            .expect("Failed to upsert contact");
+
+        let keys3 = BcrKeys::new();
+        let node_id3 = NodeId::new(keys3.pub_key(), bitcoin::Network::Testnet);
+
+        let result = store
+            .by_node_ids(vec![node_id, node_id2, node_id3])
+            .await
+            .expect("Could not find by node ids");
+        assert_eq!(
+            result.len(),
+            2,
+            "Find by node ids did not return all expected contacts"
+        );
     }
 
     async fn get_store() -> SurrealNostrContactStore {

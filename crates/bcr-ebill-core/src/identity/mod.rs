@@ -2,6 +2,7 @@ use super::{File, OptionalPostalAddress};
 use crate::{
     NodeId, ValidationError,
     blockchain::identity::{IdentityBlockPayload, IdentityCreateBlockData},
+    contact::{Contact, ContactType},
     util::BcrKeys,
 };
 use serde::{Deserialize, Serialize};
@@ -132,6 +133,28 @@ impl Identity {
                 .identity_document_file
                 .to_owned()
                 .or(self.identity_document_file.to_owned());
+        }
+    }
+
+    pub fn as_contact(&self) -> Contact {
+        let contact_type = match self.t {
+            IdentityType::Ident => ContactType::Person,
+            IdentityType::Anon => ContactType::Anon,
+        };
+        Contact {
+            t: contact_type,
+            node_id: self.node_id.clone(),
+            name: self.name.clone(),
+            email: self.email.clone(),
+            postal_address: self.postal_address.to_full_postal_address(),
+            date_of_birth_or_registration: self.date_of_birth.clone(),
+            country_of_birth_or_registration: self.country_of_birth.clone(),
+            city_of_birth_or_registration: self.city_of_birth.clone(),
+            identification_number: self.identification_number.clone(),
+            avatar_file: self.profile_picture_file.clone(),
+            proof_document_file: self.identity_document_file.clone(),
+            nostr_relays: self.nostr_relays.clone(),
+            is_logical: false,
         }
     }
 }

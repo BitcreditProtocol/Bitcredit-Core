@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use crate::data::contact::{
     ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload, NewContactPayload,
+    SearchContactsPayload,
 };
 use crate::data::{
     Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
@@ -97,6 +98,26 @@ impl Contact {
     #[wasm_bindgen(unchecked_return_type = "ContactsResponse")]
     pub async fn list(&self) -> Result<JsValue> {
         let contacts = get_ctx().contact_service.get_contacts().await?;
+        let res = serde_wasm_bindgen::to_value(&ContactsResponse {
+            contacts: contacts.into_iter().map(|c| c.into()).collect(),
+        })?;
+        Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "ContactsResponse")]
+    pub async fn search(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "SearchContactsPayload")] payload: JsValue,
+    ) -> Result<JsValue> {
+        let query: SearchContactsPayload = serde_wasm_bindgen::from_value(payload)?;
+        let contacts = get_ctx()
+            .contact_service
+            .search(
+                query.search_term.as_str(),
+                query.include_logical,
+                query.include_contact,
+            )
+            .await?;
         let res = serde_wasm_bindgen::to_value(&ContactsResponse {
             contacts: contacts.into_iter().map(|c| c.into()).collect(),
         })?;

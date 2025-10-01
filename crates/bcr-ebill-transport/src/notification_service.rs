@@ -1551,6 +1551,7 @@ mod tests {
             date_of_birth_or_registration: None,
             country_of_birth_or_registration: None,
             city_of_birth_or_registration: None,
+            is_logical: false,
         }
     }
 

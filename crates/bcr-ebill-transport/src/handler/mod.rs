@@ -476,6 +476,7 @@ mod test_utils {
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
             async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
+            async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<bcr_ebill_core::nostr_contact::NostrContact>>;
             async fn by_npub(&self, npub: &bcr_ebill_core::nostr_contact::NostrPublicKey) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
             async fn upsert(&self, data: &bcr_ebill_core::nostr_contact::NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &NodeId) -> Result<()>;

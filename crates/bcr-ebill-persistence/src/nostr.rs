@@ -76,8 +76,10 @@ pub struct NostrQueuedMessage {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NostrContactStoreApi: ServiceTraitBounds {
-    /// Find a Nostr contact by the node id. This is the primary key for the contact.
+    /// Find a Nostr contact by the node id. This node ids npub  is the primary key for the contact.
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
+    /// Find multiple Nostr contacts by their node ids.
+    async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>>;
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
     /// Creates a new or updates an existing Nostr contact.
