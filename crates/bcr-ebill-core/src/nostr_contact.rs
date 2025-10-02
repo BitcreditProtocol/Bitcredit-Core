@@ -14,11 +14,11 @@ pub type NostrPublicKey = nostr::key::PublicKey;
 /// Data we need to communicate with a Nostr contact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NostrContact {
-    /// Our node id npub. This is the node id and acts as the primary key.
+    /// The node id's npub, acts as the primary key.
     pub npub: NostrPublicKey,
     /// The node id of this contact
     pub node_id: NodeId,
-    /// The Nostr name of the contact as retreived via Nostr metadata.
+    /// The Nostr name of the contact as retrieved via Nostr metadata.
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.

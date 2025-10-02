@@ -127,7 +127,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         bindings.add(DB_TRUST_LEVEL, levels)?;
         bindings.add(DB_SEARCH_TERM, search_term.to_lowercase().to_owned())?;
         let query = format!(
-            "SELECT * from type::table(${DB_TABLE}) WHERE  {DB_TRUST_LEVEL} IN ${DB_TRUST_LEVEL} AND string::lowercase(name) CONTAINS ${DB_SEARCH_TERM}"
+            "SELECT * from type::table(${DB_TABLE}) WHERE {DB_TRUST_LEVEL} IN ${DB_TRUST_LEVEL} AND string::lowercase(name) CONTAINS ${DB_SEARCH_TERM}"
         );
         let result: Vec<NostrContactDb> = self.db.query(&query, bindings).await?;
         let values = result
