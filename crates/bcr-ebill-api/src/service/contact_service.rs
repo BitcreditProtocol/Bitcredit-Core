@@ -39,8 +39,14 @@ impl ServiceTraitBounds for MockContactServiceApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait ContactServiceApi: ServiceTraitBounds {
-    /// Searches contacts for the search term
-    async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
+    /// Searches contacts and logical contacts for the search term. Both are included by default
+    /// and can be disabled by setting the include_logical and include_contact parameters to false.
+    async fn search(
+        &self,
+        search_term: &str,
+        include_logical: Option<bool>,
+        include_contact: Option<bool>,
+    ) -> Result<Vec<Contact>>;
     /// Returns all contacts in short form
     async fn get_contacts(&self) -> Result<Vec<Contact>>;
 
@@ -223,8 +229,41 @@ impl ServiceTraitBounds for ContactService {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl ContactServiceApi for ContactService {
-    async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
-        let contacts = self.store.search(search_term).await?;
+    async fn search(
+        &self,
+        search_term: &str,
+        include_logical: Option<bool>,
+        include_contact: Option<bool>,
+    ) -> Result<Vec<Contact>> {
+        let mut contacts = if include_contact.unwrap_or(true) {
+            self.store.search(search_term).await?
+        } else {
+            vec![]
+        };
+        let mut nostr_contacts = if include_logical.unwrap_or(true) {
+            let nostr = self
+                .nostr_contact_store
+                .search(
+                    search_term,
+                    vec![TrustLevel::Trusted, TrustLevel::Participant],
+                )
+                .await?;
+            let lookup: Vec<NodeId> = contacts.iter().map(|c| c.node_id.clone()).collect();
+            nostr
+                .into_iter()
+                .filter_map(|c| {
+                    // only return nostr  contacts that are not in contacts and have a name
+                    if !lookup.contains(&c.node_id) {
+                        c.into_contact()
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        contacts.append(&mut nostr_contacts);
         Ok(contacts)
     }
 
@@ -493,6 +532,7 @@ impl ContactServiceApi for ContactService {
                     avatar_file,
                     proof_document_file,
                     nostr_relays,
+                    is_logical: false,
                 }
             }
             ContactType::Anon => {
@@ -509,6 +549,7 @@ impl ContactServiceApi for ContactService {
                     avatar_file: None,
                     proof_document_file: None,
                     nostr_relays: get_config().nostr_config.relays.clone(), // Use the configured relays for now
+                    is_logical: false,
                 }
             }
         };
@@ -611,6 +652,7 @@ impl ContactServiceApi for ContactService {
             avatar_file,
             proof_document_file,
             nostr_relays: self.config.nostr_config.relays.clone(),
+            is_logical: false,
         };
 
         debug!("contact {t:?} with node_id {node_id} created");
@@ -705,11 +747,11 @@ pub mod tests {
         },
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, NODE_ID_TEST_STR, TEST_NODE_ID_SECP_AS_NPUB_HEX, empty_address,
-            empty_optional_address, init_test_cfg, node_id_test,
+            MockNostrContactStore, NODE_ID_TEST_STR, empty_address, empty_optional_address,
+            init_test_cfg, node_id_test, node_id_test_other,
         },
     };
-    use bcr_ebill_core::nostr_contact::{HandshakeStatus, NostrPublicKey};
+    use bcr_ebill_core::nostr_contact::HandshakeStatus;
     use std::collections::HashMap;
     use util::BcrKeys;
 
@@ -727,6 +769,19 @@ pub mod tests {
             avatar_file: None,
             proof_document_file: None,
             nostr_relays: vec![],
+            is_logical: false,
+        }
+    }
+
+    pub fn get_baseline_nostr_contact() -> NostrContact {
+        NostrContact {
+            npub: node_id_test_other().npub(),
+            node_id: node_id_test_other(),
+            name: Some("Other Contact".to_string()),
+            relays: vec![],
+            trust_level: TrustLevel::Participant,
+            handshake_status: HandshakeStatus::None,
+            contact_private_key: None,
         }
     }
 
@@ -1259,10 +1314,11 @@ pub mod tests {
             mut nostr_contact,
             notification,
         ) = get_storages();
-        let pub_key = NostrPublicKey::from_hex(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap();
+        let pub_key = node_id_test().npub();
         nostr_contact.expect_by_npub().returning(|_| {
             Ok(Some(NostrContact {
-                npub: NostrPublicKey::parse(TEST_NODE_ID_SECP_AS_NPUB_HEX).unwrap(),
+                npub: node_id_test().npub(),
+                node_id: node_id_test(),
                 name: None,
                 relays: vec![],
                 trust_level: TrustLevel::Participant,

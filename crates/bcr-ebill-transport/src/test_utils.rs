@@ -517,7 +517,7 @@ mockall::mock! {
     impl ServiceTraitBounds for ContactService {}
     #[async_trait]
     impl ContactServiceApi for ContactService {
-    async fn search(&self, search_term: &str) -> bcr_ebill_api::service::Result<Vec<Contact>>;
+    async fn search(&self, search_term: &str, include_logical: Option<bool>, include_contact: Option<bool>) -> bcr_ebill_api::service::Result<Vec<Contact>>;
     async fn get_contacts(&self) -> bcr_ebill_api::service::Result<Vec<Contact>>;
     async fn get_contact(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Contact>;
     async fn get_identity_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<BillParticipant>>;
@@ -626,11 +626,13 @@ mockall::mock! {
     #[async_trait]
     impl NostrContactStoreApi for NostrContactStore {
         async fn by_node_id(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
+        async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
         async fn by_npub(&self, npub: &NostrPublicKey) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
         async fn upsert(&self, data: &NostrContact) -> bcr_ebill_persistence::Result<()>;
         async fn delete(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<()>;
         async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> bcr_ebill_persistence::Result<()>;
         async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> bcr_ebill_persistence::Result<()>;
         async fn get_npubs(&self, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrPublicKey>>;
+        async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
     }
 }

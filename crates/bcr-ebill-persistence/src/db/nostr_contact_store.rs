@@ -3,7 +3,7 @@ use super::{
     surreal::{Bindings, SurrealWrapper},
 };
 use crate::{
-    constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_TABLE, DB_TRUST_LEVEL},
+    constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL},
     nostr::NostrContactStoreApi,
 };
 use async_trait::async_trait;
@@ -41,6 +41,21 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         let npub = node_id.npub();
         self.by_npub(&npub).await
     }
+
+    async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_NODE_ID, node_ids)?;
+        let query =
+            format!("SELECT * from type::table(${DB_TABLE}) WHERE {DB_NODE_ID} IN ${DB_NODE_ID}");
+        let result: Vec<NostrContactDb> = self.db.query(&query, bindings).await?;
+        let values = result
+            .into_iter()
+            .map(|c| c.to_owned().try_into().ok())
+            .collect::<Option<Vec<NostrContact>>>();
+        Ok(values.unwrap_or_default())
+    }
+
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>> {
         let result: Option<NostrContactDb> = self.db.select_one(Self::TABLE, npub.to_hex()).await?;
@@ -86,7 +101,7 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         Ok(())
     }
 
-    // returns all npubs that have a trust level higher than or equal to the given level.
+    /// Returns all npubs that have a trust level higher than or equal to the given level.
     async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
@@ -101,6 +116,26 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
             .collect::<Vec<NostrPublicKey>>();
         Ok(keys)
     }
+
+    async fn search(
+        &self,
+        search_term: &str,
+        levels: Vec<TrustLevel>,
+    ) -> Result<Vec<NostrContact>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_TRUST_LEVEL, levels)?;
+        bindings.add(DB_SEARCH_TERM, search_term.to_lowercase().to_owned())?;
+        let query = format!(
+            "SELECT * from type::table(${DB_TABLE}) WHERE {DB_TRUST_LEVEL} IN ${DB_TRUST_LEVEL} AND string::lowercase(name) CONTAINS ${DB_SEARCH_TERM}"
+        );
+        let result: Vec<NostrContactDb> = self.db.query(&query, bindings).await?;
+        let values = result
+            .into_iter()
+            .map(|c| c.to_owned().try_into().ok())
+            .collect::<Option<Vec<NostrContact>>>();
+        Ok(values.unwrap_or_default())
+    }
 }
 
 fn update_field_query(field_name: &str) -> String {
@@ -114,6 +149,8 @@ fn update_field_query(field_name: &str) -> String {
 pub struct NostrContactDb {
     /// Our node id. This is the node id and acts as the primary key.
     pub id: Thing,
+    /// The node id of this contact
+    pub node_id: NodeId,
     /// The Nostr name of the contact as retreived via Nostr metadata.
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
@@ -134,6 +171,7 @@ impl From<NostrContact> for NostrContactDb {
                 SurrealNostrContactStore::TABLE.to_owned(),
                 contact.npub.to_hex(),
             )),
+            node_id: contact.node_id,
             name: contact.name,
             relays: contact.relays,
             trust_level: contact.trust_level,
@@ -148,6 +186,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
     fn try_from(db: NostrContactDb) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             npub: NostrPublicKey::parse(&db.id.id.to_raw()).map_err(|_| Error::EncodingError)?,
+            node_id: db.node_id,
             name: db.name,
             relays: db.relays,
             trust_level: db.trust_level,
@@ -167,10 +206,9 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_and_retrieve_by_node_id() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_message(npub.to_hex().as_str());
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -195,9 +233,9 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_and_retrieve_by_npub() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_message(npub.to_hex().as_str());
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -207,7 +245,7 @@ mod tests {
 
         // Retrieve the contact by node_id
         let retrieved = store
-            .by_npub(&npub)
+            .by_npub(&node_id.npub())
             .await
             .expect("Failed to retrieve contact by npub")
             .expect("Contact by npub not found");
@@ -218,10 +256,9 @@ mod tests {
     #[tokio::test]
     async fn test_delete_contact() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_message(npub.to_hex().as_str());
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -246,10 +283,9 @@ mod tests {
     #[tokio::test]
     async fn test_set_handshake_status() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_message(npub.to_hex().as_str());
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -276,10 +312,9 @@ mod tests {
     #[tokio::test]
     async fn test_set_trust_level() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_message(npub.to_hex().as_str());
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -306,10 +341,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_npubs() {
         let keys = BcrKeys::new();
-        let npub = keys.get_nostr_keys().public_key();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_message(&npub.to_hex());
+        let contact = get_test_contact(&node_id, None);
 
         // Upsert the contact
         store
@@ -332,6 +366,120 @@ mod tests {
         assert!(!retrieved.is_empty());
     }
 
+    #[tokio::test]
+    async fn test_search() {
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let store = get_store().await;
+        let contact = get_test_contact(&node_id, Some("Albert".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Update trust level
+        store
+            .set_trust_level(&node_id, TrustLevel::Participant)
+            .await
+            .expect("Failed to set trust level");
+
+        let keys2 = BcrKeys::new();
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+        let contact2 = get_test_contact(&node_id2, Some("Berta".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact2)
+            .await
+            .expect("Failed to upsert contact");
+
+        // Update trust level
+        store
+            .set_trust_level(&node_id2, TrustLevel::Trusted)
+            .await
+            .expect("Failed to set trust level");
+
+        let keys3 = BcrKeys::new();
+        let node_id3 = NodeId::new(keys3.pub_key(), bitcoin::Network::Testnet);
+        let contact3 = get_test_contact(&node_id3, Some("Bertrand".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact3)
+            .await
+            .expect("Failed to upsert contact");
+
+        let result = store
+            .search(
+                "bert",
+                vec![
+                    TrustLevel::Participant,
+                    TrustLevel::Trusted,
+                    TrustLevel::None,
+                ],
+            )
+            .await
+            .expect("Could not search");
+        assert_eq!(result.len(), 3, "Search did not return all trust levels");
+
+        let result = store
+            .search("bert", vec![TrustLevel::Participant, TrustLevel::Trusted])
+            .await
+            .expect("Could not search");
+        assert_eq!(result.len(), 2, "Search did not filter by trust levels");
+
+        let result = store
+            .search("ALB", vec![TrustLevel::Participant, TrustLevel::Trusted])
+            .await
+            .expect("Could not search");
+        assert_eq!(result.len(), 1, "Search did not filter by name");
+
+        let result = store
+            .search("Berta", vec![TrustLevel::Participant, TrustLevel::Trusted])
+            .await
+            .expect("Could not search");
+        assert_eq!(result.len(), 1, "Search did not filter by name");
+    }
+
+    #[tokio::test]
+    async fn test_by_node_ids() {
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let store = get_store().await;
+        let contact = get_test_contact(&node_id, Some("Albert".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact)
+            .await
+            .expect("Failed to upsert contact");
+
+        let keys2 = BcrKeys::new();
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+        let contact2 = get_test_contact(&node_id2, Some("Berta".to_string()));
+
+        // Upsert the contact
+        store
+            .upsert(&contact2)
+            .await
+            .expect("Failed to upsert contact");
+
+        let keys3 = BcrKeys::new();
+        let node_id3 = NodeId::new(keys3.pub_key(), bitcoin::Network::Testnet);
+
+        let result = store
+            .by_node_ids(vec![node_id, node_id2, node_id3])
+            .await
+            .expect("Could not find by node ids");
+        assert_eq!(
+            result.len(),
+            2,
+            "Find by node ids did not return all expected contacts"
+        );
+    }
+
     async fn get_store() -> SurrealNostrContactStore {
         let mem_db = get_memory_db("test", "nostr_contact")
             .await
@@ -342,10 +490,11 @@ mod tests {
         })
     }
 
-    fn get_test_message(node_id: &str) -> NostrContact {
+    fn get_test_contact(node_id: &NodeId, name: Option<String>) -> NostrContact {
         NostrContact {
-            npub: NostrPublicKey::from_hex(node_id).unwrap(),
-            name: Some("contact_name".to_string()),
+            npub: node_id.npub(),
+            node_id: node_id.clone(),
+            name: name.or(Some("contact_name".to_string())),
             relays: vec!["test_relay".to_string()],
             trust_level: TrustLevel::None,
             handshake_status: HandshakeStatus::None,

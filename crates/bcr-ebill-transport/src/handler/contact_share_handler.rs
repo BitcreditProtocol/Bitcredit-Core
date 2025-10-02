@@ -197,6 +197,7 @@ mod tests {
             avatar_file: None,
             proof_document_file: None,
             nostr_relays: vec![],
+            is_logical: false,
         }
     }
 

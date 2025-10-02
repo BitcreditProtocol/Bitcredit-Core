@@ -19,7 +19,6 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::identity::IdentityBlockPlaintextWrapper;
-use bcr_ebill_core::contact::{Contact, ContactType};
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::util::base58_encode;
@@ -218,24 +217,7 @@ impl IdentityService {
 /// Derives a child key, encrypts the contact data with it and returns the bcr metadata
 fn get_bcr_data(identity: &Identity, keys: &BcrKeys) -> Result<BcrMetadata> {
     let derived_keys = keys.derive_keypair()?;
-    let contact_type = match identity.t {
-        IdentityType::Ident => ContactType::Person,
-        IdentityType::Anon => ContactType::Anon,
-    };
-    let contact = Contact {
-        t: contact_type,
-        node_id: identity.node_id.clone(),
-        name: identity.name.clone(),
-        email: identity.email.clone(),
-        postal_address: identity.postal_address.to_full_postal_address(),
-        date_of_birth_or_registration: identity.date_of_birth.clone(),
-        country_of_birth_or_registration: identity.country_of_birth.clone(),
-        city_of_birth_or_registration: identity.city_of_birth.clone(),
-        identification_number: identity.identification_number.clone(),
-        avatar_file: identity.profile_picture_file.clone(),
-        proof_document_file: identity.identity_document_file.clone(),
-        nostr_relays: identity.nostr_relays.clone(),
-    };
+    let contact = identity.as_contact();
     let payload = serde_json::to_string(&contact)?;
     let encrypted = base58_encode(&util::crypto::encrypt_ecies(
         payload.as_bytes(),

@@ -112,6 +112,7 @@ impl Context {
             file_upload_client.clone(),
             db.identity_store.clone(),
             db.contact_store,
+            db.nostr_contact_store.clone(),
             db.identity_chain_store,
             db.company_chain_store,
             notification_service.clone(),

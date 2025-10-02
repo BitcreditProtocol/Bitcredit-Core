@@ -126,12 +126,14 @@ pub mod tests {
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
             async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
+            async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>>;
             async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
             async fn upsert(&self, data: &NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &NodeId) -> Result<()>;
             async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
+            async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> Result<Vec<NostrContact>>;
         }
     }
 
@@ -649,9 +651,6 @@ pub mod tests {
 
     pub const NODE_ID_TEST_STR: &str =
         "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
-
-    pub const TEST_NODE_ID_SECP_AS_NPUB_HEX: &str =
-        "205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
 
     pub const VALID_PAYMENT_ADDRESS_TESTNET: &str = "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0";
 }

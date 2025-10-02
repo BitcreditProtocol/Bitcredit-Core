@@ -77,7 +77,9 @@ impl SearchServiceApi for SearchService {
         };
 
         let contacts = if item_types.contains(&GeneralSearchFilterItemType::Contact) {
-            self.contact_service.search(&search_term_lc).await?
+            self.contact_service
+                .search(&search_term_lc, None, None)
+                .await?
         } else {
             vec![]
         };

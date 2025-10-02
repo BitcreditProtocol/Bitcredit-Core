@@ -18,6 +18,7 @@ document.getElementById("remove_contact_avatar").addEventListener("click", remov
 document.getElementById("delete_contact").addEventListener("click", deleteContact);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
+document.getElementById("search_contacts").addEventListener("click", searchContacts);
 
 // identity
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
@@ -74,6 +75,7 @@ document.getElementById("company_remove_signatory").addEventListener("click", re
 document.getElementById("company_list").addEventListener("click", listCompanies);
 document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
 document.getElementById("dev_mode_get_company_chain").addEventListener("click", devModeGetCompanyChain);
+document.getElementById("list_signatories").addEventListener("click", listSignatories);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -334,6 +336,11 @@ async function shareCompanyContact() {
 async function listCompanies() {
   let companies = await companyApi.list();
   console.log("companies:", companies.companies.length, companies);
+}
+
+async function listSignatories() {
+  let signatories = await companyApi.list_signatories(document.getElementById("company_update_id").value);
+  console.log("signatories:", signatories);
 }
 
 async function triggerContact() {
@@ -777,6 +784,17 @@ function measure(promiseFunction) {
 async function fetchContacts() {
   let measured = measure(async () => {
     return await contactApi.list();
+  });
+  await measured();
+}
+
+async function searchContacts() {
+  let measured = measure(async () => {
+    return await contactApi.search({
+      search_term: document.getElementById("contact_search_term").value,
+      include_logical: true,
+      include_contact: true
+    });
   });
   await measured();
 }

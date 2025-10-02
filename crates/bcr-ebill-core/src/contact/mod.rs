@@ -55,6 +55,7 @@ pub struct Contact {
     pub avatar_file: Option<File>,
     pub proof_document_file: Option<File>,
     pub nostr_relays: Vec<String>,
+    pub is_logical: bool, // indicates that this contact is just a nostr contact
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

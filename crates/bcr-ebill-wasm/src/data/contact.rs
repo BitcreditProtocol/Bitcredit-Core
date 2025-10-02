@@ -50,6 +50,14 @@ pub struct EditContactPayload {
     pub proof_document_file_upload_id: Option<String>,
 }
 
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct SearchContactsPayload {
+    pub search_term: String,
+    pub include_logical: Option<bool>,
+    pub include_contact: Option<bool>,
+}
+
 #[wasm_bindgen]
 #[repr(u8)]
 #[derive(
@@ -107,6 +115,7 @@ pub struct ContactWeb {
     pub avatar_file: Option<FileWeb>,
     pub proof_document_file: Option<FileWeb>,
     pub nostr_relays: Vec<String>,
+    pub is_logical: bool,
 }
 
 impl From<Contact> for ContactWeb {
@@ -124,6 +133,7 @@ impl From<Contact> for ContactWeb {
             avatar_file: val.avatar_file.map(|f| f.into()),
             proof_document_file: val.proof_document_file.map(|f| f.into()),
             nostr_relays: val.nostr_relays,
+            is_logical: val.is_logical,
         }
     }
 }

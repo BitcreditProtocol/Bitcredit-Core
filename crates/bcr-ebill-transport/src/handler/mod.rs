@@ -476,12 +476,14 @@ mod test_utils {
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
             async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
+            async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<bcr_ebill_core::nostr_contact::NostrContact>>;
             async fn by_npub(&self, npub: &bcr_ebill_core::nostr_contact::NostrPublicKey) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
             async fn upsert(&self, data: &bcr_ebill_core::nostr_contact::NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &NodeId) -> Result<()>;
             async fn set_handshake_status(&self, node_id: &NodeId, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
+            async fn search(&self, search_term: &str, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<bcr_ebill_core::nostr_contact::NostrContact>>;
 
         }
     }
