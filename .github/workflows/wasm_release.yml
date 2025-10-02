@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # Restrict execution to specific users
-    if: contains(fromJson('["mtbitcr", "zupzup", "tompro"]'), github.actor)
+    if: contains(fromJson('["mtbitcr", "zupzup", "tompro", "cleot"]'), github.actor)
 
     steps:
       - name: Checkout repository

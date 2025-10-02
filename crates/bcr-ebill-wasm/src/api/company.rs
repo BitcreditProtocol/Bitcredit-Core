@@ -29,7 +29,7 @@ use crate::{
 };
 
 async fn get_file(id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
-    let parsed_id = NodeId::from_str(id)?;
+    let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
     let company = get_ctx()
         .company_service
         .get_company_by_id(&parsed_id)
@@ -121,7 +121,7 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "ListSignatoriesResponse")]
     pub async fn list_signatories(&self, id: &str) -> Result<JsValue> {
-        let parsed_id = NodeId::from_str(id)?;
+        let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
         let signatories = get_ctx()
             .company_service
             .list_signatories(&parsed_id)
@@ -136,7 +136,7 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "CompanyWeb")]
     pub async fn detail(&self, id: &str) -> Result<JsValue> {
-        let parsed_id = NodeId::from_str(id)?;
+        let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
         let company = get_ctx()
             .company_service
             .get_company_by_id(&parsed_id)
@@ -278,7 +278,7 @@ impl Company {
 
     #[wasm_bindgen(unchecked_return_type = "string[]")]
     pub async fn dev_mode_get_full_company_chain(&self, company_id: &str) -> Result<JsValue> {
-        let parsed_company_id = NodeId::from_str(company_id)?;
+        let parsed_company_id = NodeId::from_str(company_id).map_err(ValidationError::from)?;
         let plaintext_chain = get_ctx()
             .company_service
             .dev_mode_get_full_company_chain(&parsed_company_id)

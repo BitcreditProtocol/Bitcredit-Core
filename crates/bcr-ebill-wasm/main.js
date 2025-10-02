@@ -98,11 +98,11 @@ let config = {
   // default_mint_url: "http://localhost:4343",
   default_mint_url: "https://wildcat-dev-docker.minibill.tech",
   // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
-  default_mint_node_id: "bitcrt03cbb9254a24df6bad6243227cadf257c25eb10c2177c1ee85bfaefde3bf532ab6", // dev mint
+  default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
   num_confirmations_for_payment: 6,
   dev_mode: true,
-  default_court_url: "http://localhost:8000",
-  // default_court_url: "https://court-dev.minibill.tech"
+  // default_court_url: "http://localhost:8000",
+  default_court_url: "https://bcr-court-dev.minibill.tech"
 };
 
 async function start(create_identity) {

@@ -45,7 +45,7 @@ use crate::{
 use super::identity::get_current_identity;
 
 async fn get_attachment(bill_id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
-    let parsed_bill_id = BillId::from_str(bill_id)?;
+    let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
     let current_timestamp = util::date::now().timestamp() as u64;
     let identity = get_ctx().identity_service.get_identity().await?;
     // get bill
@@ -94,7 +94,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "EndorsementsResponse")]
     pub async fn endorsements(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let current_timestamp = util::date::now().timestamp() as u64;
         let identity = get_ctx().identity_service.get_identity().await?;
         let result = get_ctx()
@@ -114,7 +114,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "PastPaymentsResponse")]
     pub async fn past_payments(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
         let result = get_ctx()
             .bill_service
@@ -133,7 +133,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "PastEndorseesResponse")]
     pub async fn past_endorsees(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let result = get_ctx()
             .bill_service
             .get_past_endorsees(&bill_id, &get_current_identity_node_id().await?)
@@ -146,7 +146,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "BillCombinedBitcoinKeyWeb")]
     pub async fn bitcoin_key(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
         let combined_key = get_ctx()
             .bill_service
@@ -265,7 +265,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "BillNumbersToWordsForSum")]
     pub async fn numbers_to_words_for_sum(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let current_timestamp = util::date::now().timestamp() as u64;
         let identity = get_ctx().identity_service.get_identity().await?;
         let bill = get_ctx()
@@ -289,7 +289,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "BitcreditBillWeb")]
     pub async fn detail(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let current_timestamp = util::date::now().timestamp() as u64;
         let identity = get_ctx().identity_service.get_identity().await?;
         let bill_detail = get_ctx()
@@ -308,7 +308,7 @@ impl Bill {
 
     #[wasm_bindgen]
     pub async fn check_payment_for_bill(&self, id: &str) -> Result<()> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let identity = get_ctx().identity_service.get_full_identity().await?;
         if let Err(e) = get_ctx()
             .bill_service
@@ -376,8 +376,8 @@ impl Bill {
                 city_of_issuing: bill_payload.city_of_issuing.to_owned(),
                 issue_date: bill_payload.issue_date.to_owned(),
                 maturity_date: bill_payload.maturity_date.to_owned(),
-                drawee: NodeId::from_str(&bill_payload.drawee)?,
-                payee: NodeId::from_str(&bill_payload.payee)?,
+                drawee: NodeId::from_str(&bill_payload.drawee).map_err(ValidationError::from)?,
+                payee: NodeId::from_str(&bill_payload.payee).map_err(ValidationError::from)?,
                 sum: bill_payload.sum.to_owned(),
                 currency: bill_payload.currency.to_owned(),
                 country_of_payment: bill_payload.country_of_payment.to_owned(),
@@ -524,7 +524,9 @@ impl Bill {
             serde_wasm_bindgen::from_value(payload)?;
         let public_data_endorsee = match get_ctx()
             .contact_service
-            .get_identity_by_node_id(&NodeId::from_str(&endorse_bill_payload.endorsee)?)
+            .get_identity_by_node_id(
+                &NodeId::from_str(&endorse_bill_payload.endorsee).map_err(ValidationError::from)?,
+            )
             .await
         {
             Ok(Some(endorsee)) => endorsee,
@@ -547,7 +549,9 @@ impl Bill {
             serde_wasm_bindgen::from_value(payload)?;
         let public_data_endorsee_blank: BillAnonParticipant = match get_ctx()
             .contact_service
-            .get_identity_by_node_id(&NodeId::from_str(&endorse_bill_payload.endorsee)?)
+            .get_identity_by_node_id(
+                &NodeId::from_str(&endorse_bill_payload.endorsee).map_err(ValidationError::from)?,
+            )
             .await
         {
             Ok(Some(endorsee)) => endorsee.into(), // turn contact into anonymous participant
@@ -654,7 +658,8 @@ impl Bill {
             .bill_service
             .request_to_mint(
                 &request_to_mint_bill_payload.bill_id,
-                &NodeId::from_str(&request_to_mint_bill_payload.mint_node)?,
+                &NodeId::from_str(&request_to_mint_bill_payload.mint_node)
+                    .map_err(ValidationError::from)?,
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
@@ -666,7 +671,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "MintRequestStateResponse")]
     pub async fn mint_state(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         let result = get_ctx()
             .bill_service
             .get_mint_state(&bill_id, &get_current_identity_node_id().await?)
@@ -679,7 +684,7 @@ impl Bill {
 
     #[wasm_bindgen]
     pub async fn check_mint_state(&self, id: &str) -> Result<()> {
-        let bill_id = BillId::from_str(id)?;
+        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
         get_ctx()
             .bill_service
             .check_mint_state(&bill_id, &get_current_identity_node_id().await?)
@@ -871,7 +876,7 @@ impl Bill {
 
     #[wasm_bindgen(unchecked_return_type = "string[]")]
     pub async fn dev_mode_get_full_bill_chain(&self, bill_id: &str) -> Result<JsValue> {
-        let parsed_bill_id = BillId::from_str(bill_id)?;
+        let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
         let plaintext_chain = get_ctx()
             .bill_service
             .dev_mode_get_full_bill_chain(&parsed_bill_id, &get_current_identity_node_id().await?)

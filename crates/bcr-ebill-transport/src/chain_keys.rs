@@ -3,7 +3,8 @@ use std::{str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use bcr_ebill_api::service::notification_service::Result;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds, bill::BillId, blockchain::BlockchainType, util::BcrKeys,
+    NodeId, ServiceTraitBounds, ValidationError, bill::BillId, blockchain::BlockchainType,
+    util::BcrKeys,
 };
 use bcr_ebill_persistence::{
     bill::BillStoreApi, company::CompanyStoreApi, identity::IdentityStoreApi,
@@ -57,7 +58,11 @@ impl ChainKeyServiceApi for ChainKeyService {
     ) -> Result<Option<BcrKeys>> {
         let keys = match chain_type {
             BlockchainType::Bill => {
-                match self.bill_store.get_keys(&BillId::from_str(chain_id)?).await {
+                match self
+                    .bill_store
+                    .get_keys(&BillId::from_str(chain_id).map_err(ValidationError::from)?)
+                    .await
+                {
                     Ok(keys) => Some(keys.try_into()?),
                     Err(e) => {
                         warn!("failed to get bill keys for {chain_id} with {e}");
@@ -68,7 +73,7 @@ impl ChainKeyServiceApi for ChainKeyService {
             BlockchainType::Company => {
                 match self
                     .company_store
-                    .get_key_pair(&NodeId::from_str(chain_id)?)
+                    .get_key_pair(&NodeId::from_str(chain_id).map_err(ValidationError::from)?)
                     .await
                 {
                     Ok(keys) => Some(keys.try_into()?),

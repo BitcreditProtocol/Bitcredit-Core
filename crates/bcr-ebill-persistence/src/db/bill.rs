@@ -1770,7 +1770,7 @@ pub mod tests {
             .get_bill_ids_with_op_codes_since(all.clone(), 0)
             .await
             .expect("could not get bill ids");
-        assert_eq!(res, vec![bill_id.to_owned(), bill_id_pay.to_owned()]);
+        assert_eq!(res, vec![bill_id_pay.to_owned(), bill_id.to_owned()]);
 
         // should return none as all are to old
         let res = store

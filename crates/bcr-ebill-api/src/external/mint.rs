@@ -1,16 +1,15 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
+use bcr_common::KeysClient;
+use bcr_common::QuoteClient;
+use bcr_common::SwapClient;
+use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::{
     SecretKey, ServiceTraitBounds,
-    bill::BillId,
     blockchain::bill::BillToShareWithExternalParty,
     util::{BcrKeys, date::DateTimeUtc},
 };
-use bcr_wdc_key_client::KeyClient;
-use bcr_wdc_quote_client::QuoteClient;
-use bcr_wdc_swap_client::SwapClient;
-use bcr_wdc_webapi::quotes::{ResolveOffer, StatusReply};
 use cashu::{ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use thiserror::Error;
 
@@ -135,23 +134,20 @@ impl MintClient {
     }
 
     pub fn quote_client(&self, mint_url: &str) -> Result<QuoteClient> {
-        let quote_client = bcr_wdc_quote_client::QuoteClient::new(
-            reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?,
-        );
+        let quote_client =
+            QuoteClient::new(reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?);
         Ok(quote_client)
     }
 
-    pub fn key_client(&self, mint_url: &str) -> Result<KeyClient> {
-        let key_client = bcr_wdc_key_client::KeyClient::new(
-            reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?,
-        );
+    pub fn key_client(&self, mint_url: &str) -> Result<KeysClient> {
+        let key_client =
+            KeysClient::new(reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?);
         Ok(key_client)
     }
 
     pub fn swap_client(&self, mint_url: &str) -> Result<SwapClient> {
-        let swap_client = bcr_wdc_swap_client::SwapClient::new(
-            reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?,
-        );
+        let swap_client =
+            SwapClient::new(reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?);
         Ok(swap_client)
     }
 }
@@ -321,22 +317,38 @@ impl MintClientApi for MintClient {
         quote_id: &str,
         resolve: ResolveMintOffer,
     ) -> Result<()> {
-        self.quote_client(mint_url)?
-            .resolve(
-                uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
-                resolve.into(),
-            )
-            .await
-            .map_err(|e| {
-                log::error!("Error resolving request on mint {mint_url}: {e}");
-                Error::QuoteClient
-            })?;
+        match resolve {
+            ResolveMintOffer::Accept => {
+                self.quote_client(mint_url)?
+                    .accept_offer(
+                        uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
+                    )
+                    .await
+                    .map_err(|e| {
+                        log::error!("Error accepting request on mint {mint_url}: {e}");
+                        Error::QuoteClient
+                    })?;
+            }
+            ResolveMintOffer::Reject => {
+                self.quote_client(mint_url)?
+                    .reject_offer(
+                        uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
+                    )
+                    .await
+                    .map_err(|e| {
+                        log::error!("Error rejecting request on mint {mint_url}: {e}");
+                        Error::QuoteClient
+                    })?;
+            }
+        };
         Ok(())
     }
 
     async fn cancel_quote_for_mint(&self, mint_url: &str, quote_id: &str) -> Result<()> {
         self.quote_client(mint_url)?
-            .cancel(uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?)
+            .cancel_enquiry(
+                uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
+            )
             .await
             .map_err(|e| {
                 log::error!("Error cancelling request on mint {mint_url}: {e}");
@@ -432,6 +444,7 @@ impl From<StatusReply> for QuoteStatusReply {
                 keyset_id,
                 expiration_date,
                 discounted,
+                ..
             } => QuoteStatusReply::Offered {
                 keyset_id,
                 expiration_date,
@@ -447,17 +460,13 @@ impl From<StatusReply> for QuoteStatusReply {
 
 fn map_shared_bill(
     bill_to_share: BillToShareWithExternalParty,
-) -> bcr_wdc_webapi::quotes::SharedBill {
-    bcr_wdc_webapi::quotes::SharedBill {
-        bill_id: map_bill_id(bill_to_share.bill_id),
+) -> bcr_common::wire::quotes::SharedBill {
+    bcr_common::wire::quotes::SharedBill {
+        bill_id: bill_to_share.bill_id,
         data: bill_to_share.data,
         file_urls: bill_to_share.file_urls,
         hash: bill_to_share.hash,
         signature: bill_to_share.signature,
-        receiver: bill_to_share.receiver,
+        receiver: bill_to_share.receiver.into(),
     }
-}
-
-fn map_bill_id(bill_id: BillId) -> bcr_wdc_webapi::bill::BillId {
-    bcr_wdc_webapi::bill::BillId::from_str(&bill_id.to_string()).expect("is a bill id")
 }
