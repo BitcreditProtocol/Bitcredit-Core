@@ -119,7 +119,7 @@ impl NostrClient {
     }
 
     fn use_nip04(&self) -> bool {
-        true
+        false
     }
 
     // We create the client with a private key so this should never fail.
