@@ -4,6 +4,7 @@ pub mod tests {
     use std::str::FromStr;
 
     use crate::bill::BillId;
+    use crate::constants::CURRENCY_SAT;
     use crate::contact::BillParticipant;
     use crate::identity::IdentityType;
     use crate::{
@@ -205,7 +206,7 @@ pub mod tests {
             drawer: empty_bill_identified_participant(),
             payee: valid_bill_participant(),
             endorsee: None,
-            currency: "sat".to_string(),
+            currency: CURRENCY_SAT.to_string(),
             sum: 500,
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),

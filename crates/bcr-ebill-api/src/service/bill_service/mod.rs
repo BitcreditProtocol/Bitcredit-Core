@@ -276,7 +276,10 @@ pub mod tests {
                 },
             },
         },
-        constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
+        constants::{
+            ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, PAYMENT_DEADLINE_SECONDS,
+            RECOURSE_DEADLINE_SECONDS,
+        },
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
         mint::{MintOffer, MintRequest, MintRequestStatus},
         notification::ActionType,
@@ -351,7 +354,7 @@ pub mod tests {
 
         // for identity
         let res = service
-            .get_bill_balances("sat", &identity.identity.node_id)
+            .get_bill_balances(CURRENCY_SAT, &identity.identity.node_id)
             .await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().payer.sum, "1000".to_string());
@@ -359,7 +362,9 @@ pub mod tests {
         assert_eq!(res.as_ref().unwrap().contingent.sum, "20000".to_string());
 
         // for company
-        let res_comp = service.get_bill_balances("sat", &company_node_id).await;
+        let res_comp = service
+            .get_bill_balances(CURRENCY_SAT, &company_node_id)
+            .await;
         assert!(res_comp.is_ok());
         assert_eq!(res_comp.as_ref().unwrap().payer.sum, "2000".to_string());
         assert_eq!(res_comp.as_ref().unwrap().payee.sum, "20000".to_string());
@@ -422,7 +427,7 @@ pub mod tests {
         let service = get_service(ctx);
         let res_all_comp = service
             .search_bills(
-                "sat",
+                CURRENCY_SAT,
                 &None,
                 None,
                 None,
@@ -434,7 +439,7 @@ pub mod tests {
         assert_eq!(res_all_comp.as_ref().unwrap().len(), 2);
         let res_all = service
             .search_bills(
-                "sat",
+                CURRENCY_SAT,
                 &None,
                 None,
                 None,
@@ -447,7 +452,7 @@ pub mod tests {
 
         let res_term = service
             .search_bills(
-                "sat",
+                CURRENCY_SAT,
                 &Some(String::from("hayek")),
                 None,
                 None,
@@ -462,7 +467,7 @@ pub mod tests {
         let to_ts = util::date::date_string_to_timestamp("2030-05-30", None).unwrap();
         let res_fromto = service
             .search_bills(
-                "sat",
+                CURRENCY_SAT,
                 &None,
                 Some(from_ts as u64),
                 Some(to_ts as u64),
@@ -475,7 +480,7 @@ pub mod tests {
 
         let res_role = service
             .search_bills(
-                "sat",
+                CURRENCY_SAT,
                 &None,
                 None,
                 None,
@@ -488,7 +493,7 @@ pub mod tests {
 
         let res_comb = service
             .search_bills(
-                "sat",
+                CURRENCY_SAT,
                 &Some(String::from("hayek")),
                 Some(from_ts as u64),
                 Some(to_ts as u64),
@@ -548,7 +553,7 @@ pub mod tests {
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
-                currency: String::from("sat"),
+                currency: String::from(CURRENCY_SAT),
                 country_of_payment: String::from("AT"),
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
@@ -615,7 +620,7 @@ pub mod tests {
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
-                currency: String::from("sat"),
+                currency: String::from(CURRENCY_SAT),
                 country_of_payment: String::from("AT"),
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
@@ -655,7 +660,7 @@ pub mod tests {
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
-                currency: String::from("sat"),
+                currency: String::from(CURRENCY_SAT),
                 country_of_payment: String::from("AT"),
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
@@ -697,7 +702,7 @@ pub mod tests {
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
-                currency: String::from("sat"),
+                currency: String::from(CURRENCY_SAT),
                 country_of_payment: String::from("AT"),
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
@@ -769,7 +774,7 @@ pub mod tests {
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
-                currency: String::from("sat"),
+                currency: String::from(CURRENCY_SAT),
                 country_of_payment: String::from("AT"),
                 city_of_payment: String::from("Vienna"),
                 language: String::from("en-UK"),
@@ -1038,7 +1043,7 @@ pub mod tests {
                                 .unwrap()
                                 .into(),
                         ),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -2518,7 +2523,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestToPay("sat".to_string()),
+                BillAction::RequestToPay(CURRENCY_SAT.to_string()),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -2560,7 +2565,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestToPay("sat".to_string()),
+                BillAction::RequestToPay(CURRENCY_SAT.to_string()),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
                 1731593928,
@@ -2588,7 +2593,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestToPay("sat".to_string()),
+                BillAction::RequestToPay(CURRENCY_SAT.to_string()),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -2742,7 +2747,7 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     5000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2795,7 +2800,7 @@ pub mod tests {
                         )),
                     )),
                     5000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2836,7 +2841,7 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     5000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2868,7 +2873,7 @@ pub mod tests {
                 BillAction::Mint(
                     BillParticipant::Ident(empty_bill_identified_participant()),
                     5000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2913,7 +2918,7 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2962,7 +2967,7 @@ pub mod tests {
                         )),
                     )),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2999,7 +3004,7 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -3037,7 +3042,7 @@ pub mod tests {
                     &BillOfferToSellBlockData {
                         seller: bill.payee.clone().into(),
                         buyer: BillParticipantBlockData::Ident(buyer_clone.clone().into()),
-                        currency: "sat".to_owned(),
+                        currency: CURRENCY_SAT.to_owned(),
                         sum: 15000,
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
                         signatory: None,
@@ -3069,7 +3074,7 @@ pub mod tests {
                 BillAction::Sell(
                     BillParticipant::Ident(buyer),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
                 &BillParticipant::Ident(
@@ -3110,7 +3115,7 @@ pub mod tests {
                     &BillOfferToSellBlockData {
                         seller: bill.payee.clone().into(),
                         buyer: BillParticipantBlockData::Anon(buyer_clone.clone().into()),
-                        currency: "sat".to_owned(),
+                        currency: CURRENCY_SAT.to_owned(),
                         sum: 15000,
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
                         signatory: None,
@@ -3142,7 +3147,7 @@ pub mod tests {
                 BillAction::Sell(
                     BillParticipant::Anon(buyer),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
                 &BillParticipant::Ident(
@@ -3180,7 +3185,7 @@ pub mod tests {
                     &BillOfferToSellBlockData {
                         seller: bill.payee.clone().into(),
                         buyer: bill.payee.clone().into(), // buyer is seller, which is invalid
-                        currency: "sat".to_owned(),
+                        currency: CURRENCY_SAT.to_owned(),
                         sum: 10000, // different sum
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
                         signatory: None,
@@ -3209,7 +3214,7 @@ pub mod tests {
                 BillAction::Sell(
                     BillParticipant::Ident(buyer),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
                 &BillParticipant::Ident(
@@ -3248,7 +3253,7 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
                 &BillParticipant::Ident(
@@ -3284,7 +3289,7 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     15000,
-                    "sat".to_string(),
+                    CURRENCY_SAT.to_string(),
                     VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 ),
                 &BillParticipant::Ident(
@@ -4119,7 +4124,7 @@ pub mod tests {
                         buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                         signatory: None,
@@ -4142,7 +4147,7 @@ pub mod tests {
                         endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
                         endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now + 3,
@@ -4259,7 +4264,7 @@ pub mod tests {
                         buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                         signatory: None,
@@ -4282,7 +4287,7 @@ pub mod tests {
                         endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
                         endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now + 3,
@@ -4435,6 +4440,8 @@ pub mod tests {
         );
 
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
+        let drawer_clone = bill.drawer.clone();
+        let endorse_endorsee_clone = endorse_endorsee.clone();
         let mint_endorsee_clone = mint_endorsee.clone();
         let sell_endorsee_clone = sell_endorsee.clone();
 
@@ -4476,7 +4483,7 @@ pub mod tests {
                         buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                         signatory: None,
@@ -4499,7 +4506,7 @@ pub mod tests {
                         endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
                         endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now + 3,
@@ -4561,30 +4568,81 @@ pub mod tests {
             });
         let service = get_service(ctx);
 
+        // Caller = Payee (=identity)
         let res = service
             .get_past_endorsees(&bill_id_test(), &identity.identity.node_id)
-            .await;
-        assert!(res.is_ok());
-        // if there are mint, sell and endorse blocks, they are considered
-        // but without duplicates
-        // anon endorsements are not added
-        assert_eq!(res.as_ref().unwrap().len(), 3);
-        // endorse endorsee is anon, so is not there
-        // mint endorsee is the one after that
-        assert_eq!(
-            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
-            mint_endorsee_clone.node_id
+            .await
+            .expect("call works");
+        // caller is payee and drawer != drawee, there's only 1 holder before the caller (drawer)
+        // even though it's the current holder after the last endorse block
+        assert_eq!(res.len(), 1);
+
+        // Caller = Endorsee
+        let res = service
+            .get_past_endorsees(&bill_id_test(), &endorse_endorsee_clone.node_id)
+            .await
+            .expect("call works");
+        // caller is endorsee and drawer != drawee, there are 2 holders before the caller (drawer, payee)
+        // even though they were holder after mint
+        assert_eq!(res.len(), 2);
+        // payee is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == identity.identity.node_id),
         );
-        // sell endorsee is the next one
+        // drawer is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == drawer_clone.node_id),
+        );
+
+        // Caller = Sell Endorsee
+        let res = service
+            .get_past_endorsees(&bill_id_test(), &sell_endorsee_clone.node_id)
+            .await
+            .expect("call works");
+        // caller is sell_endorsee and drawer != drawee, there are 2 holders before the caller (drawer, payee)
+        // that's because endorsee is anon
+        assert_eq!(res.len(), 2);
+        // payee is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == identity.identity.node_id),
+        );
+        // drawer is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == drawer_clone.node_id),
+        );
+
+        // Caller = Mint
+        let res = service
+            .get_past_endorsees(&bill_id_test(), &mint_endorsee_clone.node_id)
+            .await
+            .expect("call works");
+        // caller is mint and drawer != drawee, there are 3 holders before the caller (drawer, payee, sell_endorsee)
+        // that's because endorsee is anon
+        assert_eq!(res.len(), 3);
+        // sell_endorsee is the first one (latest timestamp)
         assert_eq!(
-            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
+            res[0].pay_to_the_order_of.node_id,
             sell_endorsee_clone.node_id
         );
-        // drawer is the last one, because endorse endorsee is already there
-        // and drawer != drawee
-        assert_eq!(
-            res.as_ref().unwrap()[2].pay_to_the_order_of.node_id,
-            drawer.node_id
+        // payee is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == identity.identity.node_id),
+        );
+        // drawer is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == drawer_clone.node_id),
         );
     }
 
@@ -4620,6 +4678,7 @@ pub mod tests {
         );
 
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
+        let drawer_clone = bill.drawer.clone();
         let endorse_endorsee_clone = endorse_endorsee.clone();
         let mint_endorsee_clone = mint_endorsee.clone();
         let sell_endorsee_clone = sell_endorsee.clone();
@@ -4662,7 +4721,7 @@ pub mod tests {
                         buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                         signatory: None,
@@ -4685,7 +4744,7 @@ pub mod tests {
                         endorsee: BillParticipantBlockData::Ident(mint_endorsee.clone().into()),
                         // endorsed by sell endorsee
                         endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now + 3,
@@ -4747,33 +4806,89 @@ pub mod tests {
             });
         let service = get_service(ctx);
 
+        // Caller = Payee (=identity)
         let res = service
             .get_past_endorsees(&bill_id_test(), &identity.identity.node_id)
-            .await;
-        assert!(res.is_ok());
-        // if there are mint, sell and endorse blocks, they are considered
-        // but without duplicates
-        assert_eq!(res.as_ref().unwrap().len(), 4);
-        // endorse endorsee is the one directly before
+            .await
+            .expect("call works");
+        // caller is payee and drawer != drawee, there's only 1 holder before the caller (drawer)
+        // even though it's the current holder after the last endorse block
+        assert_eq!(res.len(), 1);
+
+        // Caller = Endorsee
+        let res = service
+            .get_past_endorsees(&bill_id_test(), &endorse_endorsee_clone.node_id)
+            .await
+            .expect("call works");
+        // caller is endorsee and drawer != drawee, there are 2 holders before the caller (drawer, payee)
+        // even though they were holder after mint
+        assert_eq!(res.len(), 2);
+        // payee is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == identity.identity.node_id),
+        );
+        // drawer is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == drawer_clone.node_id),
+        );
+
+        // Caller = Sell Endorsee
+        let res = service
+            .get_past_endorsees(&bill_id_test(), &sell_endorsee_clone.node_id)
+            .await
+            .expect("call works");
+        // caller is sell_endorsee and drawer != drawee, there are 3 holders before the caller (drawer, payee, endorsee)
+        assert_eq!(res.len(), 3);
+        // endorsee is the first one (latest timestamp)
         assert_eq!(
-            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            res[0].pay_to_the_order_of.node_id,
             endorse_endorsee_clone.node_id
         );
-        // mint endorsee is the one after that
-        assert_eq!(
-            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
-            mint_endorsee_clone.node_id
+        // payee is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == identity.identity.node_id),
         );
-        // sell endorsee is the next one
+        // drawer is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == drawer_clone.node_id),
+        );
+
+        // Caller = Mint
+        let res = service
+            .get_past_endorsees(&bill_id_test(), &mint_endorsee_clone.node_id)
+            .await
+            .expect("call works");
+        // caller is mint and drawer != drawee, there are 4 holders before the caller (drawer, payee, endorsee, sell_endorsee)
+        assert_eq!(res.len(), 4);
+        // sell_endorsee is the first one (latest timestamp)
         assert_eq!(
-            res.as_ref().unwrap()[2].pay_to_the_order_of.node_id,
+            res[0].pay_to_the_order_of.node_id,
             sell_endorsee_clone.node_id
         );
-        // drawer is the last one, because endorse endorsee is already there
-        // and drawer != drawee
+        // endorsee is the second one
         assert_eq!(
-            res.as_ref().unwrap()[3].pay_to_the_order_of.node_id,
-            drawer.node_id
+            res[1].pay_to_the_order_of.node_id,
+            endorse_endorsee_clone.node_id
+        );
+        // payee is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == identity.identity.node_id),
+        );
+        // drawer is in the list
+        assert!(
+            res.iter()
+                .map(|r| r.pay_to_the_order_of.node_id.clone())
+                .any(|n| n == drawer_clone.node_id),
         );
     }
 
@@ -5241,7 +5356,7 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillRequestToPayBlockData {
                         requester: payee.clone().into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -5305,7 +5420,7 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillRequestToPayBlockData {
                         requester: payee.clone().into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -5370,7 +5485,7 @@ pub mod tests {
                         recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                             .unwrap()
                             .into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
@@ -5441,7 +5556,7 @@ pub mod tests {
                         recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                             .unwrap()
                             .into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
@@ -5514,7 +5629,7 @@ pub mod tests {
                         .into(),
                         recoursee: bill_identified_participant_only_node_id(recoursee.clone())
                             .into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
@@ -5590,7 +5705,7 @@ pub mod tests {
                         .into(),
                         recoursee: bill_identified_participant_only_node_id(recoursee.clone())
                             .into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         sum: 15000,
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: Some(BillSignatoryBlockData {
@@ -5770,7 +5885,7 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillRequestToPayBlockData {
                         requester: bill.payee.clone().into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
@@ -5813,7 +5928,7 @@ pub mod tests {
                 &bill_id_test(),
                 BillAction::RequestRecourse(
                     recoursee,
-                    RecourseReason::Pay(15000, "sat".to_string()),
+                    RecourseReason::Pay(15000, CURRENCY_SAT.to_string()),
                 ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
@@ -5872,7 +5987,7 @@ pub mod tests {
                     chain.get_latest_block(),
                     &BillRequestToPayBlockData {
                         requester: bill.payee.clone().into(),
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
@@ -5917,7 +6032,7 @@ pub mod tests {
                 &bill_id_test(),
                 BillAction::RequestRecourse(
                     recoursee,
-                    RecourseReason::Pay(15000, "sat".to_string()),
+                    RecourseReason::Pay(15000, CURRENCY_SAT.to_string()),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -5967,7 +6082,7 @@ pub mod tests {
                         .into(),
                         recoursee: recoursee_clone.clone().into(),
                         sum: 15000,
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: 1731593927,
@@ -5998,8 +6113,8 @@ pub mod tests {
                 BillAction::Recourse(
                     recoursee,
                     15000,
-                    "sat".to_string(),
-                    RecourseReason::Pay(15000, "sat".into()),
+                    CURRENCY_SAT.to_string(),
+                    RecourseReason::Pay(15000, CURRENCY_SAT.into()),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -6049,7 +6164,7 @@ pub mod tests {
                         .into(),
                         recoursee: recoursee_clone.clone().into(),
                         sum: 15000,
-                        currency: "sat".to_string(),
+                        currency: CURRENCY_SAT.to_string(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
                         signing_timestamp: 1731593927,
@@ -6077,8 +6192,8 @@ pub mod tests {
                 BillAction::Recourse(
                     recoursee,
                     15000,
-                    "sat".to_string(),
-                    RecourseReason::Pay(15000, "sat".into()),
+                    CURRENCY_SAT.to_string(),
+                    RecourseReason::Pay(15000, CURRENCY_SAT.into()),
                 ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
@@ -6135,7 +6250,7 @@ pub mod tests {
                 payee: BillParticipant::Ident(empty_bill_identified_participant()),
                 payment_data: BillWaitingStatePaymentData {
                     time_of_request: 1531593928,
-                    currency: "sat".into(),
+                    currency: CURRENCY_SAT.into(),
                     sum: "10".into(),
                     link_to_pay: String::default(),
                     address_to_pay: String::default(),
@@ -7081,7 +7196,7 @@ pub mod tests {
                     drawee: mainnet_node_id.clone(),
                     payee: node_id_test(),
                     sum: String::from("100"),
-                    currency: String::from("sat"),
+                    currency: String::from(CURRENCY_SAT),
                     country_of_payment: String::from("AT"),
                     city_of_payment: String::from("Vienna"),
                     language: String::from("en-UK"),
@@ -7105,7 +7220,7 @@ pub mod tests {
                     drawee: node_id_test(),
                     payee: mainnet_node_id.clone(),
                     sum: String::from("100"),
-                    currency: String::from("sat"),
+                    currency: String::from(CURRENCY_SAT),
                     country_of_payment: String::from("AT"),
                     city_of_payment: String::from("Vienna"),
                     language: String::from("en-UK"),
@@ -7129,7 +7244,7 @@ pub mod tests {
                     drawee: node_id_test(),
                     payee: node_id_test(),
                     sum: String::from("100"),
-                    currency: String::from("sat"),
+                    currency: String::from(CURRENCY_SAT),
                     country_of_payment: String::from("AT"),
                     city_of_payment: String::from("Vienna"),
                     language: String::from("en-UK"),

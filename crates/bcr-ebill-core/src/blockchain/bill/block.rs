@@ -1651,6 +1651,7 @@ pub mod tests {
     use super::*;
     use crate::{
         blockchain::bill::tests::get_baseline_identity,
+        constants::CURRENCY_SAT,
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
             bill_participant_only_node_id, empty_bill_identified_participant, empty_bitcredit_bill,
@@ -1793,7 +1794,7 @@ pub mod tests {
                 endorser: minter.clone().into(),
                 endorsee: mint.into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
@@ -1880,7 +1881,7 @@ pub mod tests {
             &get_first_block(),
             &BillRequestToPayBlockData {
                 requester: requester.clone().into(),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
@@ -1910,7 +1911,7 @@ pub mod tests {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -1942,7 +1943,7 @@ pub mod tests {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: buyer.node_id().clone(),
@@ -2089,7 +2090,7 @@ pub mod tests {
                 recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2125,7 +2126,7 @@ pub mod tests {
                 recourser: recourser.clone().into(),
                 recoursee: recoursee.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2220,7 +2221,7 @@ pub mod tests {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
@@ -2275,7 +2276,7 @@ pub mod tests {
             &issue_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
@@ -2332,7 +2333,7 @@ pub mod tests {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2363,7 +2364,7 @@ pub mod tests {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2503,7 +2504,7 @@ pub mod tests {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2534,7 +2535,7 @@ pub mod tests {
                 recourser: signer.clone().into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2647,7 +2648,7 @@ pub mod tests {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: "signatory name".to_string(),
@@ -2708,7 +2709,7 @@ pub mod tests {
             &issue_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: "signatory name".to_string(),
@@ -2771,7 +2772,7 @@ pub mod tests {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -2805,7 +2806,7 @@ pub mod tests {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -2960,7 +2961,7 @@ pub mod tests {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -2994,7 +2995,7 @@ pub mod tests {
                 recourser: signer.clone().into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -3168,7 +3169,7 @@ pub mod tests {
             drawee: other_valid_bill_identity_block_data(),
             drawer: valid_bill_identity_block_data(),
             payee: valid_bill_participant_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             sum: 500,
             maturity_date: "2025-11-12".into(),
             issue_date: "2025-08-12".into(),
@@ -3270,7 +3271,7 @@ pub mod tests {
     fn valid_req_to_pay_block_data() -> BillRequestToPayBlockData {
         BillRequestToPayBlockData {
             requester: valid_bill_participant_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
@@ -3299,7 +3300,7 @@ pub mod tests {
         BillMintBlockData {
             endorser: valid_bill_participant_block_data(),
             endorsee: other_valid_bill_participant_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             sum: 500,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
@@ -3331,7 +3332,7 @@ pub mod tests {
         BillOfferToSellBlockData {
             seller: valid_bill_participant_block_data(),
             buyer: other_valid_bill_participant_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             sum: 500,
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
             signatory: Some(valid_bill_signatory_block_data()),
@@ -3365,7 +3366,7 @@ pub mod tests {
         BillSellBlockData {
             seller: valid_bill_participant_block_data(),
             buyer: other_valid_bill_participant_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             sum: 500,
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
             signatory: Some(valid_bill_signatory_block_data()),
@@ -3427,7 +3428,7 @@ pub mod tests {
         BillRequestRecourseBlockData {
             recourser: valid_bill_participant_block_data(),
             recoursee: other_valid_bill_identity_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             sum: 500,
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
@@ -3460,7 +3461,7 @@ pub mod tests {
         BillRecourseBlockData {
             recourser: valid_bill_identity_block_data(),
             recoursee: other_valid_bill_identity_block_data(),
-            currency: "sat".into(),
+            currency: CURRENCY_SAT.into(),
             sum: 500,
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),

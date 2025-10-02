@@ -213,7 +213,7 @@ impl BillChainEventProcessor {
                         self.resync_chain(bill_id).await?;
                         break;
                     } else {
-                        println!("Error adding block for bill {bill_id}: {e}");
+                        error!("Error adding block for bill {bill_id}: {e}");
                         Err(e)
                     }
                 }

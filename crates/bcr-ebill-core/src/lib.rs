@@ -489,14 +489,6 @@ pub enum ValidationError {
     #[error("Bill acceptance expired")]
     BillAcceptanceExpired,
 
-    /// error returned if a bill was rejected to recourse
-    #[error("Bill was rejected to recourse")]
-    BillWasRejectedToRecourse,
-
-    /// error returned if a bill request to recourse expired
-    #[error("Bill request to recourse expired")]
-    BillRequestToRecourseExpired,
-
     /// error returned if a bill was recoursed to the end
     #[error("Bill was recoursed to the end")]
     BillWasRecoursedToTheEnd,

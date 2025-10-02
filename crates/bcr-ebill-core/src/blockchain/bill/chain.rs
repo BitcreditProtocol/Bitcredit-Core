@@ -788,13 +788,11 @@ impl BillBlockchain {
     ) -> Result<Vec<PastEndorsee>> {
         let mut result: HashMap<NodeId, PastEndorsee> = HashMap::new();
 
-        let mut found_last_endorsing_block_for_node = false;
         // we ignore recourse blocks, since we're only interested in previous endorsees before
         // recourse
         let holders = self
             .blocks()
             .iter()
-            .rev()
             .filter(|block| block.op_code != BillOpCode::Recourse)
             .filter_map(|block| {
                 block
@@ -802,21 +800,24 @@ impl BillBlockchain {
                     .unwrap_or(None)
                     .map(|holder| (block.timestamp, holder))
             });
+        let mut found_caller_in_holders = false;
+        // Holders: Alice -> Bob -> Charly -> Dave -> Erin -> Charly -> Faythe
+        // If Charly wants to request to recourse, he can only recourse against holders before the first time holding the bill
+        // Alice -> Bob -> Charly(*we start from here*) -> Dave -> Erin -> Charly -> Faythe
+        // So Charly can only recourse against Alice, or Bob
         for (timestamp, holder) in holders {
-            // first, we search for the last non-recourse block in which we became holder
-            if holder.holder.node_id() == *current_identity_node_id
-                && !found_last_endorsing_block_for_node
-            {
-                found_last_endorsing_block_for_node = true;
-                continue;
+            // first, we search for the first non-recourse block in which we became holder
+            // this is because one can only ever recourse against parties that became holders
+            // before the first time oneself became a holder
+            if holder.holder.node_id() == *current_identity_node_id {
+                found_caller_in_holders = true;
+                break; // if we found our first holder block, we stop looking
             }
 
             // if the holder is anonymous, we don't add them, because they can't be recoursed against
             if let BillParticipantBlockData::Ident(holder_data) = holder.holder {
                 // we add the holders before ourselves, if they're not in the list already
-                if found_last_endorsing_block_for_node
-                    && holder_data.node_id() != *current_identity_node_id
-                {
+                if holder_data.node_id() != *current_identity_node_id {
                     result
                         .entry(holder_data.node_id().clone())
                         .or_insert(PastEndorsee {
@@ -837,6 +838,12 @@ impl BillBlockchain {
                         });
                 }
             }
+        }
+
+        // If the caller was not part of the holders, we return an empty list
+        // this can happen, if the caller is only the drawer and drawee of the bill
+        if !found_caller_in_holders {
+            return Ok(vec![]);
         }
 
         let first_version_bill = self.get_first_version_bill(bill_keys)?;
@@ -862,7 +869,7 @@ impl BillBlockchain {
                 });
         }
 
-        // remove ourselves from the list
+        // remove ourselves from the list, if we're somehow on it
         result.remove(current_identity_node_id);
 
         // sort by signing timestamp descending
@@ -1005,6 +1012,7 @@ mod tests {
             block::{BillOfferToSellBlockData, BillRecourseReasonBlockData},
             tests::get_baseline_identity,
         },
+        constants::CURRENCY_SAT,
         contact::BillIdentParticipant,
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
@@ -1028,7 +1036,7 @@ mod tests {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: "1234".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -1293,7 +1301,7 @@ mod tests {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593929,
@@ -1360,7 +1368,7 @@ mod tests {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: 5000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593931,
                 signing_address: Some(signer.postal_address.clone()),
@@ -1394,7 +1402,7 @@ mod tests {
                 recourser: other_party.clone().into(),
                 recoursee: signer.clone().into(),
                 sum: 15000,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593932,

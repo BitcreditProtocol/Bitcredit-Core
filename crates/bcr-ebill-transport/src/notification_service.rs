@@ -1131,6 +1131,7 @@ impl NotificationServiceApi for NotificationService {
 
 #[cfg(test)]
 mod tests {
+    use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
     use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
@@ -2295,7 +2296,7 @@ mod tests {
                 recourser: payee.clone().into(),
                 recoursee: recoursee.clone().into(),
                 sum: 100,
-                currency: "sat".to_string(),
+                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: timestamp,
