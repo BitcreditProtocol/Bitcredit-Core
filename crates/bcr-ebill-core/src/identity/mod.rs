@@ -136,11 +136,11 @@ impl Identity {
         }
     }
 
-    pub fn as_contact(&self) -> Contact {
-        let contact_type = match self.t {
+    pub fn as_contact(&self, t: Option<ContactType>) -> Contact {
+        let contact_type = t.unwrap_or(match self.t {
             IdentityType::Ident => ContactType::Person,
             IdentityType::Anon => ContactType::Anon,
-        };
+        });
         Contact {
             t: contact_type,
             node_id: self.node_id.clone(),

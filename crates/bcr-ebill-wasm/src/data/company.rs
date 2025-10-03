@@ -115,8 +115,9 @@ pub struct SignatoryResponse {
     #[tsify(type = "string")]
     pub node_id: NodeId,
     pub name: String,
-    pub postal_address: PostalAddressWeb,
+    pub postal_address: Option<PostalAddressWeb>,
     pub avatar_file: Option<FileWeb>,
+    pub is_logical: bool,
 }
 
 impl TryFrom<Contact> for SignatoryResponse {
@@ -130,11 +131,9 @@ impl TryFrom<Contact> for SignatoryResponse {
             t: value.t.into(),
             node_id: value.node_id.clone(),
             name: value.name,
-            postal_address: value
-                .postal_address
-                .ok_or(ValidationError::InvalidContact(value.node_id.to_string()))
-                .map(|pa| pa.into())?,
+            postal_address: value.postal_address.map(|pa| pa.into()),
             avatar_file: value.avatar_file.map(|f| f.into()),
+            is_logical: value.is_logical,
         })
     }
 }

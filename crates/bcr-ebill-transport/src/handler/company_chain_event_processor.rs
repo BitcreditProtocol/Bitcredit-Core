@@ -165,6 +165,13 @@ impl CompanyChainEventProcessor {
             self.nostr_contact_processor
                 .ensure_nostr_contact(&company_id)
                 .await;
+
+            // as well as all the company signatories
+            for signatory in company.signatories.iter() {
+                self.nostr_contact_processor
+                    .ensure_nostr_contact(signatory)
+                    .await;
+            }
         } else {
             info!("We are not a signatory for company {company_id} so skipping chain");
         }
@@ -588,7 +595,7 @@ pub mod tests {
             .expect_ensure_nostr_contact()
             .with(eq(node_id.clone()))
             .returning(|_| ())
-            .once();
+            .times(2);
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
