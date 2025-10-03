@@ -300,7 +300,8 @@ impl CompanyServiceApi for CompanyService {
                 .iter()
                 .any(|c| c.node_id == identity.node_id)
         {
-            signatory_contacts.push(identity.as_contact());
+            // we force person for this as it will be thrown out in later validation
+            signatory_contacts.push(identity.as_contact(Some(ContactType::Person)));
         }
 
         // if we are still missing some signatory details try to fill them from nostr contacts
@@ -317,7 +318,7 @@ impl CompanyServiceApi for CompanyService {
                 .by_node_ids(missing)
                 .await?
                 .into_iter()
-                .filter_map(|c| c.into_contact())
+                .filter_map(|c| c.into_contact(Some(ContactType::Person)))
                 .collect();
 
             signatory_contacts.extend(nostr_contacts);

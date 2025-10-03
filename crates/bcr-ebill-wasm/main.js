@@ -339,8 +339,10 @@ async function listCompanies() {
 }
 
 async function listSignatories() {
-  let signatories = await companyApi.list_signatories(document.getElementById("company_update_id").value);
-  console.log("signatories:", signatories);
+  let measured = measure(async () => {
+    return await companyApi.list_signatories(document.getElementById("company_update_id").value);
+  });
+  await measured();
 }
 
 async function triggerContact() {

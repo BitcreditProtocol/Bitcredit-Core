@@ -254,7 +254,7 @@ impl ContactServiceApi for ContactService {
                 .filter_map(|c| {
                     // only return nostr  contacts that are not in contacts and have a name
                     if !lookup.contains(&c.node_id) {
-                        c.into_contact()
+                        c.into_contact(None)
                     } else {
                         None
                     }

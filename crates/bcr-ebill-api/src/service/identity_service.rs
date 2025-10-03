@@ -202,11 +202,10 @@ impl IdentityService {
     }
 
     async fn on_identity_contact_change(&self, identity: &Identity, keys: &BcrKeys) -> Result<()> {
-        debug!("Company change, publishing our company contact to nostr profile");
+        debug!("Identity change, publishing our identity contact to nostr profile");
         let bcr_data = get_bcr_data(identity, keys)?;
         let contact_data =
             NostrContactData::new(&identity.name, identity.nostr_relays.clone(), bcr_data);
-        debug!("Publishing company contact data: {contact_data:?}");
         self.notification_service
             .publish_contact(&identity.node_id, &contact_data)
             .await?;
@@ -217,7 +216,8 @@ impl IdentityService {
 /// Derives a child key, encrypts the contact data with it and returns the bcr metadata
 fn get_bcr_data(identity: &Identity, keys: &BcrKeys) -> Result<BcrMetadata> {
     let derived_keys = keys.derive_keypair()?;
-    let contact = identity.as_contact();
+    let contact = identity.as_contact(None);
+    debug!("Publishing identity contact data: {contact:?}");
     let payload = serde_json::to_string(&contact)?;
     let encrypted = base58_encode(&util::crypto::encrypt_ecies(
         payload.as_bytes(),
