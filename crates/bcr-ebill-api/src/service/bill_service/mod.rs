@@ -5617,7 +5617,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = util::date::now().timestamp() as u64 - 10; // to avoid race with called code
                 let mut chain = get_genesis_chain(Some(bill.clone()));
                 let req_to_recourse = BillBlock::create_block_for_request_recourse(
                     bill_id_test(),
@@ -5649,10 +5649,8 @@ pub mod tests {
             .expect_send_bill_recourse_paid_event()
             .returning(|_, _| Ok(()));
 
-        // TODO (future): this fixes the flakyness of the test, but we have to investigate why at some point
-        ctx.notification_service
-            .expect_send_identity_chain_events()
-            .returning(|_| Ok(()));
+        // Populate identity block
+        expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
 
