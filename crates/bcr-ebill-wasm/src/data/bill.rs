@@ -894,6 +894,16 @@ impl From<LightBillIdentParticipant> for LightBillIdentParticipantWeb {
     }
 }
 
+impl From<BillIdentParticipant> for LightBillIdentParticipantWeb {
+    fn from(val: BillIdentParticipant) -> Self {
+        LightBillIdentParticipantWeb {
+            t: val.t.into(),
+            name: val.name,
+            node_id: val.node_id,
+        }
+    }
+}
+
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct ShareBillWithCourtPayload {

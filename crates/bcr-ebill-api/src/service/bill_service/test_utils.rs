@@ -11,10 +11,10 @@ use crate::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
         MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
         MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockMintStore,
-        VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
-        bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
-        empty_bitcredit_bill, empty_identity, init_test_cfg, node_id_test, node_id_test_other,
-        node_id_test_other2, private_key_test,
+        MockNostrContactStore, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
+        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
+        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, init_test_cfg,
+        node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
     },
     util,
 };
@@ -58,6 +58,7 @@ pub struct MockBillContext {
     pub mint_store: MockMintStore,
     pub mint_client: MockMintClientApi,
     pub court_client: MockCourtClientApi,
+    pub nostr_contact_store: MockNostrContactStore,
 }
 
 pub fn get_baseline_identity() -> IdentityWithAll {
@@ -206,6 +207,9 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
             )
         });
     bitcoin_client.expect_generate_link_to_pay().returning(|_,_,_| String::from("bitcoin:1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2?amount=0.01&message=Payment in relation to bill some bill"));
+    ctx.nostr_contact_store
+        .expect_by_node_id()
+        .returning(|_| Ok(None));
     ctx.contact_store.expect_get().returning(|node_id| {
         let mut contact = get_baseline_contact();
         contact.node_id = node_id.to_owned();
@@ -300,6 +304,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         Arc::new(ctx.mint_store),
         Arc::new(ctx.mint_client),
         Arc::new(ctx.court_client),
+        Arc::new(ctx.nostr_contact_store),
     )
 }
 
@@ -318,6 +323,7 @@ pub fn get_ctx() -> MockBillContext {
         mint_store: MockMintStore::new(),
         mint_client: MockMintClientApi::new(),
         court_client: MockCourtClientApi::new(),
+        nostr_contact_store: MockNostrContactStore::new(),
     }
 }
 

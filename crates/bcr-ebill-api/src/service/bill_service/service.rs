@@ -54,6 +54,7 @@ use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::util::currency;
 use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::mint::MintStoreApi;
+use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -76,6 +77,7 @@ pub struct BillService {
     pub mint_store: Arc<dyn MintStoreApi>,
     pub mint_client: Arc<dyn MintClientApi>,
     pub court_client: Arc<dyn CourtClientApi>,
+    pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
 }
 impl ServiceTraitBounds for BillService {}
 
@@ -95,6 +97,7 @@ impl BillService {
         mint_store: Arc<dyn MintStoreApi>,
         mint_client: Arc<dyn MintClientApi>,
         court_client: Arc<dyn CourtClientApi>,
+        nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     ) -> Self {
         Self {
             store,
@@ -111,6 +114,7 @@ impl BillService {
             mint_store,
             mint_client,
             court_client,
+            nostr_contact_store,
         }
     }
 
@@ -212,6 +216,10 @@ impl BillService {
                     } else {
                         (None, vec![])
                     }
+                } else if let Ok(Some(nostr_contact)) =
+                    self.nostr_contact_store.by_node_id(node_id).await
+                {
+                    (None, nostr_contact.relays)
                 } else {
                     (None, vec![])
                 }

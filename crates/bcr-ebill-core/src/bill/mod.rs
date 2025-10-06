@@ -422,7 +422,7 @@ pub enum BillsFilterRole {
 
 #[derive(Clone, Debug)]
 pub struct PastEndorsee {
-    pub pay_to_the_order_of: LightBillIdentParticipant,
+    pub pay_to_the_order_of: BillIdentParticipant,
     pub signed: LightSignedBy,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>,

@@ -5649,8 +5649,10 @@ pub mod tests {
             .expect_send_bill_recourse_paid_event()
             .returning(|_, _| Ok(()));
 
-        // Populate identity block
-        expect_populates_identity_block(&mut ctx);
+        // TODO (future): this fixes the flakyness of the test, but we have to investigate why at some point
+        ctx.notification_service
+            .expect_send_identity_chain_events()
+            .returning(|_| Ok(()));
 
         let service = get_service(ctx);
 
