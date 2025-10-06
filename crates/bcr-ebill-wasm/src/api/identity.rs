@@ -2,7 +2,8 @@ use crate::{
     Result,
     context::get_ctx,
     data::{
-        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
+        Base64FileResponse, BinaryFileResponse, TSResult, UploadFile, UploadFileResponse,
+        has_field,
         identity::{
             ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
             ShareContactTo, SwitchIdentity,
@@ -19,7 +20,7 @@ use bcr_ebill_api::{
     external,
     service::{Error, notification_service::restore::RestoreAccountApi},
     util::{
-        ValidationError,
+        self, ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
         validate_file_upload_id,
     },
@@ -351,6 +352,19 @@ impl Identity {
 
         let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
         Ok(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<SeedPhrase>")]
+    pub async fn test_endpoint(&self) -> JsValue {
+        let current_timestamp = util::date::now().timestamp() as u64;
+        let res: TSResult<SeedPhrase> = if current_timestamp.is_multiple_of(2) {
+            TSResult::Success(SeedPhrase {
+                seed_phrase: "hellO".to_string(),
+            })
+        } else {
+            TSResult::Error(WasmError::Validation(ValidationError::InvalidUrl).into())
+        };
+        serde_wasm_bindgen::to_value(&res).expect("can serialize result")
     }
 }
 

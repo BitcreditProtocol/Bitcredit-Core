@@ -38,7 +38,7 @@ pub enum WasmError {
 
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
-enum JsErrorType {
+pub enum JsErrorType {
     FieldEmpty,
     InvalidSum,
     InvalidCurrency,
@@ -141,11 +141,19 @@ enum JsErrorType {
 
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
-struct JsErrorData {
+pub struct JsErrorData {
     error: JsErrorType,
     message: String,
     code: u16,
 }
+
+impl From<WasmError> for JsErrorData {
+    fn from(error: WasmError) -> JsErrorData {
+        error!("{error}");
+        err_400(error, JsErrorType::InvalidUrl)
+    }
+}
+
 impl From<WasmError> for JsValue {
     fn from(error: WasmError) -> JsValue {
         error!("{error}");

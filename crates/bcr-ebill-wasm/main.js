@@ -117,6 +117,9 @@ async function start(create_identity) {
   let billApi = wasm.Api.bill();
   let generalApi = wasm.Api.general();
 
+  let bla = await identityApi.test_endpoint();
+    console.log("RESRESRES", bla);
+
   let identity;
   let current_identity;
   // Identity

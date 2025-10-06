@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
+use crate::error::JsErrorData;
+
 pub mod bill;
 pub mod company;
 pub mod contact;
@@ -21,6 +23,16 @@ pub mod identity;
 pub mod identity_proof;
 pub mod mint;
 pub mod notification;
+
+#[derive(Tsify, Debug, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum TSResult<T>
+where
+    T: Serialize,
+{
+    Success(T),
+    Error(JsErrorData),
+}
 
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
