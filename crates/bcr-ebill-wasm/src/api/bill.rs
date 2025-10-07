@@ -38,6 +38,7 @@ use crate::{
             RequestToPayBitcreditBillPayload, ResyncBillPayload, ShareBillWithCourtPayload,
         },
         mint::MintRequestStateResponse,
+        parse_deadline_string,
     },
     error::WasmError,
 };
@@ -424,6 +425,7 @@ impl Bill {
         buyer: BillParticipant,
         timestamp: u64,
         sum: u64,
+        buying_deadline_timestamp: u64,
     ) -> Result<()> {
         let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
@@ -431,7 +433,12 @@ impl Bill {
             .bill_service
             .execute_bill_action(
                 &payload.bill_id,
-                BillAction::OfferToSell(buyer.clone(), sum, payload.currency.clone()),
+                BillAction::OfferToSell(
+                    buyer.clone(),
+                    sum,
+                    payload.currency.clone(),
+                    buying_deadline_timestamp,
+                ),
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
@@ -461,8 +468,15 @@ impl Bill {
 
         let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        self.offer_to_sell_bill(offer_to_sell_payload, public_data_buyer, timestamp, sum)
-            .await
+        let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
+        self.offer_to_sell_bill(
+            offer_to_sell_payload,
+            public_data_buyer,
+            timestamp,
+            sum,
+            deadline_ts,
+        )
+        .await
     }
 
     /// Blank offer to sell - the contact doesn't have to be an anonymous contact
@@ -486,11 +500,13 @@ impl Bill {
 
         let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
         self.offer_to_sell_bill(
             offer_to_sell_payload,
             BillParticipant::Anon(public_data_buyer),
             timestamp,
             sum,
+            deadline_ts,
         )
         .await
     }
@@ -583,7 +599,10 @@ impl Bill {
             .bill_service
             .execute_bill_action(
                 &request_to_pay_bill_payload.bill_id,
-                BillAction::RequestToPay(request_to_pay_bill_payload.currency.clone()),
+                BillAction::RequestToPay(
+                    request_to_pay_bill_payload.currency.clone(),
+                    parse_deadline_string(&request_to_pay_bill_payload.payment_deadline)?,
+                ),
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
@@ -609,7 +628,9 @@ impl Bill {
             .bill_service
             .execute_bill_action(
                 &request_to_accept_bill_payload.bill_id,
-                BillAction::RequestAcceptance,
+                BillAction::RequestAcceptance(parse_deadline_string(
+                    &request_to_accept_bill_payload.acceptance_deadline,
+                )?),
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
@@ -830,10 +851,12 @@ impl Bill {
         let request_recourse_payload: RequestRecourseForPaymentPayload =
             serde_wasm_bindgen::from_value(payload)?;
         let sum = currency::parse_sum(&request_recourse_payload.sum)?;
+
         request_recourse(
             RecourseReason::Pay(sum, request_recourse_payload.currency.clone()),
             &request_recourse_payload.bill_id,
             &request_recourse_payload.recoursee,
+            parse_deadline_string(&request_recourse_payload.recourse_deadline)?,
         )
         .await
     }
@@ -850,6 +873,7 @@ impl Bill {
             RecourseReason::Accept,
             &request_recourse_payload.bill_id,
             &request_recourse_payload.recoursee,
+            parse_deadline_string(&request_recourse_payload.recourse_deadline)?,
         )
         .await
     }
@@ -918,6 +942,7 @@ async fn request_recourse(
     recourse_reason: RecourseReason,
     bill_id: &BillId,
     recoursee_node_id: &NodeId,
+    recourse_deadline_timestamp: u64,
 ) -> Result<()> {
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
@@ -958,7 +983,11 @@ async fn request_recourse(
         .bill_service
         .execute_bill_action(
             bill_id,
-            BillAction::RequestRecourse(public_data_recoursee, recourse_reason),
+            BillAction::RequestRecourse(
+                public_data_recoursee,
+                recourse_reason,
+                recourse_deadline_timestamp,
+            ),
             &signer_public_data,
             &signer_keys,
             timestamp,

@@ -5,7 +5,6 @@ use super::{Error, Result};
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{BillMintStatus, BillWaitingStatePaymentData, PaymentState};
 use bcr_ebill_core::blockchain::Block;
-use bcr_ebill_core::constants::RECOURSE_DEADLINE_SECONDS;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::{NodeId, ValidationError};
@@ -23,7 +22,6 @@ use bcr_ebill_core::{
             block::BillSignatoryBlockData,
         },
     },
-    constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS},
     contact::ContactType,
     identity::{Identity, IdentityWithAll},
     util::{BcrKeys, currency},
@@ -168,6 +166,7 @@ impl BillService {
         let mut rejected_to_pay = false;
         let mut request_to_pay_timed_out = false;
         let mut time_of_request_to_pay = None;
+        let mut payment_deadline_timestamp = None;
         if let Some(req_to_pay_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
         {
@@ -175,18 +174,14 @@ impl BillService {
             time_of_request_to_pay = Some(req_to_pay_block.timestamp);
             paid = self.store.is_paid(&bill.id).await?;
             rejected_to_pay = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
-            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
-                req_to_pay_block.timestamp,
-                &bill.maturity_date,
+            let (is_expired, payment_deadline) = chain.is_req_to_pay_block_payment_expired(
+                req_to_pay_block,
+                bill_keys,
+                current_timestamp,
+                Some(&bill.maturity_date),
             )?;
-            if !paid
-                && !rejected_to_pay
-                && util::date::check_if_deadline_has_passed(
-                    deadline_base,
-                    current_timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                )
-            {
+            payment_deadline_timestamp = Some(payment_deadline);
+            if !paid && !rejected_to_pay && is_expired {
                 // this is true, if the payment is expired (after maturity date)
                 request_to_pay_timed_out = true;
             }
@@ -207,6 +202,7 @@ impl BillService {
         let mut offer_to_sell_timed_out = false;
         let mut sold = false;
         let mut time_of_last_offer_to_sell = None;
+        let mut buying_deadline_timestamp = None;
         if let Some(last_offer_to_sell_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::OfferToSell)
         {
@@ -225,14 +221,13 @@ impl BillService {
                 // last offer to sell was sold
                 sold = true;
             }
-            if !sold
-                && !rejected_offer_to_sell
-                && util::date::check_if_deadline_has_passed(
-                    last_offer_to_sell_block.timestamp,
-                    current_timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                )
-            {
+            let (is_expired, buying_deadline) = chain.is_offer_to_sell_block_payment_expired(
+                last_offer_to_sell_block,
+                bill_keys,
+                current_timestamp,
+            )?;
+            buying_deadline_timestamp = Some(buying_deadline);
+            if !sold && !rejected_offer_to_sell && is_expired {
                 offer_to_sell_timed_out = true;
             }
         }
@@ -242,6 +237,7 @@ impl BillService {
         let mut time_of_last_request_to_recourse = None;
         let mut rejected_request_to_recourse = false;
         let mut recoursed = false;
+        let mut recourse_deadline_timestamp = None;
         if let Some(last_req_to_recourse_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::RequestRecourse)
         {
@@ -259,14 +255,13 @@ impl BillService {
             {
                 recoursed = true
             }
-            if !recoursed
-                && !rejected_request_to_recourse
-                && util::date::check_if_deadline_has_passed(
-                    last_req_to_recourse_block.timestamp,
-                    current_timestamp,
-                    RECOURSE_DEADLINE_SECONDS,
-                )
-            {
+            let (is_expired, recourse_deadline) = chain.is_req_to_recourse_block_payment_expired(
+                last_req_to_recourse_block,
+                bill_keys,
+                current_timestamp,
+            )?;
+            recourse_deadline_timestamp = Some(recourse_deadline);
+            if !recoursed && !rejected_request_to_recourse && is_expired {
                 request_to_recourse_timed_out = true;
             }
         }
@@ -276,20 +271,20 @@ impl BillService {
         let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
         let mut time_of_request_to_accept = None;
         let mut requested_to_accept = false;
+        let mut acceptance_deadline_timestamp = None;
         if let Some(req_to_accept_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::RequestToAccept)
         {
             requested_to_accept = true;
             time_of_request_to_accept = Some(req_to_accept_block.timestamp);
 
-            if !accepted
-                && !rejected_to_accept
-                && util::date::check_if_deadline_has_passed(
-                    req_to_accept_block.timestamp,
-                    current_timestamp,
-                    ACCEPT_DEADLINE_SECONDS,
-                )
-            {
+            let (is_expired, acceptance_deadline) = chain.is_req_to_accept_block_payment_expired(
+                req_to_accept_block,
+                bill_keys,
+                current_timestamp,
+            )?;
+            acceptance_deadline_timestamp = Some(acceptance_deadline);
+            if !accepted && !rejected_to_accept && is_expired {
                 request_to_accept_timed_out = true;
             }
         }
@@ -366,6 +361,7 @@ impl BillService {
                             tx_id,
                             in_mempool,
                             confirmations,
+                            payment_deadline: buying_deadline_timestamp,
                         },
                     }))
                 } else {
@@ -379,11 +375,9 @@ impl BillService {
                 } else if request_to_pay_timed_out {
                     // payment expired, we're not waiting anymore
                     None
-                } else if util::date::check_if_deadline_has_passed(
-                    last_block.timestamp,
-                    current_timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                ) {
+                } else if let Some(payment_deadline) = payment_deadline_timestamp
+                    && util::date::check_if_deadline_has_passed(payment_deadline, current_timestamp)
+                {
                     // the request timed out, we're not waiting anymore, but the payment isn't expired
                     None
                 } else {
@@ -436,6 +430,7 @@ impl BillService {
                                 tx_id,
                                 in_mempool,
                                 confirmations,
+                                payment_deadline: payment_deadline_timestamp,
                             },
                         },
                     ))
@@ -517,6 +512,7 @@ impl BillService {
                                 tx_id,
                                 in_mempool,
                                 confirmations,
+                                payment_deadline: recourse_deadline_timestamp,
                             },
                         },
                     ))
@@ -537,6 +533,7 @@ impl BillService {
                 accepted,
                 request_to_accept_timed_out,
                 rejected_to_accept,
+                acceptance_deadline_timestamp,
             },
             payment: BillPaymentStatus {
                 time_of_request_to_pay,
@@ -544,6 +541,7 @@ impl BillService {
                 paid,
                 request_to_pay_timed_out,
                 rejected_to_pay,
+                payment_deadline_timestamp,
             },
             sell: BillSellStatus {
                 time_of_last_offer_to_sell,
@@ -551,6 +549,7 @@ impl BillService {
                 offered_to_sell,
                 offer_to_sell_timed_out,
                 rejected_offer_to_sell,
+                buying_deadline_timestamp,
             },
             recourse: BillRecourseStatus {
                 time_of_last_request_to_recourse,
@@ -558,6 +557,7 @@ impl BillService {
                 requested_to_recourse,
                 request_to_recourse_timed_out,
                 rejected_request_to_recourse,
+                recourse_deadline_timestamp,
             },
             mint: BillMintStatus { has_mint_requests },
             redeemed_funds_available,
@@ -614,12 +614,8 @@ impl BillService {
             && !acceptance.accepted
             && !acceptance.rejected_to_accept
             && !acceptance.request_to_accept_timed_out
-            && let Some(time_of_request_to_accept) = acceptance.time_of_request_to_accept
-            && util::date::check_if_deadline_has_passed(
-                time_of_request_to_accept,
-                current_timestamp,
-                ACCEPT_DEADLINE_SECONDS,
-            )
+            && let Some(acceptance_deadline) = acceptance.acceptance_deadline_timestamp
+            && util::date::check_if_deadline_has_passed(acceptance_deadline, current_timestamp)
         {
             invalidate_and_recalculate = true;
         }
@@ -631,29 +627,21 @@ impl BillService {
             && !payment.paid
             && !payment.rejected_to_pay
             && !payment.request_to_pay_timed_out
-            && let Some(time_of_request_to_pay) = payment.time_of_request_to_pay
+            && let Some(payment_deadline) = payment.payment_deadline_timestamp
         {
             let deadline_base = get_expiration_deadline_base_for_req_to_pay(
-                time_of_request_to_pay,
+                payment_deadline,
                 &bill.data.maturity_date,
             )?;
             // payment has expired (after maturity date)
-            if util::date::check_if_deadline_has_passed(
-                deadline_base,
-                current_timestamp,
-                PAYMENT_DEADLINE_SECONDS,
-            ) {
+            if util::date::check_if_deadline_has_passed(deadline_base, current_timestamp) {
                 invalidate_and_recalculate = true;
             }
             // if it was req to pay and is currently waiting, we have to check, if it's expired
             // once it's expired, we don't have to check this anymore
             if let Some(BillCurrentWaitingState::Payment(_)) = bill.current_waiting_state {
                 // req to pay has expired (before maturity date)
-                if util::date::check_if_deadline_has_passed(
-                    time_of_request_to_pay,
-                    current_timestamp,
-                    PAYMENT_DEADLINE_SECONDS,
-                ) {
+                if util::date::check_if_deadline_has_passed(payment_deadline, current_timestamp) {
                     invalidate_and_recalculate = true;
                 }
             }
@@ -666,12 +654,8 @@ impl BillService {
             && !sell.sold
             && !sell.rejected_offer_to_sell
             && !sell.offer_to_sell_timed_out
-            && let Some(time_of_last_offer_to_sell) = sell.time_of_last_offer_to_sell
-            && util::date::check_if_deadline_has_passed(
-                time_of_last_offer_to_sell,
-                current_timestamp,
-                PAYMENT_DEADLINE_SECONDS,
-            )
+            && let Some(buying_deadline) = sell.buying_deadline_timestamp
+            && util::date::check_if_deadline_has_passed(buying_deadline, current_timestamp)
         {
             invalidate_and_recalculate = true;
         }
@@ -683,13 +667,8 @@ impl BillService {
             && !recourse.recoursed
             && !recourse.rejected_request_to_recourse
             && !recourse.request_to_recourse_timed_out
-            && let Some(time_of_last_request_to_recourse) =
-                recourse.time_of_last_request_to_recourse
-            && util::date::check_if_deadline_has_passed(
-                time_of_last_request_to_recourse,
-                current_timestamp,
-                RECOURSE_DEADLINE_SECONDS,
-            )
+            && let Some(recourse_deadline) = recourse.recourse_deadline_timestamp
+            && util::date::check_if_deadline_has_passed(recourse_deadline, current_timestamp)
         {
             invalidate_and_recalculate = true;
         }

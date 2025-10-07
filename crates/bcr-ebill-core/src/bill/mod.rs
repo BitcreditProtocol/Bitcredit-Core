@@ -18,18 +18,19 @@ pub use bcr_common::core::BillId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BillAction {
-    RequestAcceptance,
+    // deadline_ts
+    RequestAcceptance(u64),
     Accept,
-    // currency
-    RequestToPay(String),
-    // buyer, sum, currency
-    OfferToSell(BillParticipant, u64, String),
+    // currency, deadline_ts
+    RequestToPay(String, u64),
+    // buyer, sum, currency, deadline_ts
+    OfferToSell(BillParticipant, u64, String, u64),
     // buyer, sum, currency, payment_address
     Sell(BillParticipant, u64, String, String),
     // endorsee
     Endorse(BillParticipant),
-    // recoursee, recourse reason
-    RequestRecourse(BillIdentParticipant, RecourseReason),
+    // recoursee, recourse reason, deadline_ts
+    RequestRecourse(BillIdentParticipant, RecourseReason, u64),
     // recoursee, sum, currency reason/
     Recourse(BillIdentParticipant, u64, String, RecourseReason),
     // mint, sum, currency
@@ -165,6 +166,7 @@ pub struct BillWaitingStatePaymentData {
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
+    pub payment_deadline: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +188,7 @@ pub struct BillAcceptanceStatus {
     pub accepted: bool,
     pub request_to_accept_timed_out: bool,
     pub rejected_to_accept: bool,
+    pub acceptance_deadline_timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -195,6 +198,7 @@ pub struct BillPaymentStatus {
     pub paid: bool,
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
+    pub payment_deadline_timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,6 +208,7 @@ pub struct BillSellStatus {
     pub offered_to_sell: bool,
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
+    pub buying_deadline_timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +218,7 @@ pub struct BillRecourseStatus {
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
+    pub recourse_deadline_timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -468,6 +474,7 @@ pub struct PastPaymentDataSell {
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
+    pub payment_deadline: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -482,6 +489,7 @@ pub struct PastPaymentDataPayment {
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
+    pub payment_deadline: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -496,6 +504,7 @@ pub struct PastPaymentDataRecourse {
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
+    pub payment_deadline: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

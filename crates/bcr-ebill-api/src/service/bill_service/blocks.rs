@@ -81,7 +81,7 @@ impl BillService {
                 }
             }
             // can req to accept as anon
-            BillAction::RequestAcceptance => {
+            BillAction::RequestAcceptance(acceptance_deadline_timestamp) => {
                 let block_data = BillRequestToAcceptBlockData {
                     requester: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -92,6 +92,7 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    acceptance_deadline_timestamp: *acceptance_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_to_accept(
@@ -105,7 +106,7 @@ impl BillService {
                 )?
             }
             // can req to pay as anon
-            BillAction::RequestToPay(currency) => {
+            BillAction::RequestToPay(currency, payment_deadline_timestamp) => {
                 let block_data = BillRequestToPayBlockData {
                     requester: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -117,6 +118,7 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    payment_deadline_timestamp: *payment_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_to_pay(
@@ -130,7 +132,11 @@ impl BillService {
                 )?
             }
             // can be anon to req recourse
-            BillAction::RequestRecourse(recoursee, recourse_reason) => {
+            BillAction::RequestRecourse(
+                recoursee,
+                recourse_reason,
+                recourse_deadline_timestamp,
+            ) => {
                 validate_node_id_network(&recoursee.node_id)?;
                 let (sum, currency, reason) = match *recourse_reason {
                     RecourseReason::Accept => (
@@ -156,6 +162,7 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    recourse_deadline_timestamp: *recourse_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_recourse(
@@ -229,7 +236,7 @@ impl BillService {
                 )?
             }
             // can be anon to offer to sell
-            BillAction::OfferToSell(buyer, sum, currency) => {
+            BillAction::OfferToSell(buyer, sum, currency, buying_deadline_timestamp) => {
                 validate_node_id_network(&buyer.node_id())?;
                 let address_to_pay = self.bitcoin_client.get_address_to_pay(
                     &bill_keys.public_key,
@@ -249,6 +256,7 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    buying_deadline_timestamp: *buying_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_offer_to_sell(

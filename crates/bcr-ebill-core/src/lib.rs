@@ -249,6 +249,14 @@ pub enum ValidationError {
     #[error("invalid date")]
     InvalidDate,
 
+    /// error returned if the given deadline is before the minimum deadline
+    #[error("the given deadline is before the minimum deadline")]
+    DeadlineBeforeMinimum,
+
+    /// error returned if the timestamp was invalid
+    #[error("invalid timestamp")]
+    InvalidTimestamp,
+
     /// error returned if the contact is invalid, e.g. a non-anon contact with no address
     #[error("the contact {0} is invalid")]
     InvalidContact(String),

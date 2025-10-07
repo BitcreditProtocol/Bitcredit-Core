@@ -132,6 +132,7 @@ pub mod tests {
                     accepted: false,
                     request_to_accept_timed_out: false,
                     rejected_to_accept: false,
+                    acceptance_deadline_timestamp: None,
                 },
                 payment: BillPaymentStatus {
                     time_of_request_to_pay: None,
@@ -139,6 +140,7 @@ pub mod tests {
                     paid: false,
                     request_to_pay_timed_out: false,
                     rejected_to_pay: false,
+                    payment_deadline_timestamp: None,
                 },
                 sell: BillSellStatus {
                     time_of_last_offer_to_sell: None,
@@ -146,6 +148,7 @@ pub mod tests {
                     offered_to_sell: false,
                     offer_to_sell_timed_out: false,
                     rejected_offer_to_sell: false,
+                    buying_deadline_timestamp: None,
                 },
                 recourse: BillRecourseStatus {
                     time_of_last_request_to_recourse: None,
@@ -153,6 +156,7 @@ pub mod tests {
                     requested_to_recourse: false,
                     request_to_recourse_timed_out: false,
                     rejected_request_to_recourse: false,
+                    recourse_deadline_timestamp: None,
                 },
                 mint: BillMintStatus {
                     has_mint_requests: false,

@@ -1142,6 +1142,9 @@ mod tests {
     };
     use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
     use bcr_ebill_core::blockchain::{Blockchain, BlockchainType};
+    use bcr_ebill_core::constants::{
+        ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+    };
     use bcr_ebill_core::contact::Contact;
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use mockall::predicate::eq;
@@ -1205,6 +1208,7 @@ mod tests {
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1349,6 +1353,7 @@ mod tests {
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1578,6 +1583,7 @@ mod tests {
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1701,6 +1707,7 @@ mod tests {
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -2040,6 +2047,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                acceptance_deadline_timestamp: timestamp + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &keys,
             None,
@@ -2088,6 +2096,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                payment_deadline_timestamp: timestamp + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &keys,
             None,
@@ -2194,6 +2203,7 @@ mod tests {
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -2247,6 +2257,7 @@ mod tests {
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
                 signing_address: Some(PostalAddress::default()),
+                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,

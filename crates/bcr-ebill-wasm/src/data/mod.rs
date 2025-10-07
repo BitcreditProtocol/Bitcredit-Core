@@ -5,7 +5,10 @@ use bcr_ebill_api::{
         File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
         PostalAddress, UploadFileResult,
     },
-    util::file::{UploadFileHandler, detect_content_type_for_bytes},
+    util::{
+        self, ValidationError,
+        file::{UploadFileHandler, detect_content_type_for_bytes},
+    },
 };
 use bill::LightBitcreditBillWeb;
 use company::CompanyWeb;
@@ -298,4 +301,14 @@ impl From<UploadFileResult> for UploadFileResponse {
 
 pub fn has_field(js_value: &JsValue, field: &str) -> bool {
     js_sys::Reflect::has(js_value, &JsValue::from_str(field)).unwrap_or(false)
+}
+
+/// Parses the given date of format YYYY-mm-dd to a UTC end-of-day timestamp
+pub fn parse_deadline_string(deadline_date: &str) -> Result<u64, ValidationError> {
+    let ts = util::date::end_of_day_as_timestamp(util::date::date_string_to_timestamp(
+        deadline_date,
+        None,
+    )?);
+    util::date::validate_timestamp(ts)?;
+    Ok(ts)
 }

@@ -36,8 +36,12 @@ use bcr_ebill_core::{
         },
         identity::IdentityBlockchain,
     },
-    constants::CURRENCY_SAT,
+    constants::{
+        ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+        RECOURSE_DEADLINE_SECONDS,
+    },
     contact::{BillIdentParticipant, BillParticipant},
+    util::date::now,
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
 use service::BillService;
@@ -116,6 +120,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
                 accepted: false,
                 request_to_accept_timed_out: false,
                 rejected_to_accept: false,
+                acceptance_deadline_timestamp: None,
             },
             payment: BillPaymentStatus {
                 time_of_request_to_pay: None,
@@ -123,6 +128,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
                 paid: false,
                 request_to_pay_timed_out: false,
                 rejected_to_pay: false,
+                payment_deadline_timestamp: None,
             },
             sell: BillSellStatus {
                 time_of_last_offer_to_sell: None,
@@ -130,6 +136,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
                 offered_to_sell: false,
                 offer_to_sell_timed_out: false,
                 rejected_offer_to_sell: false,
+                buying_deadline_timestamp: None,
             },
             recourse: BillRecourseStatus {
                 time_of_last_request_to_recourse: None,
@@ -137,6 +144,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
                 requested_to_recourse: false,
                 request_to_recourse_timed_out: false,
                 rejected_request_to_recourse: false,
+                recourse_deadline_timestamp: None,
             },
             mint: BillMintStatus {
                 has_mint_requests: false,
@@ -349,6 +357,7 @@ pub fn request_to_recourse_block(
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            recourse_deadline_timestamp: timestamp + 2 * RECOURSE_DEADLINE_SECONDS,
         },
         &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
@@ -414,6 +423,7 @@ pub fn request_to_accept_block(id: &BillId, first_block: &BillBlock, ts: Option<
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            acceptance_deadline_timestamp: timestamp + 2 * ACCEPT_DEADLINE_SECONDS,
         },
         &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
@@ -462,6 +472,7 @@ pub fn offer_to_sell_block(
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
         },
         &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
@@ -544,6 +555,7 @@ pub fn request_to_pay_block(id: &BillId, first_block: &BillBlock, ts: Option<u64
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            payment_deadline_timestamp: timestamp + 2 * PAYMENT_DEADLINE_SECONDS,
         },
         &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
@@ -576,4 +588,8 @@ pub fn bill_keys() -> BillKeys {
         private_key: private_key_test(),
         public_key: node_id_test().pub_key(),
     }
+}
+
+pub fn safe_deadline_ts(min_deadline: u64) -> u64 {
+    now().timestamp() as u64 + 2 * min_deadline
 }

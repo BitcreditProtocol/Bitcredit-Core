@@ -12,14 +12,13 @@ use bcr_ebill_core::bill::{
     BillWaitingStatePaymentData, BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy,
     PaidData, PaymentState,
 };
-use bcr_ebill_core::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
     LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
     LightBillParticipant,
 };
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
-use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode, util};
+use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
@@ -317,35 +316,29 @@ impl BillStoreApi for SurrealBillStore {
     }
 
     async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>> {
-        let timestamp_now_minus_payment_deadline =
-            util::date::now().timestamp() - PAYMENT_DEADLINE_SECONDS as i64;
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
-        bindings.add(DB_TIMESTAMP, timestamp_now_minus_payment_deadline)?;
         bindings.add(DB_OP_CODE, BillOpCode::OfferToSell)?;
         let query = r#"SELECT bill_id FROM 
             (SELECT bill_id, math::max(block_id) as block_id, op_code, timestamp FROM type::table($table) GROUP BY bill_id)
             .map(|$v| {
                 (SELECT bill_id, block_id, op_code, timestamp FROM bill_chain WHERE bill_id = $v.bill_id AND block_id = $v.block_id)[0]
             })
-            .flatten() WHERE timestamp > $timestamp AND op_code = $op_code"#;
+            .flatten() WHERE op_code = $op_code"#;
         let result: Vec<BillIdDb> = self.db.query(query, bindings).await?;
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
 
     async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>> {
-        let timestamp_now_minus_payment_deadline =
-            util::date::now().timestamp() - RECOURSE_DEADLINE_SECONDS as i64;
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
-        bindings.add(DB_TIMESTAMP, timestamp_now_minus_payment_deadline)?;
         bindings.add(DB_OP_CODE, BillOpCode::RequestRecourse)?;
         let query = r#"SELECT bill_id FROM 
             (SELECT bill_id, math::max(block_id) as block_id, op_code, timestamp FROM type::table($table) GROUP BY bill_id)
             .map(|$v| {
                 (SELECT bill_id, block_id, op_code, timestamp FROM bill_chain WHERE bill_id = $v.bill_id AND block_id = $v.block_id)[0]
             })
-            .flatten() WHERE timestamp > $timestamp AND op_code = $op_code"#;
+            .flatten() WHERE op_code = $op_code"#;
         let result: Vec<BillIdDb> = self.db.query(query, bindings).await?;
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
@@ -449,6 +442,7 @@ pub struct BillWaitingStatePaymentDataDb {
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
+    pub payment_deadline: Option<u64>,
 }
 
 impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
@@ -463,6 +457,7 @@ impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
             tx_id: value.tx_id,
             in_mempool: value.in_mempool,
             confirmations: value.confirmations,
+            payment_deadline: value.payment_deadline,
         }
     }
 }
@@ -479,6 +474,7 @@ impl From<&BillWaitingStatePaymentData> for BillWaitingStatePaymentDataDb {
             tx_id: value.tx_id.clone(),
             in_mempool: value.in_mempool,
             confirmations: value.confirmations,
+            payment_deadline: value.payment_deadline,
         }
     }
 }
@@ -613,6 +609,7 @@ pub struct BillAcceptanceStatusDb {
     pub accepted: bool,
     pub request_to_accept_timed_out: bool,
     pub rejected_to_accept: bool,
+    pub acceptance_deadline_timestamp: Option<u64>,
 }
 
 impl From<BillAcceptanceStatusDb> for BillAcceptanceStatus {
@@ -623,6 +620,7 @@ impl From<BillAcceptanceStatusDb> for BillAcceptanceStatus {
             accepted: value.accepted,
             request_to_accept_timed_out: value.request_to_accept_timed_out,
             rejected_to_accept: value.rejected_to_accept,
+            acceptance_deadline_timestamp: value.acceptance_deadline_timestamp,
         }
     }
 }
@@ -635,6 +633,7 @@ impl From<&BillAcceptanceStatus> for BillAcceptanceStatusDb {
             accepted: value.accepted,
             request_to_accept_timed_out: value.request_to_accept_timed_out,
             rejected_to_accept: value.rejected_to_accept,
+            acceptance_deadline_timestamp: value.acceptance_deadline_timestamp,
         }
     }
 }
@@ -646,6 +645,7 @@ pub struct BillPaymentStatusDb {
     pub paid: bool,
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
+    pub payment_deadline_timestamp: Option<u64>,
 }
 
 impl From<BillPaymentStatusDb> for BillPaymentStatus {
@@ -656,6 +656,7 @@ impl From<BillPaymentStatusDb> for BillPaymentStatus {
             paid: value.paid,
             request_to_pay_timed_out: value.request_to_pay_timed_out,
             rejected_to_pay: value.rejected_to_pay,
+            payment_deadline_timestamp: value.payment_deadline_timestamp,
         }
     }
 }
@@ -668,6 +669,7 @@ impl From<&BillPaymentStatus> for BillPaymentStatusDb {
             paid: value.paid,
             request_to_pay_timed_out: value.request_to_pay_timed_out,
             rejected_to_pay: value.rejected_to_pay,
+            payment_deadline_timestamp: value.payment_deadline_timestamp,
         }
     }
 }
@@ -679,6 +681,7 @@ pub struct BillSellStatusDb {
     pub offered_to_sell: bool,
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
+    pub buying_deadline_timestamp: Option<u64>,
 }
 
 impl From<BillSellStatusDb> for BillSellStatus {
@@ -689,6 +692,7 @@ impl From<BillSellStatusDb> for BillSellStatus {
             offered_to_sell: value.offered_to_sell,
             offer_to_sell_timed_out: value.offer_to_sell_timed_out,
             rejected_offer_to_sell: value.rejected_offer_to_sell,
+            buying_deadline_timestamp: value.buying_deadline_timestamp,
         }
     }
 }
@@ -701,6 +705,7 @@ impl From<&BillSellStatus> for BillSellStatusDb {
             offered_to_sell: value.offered_to_sell,
             offer_to_sell_timed_out: value.offer_to_sell_timed_out,
             rejected_offer_to_sell: value.rejected_offer_to_sell,
+            buying_deadline_timestamp: value.buying_deadline_timestamp,
         }
     }
 }
@@ -712,6 +717,7 @@ pub struct BillRecourseStatusDb {
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
+    pub recourse_deadline_timestamp: Option<u64>,
 }
 
 impl From<BillRecourseStatusDb> for BillRecourseStatus {
@@ -722,6 +728,7 @@ impl From<BillRecourseStatusDb> for BillRecourseStatus {
             requested_to_recourse: value.requested_to_recourse,
             request_to_recourse_timed_out: value.request_to_recourse_timed_out,
             rejected_request_to_recourse: value.rejected_request_to_recourse,
+            recourse_deadline_timestamp: value.recourse_deadline_timestamp,
         }
     }
 }
@@ -734,6 +741,7 @@ impl From<&BillRecourseStatus> for BillRecourseStatusDb {
             requested_to_recourse: value.requested_to_recourse,
             request_to_recourse_timed_out: value.request_to_recourse_timed_out,
             rejected_request_to_recourse: value.rejected_request_to_recourse,
+            recourse_deadline_timestamp: value.recourse_deadline_timestamp,
         }
     }
 }
@@ -1239,7 +1247,10 @@ pub mod tests {
                 BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
             },
         },
-        constants::CURRENCY_SAT,
+        constants::{
+            ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+            RECOURSE_DEADLINE_SECONDS,
+        },
         contact::BillParticipant,
     };
     use chrono::Months;
@@ -1317,6 +1328,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     None,
@@ -1531,6 +1543,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     None,
@@ -1606,6 +1619,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: now,
                 signing_address: Some(empty_address()),
+                buying_deadline_timestamp: now + 2 * DAY_IN_SECS,
             },
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
             None,
@@ -1704,6 +1718,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),
+                buying_deadline_timestamp: now_minus_one_month + 2 * DAY_IN_SECS,
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1716,10 +1731,10 @@ pub mod tests {
             .await
             .unwrap();
 
-        // nothing gets returned, because the offer to sell is expired
+        // block is still returned even though it's expired, since we can't check on DB level
         let res = store.get_bill_ids_waiting_for_sell_payment().await;
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap().len(), 0);
+        assert_eq!(res.as_ref().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -1809,6 +1824,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(empty_address()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1830,6 +1846,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(empty_address()),
+                payment_deadline_timestamp: ts + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1876,6 +1893,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: now,
                 signing_address: Some(empty_address()),
+                recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1968,6 +1986,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),
+                recourse_deadline_timestamp: now_minus_one_month + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1980,10 +1999,10 @@ pub mod tests {
             .await
             .unwrap();
 
-        // nothing gets returned, because the req to recourse is expired
+        // block is returned even though it's expired, since we can't check it on DB level
         let res = store.get_bill_ids_waiting_for_recourse_payment().await;
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap().len(), 0);
+        assert_eq!(res.as_ref().unwrap().len(), 1);
     }
 
     #[tokio::test]

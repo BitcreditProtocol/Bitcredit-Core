@@ -7,6 +7,9 @@ use super::BillOpCode::{
 
 use crate::bill::{BillAction, BillId, RecourseReason};
 use crate::blockchain::{Block, FIRST_BLOCK_ID};
+use crate::constants::{
+    ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
+};
 use crate::util::BcrKeys;
 use crate::util::{self, crypto};
 use crate::{
@@ -143,6 +146,8 @@ impl Validate for BillIssueBlockData {
         self.drawer.validate()?;
         self.payee.validate()?;
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+
         util::currency::validate_currency(&self.currency)?;
         util::currency::validate_sum(self.sum)?;
 
@@ -212,6 +217,8 @@ impl Validate for BillAcceptBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
         self.accepter.validate()?;
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
         }
@@ -229,16 +236,29 @@ pub struct BillRequestToPayBlockData {
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>, // address of the requester
+    pub payment_deadline_timestamp: u64,
 }
 
 impl Validate for BillRequestToPayBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
         self.requester.validate()?;
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+        util::date::validate_timestamp(self.payment_deadline_timestamp)?;
+
         util::currency::validate_currency(&self.currency)?;
 
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
+        }
+
+        // The deadline has to be at or after the end of the day of signing time plus 48h
+        let signing_ts_plus_minimum_deadline = self.signing_timestamp + PAYMENT_DEADLINE_SECONDS;
+        if !util::date::deadline_is_at_or_after_end_of_day_of(
+            self.payment_deadline_timestamp,
+            signing_ts_plus_minimum_deadline,
+        ) {
+            return Err(ValidationError::DeadlineBeforeMinimum);
         }
 
         self.signing_address.validate()?;
@@ -253,6 +273,7 @@ pub struct BillRequestToAcceptBlockData {
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>, // address of the requester
+    pub acceptance_deadline_timestamp: u64,
 }
 
 impl Validate for BillRequestToAcceptBlockData {
@@ -263,7 +284,19 @@ impl Validate for BillRequestToAcceptBlockData {
             signatory.validate()?;
         }
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+        util::date::validate_timestamp(self.acceptance_deadline_timestamp)?;
+
         self.signing_address.validate()?;
+
+        // The deadline has to be at or after the end of the day of signing time plus 48h
+        let signing_ts_plus_minimum_deadline = self.signing_timestamp + ACCEPT_DEADLINE_SECONDS;
+        if !util::date::deadline_is_at_or_after_end_of_day_of(
+            self.acceptance_deadline_timestamp,
+            signing_ts_plus_minimum_deadline,
+        ) {
+            return Err(ValidationError::DeadlineBeforeMinimum);
+        }
 
         Ok(())
     }
@@ -289,6 +322,8 @@ impl Validate for BillMintBlockData {
             return Err(ValidationError::EndorserCantBeEndorsee);
         }
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+
         util::currency::validate_currency(&self.currency)?;
         util::currency::validate_sum(self.sum)?;
 
@@ -312,6 +347,7 @@ pub struct BillOfferToSellBlockData {
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>, // address of the seller
+    pub buying_deadline_timestamp: u64,
 }
 
 impl Validate for BillOfferToSellBlockData {
@@ -323,6 +359,9 @@ impl Validate for BillOfferToSellBlockData {
             return Err(ValidationError::BuyerCantBeSeller);
         }
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+        util::date::validate_timestamp(self.buying_deadline_timestamp)?;
+
         util::currency::validate_currency(&self.currency)?;
         util::currency::validate_sum(self.sum)?;
 
@@ -332,6 +371,14 @@ impl Validate for BillOfferToSellBlockData {
 
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
+        }
+
+        // The deadline has to be at or after the end of the day of signing time
+        if !util::date::deadline_is_at_or_after_end_of_day_of(
+            self.buying_deadline_timestamp,
+            self.signing_timestamp,
+        ) {
+            return Err(ValidationError::DeadlineBeforeMinimum);
         }
 
         self.signing_address.validate()?;
@@ -360,6 +407,8 @@ impl Validate for BillSellBlockData {
         if self.buyer.node_id() == self.seller.node_id() {
             return Err(ValidationError::BuyerCantBeSeller);
         }
+
+        util::date::validate_timestamp(self.signing_timestamp)?;
 
         util::currency::validate_currency(&self.currency)?;
         util::currency::validate_sum(self.sum)?;
@@ -400,6 +449,8 @@ impl Validate for BillEndorseBlockData {
             signatory.validate()?;
         }
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+
         self.signing_address.validate()?;
 
         Ok(())
@@ -416,6 +467,7 @@ pub struct BillRequestRecourseBlockData {
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>, // address of the recourser
+    pub recourse_deadline_timestamp: u64,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -433,11 +485,23 @@ impl Validate for BillRequestRecourseBlockData {
             return Err(ValidationError::RecourserCantBeRecoursee);
         }
 
+        util::date::validate_timestamp(self.signing_timestamp)?;
+        util::date::validate_timestamp(self.recourse_deadline_timestamp)?;
+
         util::currency::validate_currency(&self.currency)?;
         util::currency::validate_sum(self.sum)?;
 
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
+        }
+
+        // The deadline has to be at or after the end of the day of signing time plus 48h
+        let signing_ts_plus_minimum_deadline = self.signing_timestamp + RECOURSE_DEADLINE_SECONDS;
+        if !util::date::deadline_is_at_or_after_end_of_day_of(
+            self.recourse_deadline_timestamp,
+            signing_ts_plus_minimum_deadline,
+        ) {
+            return Err(ValidationError::DeadlineBeforeMinimum);
         }
 
         self.signing_address.validate()?;
@@ -466,6 +530,8 @@ impl Validate for BillRecourseBlockData {
         if self.recoursee.node_id == self.recourser.node_id {
             return Err(ValidationError::RecourserCantBeRecoursee);
         }
+
+        util::date::validate_timestamp(self.signing_timestamp)?;
 
         util::currency::validate_currency(&self.currency)?;
         util::currency::validate_sum(self.sum)?;
@@ -1484,7 +1550,9 @@ impl BillBlock {
                 (
                     data.requester.node_id(),
                     data.signatory.map(|s| s.node_id),
-                    Some(BillAction::RequestAcceptance),
+                    Some(BillAction::RequestAcceptance(
+                        data.acceptance_deadline_timestamp,
+                    )),
                 )
             }
             Accept => {
@@ -1502,7 +1570,10 @@ impl BillBlock {
                 (
                     data.requester.node_id(),
                     data.signatory.map(|s| s.node_id),
-                    Some(BillAction::RequestToPay(data.currency)),
+                    Some(BillAction::RequestToPay(
+                        data.currency,
+                        data.payment_deadline_timestamp,
+                    )),
                 )
             }
             OfferToSell => {
@@ -1515,6 +1586,7 @@ impl BillBlock {
                         data.buyer.into(),
                         data.sum,
                         data.currency,
+                        data.buying_deadline_timestamp,
                     )),
                 )
             }
@@ -1580,7 +1652,11 @@ impl BillBlock {
                 (
                     data.recourser.node_id(),
                     data.signatory.map(|s| s.node_id),
-                    Some(BillAction::RequestRecourse(data.recoursee.into(), reason)),
+                    Some(BillAction::RequestRecourse(
+                        data.recoursee.into(),
+                        reason,
+                        data.recourse_deadline_timestamp,
+                    )),
                 )
             }
             Recourse => {
@@ -1651,7 +1727,7 @@ pub mod tests {
     use super::*;
     use crate::{
         blockchain::bill::tests::get_baseline_identity,
-        constants::CURRENCY_SAT,
+        constants::{CURRENCY_SAT, DAY_IN_SECS},
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
             bill_participant_only_node_id, empty_bill_identified_participant, empty_bitcredit_bill,
@@ -1825,6 +1901,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
+                acceptance_deadline_timestamp: 1731593928 + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1885,6 +1962,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
+                payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &get_baseline_identity().key_pair,
             None,
@@ -1916,6 +1994,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
+                buying_deadline_timestamp: 1731593928 + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().key_pair,
             None,
@@ -2095,6 +2174,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(recourser.postal_address),
+                recourse_deadline_timestamp: 1731593928 + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &get_baseline_identity().key_pair,
             None,
@@ -2252,6 +2332,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                acceptance_deadline_timestamp: 1731593928 + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
@@ -2267,7 +2348,7 @@ pub mod tests {
         );
         assert!(matches!(
             req_to_accept_result.as_ref().unwrap().1,
-            Some(BillAction::RequestAcceptance)
+            Some(BillAction::RequestAcceptance(_))
         ));
         assert!(req_to_accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2280,6 +2361,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
@@ -2295,7 +2377,7 @@ pub mod tests {
         );
         assert!(matches!(
             req_to_pay_result.as_ref().unwrap().1,
-            Some(BillAction::RequestToPay(_))
+            Some(BillAction::RequestToPay(_, _))
         ));
         assert!(req_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2338,6 +2420,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                buying_deadline_timestamp: 1731593928 + 2 * DAY_IN_SECS,
             },
             &identity_keys,
             None,
@@ -2353,7 +2436,7 @@ pub mod tests {
         );
         assert!(matches!(
             offer_to_sell_result.as_ref().unwrap().1,
-            Some(BillAction::OfferToSell(_, _, _))
+            Some(BillAction::OfferToSell(_, _, _, _))
         ));
         assert!(offer_to_sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2509,6 +2592,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                recourse_deadline_timestamp: 1731593928 + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
@@ -2524,7 +2608,7 @@ pub mod tests {
         );
         assert!(matches!(
             request_recourse_result.as_ref().unwrap().1,
-            Some(BillAction::RequestRecourse(_, _))
+            Some(BillAction::RequestRecourse(_, _, _))
         ));
         assert!(request_recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2685,6 +2769,7 @@ pub mod tests {
                 }),
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                acceptance_deadline_timestamp: 1731593928 + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -2700,7 +2785,7 @@ pub mod tests {
         );
         assert!(matches!(
             req_to_accept_result.as_ref().unwrap().1,
-            Some(BillAction::RequestAcceptance)
+            Some(BillAction::RequestAcceptance(_))
         ));
         assert!(req_to_accept_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2716,6 +2801,7 @@ pub mod tests {
                 }),
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -2731,7 +2817,7 @@ pub mod tests {
         );
         assert!(matches!(
             req_to_pay_result.as_ref().unwrap().1,
-            Some(BillAction::RequestToPay(_))
+            Some(BillAction::RequestToPay(_, _))
         ));
         assert!(req_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2780,6 +2866,7 @@ pub mod tests {
                 }),
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                buying_deadline_timestamp: 1731593928 + 2 * DAY_IN_SECS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -2795,7 +2882,7 @@ pub mod tests {
         );
         assert!(matches!(
             offer_to_sell_result.as_ref().unwrap().1,
-            Some(BillAction::OfferToSell(_, _, _))
+            Some(BillAction::OfferToSell(_, _, _, _))
         ));
         assert!(offer_to_sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2969,6 +3056,7 @@ pub mod tests {
                 }),
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
+                recourse_deadline_timestamp: 1731593928 + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -2984,7 +3072,7 @@ pub mod tests {
         );
         assert!(matches!(
             request_recourse_result.as_ref().unwrap().1,
-            Some(BillAction::RequestRecourse(_, _))
+            Some(BillAction::RequestRecourse(_, _, _))
         ));
         assert!(request_recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -3222,6 +3310,7 @@ pub mod tests {
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
+            acceptance_deadline_timestamp: 1731593928 + 2 * ACCEPT_DEADLINE_SECONDS,
         }
     }
 
@@ -3275,6 +3364,7 @@ pub mod tests {
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
+            payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
         }
     }
 
@@ -3338,6 +3428,7 @@ pub mod tests {
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
+            buying_deadline_timestamp: 1731593928 + 2 * DAY_IN_SECS,
         }
     }
 
@@ -3434,6 +3525,7 @@ pub mod tests {
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
+            recourse_deadline_timestamp: 1731593928 + 2 * RECOURSE_DEADLINE_SECONDS,
         }
     }
 

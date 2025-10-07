@@ -31,7 +31,6 @@ use crate::util::BcrKeys;
 use crate::util::file::UploadFileType;
 use crate::{external, util};
 use async_trait::async_trait;
-use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{
     BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
     PastPaymentDataSell, PastPaymentResult, PastPaymentStatus, PaymentState,
@@ -42,9 +41,6 @@ use bcr_ebill_core::blockchain::bill::block::{
 use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
 use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
 use bcr_ebill_core::company::{Company, CompanyKeys};
-use bcr_ebill_core::constants::{
-    ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
-};
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillParticipant, Contact, LightBillParticipant,
 };
@@ -230,23 +226,46 @@ impl BillService {
     async fn check_bill_timeouts(&self, bill_id: &BillId, now: u64) -> Result<()> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
-        let latest_ts = chain.get_latest_block().timestamp;
         let contacts = self.contact_store.get_map().await?;
         let mut recoursee = None;
+        let bill_data = chain.get_first_version_bill(&bill_keys)?;
 
-        if let Some(action) = match chain.get_latest_block().op_code {
-            BillOpCode::RequestToPay | BillOpCode::OfferToSell
-                if (latest_ts + PAYMENT_DEADLINE_SECONDS <= now) =>
+        let latest_block = chain.get_latest_block();
+        if let Some(action) = match latest_block.op_code {
+            BillOpCode::RequestToPay
+                if chain
+                    .is_req_to_pay_block_payment_expired(
+                        latest_block,
+                        &bill_keys,
+                        now,
+                        Some(&bill_data.maturity_date),
+                    )?
+                    .0 =>
             {
                 Some(ActionType::PayBill)
             }
-            BillOpCode::RequestToAccept if (latest_ts + ACCEPT_DEADLINE_SECONDS <= now) => {
+            BillOpCode::OfferToSell
+                if chain
+                    .is_offer_to_sell_block_payment_expired(latest_block, &bill_keys, now)?
+                    .0 =>
+            {
+                Some(ActionType::PayBill)
+            }
+
+            BillOpCode::RequestToAccept
+                if chain
+                    .is_req_to_accept_block_payment_expired(latest_block, &bill_keys, now)?
+                    .0 =>
+            {
                 Some(ActionType::AcceptBill)
             }
-            BillOpCode::RequestRecourse if (latest_ts + RECOURSE_DEADLINE_SECONDS <= now) => {
-                if let Ok(recourse_block) = chain
-                    .get_latest_block()
-                    .get_decrypted_block::<BillRequestRecourseBlockData>(&bill_keys)
+            BillOpCode::RequestRecourse
+                if chain
+                    .is_req_to_recourse_block_payment_expired(latest_block, &bill_keys, now)?
+                    .0 =>
+            {
+                if let Ok(recourse_block) =
+                    latest_block.get_decrypted_block::<BillRequestRecourseBlockData>(&bill_keys)
                 {
                     recoursee = Some(recourse_block.recoursee.node_id());
                 }
@@ -1315,15 +1334,13 @@ impl BillServiceApi for BillService {
 
             // we check for the payment expiration, not the request expiration
             // if the request expired, but the payment deadline hasn't, it's not a past payment
-            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
-                req_to_pay.timestamp,
-                &bill.maturity_date,
-            )?;
-            let is_expired = util::date::check_if_deadline_has_passed(
-                deadline_base,
+            let (is_expired, payment_deadline) = chain.is_req_to_pay_block_payment_expired(
+                req_to_pay,
+                &bill_keys,
                 timestamp,
-                PAYMENT_DEADLINE_SECONDS,
-            );
+                Some(&bill.maturity_date),
+            )?;
+
             let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
 
             if is_paid || is_rejected || is_expired {
@@ -1356,8 +1373,9 @@ impl BillServiceApi for BillService {
                         };
                         PastPaymentStatus::Rejected(ts)
                     } else {
-                        PastPaymentStatus::Expired(deadline_base + PAYMENT_DEADLINE_SECONDS)
+                        PastPaymentStatus::Expired(payment_deadline)
                     },
+                    payment_deadline,
                 }));
             }
         }
@@ -1390,6 +1408,7 @@ impl BillServiceApi for BillService {
                 private_descriptor_to_spend: descriptor_to_spend.clone(),
                 mempool_link_for_address_to_pay,
                 status: past_sell_payment.1,
+                payment_deadline: past_sell_payment.0.buying_deadline_timestamp,
             }));
         }
 
@@ -1424,6 +1443,7 @@ impl BillServiceApi for BillService {
                 private_descriptor_to_spend: descriptor_to_spend.clone(),
                 mempool_link_for_address_to_pay,
                 status: past_sell_payment.1,
+                payment_deadline: past_sell_payment.0.recourse_deadline_timestamp,
             }));
         }
 
