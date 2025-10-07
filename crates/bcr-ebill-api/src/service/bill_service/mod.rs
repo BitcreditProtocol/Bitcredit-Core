@@ -5617,7 +5617,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = util::date::now().timestamp() as u64 - 10; // to avoid race with called code
                 let mut chain = get_genesis_chain(Some(bill.clone()));
                 let req_to_recourse = BillBlock::create_block_for_request_recourse(
                     bill_id_test(),

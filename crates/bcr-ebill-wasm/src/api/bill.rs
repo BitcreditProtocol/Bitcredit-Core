@@ -922,25 +922,37 @@ async fn request_recourse(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    let public_data_recoursee = match get_ctx()
+    // we fetch the nostr contact first to know where we have to send
+    let nostr_contact = match get_ctx()
         .contact_service
-        .get_identity_by_node_id(recoursee_node_id)
+        .get_nostr_contact_by_node_id(recoursee_node_id)
         .await
     {
-        Ok(Some(BillParticipant::Ident(recoursee))) => recoursee,
-        Ok(Some(BillParticipant::Anon(_))) => {
-            // recoursee has to be identified
-            return Err(
-                BillServiceError::Validation(ValidationError::ContactIsAnonymous(
-                    recoursee_node_id.to_string(),
-                ))
-                .into(),
-            );
-        }
+        Ok(Some(nc)) => nc,
         Ok(None) | Err(_) => {
             return Err(BillServiceError::RecourseeNotInContacts.into());
         }
     };
+
+    // fetch past endorsees to validate the recoursee is in there and to get their data
+    let past_endorsees = get_ctx()
+        .bill_service
+        .get_past_endorsees(bill_id, &get_current_identity_node_id().await?)
+        .await?;
+
+    // create public recourse data from past endorsees and our nostr contacts
+    let mut public_data_recoursee = match past_endorsees
+        .iter()
+        .find(|pe| &pe.pay_to_the_order_of.node_id == recoursee_node_id)
+    {
+        Some(found_pe) => found_pe.pay_to_the_order_of.clone(),
+        None => {
+            return Err(
+                BillServiceError::Validation(ValidationError::RecourseeNotPastHolder).into(),
+            );
+        }
+    };
+    public_data_recoursee.nostr_relays = nostr_contact.relays;
 
     get_ctx()
         .bill_service
