@@ -40,17 +40,17 @@ impl BillService {
                     .send_bill_is_accepted_event(&chain_event)
                     .await?;
             }
-            BillAction::RequestAcceptance => {
+            BillAction::RequestAcceptance(_) => {
                 self.notification_service
                     .send_request_to_accept_event(&chain_event)
                     .await?;
             }
-            BillAction::RequestToPay(_) => {
+            BillAction::RequestToPay(_, _) => {
                 self.notification_service
                     .send_request_to_pay_event(&chain_event)
                     .await?;
             }
-            BillAction::RequestRecourse(recoursee, recourse_reason) => {
+            BillAction::RequestRecourse(recoursee, recourse_reason, _) => {
                 let action_type = match recourse_reason {
                     RecourseReason::Accept => ActionType::AcceptBill,
                     RecourseReason::Pay(_, _) => ActionType::PayBill,
@@ -69,7 +69,7 @@ impl BillService {
                     .send_bill_is_endorsed_event(&chain_event)
                     .await?;
             }
-            BillAction::OfferToSell(buyer, _, _) => {
+            BillAction::OfferToSell(buyer, _, _, _) => {
                 self.notification_service
                     .send_offer_to_sell_event(&chain_event, buyer)
                     .await?;

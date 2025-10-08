@@ -21,6 +21,22 @@ pub fn seconds(timestamp: u64) -> DateTimeUtc {
     }
 }
 
+/// Checks if the given deadline timestamp is at or after the end of the day of the given timestamp
+pub fn deadline_is_at_or_after_end_of_day_of(deadline_timestamp: u64, timestamp: u64) -> bool {
+    let end_of_day_base_ts = end_of_day_as_timestamp(timestamp);
+    deadline_timestamp >= end_of_day_base_ts
+}
+
+/// Checks if the given timestamp is a valid timestamp
+pub fn validate_timestamp(timestamp: u64) -> Result<(), ValidationError> {
+    let valid = timestamp <= DateTimeUtc::MAX_UTC.timestamp() as u64
+        && Utc.timestamp_opt(timestamp as i64, 0).single().is_some();
+    if !valid {
+        return Err(ValidationError::InvalidTimestamp);
+    }
+    Ok(())
+}
+
 /// Returns the start of day timestamp for the given timestamp
 pub fn start_of_day_as_timestamp(timestamp: u64) -> u64 {
     let dt = seconds(timestamp);
@@ -67,26 +83,19 @@ pub fn date_string_to_timestamp(
         .ok_or(ValidationError::InvalidDate)?;
     let date_utc = Utc.from_utc_datetime(&naive_date_time);
 
-    Ok(date_utc.timestamp() as u64)
+    let ts = date_utc.timestamp() as u64;
+    validate_timestamp(ts)?;
+
+    Ok(ts)
 }
 
 pub fn format_date_string(date: DateTimeUtc) -> String {
     date.format(DEFAULT_DATE_FORMAT).to_string()
 }
 
-/// checks if the given timestamp plus the given deadline is after the given current timestamp
-pub fn check_if_deadline_has_passed(
-    timestamp_to_check: u64,
-    current_timestamp: u64,
-    deadline_seconds: u64,
-) -> bool {
-    // We check this to avoid a u64 underflow, if the block timestamp is in the future, the
-    // deadline can't be expired
-    if timestamp_to_check > current_timestamp {
-        return false;
-    }
-    let difference = current_timestamp - timestamp_to_check;
-    difference > deadline_seconds
+/// checks if the given deadline is after the given current timestamp
+pub fn check_if_deadline_has_passed(deadline: u64, current_timestamp: u64) -> bool {
+    current_timestamp > deadline
 }
 
 #[cfg(test)]
@@ -128,6 +137,8 @@ mod tests {
             .timestamp() as u64;
         let end_of_day = end_of_day_as_timestamp(ts);
         assert!(end_of_day > ts,);
+        let end_of_day_end_of_dayd = end_of_day_as_timestamp(end_of_day);
+        assert_eq!(end_of_day, end_of_day_end_of_dayd);
     }
 
     #[test]
@@ -178,5 +189,24 @@ mod tests {
         assert!(date_string_to_rfc3339("2025-32-99").is_err());
         assert!(date_string_to_rfc3339("2025/01/15").is_err());
         assert!(date_string_to_rfc3339("").is_err());
+    }
+
+    #[test]
+    fn test_deadline_is_at_or_after_end_of_day_of() {
+        let ts = Utc
+            .with_ymd_and_hms(2025, 1, 15, 0, 0, 0)
+            .unwrap()
+            .timestamp() as u64;
+        let end_of_day = end_of_day_as_timestamp(ts);
+        assert!(deadline_is_at_or_after_end_of_day_of(end_of_day, ts));
+        assert!(!deadline_is_at_or_after_end_of_day_of(end_of_day - 1, ts));
+        assert!(deadline_is_at_or_after_end_of_day_of(end_of_day + 1, ts));
+    }
+
+    #[test]
+    fn test_validate_timestamp() {
+        assert!(validate_timestamp(0).is_ok());
+        assert!(validate_timestamp(1731593928).is_ok());
+        assert!(validate_timestamp(u64::MAX).is_err());
     }
 }

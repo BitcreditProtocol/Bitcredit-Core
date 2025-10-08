@@ -516,7 +516,7 @@ async function endorseBillBlank() {
 async function requestToAcceptBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return await billApi.request_to_accept({ bill_id });
+    return await billApi.request_to_accept({ bill_id, acceptance_deadline: getDeadlineDate() });
   });
   await measured();
 }
@@ -532,7 +532,7 @@ async function acceptBill() {
 async function requestToPayBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return await billApi.request_to_pay({ bill_id, currency: "sat" });
+    return await billApi.request_to_pay({ bill_id, currency: "sat", payment_deadline: getDeadlineDate() });
   });
   await measured();
 }
@@ -541,7 +541,7 @@ async function offerToSellBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return await billApi.offer_to_sell({ bill_id, sum: "500", currency: "sat", buyer: endorsee });
+    return await billApi.offer_to_sell({ bill_id, sum: "500", currency: "sat", buyer: endorsee, buying_deadline: getDeadlineDate() });
   });
   await measured();
 }
@@ -550,7 +550,7 @@ async function requestToRecourseBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return await billApi.request_to_recourse_bill_acceptance({ bill_id, recoursee: endorsee });
+    return await billApi.request_to_recourse_bill_acceptance({ bill_id, recoursee: endorsee, recourse_deadline: getDeadlineDate() });
   });
   await measured();
 }
@@ -559,7 +559,7 @@ async function requestToRecourseBillPayment() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return await billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "sat", sum: "1500" });
+    return await billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "sat", sum: "1500", recourse_deadline: getDeadlineDate() });
   });
   await measured();
 }
@@ -857,5 +857,12 @@ function generateIdentity() {
 function getQueryParam(paramName) {
   const urlParams = new URLSearchParams(window.location.search);
   return urlParams.get(paramName);
+}
+
+function getDeadlineDate() {
+  const now = new Date();
+  const nDaysLater = new Date(now);
+  nDaysLater.setDate(now.getDate() + 3); // set deadline to 3 days later
+  return nDaysLater.toISOString().split('T')[0]
 }
 

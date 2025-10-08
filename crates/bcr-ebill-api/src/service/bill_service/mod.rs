@@ -244,7 +244,7 @@ pub mod tests {
         external::mint::QuoteStatusReply,
         persistence,
         service::{
-            bill_service::test_utils::MockBillContext,
+            bill_service::test_utils::{MockBillContext, safe_deadline_ts},
             company_service::tests::{
                 get_baseline_company, get_baseline_company_data, get_valid_company_chain,
             },
@@ -277,7 +277,7 @@ pub mod tests {
             },
         },
         constants::{
-            ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, PAYMENT_DEADLINE_SECONDS,
+            ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
@@ -954,6 +954,7 @@ pub mod tests {
             paid: false,
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
+            payment_deadline_timestamp: Some(1531593928 + 2 * PAYMENT_DEADLINE_SECONDS),
         };
 
         ctx.bill_blockchain_store
@@ -1047,6 +1048,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -1184,6 +1186,7 @@ pub mod tests {
             paid: false,
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
+            payment_deadline_timestamp: Some(1531593928 + 2 * PAYMENT_DEADLINE_SECONDS),
         };
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
@@ -1702,7 +1705,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &bill_identified_participant_only_node_id(bill.drawee.node_id.clone()),
-                    Some(now - RECOURSE_DEADLINE_SECONDS * 2),
+                    Some(now - RECOURSE_DEADLINE_SECONDS * 3),
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
                 Ok(chain)
@@ -1978,7 +1981,7 @@ pub mod tests {
                 let req_to_pay_block = request_to_pay_block(
                     &bill_id_test(),
                     chain.get_latest_block(),
-                    Some(now - PAYMENT_DEADLINE_SECONDS * 2),
+                    Some(now - PAYMENT_DEADLINE_SECONDS * 3),
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
                 Ok(chain)
@@ -2246,7 +2249,7 @@ pub mod tests {
                 let req_to_pay_block = request_to_accept_block(
                     &bill_id_test(),
                     chain.get_latest_block(),
-                    Some(now - ACCEPT_DEADLINE_SECONDS * 2),
+                    Some(now - ACCEPT_DEADLINE_SECONDS * 3),
                 );
                 assert!(chain.try_add_block(req_to_pay_block));
                 Ok(chain)
@@ -2523,7 +2526,10 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestToPay(CURRENCY_SAT.to_string()),
+                BillAction::RequestToPay(
+                    CURRENCY_SAT.to_string(),
+                    safe_deadline_ts(PAYMENT_DEADLINE_SECONDS),
+                ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -2565,7 +2571,10 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestToPay(CURRENCY_SAT.to_string()),
+                BillAction::RequestToPay(
+                    CURRENCY_SAT.to_string(),
+                    safe_deadline_ts(PAYMENT_DEADLINE_SECONDS),
+                ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
                 1731593928,
@@ -2593,7 +2602,10 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestToPay(CURRENCY_SAT.to_string()),
+                BillAction::RequestToPay(
+                    CURRENCY_SAT.to_string(),
+                    safe_deadline_ts(PAYMENT_DEADLINE_SECONDS),
+                ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -2631,7 +2643,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestAcceptance,
+                BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -2671,7 +2683,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestAcceptance,
+                BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
                 1731593928,
@@ -2699,7 +2711,7 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestAcceptance,
+                BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -2919,6 +2931,7 @@ pub mod tests {
                     ))),
                     15000,
                     CURRENCY_SAT.to_string(),
+                    safe_deadline_ts(DAY_IN_SECS),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -2968,6 +2981,7 @@ pub mod tests {
                     )),
                     15000,
                     CURRENCY_SAT.to_string(),
+                    safe_deadline_ts(DAY_IN_SECS),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -3005,6 +3019,7 @@ pub mod tests {
                     ))),
                     15000,
                     CURRENCY_SAT.to_string(),
+                    safe_deadline_ts(DAY_IN_SECS),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -3048,6 +3063,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        buying_deadline_timestamp: 1731593927 + 2 * DAY_IN_SECS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -3121,6 +3137,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        buying_deadline_timestamp: 1731593927 + 2 * DAY_IN_SECS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -3191,6 +3208,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        buying_deadline_timestamp: 1731593927 + 2 * DAY_IN_SECS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -5133,6 +5151,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now + 1,
                         signing_address: Some(empty_address()),
+                        acceptance_deadline_timestamp: now + 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
@@ -5194,6 +5213,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now + 1,
                         signing_address: Some(empty_address()),
+                        acceptance_deadline_timestamp: now + 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
@@ -5360,6 +5380,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5424,6 +5445,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5491,6 +5513,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5562,6 +5585,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5635,6 +5659,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,
@@ -5693,7 +5718,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = util::date::now().timestamp() as u64 - 10; // to avoid race with called code
                 let mut chain = get_genesis_chain(Some(bill.clone()));
                 let req_to_recourse = BillBlock::create_block_for_request_recourse(
                     bill_id_test(),
@@ -5714,6 +5739,7 @@ pub mod tests {
                         }),
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
+                        recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
@@ -5786,6 +5812,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        acceptance_deadline_timestamp: 1731593927 + 2 * ACCEPT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -5825,7 +5852,11 @@ pub mod tests {
         let res = service
             .execute_bill_action(
                 &bill_id_test(),
-                BillAction::RequestRecourse(recoursee, RecourseReason::Accept),
+                BillAction::RequestRecourse(
+                    recoursee,
+                    RecourseReason::Accept,
+                    safe_deadline_ts(RECOURSE_DEADLINE_SECONDS),
+                ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
@@ -5889,6 +5920,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: 1731593927 + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -5929,6 +5961,7 @@ pub mod tests {
                 BillAction::RequestRecourse(
                     recoursee,
                     RecourseReason::Pay(15000, CURRENCY_SAT.to_string()),
+                    safe_deadline_ts(RECOURSE_DEADLINE_SECONDS),
                 ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
@@ -5991,6 +6024,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        payment_deadline_timestamp: 1731593927 + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -6033,6 +6067,7 @@ pub mod tests {
                 BillAction::RequestRecourse(
                     recoursee,
                     RecourseReason::Pay(15000, CURRENCY_SAT.to_string()),
+                    safe_deadline_ts(RECOURSE_DEADLINE_SECONDS),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
@@ -6087,6 +6122,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        recourse_deadline_timestamp: 1731593927 + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -6169,6 +6205,7 @@ pub mod tests {
                         signatory: None,
                         signing_timestamp: 1731593927,
                         signing_address: Some(empty_address()),
+                        recourse_deadline_timestamp: 1731593927 + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
@@ -6218,8 +6255,10 @@ pub mod tests {
             paid: false,
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
+            payment_deadline_timestamp: Some(1531593928 + PAYMENT_DEADLINE_SECONDS),
         };
 
+        // true, because payment deadline was several days ago
         assert!(
             service
                 .check_requests_for_expiration(&bill_payment, 1731593928)
@@ -6233,15 +6272,32 @@ pub mod tests {
                 .unwrap()
         );
         bill_payment.status.payment.request_to_pay_timed_out = false;
+        // false, because time is before the deadline
         assert!(
             !service
                 .check_requests_for_expiration(&bill_payment, 1431593928)
                 .unwrap()
         );
         bill_payment.data.maturity_date = "2018-07-15".into(); // before ts
+        // false, because maturity date is before the deadline
         assert!(
             !service
                 .check_requests_for_expiration(&bill_payment, 1531593929)
+                .unwrap()
+        );
+        // false, because maturity date is after the deadline, but we call in-between
+        // deadline: 1531766728 (2018-07-16)
+        // maturity: 1531864799 (2018-07-15 + 2d end of day)
+        // called with: 1531864789(in-between)
+        assert!(
+            !service
+                .check_requests_for_expiration(&bill_payment, 1531864789)
+                .unwrap()
+        );
+        // true, because after maturity date
+        assert!(
+            service
+                .check_requests_for_expiration(&bill_payment, 1531978728)
                 .unwrap()
         );
         bill_payment.current_waiting_state = Some(BillCurrentWaitingState::Payment(
@@ -6258,6 +6314,7 @@ pub mod tests {
                     tx_id: None,
                     confirmations: 0,
                     in_mempool: false,
+                    payment_deadline: Some(1531593928 + 2 * PAYMENT_DEADLINE_SECONDS),
                 },
             },
         ));
@@ -6318,6 +6375,7 @@ pub mod tests {
             accepted: false,
             request_to_accept_timed_out: false,
             rejected_to_accept: false,
+            acceptance_deadline_timestamp: Some(1531593928 + ACCEPT_DEADLINE_SECONDS),
         };
 
         assert!(
@@ -6363,6 +6421,7 @@ pub mod tests {
             sold: false,
             offer_to_sell_timed_out: false,
             rejected_offer_to_sell: false,
+            buying_deadline_timestamp: Some(1531593928 + DAY_IN_SECS),
         };
 
         assert!(
@@ -6403,6 +6462,7 @@ pub mod tests {
             recoursed: false,
             request_to_recourse_timed_out: false,
             rejected_request_to_recourse: false,
+            recourse_deadline_timestamp: Some(1531593928 + RECOURSE_DEADLINE_SECONDS),
         };
 
         assert!(

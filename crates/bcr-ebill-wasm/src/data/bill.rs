@@ -76,6 +76,7 @@ pub struct OfferToSellBitcreditBillPayload {
     pub bill_id: BillId,
     pub sum: String,
     pub currency: String,
+    pub buying_deadline: String,
 }
 
 #[derive(Tsify, Debug, Deserialize)]
@@ -84,6 +85,7 @@ pub struct RequestToPayBitcreditBillPayload {
     #[tsify(type = "string")]
     pub bill_id: BillId,
     pub currency: String,
+    pub payment_deadline: String,
 }
 
 #[derive(Tsify, Debug, Deserialize)]
@@ -95,6 +97,7 @@ pub struct RequestRecourseForPaymentPayload {
     pub recoursee: NodeId,
     pub currency: String,
     pub sum: String,
+    pub recourse_deadline: String,
 }
 
 #[derive(Tsify, Debug, Deserialize)]
@@ -104,6 +107,7 @@ pub struct RequestRecourseForAcceptancePayload {
     pub bill_id: BillId,
     #[tsify(type = "string")]
     pub recoursee: NodeId,
+    pub recourse_deadline: String,
 }
 
 #[derive(Tsify, Debug, Deserialize)]
@@ -118,6 +122,7 @@ pub struct AcceptBitcreditBillPayload {
 pub struct RequestToAcceptBitcreditBillPayload {
     #[tsify(type = "string")]
     pub bill_id: BillId,
+    pub acceptance_deadline: String,
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
@@ -464,6 +469,7 @@ pub struct BillWaitingStatePaymentDataWeb {
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
+    pub payment_deadline: Option<u64>,
 }
 
 impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
@@ -478,6 +484,7 @@ impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
             tx_id: val.tx_id,
             in_mempool: val.in_mempool,
             confirmations: val.confirmations,
+            payment_deadline: val.payment_deadline,
         }
     }
 }
@@ -571,6 +578,7 @@ pub struct BillAcceptanceStatusWeb {
     pub accepted: bool,
     pub request_to_accept_timed_out: bool,
     pub rejected_to_accept: bool,
+    pub acceptance_deadline_timestamp: Option<u64>,
 }
 
 impl From<BillAcceptanceStatus> for BillAcceptanceStatusWeb {
@@ -581,6 +589,7 @@ impl From<BillAcceptanceStatus> for BillAcceptanceStatusWeb {
             accepted: val.accepted,
             request_to_accept_timed_out: val.request_to_accept_timed_out,
             rejected_to_accept: val.rejected_to_accept,
+            acceptance_deadline_timestamp: val.acceptance_deadline_timestamp,
         }
     }
 }
@@ -593,6 +602,7 @@ pub struct BillPaymentStatusWeb {
     pub paid: bool,
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
+    pub payment_deadline_timestamp: Option<u64>,
 }
 impl From<BillPaymentStatus> for BillPaymentStatusWeb {
     fn from(val: BillPaymentStatus) -> Self {
@@ -602,6 +612,7 @@ impl From<BillPaymentStatus> for BillPaymentStatusWeb {
             paid: val.paid,
             request_to_pay_timed_out: val.request_to_pay_timed_out,
             rejected_to_pay: val.rejected_to_pay,
+            payment_deadline_timestamp: val.payment_deadline_timestamp,
         }
     }
 }
@@ -614,6 +625,7 @@ pub struct BillSellStatusWeb {
     pub offered_to_sell: bool,
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
+    pub buying_deadline_timestamp: Option<u64>,
 }
 impl From<BillSellStatus> for BillSellStatusWeb {
     fn from(val: BillSellStatus) -> Self {
@@ -623,6 +635,7 @@ impl From<BillSellStatus> for BillSellStatusWeb {
             offered_to_sell: val.offered_to_sell,
             offer_to_sell_timed_out: val.offer_to_sell_timed_out,
             rejected_offer_to_sell: val.rejected_offer_to_sell,
+            buying_deadline_timestamp: val.buying_deadline_timestamp,
         }
     }
 }
@@ -635,6 +648,7 @@ pub struct BillRecourseStatusWeb {
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
+    pub recourse_deadline_timestamp: Option<u64>,
 }
 
 impl From<BillRecourseStatus> for BillRecourseStatusWeb {
@@ -645,6 +659,7 @@ impl From<BillRecourseStatus> for BillRecourseStatusWeb {
             requested_to_recourse: val.requested_to_recourse,
             request_to_recourse_timed_out: val.request_to_recourse_timed_out,
             rejected_request_to_recourse: val.rejected_request_to_recourse,
+            recourse_deadline_timestamp: val.recourse_deadline_timestamp,
         }
     }
 }

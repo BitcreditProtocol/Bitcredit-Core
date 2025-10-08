@@ -7,6 +7,7 @@ pub mod tests {
     use crate::constants::CURRENCY_SAT;
     use crate::contact::BillParticipant;
     use crate::identity::IdentityType;
+    use crate::util::date::now;
     use crate::{
         Field, OptionalPostalAddress, PostalAddress, ValidationError,
         bill::{BillKeys, BitcreditBill},
@@ -473,5 +474,9 @@ pub mod tests {
         let borsh_de_test = TestBill::try_from_slice(&borsh_test).unwrap();
         assert_eq!(test, borsh_de_test);
         assert_eq!(parsed, borsh_de_test.bill_id);
+    }
+
+    pub fn safe_deadline_ts(min_deadline: u64) -> u64 {
+        now().timestamp() as u64 + 2 * min_deadline
     }
 }

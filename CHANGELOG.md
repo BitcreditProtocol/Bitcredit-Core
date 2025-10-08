@@ -1,5 +1,12 @@
 # 0.4.10
 
+* Recoursee in a request to recourse does not have to be in the contact book anymore
+* Add explicit deadlines for the following actions (breaking API and DB change)
+    * Request to Accept (acceptance_deadline) - min. 48 hours after block timestamp (UTC end of day)
+    * Request to Pay (payment_deadline) - min. 48 hours after block timestamp (UTC end of day) 
+    * Request to Recourse (recourse_deadline) - min. 48 hours after block timestamp (UTC end of day)
+    * Offer to Sell (buying_deadline) - min. UTC end of day of the block timestamp
+
 # 0.4.9
 
 * Identity Proof now requests URLs via nostr-relay HTTP proxy

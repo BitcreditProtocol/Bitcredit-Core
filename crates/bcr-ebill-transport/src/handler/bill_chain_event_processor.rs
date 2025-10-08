@@ -475,6 +475,7 @@ mod tests {
             BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
             BillRejectBlockData, BillRequestToAcceptBlockData,
         },
+        constants::ACCEPT_DEADLINE_SECONDS,
         contact::BillIdentParticipant,
         util::BcrKeys,
     };
@@ -700,14 +701,16 @@ mod tests {
         let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
+        let ts = chain.get_latest_block().timestamp + 1000;
         let block1 = BillBlock::create_block_for_request_to_accept(
             bill_id.clone(),
             chain.get_latest_block(),
             &BillRequestToAcceptBlockData {
                 requester: BillParticipantBlockData::Ident(payer.clone().into()),
                 signatory: None,
-                signing_timestamp: chain.get_latest_block().timestamp + 1000,
+                signing_timestamp: ts,
                 signing_address: Some(empty_address()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &bcr_keys,
             None,

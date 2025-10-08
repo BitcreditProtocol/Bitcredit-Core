@@ -76,9 +76,9 @@ pub trait BillStoreApi: ServiceTraitBounds {
     ) -> Result<Option<PaymentState>>;
     /// Gets all bills with a RequestToPay block, which are not paid already
     async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
-    /// Gets all bills where the latest block is OfferToSell, which are still waiting for payment
+    /// Gets all bills where the latest block is OfferToSell, which might still be waiting for payment
     async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
-    /// Gets all bills where the latest block is RequestRecourse, which are still waiting for payment
+    /// Gets all bills where the latest block is RequestRecourse, which might still be waiting for payment
     async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<BillId>>;
     /// Returns all bill ids that are currently within the given op codes and block not
     /// older than the given timestamp.

@@ -39,7 +39,7 @@ pub enum BillOpCode {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OfferToSellWaitingForPayment {
-    Yes(Box<PaymentInfo>),
+    Yes(Box<SellPaymentInfo>),
     No,
 }
 
@@ -50,13 +50,14 @@ pub enum RecourseWaitingForPayment {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PaymentInfo {
+pub struct SellPaymentInfo {
     pub buyer: BillParticipant,  // buyer can be anone
     pub seller: BillParticipant, // seller can be anone
     pub sum: u64,
     pub currency: String,
     pub payment_address: String,
     pub block_id: u64,
+    pub buying_deadline_timestamp: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +68,7 @@ pub struct RecoursePaymentInfo {
     pub currency: String,
     pub reason: BillRecourseReasonBlockData,
     pub block_id: u64,
+    pub recourse_deadline_timestamp: u64,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
