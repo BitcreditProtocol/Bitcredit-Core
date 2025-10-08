@@ -1,6 +1,7 @@
 use crate::{
     NodeId,
     blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData},
+    country::Country,
 };
 
 use super::{File, PostalAddress};
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct Company {
     pub id: NodeId,
     pub name: String,
-    pub country_of_registration: Option<String>,
+    pub country_of_registration: Option<Country>,
     pub city_of_registration: Option<String>,
     pub postal_address: PostalAddress,
     pub email: String,

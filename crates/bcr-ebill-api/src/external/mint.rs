@@ -79,14 +79,14 @@ pub trait MintClientApi: ServiceTraitBounds {
     /// Check if the given proofs were already spent
     async fn check_if_proofs_are_spent(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         proofs: &str,
         keyset_id: &str,
     ) -> Result<bool>;
     /// Mint and return encoded token
     async fn mint(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         keyset: cdk02::KeySet,
         quote_id: &str,
         private_key: &SecretKey,
@@ -95,29 +95,29 @@ pub trait MintClientApi: ServiceTraitBounds {
         rs: Vec<cashu::SecretKey>,
     ) -> Result<String>;
     /// Check keyset info for a given keyset id with a given mint
-    async fn get_keyset_info(&self, mint_url: &str, keyset_id: &str) -> Result<cdk02::KeySet>;
+    async fn get_keyset_info(&self, mint_url: &url::Url, keyset_id: &str) -> Result<cdk02::KeySet>;
     /// Request to mint a bill with a given mint
     async fn enquire_mint_quote(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         bill_to_share: BillToShareWithExternalParty,
         requester_keys: &BcrKeys,
     ) -> Result<String>;
     /// Look up a quote for a mint
     async fn lookup_quote_for_mint(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         quote_id: &str,
     ) -> Result<QuoteStatusReply>;
     /// Resolve quote from mint
     async fn resolve_quote_for_mint(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         quote_id: &str,
         resolve: ResolveMintOffer,
     ) -> Result<()>;
     /// Cancel request to mint
-    async fn cancel_quote_for_mint(&self, mint_url: &str, quote_id: &str) -> Result<()>;
+    async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &str) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -133,21 +133,18 @@ impl MintClient {
         Self {}
     }
 
-    pub fn quote_client(&self, mint_url: &str) -> Result<QuoteClient> {
-        let quote_client =
-            QuoteClient::new(reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?);
+    pub fn quote_client(&self, mint_url: &url::Url) -> Result<QuoteClient> {
+        let quote_client = QuoteClient::new(mint_url.to_owned());
         Ok(quote_client)
     }
 
-    pub fn key_client(&self, mint_url: &str) -> Result<KeysClient> {
-        let key_client =
-            KeysClient::new(reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?);
+    pub fn key_client(&self, mint_url: &url::Url) -> Result<KeysClient> {
+        let key_client = KeysClient::new(mint_url.to_owned());
         Ok(key_client)
     }
 
-    pub fn swap_client(&self, mint_url: &str) -> Result<SwapClient> {
-        let swap_client =
-            SwapClient::new(reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?);
+    pub fn swap_client(&self, mint_url: &url::Url) -> Result<SwapClient> {
+        let swap_client = SwapClient::new(mint_url.to_owned());
         Ok(swap_client)
     }
 }
@@ -157,12 +154,12 @@ impl MintClient {
 impl MintClientApi for MintClient {
     async fn check_if_proofs_are_spent(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         proofs: &str,
         keyset_id: &str,
     ) -> Result<bool> {
         let token_mint_url =
-            cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
+            cashu::MintUrl::from_str(mint_url.as_str()).map_err(|_| Error::InvalidMintUrl)?;
         let token =
             bcr_wallet_lib::wallet::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
 
@@ -207,7 +204,7 @@ impl MintClientApi for MintClient {
 
     async fn mint(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         keyset: cdk02::KeySet,
         quote_id: &str,
         private_key: &SecretKey,
@@ -216,7 +213,7 @@ impl MintClientApi for MintClient {
         rs: Vec<cashu::SecretKey>,
     ) -> Result<String> {
         let token_mint_url =
-            cashu::MintUrl::from_str(mint_url).map_err(|_| Error::InvalidMintUrl)?;
+            cashu::MintUrl::from_str(mint_url.as_str()).map_err(|_| Error::InvalidMintUrl)?;
         let secret_key = cdk01::SecretKey::from_hex(private_key.display_secret().to_string())
             .map_err(|_| Error::PrivateKey)?;
         let qid = uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?;
@@ -254,9 +251,8 @@ impl MintClientApi for MintClient {
         Ok(token.to_string())
     }
 
-    async fn get_keyset_info(&self, mint_url: &str, keyset_id: &str) -> Result<cdk02::KeySet> {
-        let base = reqwest::Url::parse(mint_url).map_err(|_| Error::InvalidMintUrl)?;
-        let url = base
+    async fn get_keyset_info(&self, mint_url: &url::Url, keyset_id: &str) -> Result<cdk02::KeySet> {
+        let url = mint_url
             .join(&format!("/v1/keys/{keyset_id}"))
             .expect("keys relative path");
         let res = reqwest::Client::new().get(url).send().await.map_err(|e| {
@@ -275,7 +271,7 @@ impl MintClientApi for MintClient {
 
     async fn enquire_mint_quote(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         bill_to_share: BillToShareWithExternalParty,
         requester_keys: &BcrKeys,
     ) -> Result<String> {
@@ -297,7 +293,7 @@ impl MintClientApi for MintClient {
 
     async fn lookup_quote_for_mint(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         quote_id: &str,
     ) -> Result<QuoteStatusReply> {
         let reply = self
@@ -313,7 +309,7 @@ impl MintClientApi for MintClient {
 
     async fn resolve_quote_for_mint(
         &self,
-        mint_url: &str,
+        mint_url: &url::Url,
         quote_id: &str,
         resolve: ResolveMintOffer,
     ) -> Result<()> {
@@ -344,7 +340,7 @@ impl MintClientApi for MintClient {
         Ok(())
     }
 
-    async fn cancel_quote_for_mint(&self, mint_url: &str, quote_id: &str) -> Result<()> {
+    async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &str) -> Result<()> {
         self.quote_client(mint_url)?
             .cancel_enquiry(
                 uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,

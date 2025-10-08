@@ -2,6 +2,7 @@ use bcr_ebill_api::{
     data::{
         NodeId,
         contact::{Contact, ContactType},
+        country::Country,
     },
     service::Error,
 };
@@ -109,7 +110,8 @@ pub struct ContactWeb {
     pub email: Option<String>,
     pub postal_address: Option<PostalAddressWeb>,
     pub date_of_birth_or_registration: Option<String>,
-    pub country_of_birth_or_registration: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub country_of_birth_or_registration: Option<Country>,
     pub city_of_birth_or_registration: Option<String>,
     pub identification_number: Option<String>,
     pub avatar_file: Option<FileWeb>,

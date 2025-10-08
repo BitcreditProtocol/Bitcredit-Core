@@ -14,6 +14,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
     data::{
         NodeId, OptionalPostalAddress,
+        country::Country,
         identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
     },
     external,
@@ -137,7 +138,11 @@ impl Identity {
                 identity.email,
                 OptionalPostalAddress::from(identity.postal_address),
                 identity.date_of_birth,
-                identity.country_of_birth,
+                identity
+                    .country_of_birth
+                    .as_deref()
+                    .map(Country::parse)
+                    .transpose()?,
                 identity.city_of_birth,
                 identity.identification_number,
                 identity.profile_picture_file_upload_id,
@@ -173,7 +178,11 @@ impl Identity {
                 identity.email,
                 OptionalPostalAddress::from(identity.postal_address),
                 identity.date_of_birth,
-                identity.country_of_birth,
+                identity
+                    .country_of_birth
+                    .as_deref()
+                    .map(Country::parse)
+                    .transpose()?,
                 identity.city_of_birth,
                 identity.identification_number,
                 identity.profile_picture_file_upload_id,
@@ -225,7 +234,11 @@ impl Identity {
                 identity_payload.email,
                 OptionalPostalAddress::from(identity_payload.postal_address),
                 identity_payload.date_of_birth,
-                identity_payload.country_of_birth,
+                identity_payload
+                    .country_of_birth
+                    .as_deref()
+                    .map(Country::parse)
+                    .transpose()?,
                 identity_payload.city_of_birth,
                 identity_payload.identification_number,
                 identity_payload.profile_picture_file_upload_id,

@@ -91,7 +91,6 @@ impl BillService {
             issue_date: bill_first_version.issue_date,
             country_of_payment: bill_first_version.country_of_payment,
             city_of_payment: bill_first_version.city_of_payment,
-            language: bill_first_version.language,
             files: bill_first_version.files,
         })
     }
@@ -576,7 +575,6 @@ impl BillService {
         };
 
         let bill_data = BillData {
-            language: bill.language,
             time_of_drawing,
             issue_date: bill.issue_date,
             time_of_maturity: util::date::date_string_to_timestamp(&bill.maturity_date, None)

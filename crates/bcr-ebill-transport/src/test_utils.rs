@@ -9,6 +9,7 @@ use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
 use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
 use bcr_ebill_core::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::country::Country;
 use bcr_ebill_core::{
     NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
     bill::BillId,
@@ -84,7 +85,7 @@ pub fn init_test_cfg() {
             let _ = bcr_ebill_api::init(Config {
                 app_url: url::Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
                 bitcoin_network: "testnet".to_string(),
-                esplora_base_url: "https://esplora.minibill.tech".to_string(),
+                esplora_base_url: url::Url::parse("https://esplora.minibill.tech").unwrap(),
                 db_config: SurrealDbConfig {
                     connection_string: "ws://localhost:8800".to_string(),
                     ..SurrealDbConfig::default()
@@ -95,7 +96,7 @@ pub fn init_test_cfg() {
                     relays: vec!["ws://localhost:8080".to_string()],
                 },
                 mint_config: bcr_ebill_api::MintConfig {
-                    default_mint_url: "http://localhost:4242/".into(),
+                    default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
                     default_mint_node_id: NodeId::from_str(
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
@@ -220,7 +221,7 @@ pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
 pub fn empty_bitcredit_bill() -> BitcreditBill {
     BitcreditBill {
         id: bill_id_test(),
-        country_of_issuing: "AT".to_string(),
+        country_of_issuing: Country::AT,
         city_of_issuing: "Vienna".to_string(),
         drawee: empty_bill_identified_participant(),
         drawer: empty_bill_identified_participant(),
@@ -231,8 +232,7 @@ pub fn empty_bitcredit_bill() -> BitcreditBill {
         maturity_date: "2099-11-12".to_string(),
         issue_date: "2099-08-12".to_string(),
         city_of_payment: "Vienna".to_string(),
-        country_of_payment: "AT".to_string(),
-        language: "DE".to_string(),
+        country_of_payment: Country::AT,
         files: vec![],
     }
 }
@@ -249,7 +249,7 @@ pub fn get_baseline_identity() -> IdentityWithAll {
     let mut identity = empty_identity();
     identity.name = "drawer".to_owned();
     identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
-    identity.postal_address.country = Some("AT".to_owned());
+    identity.postal_address.country = Some(Country::AT);
     identity.postal_address.city = Some("Vienna".to_owned());
     identity.postal_address.address = Some("Hayekweg 5".to_owned());
     IdentityWithAll {
@@ -269,7 +269,7 @@ pub fn empty_bill_identified_participant() -> BillIdentParticipant {
 }
 pub fn empty_address() -> PostalAddress {
     PostalAddress {
-        country: "AT".to_string(),
+        country: Country::AT,
         city: "Vienna".to_string(),
         zip: None,
         address: "Some address".to_string(),
@@ -530,7 +530,7 @@ mockall::mock! {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth_or_registration: Option<String>,
-        country_of_birth_or_registration: Option<String>,
+        country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<String>,
         identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,
@@ -546,7 +546,7 @@ mockall::mock! {
         email: Option<String>,
         postal_address: Option<PostalAddress>,
         date_of_birth_or_registration: Option<String>,
-        country_of_birth_or_registration: Option<String>,
+        country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<String>,
         identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,
@@ -560,7 +560,7 @@ mockall::mock! {
         email: Option<String>,
         postal_address: Option<PostalAddress>,
         date_of_birth_or_registration: Option<String>,
-        country_of_birth_or_registration: Option<String>,
+        country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<String>,
         identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,

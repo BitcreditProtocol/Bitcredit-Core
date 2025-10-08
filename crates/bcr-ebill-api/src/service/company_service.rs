@@ -32,6 +32,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::company::CompanyBlockPlaintextWrapper;
+use bcr_ebill_core::country::Country;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
@@ -61,7 +62,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     async fn create_company(
         &self,
         name: String,
-        country_of_registration: Option<String>,
+        country_of_registration: Option<Country>,
         city_of_registration: Option<String>,
         postal_address: PostalAddress,
         email: String,
@@ -79,7 +80,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
-        country_of_registration: Option<String>,
+        country_of_registration: Option<Country>,
         city_of_registration: Option<String>,
         registration_number: Option<String>,
         registration_date: Option<String>,
@@ -360,7 +361,7 @@ impl CompanyServiceApi for CompanyService {
     async fn create_company(
         &self,
         name: String,
-        country_of_registration: Option<String>,
+        country_of_registration: Option<Country>,
         city_of_registration: Option<String>,
         postal_address: PostalAddress,
         email: String,
@@ -509,7 +510,7 @@ impl CompanyServiceApi for CompanyService {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
-        country_of_registration: Option<String>,
+        country_of_registration: Option<Country>,
         city_of_registration: Option<String>,
         registration_number: Option<String>,
         registration_date: Option<String>,
@@ -1009,6 +1010,7 @@ pub mod tests {
             node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
         },
     };
+    use bcr_ebill_core::country::Country;
     use mockall::predicate::eq;
     use std::{collections::HashMap, str::FromStr};
     use util::BcrKeys;
@@ -1068,7 +1070,7 @@ pub mod tests {
                 Company {
                     id: node_id_test(),
                     name: "some_name".to_string(),
-                    country_of_registration: Some("AT".to_string()),
+                    country_of_registration: Some(Country::AT),
                     city_of_registration: Some("Vienna".to_string()),
                     postal_address: empty_address(),
                     email: "company@example.com".to_string(),
@@ -1368,7 +1370,7 @@ pub mod tests {
         let res = service
             .create_company(
                 "name".to_string(),
-                Some("AT".to_string()),
+                Some(Country::AT),
                 Some("Vienna".to_string()),
                 empty_address(),
                 "company@example.com".to_string(),
@@ -1436,7 +1438,7 @@ pub mod tests {
         let res = service
             .create_company(
                 "name".to_string(),
-                Some("AT".to_string()),
+                Some(Country::AT),
                 Some("Vienna".to_string()),
                 empty_address(),
                 "company@example.com".to_string(),

@@ -8,7 +8,8 @@ use bcr_ebill_api::{
 use bcr_ebill_api::{CourtConfig, DevModeConfig, PaymentConfig};
 use context::{Context, get_ctx};
 use job::run_jobs;
-use log::info;
+use log::{debug, info};
+use nostr_sdk::ToBech32;
 use serde::Deserialize;
 use std::thread_local;
 use std::time::Duration;
@@ -82,7 +83,8 @@ pub async fn initialize_api(
     let api_config = ApiConfig {
         app_url: url::Url::parse(&config.app_url).expect("app url is not a valid URL"),
         bitcoin_network: config.bitcoin_network,
-        esplora_base_url: config.esplora_base_url,
+        esplora_base_url: url::Url::parse(&config.esplora_base_url)
+            .expect("esplora base url is not a valid URL"),
         db_config: SurrealDbConfig::default(),
         data_dir: "./".to_owned(), // unused in wasm
         nostr_config: NostrConfig {
@@ -116,9 +118,15 @@ pub async fn initialize_api(
     let node_id = NodeId::new(keys.pub_key(), api_config.bitcoin_network());
     info!("Initialized WASM API {VERSION}");
     info!("Local node id: {node_id}");
-    info!("Local npub: {:?}", node_id.npub());
+    info!(
+        "Local npub: {}",
+        node_id
+            .npub()
+            .to_bech32()
+            .expect("invalid npub from node id")
+    );
     info!("Local npub as hex: {}", node_id.npub().to_hex());
-    info!("Config: {api_config:?}");
+    debug!("Config: {api_config:?}");
 
     // init context as static reference
     let ctx = Context::new(api_config.clone(), db).await?;

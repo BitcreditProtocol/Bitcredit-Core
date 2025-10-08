@@ -17,6 +17,7 @@ use bcr_ebill_core::contact::{
     LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
     LightBillParticipant,
 };
+use bcr_ebill_core::country::Country;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
 use serde::{Deserialize, Serialize};
@@ -769,14 +770,13 @@ impl From<&BillMintStatus> for BillMintStatusDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillDataDb {
-    pub language: String,
     pub time_of_drawing: u64,
     pub issue_date: String,
     pub time_of_maturity: u64,
     pub maturity_date: String,
-    pub country_of_issuing: String,
+    pub country_of_issuing: Country,
     pub city_of_issuing: String,
-    pub country_of_payment: String,
+    pub country_of_payment: Country,
     pub city_of_payment: String,
     pub currency: String,
     pub sum: String,
@@ -786,7 +786,6 @@ pub struct BillDataDb {
 impl From<BillDataDb> for BillData {
     fn from(value: BillDataDb) -> Self {
         Self {
-            language: value.language,
             time_of_drawing: value.time_of_drawing,
             issue_date: value.issue_date,
             time_of_maturity: value.time_of_maturity,
@@ -806,7 +805,6 @@ impl From<BillDataDb> for BillData {
 impl From<&BillData> for BillDataDb {
     fn from(value: &BillData) -> Self {
         Self {
-            language: value.language.clone(),
             time_of_drawing: value.time_of_drawing,
             issue_date: value.issue_date.clone(),
             time_of_maturity: value.time_of_maturity,

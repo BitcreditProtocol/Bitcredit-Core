@@ -41,6 +41,7 @@ use bcr_ebill_core::{
         RECOURSE_DEADLINE_SECONDS,
     },
     contact::{BillIdentParticipant, BillParticipant},
+    country::Country,
     util::date::now,
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
@@ -70,7 +71,7 @@ pub fn get_baseline_identity() -> IdentityWithAll {
     let mut identity = empty_identity();
     identity.name = "drawer".to_owned();
     identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
-    identity.postal_address.country = Some("AT".to_owned());
+    identity.postal_address.country = Some(Country::AT);
     identity.postal_address.city = Some("Vienna".to_owned());
     identity.postal_address.address = Some("Hayekweg 5".to_owned());
     identity.nostr_relays = vec!["ws://localhost:8080".into()];
@@ -99,14 +100,13 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             ],
         },
         data: BillData {
-            language: "AT".to_string(),
             time_of_drawing: 1731593928,
             issue_date: "2024-05-01".to_string(),
             time_of_maturity: 1731593928,
             maturity_date: "2024-07-01".to_string(),
-            country_of_issuing: "AT".to_string(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".to_string(),
-            country_of_payment: "AT".to_string(),
+            country_of_payment: Country::AT,
             city_of_payment: "Vienna".to_string(),
             currency: CURRENCY_SAT.to_string(),
             sum: "15000".to_string(),

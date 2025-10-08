@@ -328,6 +328,7 @@ mod test_utils {
         },
         company::{Company, CompanyKeys},
         contact::{BillIdentParticipant, BillParticipant, ContactType},
+        country::Country,
         identity::{Identity, IdentityType, IdentityWithAll},
         identity_proof::{IdentityProof, IdentityProofStatus},
         nostr_contact::NostrPublicKey,
@@ -658,7 +659,7 @@ mod test_utils {
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
             id: bill_id_test(),
-            country_of_issuing: "AT".to_string(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
@@ -669,8 +670,7 @@ mod test_utils {
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),
             city_of_payment: "Vienna".to_string(),
-            country_of_payment: "AT".to_string(),
-            language: "DE".to_string(),
+            country_of_payment: Country::AT,
             files: vec![],
         }
     }
@@ -687,7 +687,7 @@ mod test_utils {
         let mut identity = empty_identity();
         identity.name = "drawer".to_owned();
         identity.node_id = node_id_test();
-        identity.postal_address.country = Some("AT".to_owned());
+        identity.postal_address.country = Some(Country::AT);
         identity.postal_address.city = Some("Vienna".to_owned());
         identity.postal_address.address = Some("Hayekweg 5".to_owned());
         IdentityWithAll {
@@ -707,7 +707,7 @@ mod test_utils {
     }
     pub fn empty_address() -> PostalAddress {
         PostalAddress {
-            country: "AT".to_string(),
+            country: Country::AT,
             city: "Vienna".to_string(),
             zip: None,
             address: "Some address".to_string(),
@@ -746,7 +746,7 @@ mod test_utils {
                 Company {
                     id: node_id_test(),
                     name: "some_name".to_string(),
-                    country_of_registration: Some("AT".to_string()),
+                    country_of_registration: Some(Country::AT),
                     city_of_registration: Some("Vienna".to_string()),
                     postal_address: empty_address(),
                     email: "company@example.com".to_string(),

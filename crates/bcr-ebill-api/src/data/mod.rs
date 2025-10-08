@@ -1,6 +1,7 @@
 pub use bcr_ebill_core::bill;
 pub use bcr_ebill_core::company;
 pub use bcr_ebill_core::contact;
+pub use bcr_ebill_core::country;
 pub use bcr_ebill_core::identity;
 pub use bcr_ebill_core::identity_proof;
 pub use bcr_ebill_core::mint;

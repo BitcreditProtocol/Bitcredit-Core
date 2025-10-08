@@ -12,6 +12,7 @@ use bcr_ebill_api::data::{
         BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
         LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
     },
+    country::Country,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -40,7 +41,6 @@ pub struct BitcreditBillPayload {
     pub currency: String,
     pub country_of_payment: String,
     pub city_of_payment: String,
-    pub language: String,
     pub file_upload_ids: Vec<String>,
 }
 
@@ -681,14 +681,15 @@ impl From<BillMintStatus> for BillMintStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillDataWeb {
-    pub language: String,
     pub time_of_drawing: u64,
     pub issue_date: String,
     pub time_of_maturity: u64,
     pub maturity_date: String,
-    pub country_of_issuing: String,
+    #[tsify(type = "string")]
+    pub country_of_issuing: Country,
     pub city_of_issuing: String,
-    pub country_of_payment: String,
+    #[tsify(type = "string")]
+    pub country_of_payment: Country,
     pub city_of_payment: String,
     pub currency: String,
     pub sum: String,
@@ -699,7 +700,6 @@ pub struct BillDataWeb {
 impl From<BillData> for BillDataWeb {
     fn from(val: BillData) -> Self {
         BillDataWeb {
-            language: val.language,
             time_of_drawing: val.time_of_drawing,
             issue_date: val.issue_date,
             time_of_maturity: val.time_of_maturity,

@@ -409,7 +409,7 @@ async function triggerBill(t, blank) {
     let identity = await identityApi.detail();
     let bill_issue_data = {
       t,
-      country_of_issuing: "AT",
+      country_of_issuing: "at",
       city_of_issuing: "Vienna",
       issue_date,
       maturity_date,
@@ -417,9 +417,8 @@ async function triggerBill(t, blank) {
       drawee: t == 0 ? identity.node_id : node_id,
       sum: "1500",
       currency: "sat",
-      country_of_payment: "UK",
+      country_of_payment: "GB",
       city_of_payment: "London",
-      language: "en-UK",
       file_upload_ids: file_upload_id ? [file_upload_id] : []
     };
     let bill;

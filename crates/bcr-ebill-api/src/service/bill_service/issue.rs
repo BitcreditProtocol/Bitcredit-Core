@@ -188,7 +188,6 @@ impl BillService {
             issue_date: data.issue_date,
             country_of_payment: data.country_of_payment,
             city_of_payment: data.city_of_payment,
-            language: data.language,
             drawee: public_data_drawee,
             drawer: drawer.clone(),
             payee: public_data_payee,

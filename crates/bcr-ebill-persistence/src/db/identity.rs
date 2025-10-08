@@ -5,6 +5,7 @@ use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, SecretKey, ServiceTraitBounds,
+    country::Country,
     identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
 };
 use serde::{Deserialize, Serialize};
@@ -209,7 +210,7 @@ pub struct IdentityDb {
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddressDb,
     pub date_of_birth: Option<String>,
-    pub country_of_birth: Option<String>,
+    pub country_of_birth: Option<Country>,
     pub city_of_birth: Option<String>,
     pub identification_number: Option<String>,
     pub nostr_relays: Vec<String>,

@@ -6,6 +6,7 @@ pub mod tests {
     use crate::bill::BillId;
     use crate::constants::CURRENCY_SAT;
     use crate::contact::BillParticipant;
+    use crate::country::Country;
     use crate::identity::IdentityType;
     use crate::util::date::now;
     use crate::{
@@ -21,7 +22,7 @@ pub mod tests {
 
     pub fn valid_address() -> PostalAddress {
         PostalAddress {
-            country: "AT".into(),
+            country: Country::AT,
             city: "Vienna".into(),
             zip: Some("1010".into()),
             address: "Kärntner Straße 1".into(),
@@ -30,7 +31,7 @@ pub mod tests {
 
     pub fn invalid_address() -> PostalAddress {
         PostalAddress {
-            country: "".into(),
+            country: Country::AT,
             city: "".into(),
             zip: Some("".into()),
             address: "".into(),
@@ -38,8 +39,6 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::empty_country( PostalAddress { country: "".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::Country))]
-    #[case::blank_country( PostalAddress { country: "  ".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::empty_city( PostalAddress { city: "".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::City))]
     #[case::blank_city( PostalAddress { city: "  ".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::City))]
     #[case::empty_zip( PostalAddress { zip: Some("".into()), ..valid_address() }, ValidationError::FieldEmpty(Field::Zip))]
@@ -55,7 +54,6 @@ pub mod tests {
 
     #[rstest]
     #[case::baseline(valid_address())]
-    #[case::spaced_country(PostalAddress { zip: Some("1020".into()), country: " AT ".into(), ..valid_address() })]
     #[case::no_zip( PostalAddress { zip: None, ..valid_address() },)]
     #[case::spaced_zip(PostalAddress { zip: Some(" Some Street 1 ".into()), ..valid_address() })]
     #[case::spaced_zip_address(PostalAddress { zip: Some(" 10101 ".into()), address: " 56 Rue de Paris ".into(), ..valid_address() })]
@@ -65,7 +63,7 @@ pub mod tests {
 
     pub fn valid_optional_address() -> OptionalPostalAddress {
         OptionalPostalAddress {
-            country: Some("AT".into()),
+            country: Some(Country::AT),
             city: Some("Vienna".into()),
             zip: Some("1010".into()),
             address: Some("Kärntner Straße 1".into()),
@@ -89,8 +87,6 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::empty_country( OptionalPostalAddress { country: Some("".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Country))]
-    #[case::blank_country( OptionalPostalAddress { country: Some("  ".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Country))]
     #[case::empty_city( OptionalPostalAddress { city: Some("".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::City))]
     #[case::blank_city( OptionalPostalAddress { city: Some("\n\t".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::City))]
     #[case::empty_zip( OptionalPostalAddress { zip: Some("".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Zip))]
@@ -201,7 +197,7 @@ pub mod tests {
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
             id: bill_id_test(),
-            country_of_issuing: "AT".to_string(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
@@ -212,8 +208,7 @@ pub mod tests {
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),
             city_of_payment: "Vienna".to_string(),
-            country_of_payment: "AT".to_string(),
-            language: "DE".to_string(),
+            country_of_payment: Country::AT,
             files: vec![],
         }
     }

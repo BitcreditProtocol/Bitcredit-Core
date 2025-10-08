@@ -14,6 +14,7 @@ use crate::{
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     contact::{Contact, ContactType},
+    country::Country,
 };
 
 #[derive(Clone)]
@@ -92,7 +93,7 @@ pub struct ContactDb {
     pub email: Option<String>,                   // only optional for anon,
     pub postal_address: Option<PostalAddressDb>, // only optional for anon
     pub date_of_birth_or_registration: Option<String>,
-    pub country_of_birth_or_registration: Option<String>,
+    pub country_of_birth_or_registration: Option<Country>,
     pub city_of_birth_or_registration: Option<String>,
     pub identification_number: Option<String>,
     pub avatar_file: Option<FileDb>,

@@ -558,6 +558,7 @@ mod tests {
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::{BillIdentParticipant, BillParticipant},
+        country::Country,
         tests::tests::{
             OTHER_VALID_PAYMENT_ADDRESS_TESTNET, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
             node_id_test, node_id_test_other, private_key_test, safe_deadline_ts, valid_address,
@@ -576,7 +577,7 @@ mod tests {
     fn valid_bill_issue_data() -> BillIssueData {
         BillIssueData {
             t: 0,
-            country_of_issuing: "AT".into(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".into(),
             issue_date: "2025-08-12".into(),
             maturity_date: "2025-11-12".into(),
@@ -584,9 +585,8 @@ mod tests {
             payee: node_id_test_other(),
             sum: "500".into(),
             currency: CURRENCY_SAT.into(),
-            country_of_payment: "FR".into(),
+            country_of_payment: Country::FR,
             city_of_payment: "Paris".into(),
-            language: "de".into(),
             file_upload_ids: vec![],
             drawer_public_data: BillParticipant::Ident(valid_bill_identified_participant()),
             drawer_keys: BcrKeys::from_private_key(&private_key_test()).unwrap(),
