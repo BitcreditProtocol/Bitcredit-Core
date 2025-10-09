@@ -118,6 +118,35 @@ pub async fn create_notification_service(
         transport.clone(),
         get_config().bitcoin_network(),
     ));
+    let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
+        bill_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    ));
+    let company_processor = Arc::new(CompanyChainEventProcessor::new(
+        db_context.company_chain_store.clone(),
+        db_context.company_store.clone(),
+        db_context.identity_store.clone(),
+        db_context.identity_proof_store.clone(),
+        nostr_contact_processor.clone(),
+        bill_invite_handler.clone(),
+        transport.clone(),
+        get_config().bitcoin_network(),
+    ));
+    let company_invite_handler = CompanyInviteEventHandler::new(
+        transport.clone(),
+        company_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    );
+    let identity_processor = Arc::new(IdentityChainEventProcessor::new(
+        db_context.identity_chain_store.clone(),
+        db_context.identity_store.clone(),
+        db_context.identity_proof_store.clone(),
+        Arc::new(company_invite_handler.clone()),
+        bill_invite_handler.clone(),
+        nostr_contact_processor.clone(),
+        transport.clone(),
+        get_config().bitcoin_network(),
+    ));
 
     #[allow(clippy::arc_with_non_send_sync)]
     Ok(Arc::new(NotificationService::new(
@@ -133,6 +162,8 @@ pub async fn create_notification_service(
         db_context.nostr_chain_event_store.clone(),
         email_client,
         bill_processor,
+        company_processor,
+        identity_processor,
         nostr_relays,
     )))
 }

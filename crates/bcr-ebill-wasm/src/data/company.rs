@@ -139,3 +139,10 @@ impl TryFrom<Contact> for SignatoryResponse {
         })
     }
 }
+
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ResyncCompanyPayload {
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+}

@@ -20,7 +20,8 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         company::{
             AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload,
-            EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload, SignatoryResponse,
+            EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload,
+            ResyncCompanyPayload, SignatoryResponse,
         },
         has_field,
         identity::ShareCompanyContactTo,
@@ -302,6 +303,20 @@ impl Company {
 
         let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
         Ok(res)
+    }
+
+    /// Given a bill id, resync the chain via block transport
+    #[wasm_bindgen]
+    pub async fn sync_company_chain(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ResyncCompanyPayload")] payload: JsValue,
+    ) -> Result<()> {
+        let payload: ResyncCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
+        get_ctx()
+            .notification_service
+            .resync_company_chain(&payload.node_id)
+            .await?;
+        Ok(())
     }
 }
 
