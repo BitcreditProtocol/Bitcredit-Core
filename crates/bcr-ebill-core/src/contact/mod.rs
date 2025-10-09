@@ -1,4 +1,4 @@
-use crate::{NodeId, ValidationError, identity::IdentityType};
+use crate::{NodeId, ValidationError, country::Country, identity::IdentityType};
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -49,7 +49,7 @@ pub struct Contact {
     #[serde(flatten)]
     pub postal_address: Option<PostalAddress>, // optional for anon only
     pub date_of_birth_or_registration: Option<String>,
-    pub country_of_birth_or_registration: Option<String>,
+    pub country_of_birth_or_registration: Option<Country>,
     pub city_of_birth_or_registration: Option<String>,
     pub identification_number: Option<String>,
     pub avatar_file: Option<File>,

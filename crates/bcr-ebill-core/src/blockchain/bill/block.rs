@@ -10,6 +10,7 @@ use crate::blockchain::{Block, FIRST_BLOCK_ID};
 use crate::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
+use crate::country::Country;
 use crate::util::BcrKeys;
 use crate::util::{self, crypto};
 use crate::{
@@ -110,7 +111,7 @@ impl Validate for BillRejectToBuyBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillIssueBlockData {
     pub id: BillId,
-    pub country_of_issuing: String,
+    pub country_of_issuing: Country,
     pub city_of_issuing: String,
     pub drawee: BillIdentParticipantBlockData, // drawee always has to be identified
     pub drawer: BillIdentParticipantBlockData, // drawer always has to be identified
@@ -119,9 +120,8 @@ pub struct BillIssueBlockData {
     pub sum: u64,
     pub maturity_date: String,
     pub issue_date: String,
-    pub country_of_payment: String,
+    pub country_of_payment: Country,
     pub city_of_payment: String,
-    pub language: String,
     pub files: Vec<File>,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -130,10 +130,6 @@ pub struct BillIssueBlockData {
 
 impl Validate for BillIssueBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        if self.country_of_issuing.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::CountryOfIssuing));
-        }
-
         if self.city_of_issuing.trim().is_empty() {
             return Err(ValidationError::FieldEmpty(Field::CityOfIssuing));
         }
@@ -154,16 +150,8 @@ impl Validate for BillIssueBlockData {
         util::date::date_string_to_timestamp(&self.maturity_date, None)?;
         util::date::date_string_to_timestamp(&self.issue_date, None)?;
 
-        if self.country_of_payment.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::CountryOfPayment));
-        }
-
         if self.city_of_payment.trim().is_empty() {
             return Err(ValidationError::FieldEmpty(Field::CityOfPayment));
-        }
-
-        if self.language.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::Language));
         }
 
         if let Some(ref signatory) = self.signatory {
@@ -196,7 +184,6 @@ impl BillIssueBlockData {
             issue_date: value.issue_date,
             country_of_payment: value.country_of_payment,
             city_of_payment: value.city_of_payment,
-            language: value.language,
             files: value.files,
             signatory,
             signing_timestamp: timestamp,
@@ -1728,6 +1715,7 @@ pub mod tests {
     use crate::{
         blockchain::bill::tests::get_baseline_identity,
         constants::{CURRENCY_SAT, DAY_IN_SECS},
+        country::Country,
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
             bill_participant_only_node_id, empty_bill_identified_participant, empty_bitcredit_bill,
@@ -1921,7 +1909,7 @@ pub mod tests {
         let node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         accepter.node_id = node_id.clone();
         accepter.postal_address = PostalAddress {
-            country: String::from("Austria"),
+            country: Country::AT,
             city: String::from("Vienna"),
             zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
@@ -3212,7 +3200,7 @@ pub mod tests {
     #[rstest]
     #[case::empty_name( BillIdentParticipantBlockData { name: "".into(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::blank_name( BillIdentParticipantBlockData { name: "   ".into(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_address( BillIdentParticipantBlockData { postal_address: invalid_address(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_address( BillIdentParticipantBlockData { postal_address: invalid_address(), ..valid_bill_identity_block_data() }, ValidationError::FieldEmpty(Field::City))]
     fn test_invalid_bill_identity_block_data(
         #[case] identity: BillIdentParticipantBlockData,
         #[case] expected_error: ValidationError,
@@ -3252,7 +3240,7 @@ pub mod tests {
     pub fn valid_bill_issue_block_data() -> BillIssueBlockData {
         BillIssueBlockData {
             id: bill_id_test(),
-            country_of_issuing: "AT".into(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".into(),
             drawee: other_valid_bill_identity_block_data(),
             drawer: valid_bill_identity_block_data(),
@@ -3261,9 +3249,8 @@ pub mod tests {
             sum: 500,
             maturity_date: "2025-11-12".into(),
             issue_date: "2025-08-12".into(),
-            country_of_payment: "FR".into(),
+            country_of_payment: Country::FR,
             city_of_payment: "Paris".into(),
-            language: "de".into(),
             files: vec![],
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
@@ -3282,21 +3269,15 @@ pub mod tests {
     #[case::invalid_issue_date(BillIssueBlockData { issue_date: "2019-fsds-sdf".into(), ..valid_bill_issue_block_data() }, ValidationError::InvalidDate)]
     #[case::invalid_sum(BillIssueBlockData { sum: 0, ..valid_bill_issue_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_currency(BillIssueBlockData { currency: "invalidcurrency".into(), ..valid_bill_issue_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::empty_country_of_issuing(BillIssueBlockData { country_of_issuing: "".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CountryOfIssuing))]
-    #[case::blank_country_of_issuing(BillIssueBlockData { country_of_issuing: "  ".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CountryOfIssuing))]
     #[case::empty_city_of_issuing(BillIssueBlockData { city_of_issuing: "".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CityOfIssuing))]
     #[case::blank_city_of_issuing(BillIssueBlockData { city_of_issuing: "  ".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CityOfIssuing))]
-    #[case::empty_country_of_payment(BillIssueBlockData { country_of_payment: "".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CountryOfPayment))]
-    #[case::blank_country_of_payment(BillIssueBlockData { country_of_payment: " ".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CountryOfPayment))]
     #[case::empty_city_of_payment(BillIssueBlockData { city_of_payment: "".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CityOfPayment))]
     #[case::blank_city_of_payment(BillIssueBlockData { city_of_payment: " ".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::CityOfPayment))]
-    #[case::empty_language(BillIssueBlockData { language: "".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Language))]
-    #[case::blank_language(BillIssueBlockData { language: "   ".into(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Language))]
     #[case::invalid_signatory(BillIssueBlockData { drawee: invalid_bill_identity_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_drawee(BillIssueBlockData { drawer: invalid_bill_identity_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_drawee(BillIssueBlockData { drawee: invalid_bill_identity_block_data(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_payee(BillIssueBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillIssueBlockData { signing_address: invalid_address(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillIssueBlockData { signing_address: invalid_address(), ..valid_bill_issue_block_data() }, ValidationError::FieldEmpty(Field::City))]
     fn test_invalid_bill_issue_block_data(
         #[case] bill: BillIssueBlockData,
         #[case] expected: ValidationError,
@@ -3322,7 +3303,7 @@ pub mod tests {
 
     #[rstest]
     #[case::invalid_requester(BillRequestToAcceptBlockData { requester: invalid_bill_participant_block_data(), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillRequestToAcceptBlockData { signing_address: Some(invalid_address()), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRequestToAcceptBlockData { signing_address: Some(invalid_address()), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillRequestToAcceptBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_req_to_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_req_to_accept_block_data(
         #[case] block: BillRequestToAcceptBlockData,
@@ -3348,7 +3329,7 @@ pub mod tests {
 
     #[rstest]
     #[case::invalid_accepter(BillAcceptBlockData { accepter: invalid_bill_identity_block_data(), ..valid_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillAcceptBlockData { signing_address: invalid_address(), ..valid_accept_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillAcceptBlockData { signing_address: invalid_address(), ..valid_accept_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillAcceptBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_accept_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_accept_block_data(
         #[case] block: BillAcceptBlockData,
@@ -3377,7 +3358,7 @@ pub mod tests {
     #[rstest]
     #[case::invalid_requester(BillRequestToPayBlockData { requester: invalid_bill_participant_block_data(), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_currency(BillRequestToPayBlockData { currency: "invalidcurrency".into(), ..valid_req_to_pay_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_signing_address(BillRequestToPayBlockData { signing_address: Some(invalid_address()), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRequestToPayBlockData { signing_address: Some(invalid_address()), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillRequestToPayBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_req_to_pay_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_req_to_pay_block_data(
         #[case] block: BillRequestToPayBlockData,
@@ -3409,7 +3390,7 @@ pub mod tests {
     #[case::invalid_endorsee(BillMintBlockData { endorser: invalid_bill_participant_block_data(), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_currency(BillMintBlockData { currency: "invalidcurrency".into(), ..valid_mint_block_data() }, ValidationError::InvalidCurrency)]
     #[case::invalid_sum(BillMintBlockData { sum: 0, ..valid_mint_block_data() }, ValidationError::InvalidSum)]
-    #[case::invalid_signing_address(BillMintBlockData { signing_address: Some(invalid_address()), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillMintBlockData { signing_address: Some(invalid_address()), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillMintBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_mint_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_mint_block_data(
         #[case] block: BillMintBlockData,
@@ -3444,7 +3425,7 @@ pub mod tests {
     #[case::invalid_currency(BillOfferToSellBlockData { currency: "invalidcurrency".into(), ..valid_offer_to_sell_block_data() }, ValidationError::InvalidCurrency)]
     #[case::invalid_sum(BillOfferToSellBlockData { sum: 0, ..valid_offer_to_sell_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillOfferToSellBlockData { payment_address: "invalidaddress".into(), ..valid_offer_to_sell_block_data() }, ValidationError::InvalidPaymentAddress)]
-    #[case::invalid_signing_address(BillOfferToSellBlockData { signing_address: Some(invalid_address()), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillOfferToSellBlockData { signing_address: Some(invalid_address()), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillOfferToSellBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_offer_to_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_offer_to_sell_block_data(
         #[case] block: BillOfferToSellBlockData,
@@ -3478,7 +3459,7 @@ pub mod tests {
     #[case::invalid_currency(BillSellBlockData { currency: "invalidcurrency".into(), ..valid_sell_block_data() }, ValidationError::InvalidCurrency)]
     #[case::invalid_sum(BillSellBlockData { sum: 0, ..valid_sell_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillSellBlockData { payment_address: "invalidaddress".into(), ..valid_sell_block_data() }, ValidationError::InvalidPaymentAddress)]
-    #[case::invalid_signing_address(BillSellBlockData { signing_address: Some(invalid_address()), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillSellBlockData { signing_address: Some(invalid_address()), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillSellBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_sell_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_sell_block_data(
         #[case] block: BillSellBlockData,
@@ -3506,7 +3487,7 @@ pub mod tests {
     #[rstest]
     #[case::invalid_endorser(BillEndorseBlockData { endorser: invalid_bill_participant_block_data(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_endorsee(BillEndorseBlockData { endorsee: invalid_bill_participant_block_data(), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillEndorseBlockData { signing_address: Some(invalid_address()), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillEndorseBlockData { signing_address: Some(invalid_address()), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillEndorseBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_endorse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_endorse_block_data(
         #[case] block: BillEndorseBlockData,
@@ -3540,7 +3521,7 @@ pub mod tests {
     #[case::invalid_recoursee(BillRequestRecourseBlockData { recoursee: invalid_bill_identity_block_data(), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_sum(BillRequestRecourseBlockData { sum: 0, ..valid_req_to_recourse_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillRequestRecourseBlockData { currency: "invalidcurrency".into(), ..valid_req_to_recourse_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_signing_address(BillRequestRecourseBlockData { signing_address: Some(invalid_address()), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRequestRecourseBlockData { signing_address: Some(invalid_address()), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillRequestRecourseBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_req_to_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_req_to_recourse_block_data(
         #[case] block: BillRequestRecourseBlockData,
@@ -3573,7 +3554,7 @@ pub mod tests {
     #[case::invalid_recoursee(BillRecourseBlockData { recoursee: invalid_bill_identity_block_data(), ..valid_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     #[case::invalid_sum(BillRecourseBlockData { sum: 0, ..valid_recourse_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillRecourseBlockData { currency: "invalidcurrency".into(), ..valid_recourse_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_signing_address(BillRecourseBlockData { signing_address: invalid_address(), ..valid_recourse_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRecourseBlockData { signing_address: invalid_address(), ..valid_recourse_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillRecourseBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_recourse_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_recourse_block_data(
         #[case] block: BillRecourseBlockData,
@@ -3599,7 +3580,7 @@ pub mod tests {
 
     #[rstest]
     #[case::invalid_rejecter(BillRejectBlockData { rejecter: invalid_bill_identity_block_data(), ..valid_reject_block_data() }, ValidationError::FieldEmpty(Field::Name))]
-    #[case::invalid_signing_address(BillRejectBlockData { signing_address: invalid_address(), ..valid_reject_block_data() }, ValidationError::FieldEmpty(Field::Country))]
+    #[case::invalid_signing_address(BillRejectBlockData { signing_address: invalid_address(), ..valid_reject_block_data() }, ValidationError::FieldEmpty(Field::City))]
     #[case::invalid_signatory(BillRejectBlockData { signatory: Some(invalid_bill_signatory_block_data()), ..valid_reject_block_data() }, ValidationError::FieldEmpty(Field::Name))]
     fn test_invalid_reject_block_data(
         #[case] block: BillRejectBlockData,

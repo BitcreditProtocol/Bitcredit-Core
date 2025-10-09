@@ -3,7 +3,7 @@ use bcr_ebill_api::{
     NotificationFilter,
     data::{
         File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
-        PostalAddress, UploadFileResult,
+        PostalAddress, UploadFileResult, country::Country,
     },
     util::{
         self, ValidationError,
@@ -118,7 +118,8 @@ pub struct CurrencyResponse {
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct OptionalPostalAddressWeb {
-    pub country: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub country: Option<Country>,
     pub city: Option<String>,
     pub zip: Option<String>,
     pub address: Option<String>,
@@ -158,7 +159,8 @@ impl From<OptionalPostalAddress> for OptionalPostalAddressWeb {
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct PostalAddressWeb {
-    pub country: String,
+    #[tsify(type = "string")]
+    pub country: Country,
     pub city: String,
     pub zip: Option<String>,
     pub address: String,

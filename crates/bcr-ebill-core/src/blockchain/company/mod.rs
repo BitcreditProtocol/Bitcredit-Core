@@ -4,6 +4,7 @@ use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
 use crate::blockchain::{Error, borsh_to_json_string};
+use crate::country::Country;
 use crate::identity_proof::IdentityProofStamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{
@@ -113,7 +114,7 @@ impl CompanyBlockPlaintextWrapper {
 pub struct CompanyCreateBlockData {
     pub id: NodeId,
     pub name: String,
-    pub country_of_registration: Option<String>,
+    pub country_of_registration: Option<Country>,
     pub city_of_registration: Option<String>,
     pub postal_address: PostalAddress,
     pub email: String,
@@ -149,7 +150,7 @@ pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
-    pub country_of_registration: Option<String>,
+    pub country_of_registration: Option<Country>,
     pub city_of_registration: Option<String>,
     pub registration_number: Option<String>,
     pub registration_date: Option<String>,
@@ -678,8 +679,11 @@ impl CompanyBlockchain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::tests::{
-        bill_id_test, node_id_test, private_key_test, valid_address, valid_optional_address,
+    use crate::{
+        country::Country,
+        tests::tests::{
+            bill_id_test, node_id_test, private_key_test, valid_address, valid_optional_address,
+        },
     };
 
     fn get_baseline_company_data() -> (NodeId, (Company, CompanyKeys)) {
@@ -689,7 +693,7 @@ mod tests {
                 Company {
                     id: node_id_test(),
                     name: "some_name".to_string(),
-                    country_of_registration: Some("AT".to_string()),
+                    country_of_registration: Some(Country::AT),
                     city_of_registration: Some("Vienna".to_string()),
                     postal_address: valid_address(),
                     email: "company@example.com".to_string(),

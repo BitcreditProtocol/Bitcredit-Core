@@ -3,6 +3,7 @@ use bcr_ebill_api::{
         NodeId,
         company::Company,
         contact::{Contact, ContactType},
+        country::Country,
     },
     util::ValidationError,
 };
@@ -24,7 +25,8 @@ pub struct CompanyWeb {
     #[tsify(type = "string")]
     pub id: NodeId,
     pub name: String,
-    pub country_of_registration: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub country_of_registration: Option<Country>,
     pub city_of_registration: Option<String>,
     pub postal_address: PostalAddressWeb,
     pub email: String,

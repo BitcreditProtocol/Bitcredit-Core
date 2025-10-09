@@ -143,6 +143,7 @@ pub mod tests {
     use crate::{
         bill::BillKeys,
         blockchain::Blockchain,
+        country::Country,
         identity::IdentityWithAll,
         tests::tests::{empty_bitcredit_bill, empty_identity, node_id_test, private_key_test},
         util::BcrKeys,
@@ -163,7 +164,7 @@ pub mod tests {
         let mut identity = empty_identity();
         identity.node_id = node_id_test();
         identity.name = "drawer".to_owned();
-        identity.postal_address.country = Some("AT".to_owned());
+        identity.postal_address.country = Some(Country::AT);
         identity.postal_address.city = Some("Vienna".to_owned());
         identity.postal_address.address = Some("Hayekweg 5".to_owned());
         IdentityWithAll {

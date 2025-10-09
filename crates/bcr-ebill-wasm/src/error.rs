@@ -48,6 +48,7 @@ enum JsErrorType {
     InvalidContactType,
     InvalidIdentityType,
     InvalidDate,
+    InvalidCountry,
     InvalidTimestamp,
     DeadlineBeforeMinimum,
     SelfDraftedBillCantBeBlank,
@@ -233,6 +234,7 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::InvalidIdentityType => err_400(e, JsErrorType::InvalidIdentityType),
         ValidationError::InvalidContentType => err_400(e, JsErrorType::InvalidContentType),
         ValidationError::InvalidDate => err_400(e, JsErrorType::InvalidDate),
+        ValidationError::InvalidCountry => err_400(e, JsErrorType::InvalidCountry),
         ValidationError::InvalidTimestamp => err_400(e, JsErrorType::InvalidTimestamp),
         ValidationError::DeadlineBeforeMinimum => err_400(e, JsErrorType::DeadlineBeforeMinimum),
         ValidationError::SelfDraftedBillCantBeBlank => {

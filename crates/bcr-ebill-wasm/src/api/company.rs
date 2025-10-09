@@ -3,7 +3,7 @@ use std::str::FromStr;
 use super::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
-    data::{NodeId, OptionalPostalAddress, PostalAddress},
+    data::{NodeId, OptionalPostalAddress, PostalAddress, country::Country},
     external,
     service::Error,
     util::{
@@ -164,7 +164,11 @@ impl Company {
             .company_service
             .create_company(
                 company_payload.name,
-                company_payload.country_of_registration,
+                company_payload
+                    .country_of_registration
+                    .as_deref()
+                    .map(Country::parse)
+                    .transpose()?,
                 company_payload.city_of_registration,
                 PostalAddress::from(company_payload.postal_address),
                 company_payload.email,
@@ -213,7 +217,11 @@ impl Company {
                 company_payload.name,
                 company_payload.email,
                 OptionalPostalAddress::from(company_payload.postal_address),
-                company_payload.country_of_registration,
+                company_payload
+                    .country_of_registration
+                    .as_deref()
+                    .map(Country::parse)
+                    .transpose()?,
                 company_payload.city_of_registration,
                 company_payload.registration_number,
                 company_payload.registration_date,

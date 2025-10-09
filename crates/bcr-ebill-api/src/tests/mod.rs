@@ -9,6 +9,7 @@ pub mod tests {
     };
     use async_trait::async_trait;
     use bcr_ebill_core::constants::CURRENCY_SAT;
+    use bcr_ebill_core::country::Country;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
@@ -470,7 +471,7 @@ pub mod tests {
                 let _ = crate::init(crate::Config {
                     app_url: url::Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
                     bitcoin_network: "testnet".to_string(),
-                    esplora_base_url: "https://esplora.minibill.tech".to_string(),
+                    esplora_base_url: url::Url::parse("https://esplora.minibill.tech").unwrap(),
                     db_config: SurrealDbConfig {
                         connection_string: "ws://localhost:8800".to_string(),
                         ..SurrealDbConfig::default()
@@ -481,7 +482,7 @@ pub mod tests {
                         relays: vec!["ws://localhost:8080".to_string()],
                     },
                     mint_config: MintConfig {
-                        default_mint_url: "http://localhost:4242/".into(),
+                        default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
                         default_mint_node_id: NodeId::from_str(
                             "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                         ).unwrap(),
@@ -502,7 +503,7 @@ pub mod tests {
 
     pub fn empty_address() -> PostalAddress {
         PostalAddress {
-            country: "AT".to_string(),
+            country: Country::AT,
             city: "Vienna".to_string(),
             zip: None,
             address: "Some Address 1".to_string(),
@@ -511,7 +512,7 @@ pub mod tests {
 
     pub fn filled_optional_address() -> OptionalPostalAddress {
         OptionalPostalAddress {
-            country: Some("AT".to_string()),
+            country: Some(Country::AT),
             city: Some("Vienna".to_string()),
             zip: None,
             address: Some("Some Address 1".to_string()),
@@ -569,7 +570,7 @@ pub mod tests {
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
             id: bill_id_test(),
-            country_of_issuing: "AT".to_string(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
@@ -580,8 +581,7 @@ pub mod tests {
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),
             city_of_payment: "Vienna".to_string(),
-            country_of_payment: "AT".to_string(),
-            language: "DE".to_string(),
+            country_of_payment: Country::AT,
             files: vec![],
         }
     }

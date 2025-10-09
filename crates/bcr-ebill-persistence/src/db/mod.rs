@@ -3,7 +3,7 @@ use super::{Error, Result};
 use crate::constants::{
     SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
 };
-use bcr_ebill_core::{File, OptionalPostalAddress, PostalAddress, bill::BillId};
+use bcr_ebill_core::{File, OptionalPostalAddress, PostalAddress, bill::BillId, country::Country};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use surrealdb::{
@@ -121,7 +121,7 @@ impl From<&File> for FileDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptionalPostalAddressDb {
-    pub country: Option<String>,
+    pub country: Option<Country>,
     pub city: Option<String>,
     pub zip: Option<String>,
     pub address: Option<String>,
@@ -162,7 +162,7 @@ impl From<&OptionalPostalAddress> for OptionalPostalAddressDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostalAddressDb {
-    pub country: String,
+    pub country: Country,
     pub city: String,
     pub zip: Option<String>,
     pub address: String,

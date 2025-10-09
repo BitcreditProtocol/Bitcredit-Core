@@ -28,9 +28,9 @@ pub fn get_uuid_v4() -> Uuid {
 
 pub use bcr_ebill_core::util::sha256_hash;
 
-pub fn update_optional_field(
-    field_to_update: &mut Option<String>,
-    field: &Option<String>,
+pub fn update_optional_field<T: Clone + PartialEq>(
+    field_to_update: &mut Option<T>,
+    field: &Option<T>,
     changed: &mut bool,
 ) {
     match field_to_update {
@@ -54,6 +54,8 @@ pub fn update_optional_field(
 
 #[cfg(test)]
 mod tests {
+    use bcr_ebill_core::country::Country;
+
     use super::*;
 
     #[test]
@@ -71,7 +73,7 @@ mod tests {
 
     #[test]
     fn update_optional_field_none() {
-        let mut field_to_update = None;
+        let mut field_to_update: Option<Country> = None;
         let mut changed = false;
         update_optional_field(&mut field_to_update, &None, &mut changed);
         assert!(!changed);

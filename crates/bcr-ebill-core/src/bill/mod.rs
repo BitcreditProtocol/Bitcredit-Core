@@ -7,6 +7,7 @@ use crate::{
     NodeId,
     blockchain::bill::BillBlockchain,
     contact::{BillParticipant, LightBillParticipant},
+    country::Country,
     util::BcrKeys,
 };
 use secp256k1::{PublicKey, SecretKey};
@@ -52,7 +53,7 @@ pub enum BillType {
 #[derive(Debug, Clone)]
 pub struct BillIssueData {
     pub t: u64,
-    pub country_of_issuing: String,
+    pub country_of_issuing: Country,
     pub city_of_issuing: String,
     pub issue_date: String,
     pub maturity_date: String,
@@ -60,9 +61,8 @@ pub struct BillIssueData {
     pub payee: NodeId,
     pub sum: String,
     pub currency: String,
-    pub country_of_payment: String,
+    pub country_of_payment: Country,
     pub city_of_payment: String,
-    pub language: String,
     pub file_upload_ids: Vec<String>,
     pub drawer_public_data: BillParticipant,
     pub drawer_keys: BcrKeys,
@@ -87,7 +87,7 @@ pub struct BillValidateActionData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BitcreditBill {
     pub id: BillId,
-    pub country_of_issuing: String,
+    pub country_of_issuing: Country,
     pub city_of_issuing: String,
     // The party obliged to pay a Bill
     pub drawee: BillIdentParticipant,
@@ -100,9 +100,8 @@ pub struct BitcreditBill {
     pub sum: u64,
     pub maturity_date: String,
     pub issue_date: String,
-    pub country_of_payment: String,
+    pub country_of_payment: Country,
     pub city_of_payment: String,
-    pub language: String,
     pub files: Vec<File>,
 }
 
@@ -228,14 +227,13 @@ pub struct BillMintStatus {
 
 #[derive(Debug, Clone)]
 pub struct BillData {
-    pub language: String,
     pub time_of_drawing: u64,
     pub issue_date: String,
     pub time_of_maturity: u64,
     pub maturity_date: String,
-    pub country_of_issuing: String,
+    pub country_of_issuing: Country,
     pub city_of_issuing: String,
-    pub country_of_payment: String,
+    pub country_of_payment: Country,
     pub city_of_payment: String,
     pub currency: String,
     pub sum: String,

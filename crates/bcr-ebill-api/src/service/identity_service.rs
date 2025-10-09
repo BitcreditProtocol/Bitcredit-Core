@@ -19,6 +19,7 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::identity::IdentityBlockPlaintextWrapper;
+use bcr_ebill_core::country::Country;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::util::base58_encode;
@@ -37,7 +38,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
-        country_of_birth: Option<String>,
+        country_of_birth: Option<Country>,
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
@@ -60,7 +61,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
-        country_of_birth: Option<String>,
+        country_of_birth: Option<Country>,
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
@@ -75,7 +76,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
-        country_of_birth: Option<String>,
+        country_of_birth: Option<Country>,
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
@@ -244,7 +245,7 @@ impl IdentityServiceApi for IdentityService {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
-        country_of_birth: Option<String>,
+        country_of_birth: Option<Country>,
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
@@ -292,9 +293,9 @@ impl IdentityServiceApi for IdentityService {
             }
 
             if let Some(ref country_to_set) = postal_address.country
-                && identity.postal_address.country != Some(country_to_set.trim().to_string())
+                && identity.postal_address.country.as_ref() != Some(country_to_set)
             {
-                identity.postal_address.country = Some(country_to_set.trim().to_owned());
+                identity.postal_address.country = Some(country_to_set.to_owned());
                 changed = true;
             }
 
@@ -429,7 +430,7 @@ impl IdentityServiceApi for IdentityService {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
-        country_of_birth: Option<String>,
+        country_of_birth: Option<Country>,
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
@@ -530,7 +531,7 @@ impl IdentityServiceApi for IdentityService {
         email: Option<String>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<String>,
-        country_of_birth: Option<String>,
+        country_of_birth: Option<Country>,
         city_of_birth: Option<String>,
         identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,

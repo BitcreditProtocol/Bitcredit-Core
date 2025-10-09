@@ -12,13 +12,14 @@ pub mod tests {
         },
         constants::CURRENCY_SAT,
         contact::{BillIdentParticipant, BillParticipant, ContactType},
+        country::Country,
         identity::{Identity, IdentityType},
         util::BcrKeys,
     };
 
     pub fn empty_address() -> PostalAddress {
         PostalAddress {
-            country: "".to_string(),
+            country: Country::AT,
             city: "".to_string(),
             zip: None,
             address: "".to_string(),
@@ -76,7 +77,7 @@ pub mod tests {
     pub fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
             id: bill_id_test(),
-            country_of_issuing: "".to_string(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
@@ -90,8 +91,7 @@ pub mod tests {
             maturity_date: "".to_string(),
             issue_date: "".to_string(),
             city_of_payment: "".to_string(),
-            country_of_payment: "".to_string(),
-            language: "".to_string(),
+            country_of_payment: Country::AT,
             files: vec![],
         }
     }
@@ -111,14 +111,13 @@ pub mod tests {
                 all_participant_node_ids: vec![],
             },
             data: BillData {
-                language: "AT".to_string(),
                 time_of_drawing: 1731593928,
                 issue_date: "2024-05-01".to_string(),
                 time_of_maturity: 1731593928,
                 maturity_date: "2024-07-01".to_string(),
-                country_of_issuing: "AT".to_string(),
+                country_of_issuing: Country::AT,
                 city_of_issuing: "Vienna".to_string(),
-                country_of_payment: "AT".to_string(),
+                country_of_payment: Country::AT,
                 city_of_payment: "Vienna".to_string(),
                 currency: CURRENCY_SAT.to_string(),
                 sum: "15000".to_string(),

@@ -6,6 +6,11 @@
     * Request to Pay (payment_deadline) - min. 48 hours after block timestamp (UTC end of day) 
     * Request to Recourse (recourse_deadline) - min. 48 hours after block timestamp (UTC end of day)
     * Offer to Sell (buying_deadline) - min. UTC end of day of the block timestamp
+* Add basic input validation and sanitization
+    * removed `language` from bills (breaking DB change)
+    * added `Country` type that validates against a list of valid countries (breaking DB change)
+* Change config url values to `url::Url`
+* Print bech32 npub at startup
 
 # 0.4.9
 
