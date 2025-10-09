@@ -214,4 +214,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         contact_id: &NodeId,
         keys: &BcrKeys,
     ) -> Result<()>;
+
+    /// Connects to all relays
+    async fn connect(&self);
 }

@@ -429,6 +429,18 @@ impl NotificationService {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationServiceApi for NotificationService {
+    async fn connect(&self) {
+        let transports = self.notification_transport.lock().await;
+        for (_, transport) in transports.iter() {
+            if let Err(e) = transport.connect().await {
+                error!(
+                    "Failed to connect to transport for node id {}: {e}",
+                    transport.get_sender_node_id()
+                );
+            }
+        }
+    }
+
     /// Adds a new transport client for a company if it does not already exist
     async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         self.add_company_client(company, keys).await
@@ -1190,6 +1202,35 @@ mod tests {
             "test".to_string(),
             nostr::secp256k1::schnorr::Signature::from_slice(&sig).unwrap(),
         )
+    }
+
+    #[tokio::test]
+    async fn test_connect() {
+        init_test_cfg();
+        let mut mock_transport = MockNotificationJsonTransport::new();
+
+        // get node_id
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+
+        // call connect on the inner transport
+        mock_transport.expect_connect().returning(|| Ok(()));
+
+        let service = NotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            vec!["ws://test.relay".into()],
+        );
+
+        service.connect().await;
     }
 
     #[tokio::test]
