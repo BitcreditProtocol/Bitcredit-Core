@@ -35,7 +35,7 @@ pub struct Config {
     pub nostr_only_known_contacts: Option<bool>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
-    pub transport_initial_subsciption_delay_seconds: Option<u32>,
+    pub transport_initial_subscription_delay_seconds: Option<u32>,
     pub default_mint_url: String,
     pub default_mint_node_id: String,
     pub num_confirmations_for_payment: usize,
@@ -156,7 +156,7 @@ pub async fn initialize_api(
     wasm_bindgen_futures::spawn_local(async move {
         tokio::time::sleep(Duration::from_secs(
             config
-                .transport_initial_subsciption_delay_seconds
+                .transport_initial_subscription_delay_seconds
                 .unwrap_or(DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS) as u64,
         ))
         .await;

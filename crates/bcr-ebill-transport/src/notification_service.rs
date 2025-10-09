@@ -1199,6 +1199,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_connect() {
+        init_test_cfg();
+        let mut mock_transport = MockNotificationJsonTransport::new();
+
+        // get node_id
+        mock_transport
+            .expect_get_sender_node_id()
+            .returning(node_id_test);
+
+        // call connect on the inner transport
+        mock_transport.expect_connect().returning(|| Ok(()));
+
+        let service = NotificationService::new(
+            vec![Arc::new(mock_transport)],
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(MockEmailNotificationStore::new()),
+            Arc::new(MockContactStore::new()),
+            Arc::new(MockNostrContactStore::new()),
+            Arc::new(MockNostrQueuedMessageStore::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockEmailClient::new()),
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            vec!["ws://test.relay".into()],
+        );
+
+        service.connect().await;
+    }
+
+    #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
         init_test_cfg();
         let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);

@@ -269,6 +269,11 @@ impl NostrClient {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    async fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
 }
 
 impl ServiceTraitBounds for NostrClient {}
@@ -743,6 +748,25 @@ mod tests {
     use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig, NostrConsumer};
 
+    #[tokio::test]
+    async fn test_connect() {
+        let relay = get_mock_relay().await;
+        let url = relay.url();
+        let keys = BcrKeys::new();
+        let config = NostrConfig::new(
+            keys.clone(),
+            vec![url.to_string()],
+            true,
+            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+        );
+        let client = NostrClient::new(&config)
+            .await
+            .expect("failed to create nostr client");
+
+        client.connect().await.expect("failed to connect");
+        assert!(client.is_connected().await, "client should be connected");
+    }
+
     /// When testing with the mock relay we need to be careful. It is always
     /// listening on the same port and will not start multiple times. If we
     /// share the instance tests will fail with events from other tests.
@@ -765,6 +789,8 @@ mod tests {
             .await
             .expect("failed to create nostr client 1");
 
+        client1.connect().await.expect("failed to connect");
+
         let config2 = NostrConfig::new(
             keys2.clone(),
             vec![url.to_string()],
@@ -774,6 +800,8 @@ mod tests {
         let client2 = NostrClient::new(&config2)
             .await
             .expect("failed to create nostr client 2");
+
+        client2.connect().await.expect("failed to connect");
 
         // and a contact we want to send an event to
         let contact = get_identity_public_data(
