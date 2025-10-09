@@ -91,7 +91,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
         ) {
             (Ok(mut existing_chain), Ok(IdentityWithAll { identity, key_pair })) => {
                 debug!(
-                    "starting company chain resync for company {}",
+                    "starting identity chain resync for company {}",
                     identity.node_id
                 );
                 if let Ok(chain_data) = resolve_event_chains(
