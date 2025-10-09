@@ -170,7 +170,7 @@ impl CompanyService {
         upload_id: &Option<String>,
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &str,
+        relay_url: &url::Url,
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -200,7 +200,7 @@ impl CompanyService {
         file_bytes: &[u8],
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &str,
+        relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
@@ -246,7 +246,11 @@ impl CompanyService {
 }
 
 /// Derives a company contact encryption key, encrypts the contact data with it and returns the BCR metadata.
-fn get_bcr_data(company: &Company, keys: &CompanyKeys, relays: Vec<String>) -> Result<BcrMetadata> {
+fn get_bcr_data(
+    company: &Company,
+    keys: &CompanyKeys,
+    relays: Vec<url::Url>,
+) -> Result<BcrMetadata> {
     let derived_keys = keys.derive_keypair()?;
     let contact = Contact {
         t: ContactType::Company,
@@ -1304,7 +1308,7 @@ pub mod tests {
         storage.expect_insert().returning(|_| Ok(()));
         identity_store.expect_get_full().returning(|| {
             let mut identity = empty_identity();
-            identity.nostr_relays = vec!["ws://localhost:8080".into()];
+            identity.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
@@ -2461,7 +2465,7 @@ pub mod tests {
                 &file_bytes,
                 &company_id,
                 &node_id_test().pub_key(),
-                "nostr_relay",
+                &url::Url::parse("ws://localhost:8080").unwrap(),
             )
             .await
             .unwrap();
@@ -2522,7 +2526,7 @@ pub mod tests {
                     &[],
                     &node_id_test(),
                     &node_id_test().pub_key(),
-                    "nostr_relay"
+                    &url::Url::parse("ws://localhost:8080").unwrap(),
                 )
                 .await
                 .is_err()

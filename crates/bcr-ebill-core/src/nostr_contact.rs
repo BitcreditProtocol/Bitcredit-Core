@@ -22,7 +22,7 @@ pub struct NostrContact {
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.
-    pub relays: Vec<String>,
+    pub relays: Vec<url::Url>,
     /// The trust level we assign to this contact.
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
@@ -53,7 +53,7 @@ impl NostrContact {
     /// Merges contact data into a nostr contact. This assumes at that point the handskake is
     /// complete and we trust the contact.
     pub fn merge_contact(&self, contact: &Contact, private_key: Option<SecretKey>) -> Self {
-        let mut relays: BTreeSet<String> = BTreeSet::from_iter(self.relays.clone());
+        let mut relays: BTreeSet<url::Url> = BTreeSet::from_iter(self.relays.clone());
         relays.extend(contact.nostr_relays.clone());
         Self {
             npub: self.npub,

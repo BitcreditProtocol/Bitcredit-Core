@@ -147,7 +147,7 @@ impl IdentityService {
         upload_id: &Option<String>,
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &str,
+        relay_url: &url::Url,
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -177,7 +177,7 @@ impl IdentityService {
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &str,
+        relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;

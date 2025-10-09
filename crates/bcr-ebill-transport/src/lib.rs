@@ -99,7 +99,7 @@ pub async fn create_notification_service(
     clients: Vec<Arc<NostrClient>>,
     db_context: DbContext,
     email_client: Arc<dyn EmailClientApi>,
-    nostr_relays: Vec<String>,
+    nostr_relays: Vec<url::Url>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
     let transport = match clients.iter().find(|c| c.is_primary()) {
         Some(client) => client.clone(),

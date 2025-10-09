@@ -153,7 +153,7 @@ impl IdentityProofServiceApi for IdentityProofService {
 
         // TODO(multi-relay): don't default to first, but to default relay of receiver with this capability
         let nostr_relay = match signer_public_data.nostr_relays().first() {
-            Some(r) => r.to_string(),
+            Some(r) => r.to_owned(),
             None => {
                 return Err(Error::Validation(ValidationError::InvalidRelayUrl));
             }
@@ -271,7 +271,7 @@ impl IdentityProofServiceApi for IdentityProofService {
 
                 // TODO(multi-relay): don't default to first, but to default relay of receiver with this capability
                 let nostr_relay = match signer_public_data.nostr_relays().first() {
-                    Some(r) => r.to_string(),
+                    Some(r) => r.to_owned(),
                     None => {
                         return Err(Error::Validation(ValidationError::InvalidRelayUrl));
                     }
@@ -322,7 +322,7 @@ impl IdentityProofServiceApi for IdentityProofService {
 
         // TODO(multi-relay): don't default to first, but to default relay of receiver with this capability
         let nostr_relay = match full_identity.identity.nostr_relays.first() {
-            Some(r) => r.to_string(),
+            Some(r) => r.to_owned(),
             None => {
                 return Err(Error::Validation(ValidationError::InvalidRelayUrl));
             }
@@ -439,7 +439,7 @@ pub mod tests {
         let service = get_service(ctx);
 
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
-        signer.nostr_relays = vec!["some relay".to_owned()];
+        signer.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
 
         let res = service
             .add(
@@ -492,7 +492,7 @@ pub mod tests {
         let service = get_service(ctx);
 
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
-        signer.nostr_relays = vec!["some relay".to_owned()];
+        signer.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
         signer.t = ContactType::Company;
 
         let res = service
@@ -522,7 +522,7 @@ pub mod tests {
             .returning(|_, _, _, _| IdentityProofStatus::NotFound);
         let service = get_service(ctx);
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
-        signer.nostr_relays = vec!["some relay".to_owned()];
+        signer.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
 
         let res = service
             .add(
@@ -618,7 +618,7 @@ pub mod tests {
             .returning(|_, _, _, _| IdentityProofStatus::NotFound);
         let service = get_service(ctx);
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
-        signer.nostr_relays = vec!["some relay".to_owned()];
+        signer.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
 
         let res = service
             .re_check(
@@ -650,7 +650,7 @@ pub mod tests {
         });
         let service = get_service(ctx);
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
-        signer.nostr_relays = vec!["some relay".to_owned()];
+        signer.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
 
         let res = service
             .re_check(
@@ -668,7 +668,7 @@ pub mod tests {
         ctx.store.expect_get_by_id().returning(|_| Ok(None));
         let service = get_service(ctx);
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
-        signer.nostr_relays = vec!["some relay".to_owned()];
+        signer.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
 
         let res = service
             .re_check(

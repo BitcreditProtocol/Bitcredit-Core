@@ -5,8 +5,8 @@ The application can be configured using the `Config` struct.
 ```rust
 pub struct Config {
     pub bitcoin_network: String,
-    pub nostr_relays: Vec<String>,
-    pub esplora_base_url: String,
+    pub nostr_relays: Vec<url::url>,
+    pub esplora_base_url: url::url,
     pub surreal_db_connection: String,
     pub data_dir: String,
     pub job_runner_initial_delay_seconds: u32,

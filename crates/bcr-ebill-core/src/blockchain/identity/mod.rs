@@ -105,7 +105,11 @@ pub struct IdentityCreateBlockData {
     pub city_of_birth: Option<String>,
     pub country_of_birth: Option<Country>,
     pub identification_number: Option<String>,
-    pub nostr_relays: Vec<String>,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_vec_url",
+        deserialize_with = "crate::util::borsh::deserialize_vec_url"
+    )]
+    pub nostr_relays: Vec<url::Url>,
     pub profile_picture_file: Option<File>,
     pub identity_document_file: Option<File>,
 }

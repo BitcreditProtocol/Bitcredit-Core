@@ -27,7 +27,7 @@ impl BillService {
         file_bytes: &[u8],
         bill_id: &BillId,
         public_key: &PublicKey,
-        relay_url: &str,
+        relay_url: &url::Url,
         upload_file_type: UploadFileType,
     ) -> Result<File> {
         // validate file size for upload file type

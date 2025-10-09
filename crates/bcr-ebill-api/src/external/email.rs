@@ -44,11 +44,11 @@ use crate::{external::file_storage::to_url, get_config};
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait EmailClientApi: ServiceTraitBounds {
     /// Start register flow, returning a challenge string
-    async fn start(&self, relay_url: &str, node_id: &NodeId) -> Result<String>;
+    async fn start(&self, relay_url: &url::Url, node_id: &NodeId) -> Result<String>;
     /// Register for email notifications, returning an email preferences link
     async fn register(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         email: &str,
         private_key: &nostr::SecretKey,
         challenge: &str,
@@ -56,7 +56,7 @@ pub trait EmailClientApi: ServiceTraitBounds {
     /// Send a bill notification email
     async fn send_bill_notification(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         kind: BillEventType,
         id: &BillId,
         receiver: &NodeId,
@@ -85,7 +85,7 @@ impl ServiceTraitBounds for MockEmailClientApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EmailClientApi for EmailClient {
-    async fn start(&self, relay_url: &str, node_id: &NodeId) -> Result<String> {
+    async fn start(&self, relay_url: &url::Url, node_id: &NodeId) -> Result<String> {
         let npub = node_id.npub().to_bech32().map_err(|_| Error::NostrKey)?;
         let req = StartEmailRegisterRequest { npub };
 
@@ -103,7 +103,7 @@ impl EmailClientApi for EmailClient {
 
     async fn register(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         email: &str,
         private_key: &nostr::SecretKey,
         challenge: &str,
@@ -142,7 +142,7 @@ impl EmailClientApi for EmailClient {
 
     async fn send_bill_notification(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         kind: BillEventType,
         id: &BillId,
         receiver: &NodeId,

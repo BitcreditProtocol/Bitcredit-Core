@@ -80,6 +80,11 @@ pub async fn initialize_api(
         .chain(fern::Output::call(console_log::log))
         .apply()
         .expect("can initialize logging");
+    let nostr_relays: Vec<url::Url> = config
+        .nostr_relays
+        .iter()
+        .map(|nr| url::Url::parse(nr).expect("nostr relay is not a valid URL"))
+        .collect();
     let mint_node_id = NodeId::from_str(&config.default_mint_node_id).expect("is a valid mint id");
     let api_config = ApiConfig {
         app_url: url::Url::parse(&config.app_url).expect("app url is not a valid URL"),
@@ -89,7 +94,7 @@ pub async fn initialize_api(
         db_config: SurrealDbConfig::default(),
         data_dir: "./".to_owned(), // unused in wasm
         nostr_config: NostrConfig {
-            relays: config.nostr_relays.to_owned(),
+            relays: nostr_relays,
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
         },
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,

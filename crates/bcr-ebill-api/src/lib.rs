@@ -76,7 +76,7 @@ pub struct NostrConfig {
     /// Only known contacts can message us via DM.
     pub only_known_contacts: bool,
     /// All relays we want to publish our messages to and receive messages from.
-    pub relays: Vec<String>,
+    pub relays: Vec<url::Url>,
 }
 
 /// Mint configuration

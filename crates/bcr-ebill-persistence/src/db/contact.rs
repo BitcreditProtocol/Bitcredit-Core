@@ -98,7 +98,7 @@ pub struct ContactDb {
     pub identification_number: Option<String>,
     pub avatar_file: Option<FileDb>,
     pub proof_document_file: Option<FileDb>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
 }
 
 impl From<ContactDb> for Contact {

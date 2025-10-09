@@ -47,11 +47,7 @@ impl NostrContactProcessorApi for NostrContactProcessor {
         }
         // Let's try to get some details and add the contact
         if let Ok(Some(contact)) = self.transport.resolve_contact(node_id).await {
-            let relays = contact
-                .relays
-                .iter()
-                .map(|r| r.as_str().to_owned())
-                .collect();
+            let relays = contact.relays.iter().map(|r| r.to_owned().into()).collect();
             self.upsert_contact(
                 node_id,
                 &NostrContact {

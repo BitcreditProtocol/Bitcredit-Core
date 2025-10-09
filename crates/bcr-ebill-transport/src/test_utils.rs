@@ -93,7 +93,7 @@ pub fn init_test_cfg() {
                 data_dir: ".".to_string(),
                 nostr_config: bcr_ebill_api::NostrConfig {
                     only_known_contacts: false,
-                    relays: vec!["ws://localhost:8080".to_string()],
+                    relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
                 },
                 mint_config: bcr_ebill_api::MintConfig {
                     default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
@@ -165,14 +165,15 @@ pub fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> 
 pub fn get_identity_public_data(
     node_id: &NodeId,
     email: &str,
-    nostr_relays: Vec<&str>,
+    nostr_relays: Vec<&url::Url>,
 ) -> BillIdentParticipant {
     let mut identity = bill_identified_participant_only_node_id(node_id.to_owned());
     identity.email = Some(email.to_owned());
     identity.nostr_relays = nostr_relays
         .iter()
-        .map(|nostr_relay| String::from(*nostr_relay))
-        .collect();
+        .map(|nostr_relay| nostr_relay.to_owned())
+        .cloned()
+        .collect::<Vec<url::Url>>();
     identity
 }
 
@@ -343,7 +344,7 @@ pub async fn get_mock_relay() -> MockRelay {
 
 pub async fn get_mock_nostr_client() -> NostrClient {
     let relay = get_mock_relay().await;
-    let url = relay.url();
+    let url = url::Url::parse(&relay.url()).unwrap();
     let keys = BcrKeys::new();
 
     let config = NostrConfig::new(
@@ -584,17 +585,17 @@ mockall::mock! {
     pub EmailClient {}
     #[async_trait]
     impl EmailClientApi for EmailClient {
-        async fn start(&self, relay_url: &str, node_id: &NodeId) -> bcr_ebill_api::external::email::Result<String>;
+        async fn start(&self, relay_url: &url::Url, node_id: &NodeId) -> bcr_ebill_api::external::email::Result<String>;
         async fn register(
             &self,
-            relay_url: &str,
+            relay_url: &url::Url,
             email: &str,
             private_key: &nostr::SecretKey,
             challenge: &str,
         ) -> bcr_ebill_api::external::email::Result<url::Url>;
         async fn send_bill_notification(
             &self,
-            relay_url: &str,
+            relay_url: &url::Url,
             kind: BillEventType,
             id: &BillId,
             receiver: &NodeId,

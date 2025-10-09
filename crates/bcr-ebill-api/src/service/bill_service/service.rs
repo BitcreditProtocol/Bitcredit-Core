@@ -197,7 +197,7 @@ impl BillService {
         t: ContactType,
         identity: &Identity,
         contacts: &HashMap<NodeId, Contact>,
-    ) -> (Option<String>, Vec<String>) {
+    ) -> (Option<String>, Vec<url::Url>) {
         match node_id {
             v if *v == identity.node_id => (identity.email.clone(), identity.nostr_relays.clone()),
             other_node_id => {
@@ -664,8 +664,8 @@ impl BillService {
             Ok(Some(nostr_contact_data)) => nostr_contact_data
                 .relays
                 .iter()
-                .map(|url| url.to_string())
-                .collect::<Vec<String>>(),
+                .map(|url| url.to_owned().into())
+                .collect::<Vec<url::Url>>(),
             _ => {
                 // fallback to own relays
                 identity.nostr_relays.clone()
@@ -685,7 +685,7 @@ impl BillService {
         bill_id: &BillId,
         bill_private_key: &SecretKey,
         node_id: &NodeId,
-        relay_url: &str,
+        relay_url: &url::Url,
         files: &[File],
     ) -> Result<Vec<url::Url>> {
         if files.is_empty() {

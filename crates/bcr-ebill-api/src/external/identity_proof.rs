@@ -51,7 +51,7 @@ pub trait IdentityProofApi: ServiceTraitBounds {
     /// The request is proxied through the given relay and signed by the caller's private key
     async fn check_url(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         identity_proof_stamp: &IdentityProofStamp,
         private_key: &nostr::SecretKey,
         url: &Url,
@@ -93,7 +93,7 @@ pub struct ProxyReqPayload {
 impl IdentityProofApi for IdentityProofClient {
     async fn check_url(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         identity_proof: &IdentityProofStamp,
         private_key: &nostr::SecretKey,
         url: &Url,
@@ -146,7 +146,7 @@ impl IdentityProofApi for IdentityProofClient {
 
 // Returns the relay URL to call and the request
 fn create_proxy_req(
-    relay_url: &str,
+    relay_url: &url::Url,
     private_key: &nostr::SecretKey,
     url: &Url,
 ) -> Result<(Url, ProxyReq)> {
@@ -199,12 +199,12 @@ pub mod tests {
 
     #[test]
     fn sig_req_proxy_test() {
-        let relay_url = "wss://bcr-relay-dev.minibill.tech";
+        let relay_url = url::Url::parse("wss://bcr-relay-dev.minibill.tech").unwrap();
         let secret_key =
             SecretKey::from_str("8863c82829480536893fc49c4b30e244f97261e989433373d73c648c1a656a79")
                 .unwrap();
         let x_only_pub = secret_key.public_key(SECP256K1).x_only_public_key().0;
-        let (proxy_url, proxy_req) = create_proxy_req(relay_url, &secret_key, &Url::parse("https://primal.net/e/nevent1qqs24kk3m0rc8e7a6f8k8daddqes0a2n74jszdszppu84e6y5q8ss3cy2rxs4").unwrap()).expect("creating proxy req works");
+        let (proxy_url, proxy_req) = create_proxy_req(&relay_url, &secret_key, &Url::parse("https://primal.net/e/nevent1qqs24kk3m0rc8e7a6f8k8daddqes0a2n74jszdszppu84e6y5q8ss3cy2rxs4").unwrap()).expect("creating proxy req works");
 
         assert_eq!(
             proxy_url,
@@ -223,7 +223,7 @@ pub mod tests {
     // networks interact with the check_url() call.
     async fn test_check_url() {
         let node_id = node_id_test();
-        let relay_url = "wss://bcr-relay-dev.minibill.tech";
+        let relay_url = url::Url::parse("wss://bcr-relay-dev.minibill.tech").unwrap();
         let private_key = BcrKeys::from_private_key(&private_key_test())
             .unwrap()
             .get_nostr_keys()
@@ -238,19 +238,19 @@ pub mod tests {
 
         let valid_url = Url::parse("https://primal.net/e/nevent1qqs24kk3m0rc8e7a6f8k8daddqes0a2n74jszdszppu84e6y5q8ss3cy2rxs4").unwrap();
         let check_url_res = identity_proof_client
-            .check_url(relay_url, &identity_proof, &private_key, &valid_url)
+            .check_url(&relay_url, &identity_proof, &private_key, &valid_url)
             .await;
         assert!(matches!(check_url_res, IdentityProofStatus::Success));
 
         let not_found_url = Url::parse("https://primal.net/e/nevent1qqsv64erdk323pkpuzqspyk3e842egaeuu8v6js970tvnyjlkjakzqc0whefs").unwrap();
         let check_url_res = identity_proof_client
-            .check_url(relay_url, &identity_proof, &private_key, &not_found_url)
+            .check_url(&relay_url, &identity_proof, &private_key, &not_found_url)
             .await;
         assert!(matches!(check_url_res, IdentityProofStatus::NotFound));
 
         let invalid_url = Url::parse("https://www.bit.cr/does-not-exist-ever").unwrap();
         let check_url_res = identity_proof_client
-            .check_url(relay_url, &identity_proof, &private_key, &invalid_url)
+            .check_url(&relay_url, &identity_proof, &private_key, &invalid_url)
             .await;
         assert!(matches!(check_url_res, IdentityProofStatus::FailureClient));
     }

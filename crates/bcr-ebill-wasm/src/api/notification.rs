@@ -98,12 +98,14 @@ impl Notification {
     /// Register email notifications for the currently selected identity
     pub async fn register_email_notifications(&self, relay_url: &str) -> Result<()> {
         let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+        let parsed_url = url::Url::parse(relay_url)
+            .map_err(|_| Error::Validation(ValidationError::InvalidUrl))?;
 
         // check if the given relay URL is one of the current selected identity's relays
         if !caller_public_data
             .nostr_relays()
             .iter()
-            .any(|nr| nr == relay_url)
+            .any(|nr| nr == &parsed_url)
         {
             return Err(Error::Validation(ValidationError::InvalidRelayUrl).into());
         }
@@ -116,7 +118,7 @@ impl Notification {
         get_ctx()
             .notification_service
             .register_email_notifications(
-                relay_url,
+                &parsed_url,
                 &email,
                 &caller_public_data.node_id(),
                 &caller_keys,
