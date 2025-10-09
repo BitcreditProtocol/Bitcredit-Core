@@ -366,7 +366,7 @@ impl Identity {
         Ok(res)
     }
 
-    /// Given a node id, resync the company chain via block transport
+    /// Resync the identity chain via block transport
     #[wasm_bindgen]
     pub async fn sync_identity_chain(&self) -> Result<()> {
         get_ctx()

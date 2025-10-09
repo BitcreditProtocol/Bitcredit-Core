@@ -126,7 +126,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
         sender: nostr::PublicKey,
     ) -> Result<bool>;
 
-    /// Tries to resync the chain for the given node id. This will try to find the copany keys and
+    /// Tries to resync the chain for the given node id. This will try to find the company keys and
     /// then try to find the chain data for the given company id. Will add all potentially missing
     /// blocks to the chain.
     async fn resync_chain(&self, company_id: &NodeId) -> Result<()>;
