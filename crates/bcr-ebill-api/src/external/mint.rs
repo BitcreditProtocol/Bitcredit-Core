@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use bcr_common::KeysClient;
-use bcr_common::QuoteClient;
-use bcr_common::SwapClient;
+use bcr_common::client::keys::Client as KeysClient;
+use bcr_common::client::quote::Client as QuoteClient;
+use bcr_common::client::swap::Client as SwapClient;
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::{
     SecretKey, ServiceTraitBounds,
