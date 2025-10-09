@@ -305,7 +305,7 @@ impl Company {
         Ok(res)
     }
 
-    /// Given a bill id, resync the chain via block transport
+    /// Given a node id, resync the company chain via block transport
     #[wasm_bindgen]
     pub async fn sync_company_chain(
         &self,
