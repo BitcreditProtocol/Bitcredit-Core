@@ -16,6 +16,7 @@ use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::company::Company;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
+use bcr_ebill_core::country::Country;
 use bcr_ebill_core::nostr_contact::TrustLevel;
 use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::ContactStoreApi;
@@ -112,7 +113,12 @@ impl NotificationService {
                 node_id: node_id.to_owned(),
                 email: None,
                 name: String::new(),
-                postal_address: PostalAddress::default(),
+                postal_address: PostalAddress {
+                    country: Country::AT,
+                    city: "default city".to_owned(),
+                    zip: None,
+                    address: "default address".to_owned(),
+                },
                 nostr_relays: self.nostr_relays.clone(),
             }))
         } else {
@@ -1145,7 +1151,6 @@ impl NotificationServiceApi for NotificationService {
 mod tests {
     use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
-    use bcr_ebill_core::PostalAddress;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
@@ -1166,8 +1171,9 @@ mod tests {
     use crate::test_utils::{
         MockContactStore, MockEmailClient, MockEmailNotificationStore, MockNostrChainEventStore,
         MockNostrContactStore, MockNostrQueuedMessageStore, MockNotificationJsonTransport,
-        MockNotificationStore, bill_id_test, get_baseline_identity, get_genesis_chain,
-        init_test_cfg, node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+        MockNotificationStore, bill_id_test, empty_address, get_baseline_identity,
+        get_genesis_chain, init_test_cfg, node_id_test, node_id_test_other, node_id_test_other2,
+        private_key_test,
     };
 
     use super::super::test_utils::{get_identity_public_data, get_test_bitcredit_bill};
@@ -1248,7 +1254,7 @@ mod tests {
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
@@ -1393,7 +1399,7 @@ mod tests {
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
@@ -1623,7 +1629,7 @@ mod tests {
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
@@ -1747,7 +1753,7 @@ mod tests {
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
@@ -2040,7 +2046,7 @@ mod tests {
                 accepter: payer.clone().into(),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: empty_address(),
             },
             &keys,
             None,
@@ -2087,7 +2093,7 @@ mod tests {
                 requester: BillParticipantBlockData::Ident(payee.clone().into()),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 acceptance_deadline_timestamp: timestamp + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &keys,
@@ -2136,7 +2142,7 @@ mod tests {
                 currency: "USD".to_string(),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 payment_deadline_timestamp: timestamp + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &keys,
@@ -2243,7 +2249,7 @@ mod tests {
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
@@ -2297,7 +2303,7 @@ mod tests {
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
-                signing_address: Some(PostalAddress::default()),
+                signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
@@ -2352,7 +2358,7 @@ mod tests {
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: empty_address(),
             },
             &keys,
             None,
@@ -2400,7 +2406,7 @@ mod tests {
                 accepter: payer.clone().into(),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: PostalAddress::default(),
+                signing_address: empty_address(),
             },
             &keys,
             None,

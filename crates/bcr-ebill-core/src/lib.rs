@@ -12,6 +12,7 @@ pub mod blockchain;
 pub mod company;
 pub mod constants;
 pub mod contact;
+pub mod country;
 pub mod identity;
 pub mod identity_proof;
 pub mod mint;
@@ -23,6 +24,8 @@ pub mod util;
 
 pub use bcr_common::core::NodeId;
 pub use bitcoin::secp256k1::{PublicKey, SecretKey};
+
+use crate::country::Country;
 
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
 /// multi-threaded (e.g. web) environment without issues.
@@ -36,11 +39,9 @@ pub trait Validate {
     fn validate(&self) -> Result<(), ValidationError>;
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PostalAddress {
-    pub country: String,
+    pub country: Country,
     pub city: String,
     pub zip: Option<String>,
     pub address: String,
@@ -48,10 +49,6 @@ pub struct PostalAddress {
 
 impl Validate for PostalAddress {
     fn validate(&self) -> Result<(), ValidationError> {
-        if self.country.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::Country));
-        }
-
         if self.city.trim().is_empty() {
             return Err(ValidationError::FieldEmpty(Field::City));
         }
@@ -97,7 +94,7 @@ impl fmt::Display for PostalAddress {
     BorshSerialize, BorshDeserialize, Default, Serialize, Deserialize, Debug, Clone, PartialEq, Eq,
 )]
 pub struct OptionalPostalAddress {
-    pub country: Option<String>,
+    pub country: Option<Country>,
     pub city: Option<String>,
     pub zip: Option<String>,
     pub address: Option<String>,
@@ -105,10 +102,6 @@ pub struct OptionalPostalAddress {
 
 impl Validate for OptionalPostalAddress {
     fn validate(&self) -> Result<(), ValidationError> {
-        if is_blank(&self.country) {
-            return Err(ValidationError::FieldEmpty(Field::Country));
-        }
-
         if is_blank(&self.city) {
             return Err(ValidationError::FieldEmpty(Field::City));
         }
@@ -161,10 +154,6 @@ impl OptionalPostalAddress {
 
     fn validate_to_be_non_optional(&self) -> Result<(), ValidationError> {
         if self.country.is_none() {
-            return Err(ValidationError::FieldEmpty(Field::Country));
-        }
-
-        if is_blank(&self.country) {
             return Err(ValidationError::FieldEmpty(Field::Country));
         }
 
@@ -231,7 +220,6 @@ pub enum Field {
     CityOfIssuing,
     CountryOfPayment,
     CityOfPayment,
-    Language,
 }
 
 /// Generic validation error type
@@ -242,27 +230,31 @@ pub enum ValidationError {
     FieldEmpty(Field),
 
     /// error returned if the sum was invalid
-    #[error("invalid sum")]
+    #[error("Invalid sum")]
     InvalidSum,
 
     /// error returned if the date was invalid
-    #[error("invalid date")]
+    #[error("Invalid date")]
     InvalidDate,
 
+    /// error returned if the country was invalid
+    #[error("Invalid country")]
+    InvalidCountry,
+
     /// error returned if the given deadline is before the minimum deadline
-    #[error("the given deadline is before the minimum deadline")]
+    #[error("The given deadline is before the minimum deadline")]
     DeadlineBeforeMinimum,
 
     /// error returned if the timestamp was invalid
-    #[error("invalid timestamp")]
+    #[error("Invalid timestamp")]
     InvalidTimestamp,
 
     /// error returned if the contact is invalid, e.g. a non-anon contact with no address
-    #[error("the contact {0} is invalid")]
+    #[error("The contact {0} is invalid")]
     InvalidContact(String),
 
     /// error returned if the mint is invalid
-    #[error("the mint {0} is invalid")]
+    #[error("The mint {0} is invalid")]
     InvalidMint(String),
 
     /// error returned if there is already a request to mint for this bill and mint
@@ -282,31 +274,31 @@ pub enum ValidationError {
     ContactIsAnonymous(String),
 
     /// error returned if the maturity date is in the past
-    #[error("maturity date can't be in the past")]
+    #[error("Maturity date can't be in the past")]
     MaturityDateInThePast,
 
     /// error returned if the issue date is after the maturity date
-    #[error("issue date after maturity date")]
+    #[error("Issue date after maturity date")]
     IssueDateAfterMaturityDate,
 
     /// error returned if the currency was invalid
-    #[error("invalid currency")]
+    #[error("Invalid currency")]
     InvalidCurrency,
 
     /// error returned if the bitcoin address
-    #[error("invalid payment address")]
+    #[error("Invalid payment address")]
     InvalidPaymentAddress,
 
     /// error returned if the file upload id was invalid
-    #[error("invalid file upload id")]
+    #[error("Invalid file upload id")]
     InvalidFileUploadId,
 
     /// errors stemming from providing an invalid bill type
-    #[error("invalid bill type")]
+    #[error("Invalid bill type")]
     InvalidBillType,
 
     /// errors stemming from providing an invalid bill id
-    #[error("invalid bill id")]
+    #[error("Invalid bill id")]
     InvalidBillId,
 
     /// errors stemming from when the drawee is the payee
@@ -527,23 +519,23 @@ pub enum ValidationError {
     Blockchain(String),
 
     /// error returned if the relay url was invalid
-    #[error("invalid relay url")]
+    #[error("Invalid relay url")]
     InvalidRelayUrl,
 
     /// error returned if the string wasn't valid base58
-    #[error("invalid base58")]
+    #[error("Invalid base58")]
     InvalidBase58,
 
     /// error returned if the string is not a valid signature
-    #[error("invalid signature")]
+    #[error("Invalid signature")]
     InvalidSignature,
 
     /// error returned if the string is not a valid url
-    #[error("invalid url")]
+    #[error("Invalid url")]
     InvalidUrl,
 
     /// error returned if the identity proof status was invalid
-    #[error("invalid identity proof status: {0}")]
+    #[error("Invalid identity proof status: {0}")]
     InvalidIdentityProofStatus(String),
 }
 

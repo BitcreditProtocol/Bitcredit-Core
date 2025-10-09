@@ -25,7 +25,7 @@ pub use persistence::notification::NotificationFilter;
 pub struct Config {
     pub app_url: url::Url,
     pub bitcoin_network: String,
-    pub esplora_base_url: String,
+    pub esplora_base_url: url::Url,
     pub db_config: SurrealDbConfig,
     pub data_dir: String,
     pub nostr_config: NostrConfig,
@@ -83,17 +83,17 @@ pub struct NostrConfig {
 #[derive(Debug, Clone)]
 pub struct MintConfig {
     /// URL of the default mint
-    pub default_mint_url: String,
+    pub default_mint_url: url::Url,
     /// Node Id of the default mint
     pub default_mint_node_id: NodeId,
 }
 
 impl MintConfig {
     pub fn new(default_mint_url: String, default_mint_node_id: NodeId) -> Result<Self> {
-        reqwest::Url::parse(&default_mint_url)
+        let url = url::Url::parse(&default_mint_url)
             .map_err(|e| anyhow!("Invalid Default Mint URL: {e}"))?;
         Ok(Self {
-            default_mint_url,
+            default_mint_url: url,
             default_mint_node_id,
         })
     }

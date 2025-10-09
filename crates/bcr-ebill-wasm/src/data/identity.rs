@@ -1,6 +1,7 @@
 use bcr_ebill_api::{
     data::{
         NodeId, PublicKey,
+        country::Country,
         identity::{Identity, IdentityType, SwitchIdentityType},
         nostr_contact::NostrPublicKey,
     },
@@ -120,7 +121,8 @@ pub struct IdentityWeb {
     pub npub: NostrPublicKey,
     pub postal_address: OptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
-    pub country_of_birth: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub country_of_birth: Option<Country>,
     pub city_of_birth: Option<String>,
     pub identification_number: Option<String>,
     pub profile_picture_file: Option<FileWeb>,

@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
     company::{Company, CompanyKeys},
+    country::Country,
 };
 
 use crate::{Error, company::CompanyStoreApi};
@@ -145,7 +146,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
 pub struct CompanyDb {
     pub id: Thing,
     pub name: String,
-    pub country_of_registration: Option<String>,
+    pub country_of_registration: Option<Country>,
     pub city_of_registration: Option<String>,
     pub postal_address: PostalAddressDb,
     pub email: String,
@@ -238,6 +239,8 @@ impl From<&CompanyKeys> for CompanyKeysDb {
 
 #[cfg(test)]
 mod tests {
+    use bcr_ebill_core::country::Country;
+
     use super::*;
     use crate::{
         db::get_memory_db,
@@ -258,7 +261,7 @@ mod tests {
         Company {
             id: node_id_test(),
             name: "some_name".to_string(),
-            country_of_registration: Some("AT".to_string()),
+            country_of_registration: Some(Country::AT),
             city_of_registration: Some("Vienna".to_string()),
             postal_address: empty_address(),
             email: "company@example.com".to_string(),

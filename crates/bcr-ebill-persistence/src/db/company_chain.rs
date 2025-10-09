@@ -246,6 +246,7 @@ mod tests {
     use bcr_ebill_core::{
         blockchain::company::CompanyUpdateBlockData,
         company::{Company, CompanyKeys},
+        country::Country,
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -274,7 +275,7 @@ mod tests {
             &Company {
                 id: node_id_test(),
                 name: "Hayek Ltd".to_string(),
-                country_of_registration: Some("AT".to_string()),
+                country_of_registration: Some(Country::AT),
                 city_of_registration: Some("Vienna".to_string()),
                 postal_address: empty_address(),
                 email: "hayekltd@example.com".to_string(),
@@ -330,7 +331,7 @@ mod tests {
             &Company {
                 id: node_id_test(),
                 name: "Hayek Ltd".to_string(),
-                country_of_registration: Some("AT".to_string()),
+                country_of_registration: Some(Country::AT),
                 city_of_registration: Some("Vienna".to_string()),
                 postal_address: empty_address(),
                 email: "hayekltd@example.com".to_string(),

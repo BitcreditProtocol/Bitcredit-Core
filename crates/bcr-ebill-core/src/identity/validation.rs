@@ -72,7 +72,7 @@ pub fn validate_update_identity(
 mod tests {
     use super::*;
     use crate::{
-        OptionalPostalAddress, ValidationError, identity::IdentityType,
+        OptionalPostalAddress, ValidationError, country::Country, identity::IdentityType,
         tests::tests::valid_optional_address,
     };
     use rstest::rstest;
@@ -94,13 +94,12 @@ mod tests {
     #[case::invalid_name(IdentityType::Anon, "", &None, &valid_optional_address(), &None, &None, ValidationError::FieldEmpty(Field::Name))]
     #[case::ident_no_email(IdentityType::Ident, "some name", &None, &valid_optional_address(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
     #[case::ident_blank_email(IdentityType::Ident, "some name", &Some("".into()), &valid_optional_address(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
-    #[case::ident_blank_address(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some("AT".to_string()), city: Some("Vienna".to_string()), zip: None, address: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
-    #[case::ident_empty_address(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some("AT".to_string()), city: Some("Vienna".to_string()), zip: None, address: None }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
-    #[case::ident_blank_city(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some("AT".to_string()), address: Some("addr 1".to_string()), zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
-    #[case::ident_empty_city(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some("AT".to_string()), address: Some("addr 1".to_string()), zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
-    #[case::ident_blank_country(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { address: Some("addr 1".to_string()), city: Some("Vienna".to_string()), zip: None, country: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Country))]
+    #[case::ident_blank_address(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some(Country::AT), city: Some("Vienna".to_string()), zip: None, address: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
+    #[case::ident_empty_address(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some(Country::AT), city: Some("Vienna".to_string()), zip: None, address: None }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
+    #[case::ident_blank_city(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some(Country::AT), address: Some("addr 1".to_string()), zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
+    #[case::ident_empty_city(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some(Country::AT), address: Some("addr 1".to_string()), zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
     #[case::ident_empty_country(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { address: Some("addr 1".to_string()), city: Some("Vienna".to_string()), zip: None, country: None }, &None, &None, ValidationError::FieldEmpty(Field::Country))]
-    #[case::ident_blank_zip(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some("AT".to_string()), city: Some("Vienna".to_string()), address: Some("addr 1".to_string()), zip: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Zip))]
+    #[case::ident_blank_zip(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &OptionalPostalAddress { country: Some(Country::AT), city: Some("Vienna".to_string()), address: Some("addr 1".to_string()), zip: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Zip))]
     #[case::ident_blank_profile_pic(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &valid_optional_address(), &Some("".into()), &None, ValidationError::InvalidFileUploadId)]
     #[case::ident_blank_identity_doc(IdentityType::Ident, "some name", &Some("mail@mail.com".into()), &valid_optional_address(), &None, &Some("".into()), ValidationError::InvalidFileUploadId)]
     fn test_validate_create_identity_errors(
@@ -143,7 +142,6 @@ mod tests {
     #[case::ident_invalid_email(IdentityType::Ident, &Some("some name".into()), &Some("".into()), &OptionalPostalAddress::empty(), &None, &None, ValidationError::FieldEmpty(Field::Email))]
     #[case::ident_blank_address(IdentityType::Ident, &Some("some name".into()), &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, zip: None, address: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Address))]
     #[case::ident_blank_city(IdentityType::Ident, &Some("some name".into()), &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, address: None, zip: None, city: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::City))]
-    #[case::ident_blank_country(IdentityType::Ident, &Some("some name".into()), &Some("mail@mail.com".into()), &OptionalPostalAddress { address: None, city: None, zip: None, country: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Country))]
     #[case::ident_blank_zip(IdentityType::Ident, &Some("some name".into()), &Some("mail@mail.com".into()), &OptionalPostalAddress { country: None, city: None, address: None, zip: Some("".into()) }, &None, &None, ValidationError::FieldEmpty(Field::Zip))]
     #[case::ident_blank_profile_pic(IdentityType::Ident, &Some("some name".into()), &Some("mail@mail.com".into()), &OptionalPostalAddress::empty(), &Some("".into()), &None, ValidationError::InvalidFileUploadId)]
     #[case::ident_blank_identity_doc(IdentityType::Ident, &Some("some name".into()), &Some("mail@mail.com".into()), &OptionalPostalAddress::empty(), &None, &Some("".into()), ValidationError::InvalidFileUploadId)]

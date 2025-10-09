@@ -281,6 +281,7 @@ pub mod tests {
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+        country::Country,
         mint::{MintOffer, MintRequest, MintRequestStatus},
         notification::ActionType,
         util::date::DateTimeUtc,
@@ -546,7 +547,7 @@ pub mod tests {
         let bill = service
             .issue_new_bill(BillIssueData {
                 t: 2,
-                country_of_issuing: String::from("UK"),
+                country_of_issuing: Country::GB,
                 city_of_issuing: String::from("London"),
                 issue_date: String::from("2030-01-01"),
                 maturity_date: String::from("2030-04-01"),
@@ -554,9 +555,8 @@ pub mod tests {
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
-                country_of_payment: String::from("AT"),
+                country_of_payment: Country::AT,
                 city_of_payment: String::from("Vienna"),
-                language: String::from("en-UK"),
                 file_upload_ids: vec!["some_file_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
@@ -613,7 +613,7 @@ pub mod tests {
         let bill = service
             .issue_new_bill(BillIssueData {
                 t: 2,
-                country_of_issuing: String::from("UK"),
+                country_of_issuing: Country::GB,
                 city_of_issuing: String::from("London"),
                 issue_date: String::from("2030-01-01"),
                 maturity_date: String::from("2030-04-01"),
@@ -621,9 +621,8 @@ pub mod tests {
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
-                country_of_payment: String::from("AT"),
+                country_of_payment: Country::AT,
                 city_of_payment: String::from("Vienna"),
-                language: String::from("en-UK"),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
@@ -653,7 +652,7 @@ pub mod tests {
         let result = service
             .issue_new_bill(BillIssueData {
                 t: 2,
-                country_of_issuing: String::from("UK"),
+                country_of_issuing: Country::GB,
                 city_of_issuing: String::from("London"),
                 issue_date: String::from("2030-01-01"),
                 maturity_date: String::from("2030-04-01"),
@@ -661,9 +660,8 @@ pub mod tests {
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
-                country_of_payment: String::from("AT"),
+                country_of_payment: Country::AT,
                 city_of_payment: String::from("Vienna"),
-                language: String::from("en-UK"),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Anon(BillAnonParticipant::new(
                     drawer.identity,
@@ -695,7 +693,7 @@ pub mod tests {
         let result = service
             .issue_new_bill(BillIssueData {
                 t: 1,
-                country_of_issuing: String::from("UK"),
+                country_of_issuing: Country::GB,
                 city_of_issuing: String::from("London"),
                 issue_date: String::from("2030-01-01"),
                 maturity_date: String::from("2030-04-01"),
@@ -703,9 +701,8 @@ pub mod tests {
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
-                country_of_payment: String::from("AT"),
+                country_of_payment: Country::AT,
                 city_of_payment: String::from("Vienna"),
-                language: String::from("en-UK"),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
@@ -767,7 +764,7 @@ pub mod tests {
         let bill = service
             .issue_new_bill(BillIssueData {
                 t: 2,
-                country_of_issuing: String::from("UK"),
+                country_of_issuing: Country::GB,
                 city_of_issuing: String::from("London"),
                 issue_date: String::from("2030-01-01"),
                 maturity_date: String::from("2030-04-01"),
@@ -775,9 +772,8 @@ pub mod tests {
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
-                country_of_payment: String::from("AT"),
+                country_of_payment: Country::AT,
                 city_of_payment: String::from("Vienna"),
-                language: String::from("en-UK"),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
                 drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
@@ -7249,7 +7245,7 @@ pub mod tests {
             service
                 .issue_new_bill(BillIssueData {
                     t: 2,
-                    country_of_issuing: String::from("UK"),
+                    country_of_issuing: Country::GB,
                     city_of_issuing: String::from("London"),
                     issue_date: String::from("2030-01-01"),
                     maturity_date: String::from("2030-04-01"),
@@ -7257,9 +7253,8 @@ pub mod tests {
                     payee: node_id_test(),
                     sum: String::from("100"),
                     currency: String::from(CURRENCY_SAT),
-                    country_of_payment: String::from("AT"),
+                    country_of_payment: Country::AT,
                     city_of_payment: String::from("Vienna"),
-                    language: String::from("en-UK"),
                     file_upload_ids: vec!["some_file_id".to_string()],
                     drawer_public_data: participant.clone(),
                     drawer_keys: BcrKeys::new(),
@@ -7273,7 +7268,7 @@ pub mod tests {
             service
                 .issue_new_bill(BillIssueData {
                     t: 2,
-                    country_of_issuing: String::from("UK"),
+                    country_of_issuing: Country::GB,
                     city_of_issuing: String::from("London"),
                     issue_date: String::from("2030-01-01"),
                     maturity_date: String::from("2030-04-01"),
@@ -7281,9 +7276,8 @@ pub mod tests {
                     payee: mainnet_node_id.clone(),
                     sum: String::from("100"),
                     currency: String::from(CURRENCY_SAT),
-                    country_of_payment: String::from("AT"),
+                    country_of_payment: Country::AT,
                     city_of_payment: String::from("Vienna"),
-                    language: String::from("en-UK"),
                     file_upload_ids: vec!["some_file_id".to_string()],
                     drawer_public_data: participant.clone(),
                     drawer_keys: BcrKeys::new(),
@@ -7297,7 +7291,7 @@ pub mod tests {
             service
                 .issue_new_bill(BillIssueData {
                     t: 2,
-                    country_of_issuing: String::from("UK"),
+                    country_of_issuing: Country::GB,
                     city_of_issuing: String::from("London"),
                     issue_date: String::from("2030-01-01"),
                     maturity_date: String::from("2030-04-01"),
@@ -7305,9 +7299,8 @@ pub mod tests {
                     payee: node_id_test(),
                     sum: String::from("100"),
                     currency: String::from(CURRENCY_SAT),
-                    country_of_payment: String::from("AT"),
+                    country_of_payment: Country::AT,
                     city_of_payment: String::from("Vienna"),
-                    language: String::from("en-UK"),
                     file_upload_ids: vec!["some_file_id".to_string()],
                     drawer_public_data: mainnet_participant.clone(),
                     drawer_keys: BcrKeys::new(),

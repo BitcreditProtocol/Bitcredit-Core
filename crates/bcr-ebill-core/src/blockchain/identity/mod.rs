@@ -4,6 +4,7 @@ use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
 use crate::blockchain::{Error, borsh_to_json_string};
+use crate::country::Country;
 use crate::identity_proof::IdentityProofStamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
@@ -102,7 +103,7 @@ pub struct IdentityCreateBlockData {
     pub postal_address: OptionalPostalAddress,
     pub date_of_birth: Option<String>,
     pub city_of_birth: Option<String>,
-    pub country_of_birth: Option<String>,
+    pub country_of_birth: Option<Country>,
     pub identification_number: Option<String>,
     pub nostr_relays: Vec<String>,
     pub profile_picture_file: Option<File>,
@@ -135,7 +136,7 @@ pub struct IdentityUpdateBlockData {
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
     pub date_of_birth: Option<String>,
-    pub country_of_birth: Option<String>,
+    pub country_of_birth: Option<Country>,
     pub city_of_birth: Option<String>,
     pub identification_number: Option<String>,
     pub profile_picture_file: Option<File>,

@@ -3,6 +3,7 @@ use crate::{
     NodeId, ValidationError,
     blockchain::identity::{IdentityBlockPayload, IdentityCreateBlockData},
     contact::{Contact, ContactType},
+    country::Country,
     util::BcrKeys,
 };
 use serde::{Deserialize, Serialize};
@@ -50,7 +51,7 @@ pub struct Identity {
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
     pub date_of_birth: Option<String>,
-    pub country_of_birth: Option<String>,
+    pub country_of_birth: Option<Country>,
     pub city_of_birth: Option<String>,
     pub identification_number: Option<String>,
     pub nostr_relays: Vec<String>,

@@ -139,6 +139,7 @@ mod tests {
             },
         },
         contact::{BillIdentParticipant, BillParticipant, ContactType},
+        country::Country,
         identity::{Identity, IdentityType, IdentityWithAll},
         util::BcrKeys,
     };
@@ -350,7 +351,7 @@ mod tests {
     fn empty_bitcredit_bill() -> BitcreditBill {
         BitcreditBill {
             id: bill_id_test(),
-            country_of_issuing: "AT".to_string(),
+            country_of_issuing: Country::AT,
             city_of_issuing: "Vienna".to_string(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
@@ -361,8 +362,7 @@ mod tests {
             maturity_date: "2099-11-12".to_string(),
             issue_date: "2099-08-12".to_string(),
             city_of_payment: "Vienna".to_string(),
-            country_of_payment: "AT".to_string(),
-            language: "DE".to_string(),
+            country_of_payment: Country::AT,
             files: vec![],
         }
     }
@@ -379,7 +379,7 @@ mod tests {
         let mut identity = empty_identity();
         identity.name = "drawer".to_owned();
         identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
-        identity.postal_address.country = Some("AT".to_owned());
+        identity.postal_address.country = Some(Country::AT);
         identity.postal_address.city = Some("Vienna".to_owned());
         identity.postal_address.address = Some("Hayekweg 5".to_owned());
         IdentityWithAll {
@@ -399,7 +399,7 @@ mod tests {
     }
     fn empty_address() -> PostalAddress {
         PostalAddress {
-            country: "AT".to_string(),
+            country: Country::AT,
             city: "Vienna".to_string(),
             zip: None,
             address: "Some address".to_string(),
