@@ -1,8 +1,17 @@
-use crate::{Error, Result, handler::NotificationHandlerApi};
+use crate::{
+    Error, Result,
+    handler::{
+        NotificationHandlerApi,
+        public_chain_helpers::{BlockData, resolve_event_chains},
+    },
+};
 use async_trait::async_trait;
 use bcr_ebill_api::{
     Block,
-    service::notification_service::event::{ChainInvite, Event},
+    service::notification_service::{
+        event::{ChainInvite, Event},
+        transport::NotificationJsonTransportApi,
+    },
     util::BcrKeys,
 };
 use log::{debug, error, info, warn};
@@ -12,7 +21,7 @@ use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::BillKeys,
     blockchain::{
-        Blockchain,
+        Blockchain, BlockchainType,
         bill::BillOpCode,
         company::{CompanyBlock, CompanyBlockPayload, CompanyBlockchain},
     },
@@ -35,6 +44,7 @@ pub struct CompanyChainEventProcessor {
     identity_proof_store: Arc<dyn IdentityProofStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
+    transport: Arc<dyn NotificationJsonTransportApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -99,6 +109,74 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             Ok(false)
         }
     }
+
+    async fn resync_chain(&self, company_id: &NodeId) -> Result<()> {
+        match (
+            self.blockchain_store.get_chain(company_id).await,
+            self.company_store.get_key_pair(company_id).await,
+        ) {
+            (Ok(mut existing_chain), Ok(company_keys)) => {
+                debug!("starting company chain resync for company {company_id}");
+                let bcr_keys: BcrKeys = company_keys.try_into()?;
+                if let Ok(chain_data) = resolve_event_chains(
+                    self.transport.clone(),
+                    &company_id.to_string(),
+                    BlockchainType::Company,
+                    &bcr_keys,
+                )
+                .await
+                {
+                    let identity = self
+                        .identity_store
+                        .get()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?
+                        .node_id;
+
+                    for data in chain_data.iter() {
+                        let blocks: Vec<CompanyBlock> = data
+                            .iter()
+                            .filter_map(|d| match d.block.clone() {
+                                BlockData::Company(block) => Some(block),
+                                _ => None,
+                            })
+                            .collect();
+                        if !data.is_empty()
+                            && self
+                                .add_company_blocks(
+                                    company_id,
+                                    &mut existing_chain,
+                                    blocks,
+                                    &identity,
+                                )
+                                .await
+                                .is_ok()
+                        {
+                            debug!(
+                                "resynced company {company_id} with {} remote events",
+                                data.len()
+                            );
+                            break;
+                        }
+                    }
+                    debug!("finished company chain resync for {company_id}");
+                    Ok(())
+                } else {
+                    let message =
+                        format!("Could not refetch chain data from Nostr for company {company_id}");
+                    error!("{message}");
+                    Err(Error::Network(message))
+                }
+            }
+            _ => {
+                let message = format!(
+                    "Could not refetch chain for {company_id} because the company keys or chain could not be fetched"
+                );
+                error!("{message}");
+                Err(Error::Persistence(message))
+            }
+        }
+    }
 }
 
 impl CompanyChainEventProcessor {
@@ -109,6 +187,7 @@ impl CompanyChainEventProcessor {
         identity_proof_store: Arc<dyn IdentityProofStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
+        transport: Arc<dyn NotificationJsonTransportApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
@@ -119,6 +198,7 @@ impl CompanyChainEventProcessor {
             nostr_contact_processor,
             bitcoin_network,
             bill_invite_handler,
+            transport,
         }
     }
 
@@ -197,7 +277,7 @@ impl CompanyChainEventProcessor {
             .map_err(|e| Error::Persistence(e.to_string()))?;
 
         let mut block_height = chain.get_latest_block().id;
-        for block in blocks {
+        for block in blocks.iter() {
             if block.id <= block_height {
                 info!(
                     "Skipping block with id {block_height} for {company_id} as we already have it"
@@ -205,9 +285,29 @@ impl CompanyChainEventProcessor {
                 continue;
             }
 
-            self.add_company_block(company_id, &keys, &mut company, chain, &block, identity)
-                .await?;
-            block_height = block.id;
+            match self
+                .add_company_block(company_id, &keys, &mut company, chain, block, identity)
+                .await
+            {
+                Ok(_) => {
+                    block_height = block.id;
+                    Ok(())
+                }
+                Err(e) => {
+                    // if we received a single block (normal block populate) and we are missing blocks, we try to resync
+                    if blocks.len() == 1 && chain.get_latest_block().id + 1 < block.id {
+                        info!(
+                            "Received invalid block {} for company {company_id} - missing blocks - try to resync",
+                            block.id
+                        );
+                        self.resync_chain(company_id).await?;
+                        break;
+                    } else {
+                        error!("Error adding block for company {company_id}: {e}");
+                        Err(e)
+                    }
+                }
+            }?;
         }
         debug!("Updated company {company_id} with data from new blocks");
         Ok(())
@@ -417,10 +517,13 @@ impl ServiceTraitBounds for CompanyChainEventProcessor {}
 pub mod tests {
     use std::sync::Arc;
 
+    use bcr_ebill_api::service::notification_service::event::{
+        CompanyBlockEvent, Event, EventEnvelope,
+    };
     use bcr_ebill_core::{
         NodeId,
         blockchain::{
-            Blockchain,
+            Blockchain, BlockchainType,
             company::{
                 CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain,
                 CompanyIdentityProofBlockData, CompanyRemoveSignatoryBlockData,
@@ -442,12 +545,14 @@ pub mod tests {
                 get_company_data, node_id_test, private_key_test,
             },
         },
-        test_utils::get_baseline_identity,
+        test_utils::{MockNotificationJsonTransport, get_baseline_identity},
+        transport::create_public_chain_event,
     };
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, bill, identity, identity_proof_store) = create_mocks();
+        let (chain_store, store, contact, bill, identity, identity_proof_store, transport) =
+            create_mocks();
         CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -455,6 +560,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
     }
@@ -462,7 +568,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, bill, identity, identity_proof_store) =
+        let (chain_store, mut store, contact, bill, identity, identity_proof_store, transport) =
             create_mocks();
 
         store
@@ -477,6 +583,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -490,7 +597,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_signatory() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, bill, identity, identity_proof_store) =
+        let (chain_store, mut store, contact, bill, identity, identity_proof_store, transport) =
             create_mocks();
         let (_, (company, _)) = get_company_data();
         store
@@ -505,6 +612,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -518,7 +626,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, bill, identity, identity_proof_store) =
+        let (chain_store, mut store, contact, bill, identity, identity_proof_store, transport) =
             create_mocks();
         let (_, (mut company, _)) = get_company_data();
         company.signatories = vec![NodeId::new(keys.pub_key(), bitcoin::Network::Testnet)];
@@ -534,6 +642,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -546,8 +655,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_create_company_data() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity, identity_proof_store) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            mut contact,
+            bill,
+            mut identity,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -604,6 +720,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -615,8 +732,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_company_data() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity, identity_proof_store) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            mut contact,
+            bill,
+            mut identity,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -702,6 +826,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -712,9 +837,216 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn test_recovers_chain_on_missing_blocks() {
+        let (
+            mut chain_store,
+            mut store,
+            mut contact,
+            bill,
+            mut identity,
+            identity_proof_store,
+            mut transport,
+        ) = create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+        let bcr_keys: BcrKeys = keys.clone().try_into().unwrap();
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let skipped_chain =
+            CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data_skipped = CompanyUpdateBlockData {
+            name: Some("new_name".to_string()),
+            ..Default::default()
+        };
+
+        let skipped_block = get_company_update_block(
+            node_id.clone(),
+            skipped_chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data_skipped,
+        );
+
+        let mut full_chain = skipped_chain.clone();
+        full_chain.try_add_block(skipped_block.clone());
+
+        let data = CompanyUpdateBlockData {
+            name: Some("another_name".to_string()),
+            ..Default::default()
+        };
+        let update_block = get_company_update_block(
+            node_id.clone(),
+            full_chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        let event1 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&node_id, skipped_chain.get_latest_block()),
+            &node_id,
+        );
+
+        let event2 = generate_test_event(
+            &bcr_keys,
+            Some(event1.clone()),
+            Some(event1.clone()),
+            as_event_payload(&node_id, &skipped_block),
+            &node_id,
+        );
+
+        let event3 = generate_test_event(
+            &bcr_keys,
+            Some(event2.clone()),
+            Some(event1.clone()),
+            as_event_payload(&node_id, &update_block),
+            &node_id,
+        );
+
+        let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .times(2);
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(skipped_chain.clone()))
+            .times(2);
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .times(3);
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .times(2);
+
+        // and queries the chain from the transport
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(node_id.to_string()), eq(BlockchainType::Company))
+            .returning(move |_, _| Ok(nostr_chain.clone()))
+            .once();
+
+        // apply changes from skipped block and update the company
+        let expected_node = node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone() && c.id == expected_node.clone() && c.name == "new_name"
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // apply changes from last block and update the company
+        let expected_node = node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.name == "another_name"
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .times(2);
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        // no need to ensure contacts in case of an update
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(node_id.clone()))
+            .returning(|_| ())
+            .never();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity),
+            Arc::new(identity_proof_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    fn as_event_payload(id: &NodeId, block: &CompanyBlock) -> EventEnvelope {
+        Event::new_company_chain(CompanyBlockEvent {
+            node_id: id.clone(),
+            block_height: block.id as usize,
+            block: block.clone(),
+        })
+        .try_into()
+        .expect("could not create envelope")
+    }
+
+    fn generate_test_event(
+        keys: &BcrKeys,
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        data: EventEnvelope,
+        node_id: &NodeId,
+    ) -> nostr::Event {
+        create_public_chain_event(
+            &node_id.to_string(),
+            data,
+            1000,
+            BlockchainType::Company,
+            keys.clone(),
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
+    #[tokio::test]
     async fn test_process_add_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity, identity_proof_store) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            mut contact,
+            bill,
+            mut identity,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
@@ -804,6 +1136,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -815,8 +1148,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_remove_company_signatory() {
-        let (mut chain_store, mut store, mut contact, bill, mut identity, mut identity_proof_store) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            mut contact,
+            bill,
+            mut identity,
+            mut identity_proof_store,
+            transport,
+        ) = create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (mut company, keys)) = get_company_data();
         company.signatories.push(new_node_id.clone());
@@ -913,6 +1253,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -924,8 +1265,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_identity_proof() {
-        let (mut chain_store, mut store, contact, bill, mut identity, mut identity_proof_store) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            contact,
+            bill,
+            mut identity,
+            mut identity_proof_store,
+            transport,
+        ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -1004,6 +1352,7 @@ pub mod tests {
             Arc::new(identity_proof_store),
             Arc::new(contact),
             Arc::new(bill),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -1109,6 +1458,7 @@ pub mod tests {
         MockNotificationHandlerApi,
         MockIdentityStore,
         MockIdentityProofStore,
+        MockNotificationJsonTransport,
     ) {
         (
             MockCompanyChainStore::new(),
@@ -1117,6 +1467,7 @@ pub mod tests {
             MockNotificationHandlerApi::new(),
             MockIdentityStore::new(),
             MockIdentityProofStore::new(),
+            MockNotificationJsonTransport::new(),
         )
     }
 }

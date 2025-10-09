@@ -179,6 +179,7 @@ pub async fn create_nostr_consumer(
         db_context.identity_proof_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
+        transport.clone(),
         get_config().bitcoin_network(),
     ));
 
@@ -195,6 +196,7 @@ pub async fn create_nostr_consumer(
         Arc::new(company_invite_handler.clone()),
         bill_invite_handler.clone(),
         nostr_contact_processor.clone(),
+        transport.clone(),
         get_config().bitcoin_network(),
     ));
 
@@ -293,6 +295,7 @@ pub async fn create_restore_account_service(
         db_context.identity_proof_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
+        nostr_client.clone(),
         config.bitcoin_network(),
     ));
 
@@ -309,6 +312,7 @@ pub async fn create_restore_account_service(
         company_invite_handler.clone(),
         bill_invite_handler.clone(),
         nostr_contact_processor,
+        nostr_client.clone(),
         config.bitcoin_network(),
     ));
 

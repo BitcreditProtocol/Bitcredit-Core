@@ -1,8 +1,14 @@
-use crate::{Error, Result};
+use crate::{
+    Error, Result,
+    handler::public_chain_helpers::{BlockData, resolve_event_chains},
+};
 use async_trait::async_trait;
 use bcr_ebill_api::{
     Block,
-    service::notification_service::event::{ChainInvite, Event},
+    service::notification_service::{
+        event::{ChainInvite, Event},
+        transport::NotificationJsonTransportApi,
+    },
     util::BcrKeys,
 };
 use log::{debug, error, info, warn};
@@ -13,12 +19,12 @@ use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::BillKeys,
     blockchain::{
-        Blockchain,
+        Blockchain, BlockchainType,
         bill::BillOpCode,
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
     company::CompanyKeys,
-    identity::Identity,
+    identity::{Identity, IdentityWithAll},
     identity_proof::{IdentityProof, IdentityProofStatus},
 };
 use bcr_ebill_persistence::{
@@ -37,6 +43,7 @@ pub struct IdentityChainEventProcessor {
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+    transport: Arc<dyn NotificationJsonTransportApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -76,6 +83,65 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
     fn validate_chain_event_and_sender(&self, node_id: &NodeId, sender: nostr::PublicKey) -> bool {
         node_id.npub() == sender
     }
+
+    async fn resync_chain(&self) -> Result<()> {
+        match (
+            self.blockchain_store.get_chain().await,
+            self.identity_store.get_full().await,
+        ) {
+            (Ok(mut existing_chain), Ok(IdentityWithAll { identity, key_pair })) => {
+                debug!(
+                    "starting company chain resync for company {}",
+                    identity.node_id
+                );
+                if let Ok(chain_data) = resolve_event_chains(
+                    self.transport.clone(),
+                    &identity.node_id.to_string(),
+                    BlockchainType::Identity,
+                    &key_pair,
+                )
+                .await
+                {
+                    for data in chain_data.iter() {
+                        let blocks: Vec<IdentityBlock> = data
+                            .iter()
+                            .filter_map(|d| match d.block.clone() {
+                                BlockData::Identity(block) => Some(block),
+                                _ => None,
+                            })
+                            .collect();
+                        if !data.is_empty()
+                            && self
+                                .add_identity_blocks(&identity.node_id, &mut existing_chain, blocks)
+                                .await
+                                .is_ok()
+                        {
+                            debug!(
+                                "resynced identity {} with {} remote events",
+                                identity.node_id,
+                                data.len()
+                            );
+                            break;
+                        }
+                    }
+                    debug!("finished identity chain resync for {}", &identity.node_id);
+                    Ok(())
+                } else {
+                    let message = format!(
+                        "Could not refetch chain data from Nostr for identity {}",
+                        &identity.node_id
+                    );
+                    error!("{message}");
+                    Err(Error::Network(message))
+                }
+            }
+            _ => {
+                let message = "Could not refetch chain for local identity because the identity keys or chain could not be fetched".to_string();
+                error!("{message}");
+                Err(Error::Persistence(message))
+            }
+        }
+    }
 }
 
 #[allow(unused)]
@@ -87,6 +153,7 @@ impl IdentityChainEventProcessor {
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+        transport: Arc<dyn NotificationJsonTransportApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
@@ -96,6 +163,7 @@ impl IdentityChainEventProcessor {
             company_invite_handler,
             bill_invite_handler,
             nostr_contact_processor,
+            transport,
             bitcoin_network,
         }
     }
@@ -140,16 +208,36 @@ impl IdentityChainEventProcessor {
             .map_err(|e| Error::Persistence(e.to_string()))?;
 
         let mut block_height = chain.get_latest_block().id;
-        for block in blocks {
+        for block in blocks.iter() {
             if block.id <= block_height {
                 info!(
                     "Skipping identity block with id {block_height} for {node_id} as we already have it"
                 );
                 continue;
             }
-            self.add_identity_block(node_id, &keys, &mut identity, chain, &block)
-                .await?;
-            block_height = block.id;
+            match self
+                .add_identity_block(node_id, &keys, &mut identity, chain, block)
+                .await
+            {
+                Ok(_) => {
+                    block_height = block.id;
+                    Ok(())
+                }
+                Err(e) => {
+                    // if we received a single block (normal block populate) and we are missing blocks, we try to resync
+                    if blocks.len() == 1 && chain.get_latest_block().id + 1 < block.id {
+                        info!(
+                            "Received invalid block {} for identity {node_id} - missing blocks - try to resync",
+                            block.id
+                        );
+                        self.resync_chain().await?;
+                        break;
+                    } else {
+                        error!("Error adding block for identity {node_id}: {e}");
+                        Err(e)
+                    }
+                }
+            }?;
         }
         debug!("Updated identity {node_id} with data from new blocks");
         Ok(())
@@ -331,9 +419,13 @@ impl ServiceTraitBounds for IdentityChainEventProcessor {}
 pub mod tests {
     use std::sync::Arc;
 
+    use bcr_ebill_api::service::notification_service::event::{
+        Event, EventEnvelope, IdentityBlockEvent,
+    };
     use bcr_ebill_core::{
+        NodeId,
         blockchain::{
-            Blockchain,
+            Blockchain, BlockchainType,
             identity::{
                 IdentityBlock, IdentityBlockchain, IdentityProofBlockData, IdentityUpdateBlockData,
             },
@@ -342,21 +434,33 @@ pub mod tests {
         identity_proof::IdentityProofStamp,
         util::BcrKeys,
     };
-    use mockall::predicate::always;
+    use mockall::predicate::{always, eq};
 
-    use crate::handler::{
-        IdentityChainEventProcessorApi, MockNostrContactProcessorApi, MockNotificationHandlerApi,
-        identity_chain_event_processor::IdentityChainEventProcessor,
-        test_utils::{
-            MockIdentityChainStore, MockIdentityProofStore, MockIdentityStore,
-            get_baseline_identity, node_id_test, private_key_test,
+    use crate::{
+        handler::{
+            IdentityChainEventProcessorApi, MockNostrContactProcessorApi,
+            MockNotificationHandlerApi,
+            identity_chain_event_processor::IdentityChainEventProcessor,
+            test_utils::{
+                MockIdentityChainStore, MockIdentityProofStore, MockIdentityStore,
+                get_baseline_identity, node_id_test, private_key_test,
+            },
         },
+        test_utils::MockNotificationJsonTransport,
+        transport::create_public_chain_event,
     };
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, company_invite, bill_invite, identity_proof_store) =
-            create_mocks();
+        let (
+            chain_store,
+            store,
+            contact,
+            company_invite,
+            bill_invite,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -364,6 +468,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
     }
@@ -371,8 +476,15 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, company_invite, bill_invite, identity_proof_store) =
-            create_mocks();
+        let (
+            chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
 
         store
             .expect_get()
@@ -385,6 +497,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -395,8 +508,15 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_own_node_id() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, company_invite, bill_invite, identity_proof_store) =
-            create_mocks();
+        let (
+            chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
         let identity = get_baseline_identity();
         store
             .expect_get()
@@ -409,6 +529,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -419,8 +540,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_validate_chain_event() {
-        let (chain_store, mut store, contact, company_invite, bill_invite, identity_proof_store) =
-            create_mocks();
+        let (
+            chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            identity_proof_store,
+            transport,
+        ) = create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
         identity.name = "new name".to_string();
@@ -435,6 +563,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -454,6 +583,7 @@ pub mod tests {
             company_invite,
             bill_invite,
             identity_proof_store,
+            transport,
         ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -506,6 +636,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -514,6 +645,174 @@ pub mod tests {
             .await
             .expect("Process chain data should be handled");
     }
+
+    #[tokio::test]
+    async fn test_recovers_chain_on_missing_blocks() {
+        let (
+            mut chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            identity_proof_store,
+            mut transport,
+        ) = create_mocks();
+        let full = get_baseline_identity();
+        let identity = full.identity.clone();
+        let keys = full.key_pair.clone();
+        let blocks = vec![get_identity_create_block(
+            full.identity.clone(),
+            &full.key_pair,
+        )];
+        let skipped_chain =
+            IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
+
+        let data_skipped = IdentityUpdateBlockData {
+            name: Some("new_name".to_string()),
+            ..Default::default()
+        };
+        let skipped_block =
+            get_identity_update_block(skipped_chain.get_latest_block(), &keys, &data_skipped);
+
+        let mut full_chain = skipped_chain.clone();
+        full_chain.try_add_block(skipped_block.clone());
+
+        let data = IdentityUpdateBlockData {
+            name: Some("another_name".to_string()),
+            ..Default::default()
+        };
+        let update_block = get_identity_update_block(full_chain.get_latest_block(), &keys, &data);
+
+        let event1 = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&full.identity.node_id, skipped_chain.get_latest_block()),
+            &full.identity.node_id,
+        );
+
+        let event2 = generate_test_event(
+            &keys,
+            Some(event1.clone()),
+            Some(event1.clone()),
+            as_event_payload(&full.identity.node_id, &skipped_block),
+            &full.identity.node_id,
+        );
+
+        let event3 = generate_test_event(
+            &keys,
+            Some(event2.clone()),
+            Some(event1.clone()),
+            as_event_payload(&full.identity.node_id, &update_block),
+            &full.identity.node_id,
+        );
+
+        let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
+
+        // checks if we already have the chain two times with one call for the chain resync
+        chain_store
+            .expect_get_chain()
+            .returning(move || Ok(skipped_chain.clone()))
+            .times(2);
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .returning(move || Ok(keys.clone()))
+            .times(2);
+
+        // get the current identity state
+        let expected_identity = identity.clone();
+        store
+            .expect_get()
+            .returning(move || Ok(expected_identity.clone()))
+            .times(2);
+
+        // chain resync gets the full identity
+        let full_id = full.clone();
+        store
+            .expect_get_full()
+            .returning(move || Ok(full_id.clone()));
+
+        // and queries the chain from the transport
+        transport
+            .expect_resolve_public_chain()
+            .with(
+                eq(full.identity.node_id.to_string()),
+                eq(BlockchainType::Identity),
+            )
+            .returning(move |_, _| Ok(nostr_chain.clone()))
+            .once();
+
+        // apply missing block event
+        store
+            .expect_save()
+            .withf(move |n| n.name == "new_name")
+            .returning(|_| Ok(()))
+            .once();
+
+        // apply last block event
+        store
+            .expect_save()
+            .withf(move |n| n.name == "another_name")
+            .returning(|_| Ok(()))
+            .once();
+
+        // inserts the blocks
+        chain_store
+            .expect_add_block()
+            .with(always())
+            .returning(|_| Ok(()))
+            .times(2);
+
+        let handler = IdentityChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity_proof_store),
+            Arc::new(company_invite),
+            Arc::new(bill_invite),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&identity.node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    fn as_event_payload(id: &NodeId, block: &IdentityBlock) -> EventEnvelope {
+        Event::new_identity_chain(IdentityBlockEvent {
+            node_id: id.clone(),
+            block_height: block.id as usize,
+            block: block.clone(),
+        })
+        .try_into()
+        .expect("could not create envelope")
+    }
+
+    fn generate_test_event(
+        keys: &BcrKeys,
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        data: EventEnvelope,
+        node_id: &NodeId,
+    ) -> nostr::Event {
+        create_public_chain_event(
+            &node_id.to_string(),
+            data,
+            1000,
+            BlockchainType::Identity,
+            keys.clone(),
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
     #[tokio::test]
     async fn test_process_identity_proof() {
         let (
@@ -523,6 +822,7 @@ pub mod tests {
             company_invite,
             bill_invite,
             mut identity_proof_store,
+            transport,
         ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -578,6 +878,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
@@ -622,6 +923,7 @@ pub mod tests {
         MockNotificationHandlerApi,
         MockNotificationHandlerApi,
         MockIdentityProofStore,
+        MockNotificationJsonTransport,
     ) {
         (
             MockIdentityChainStore::new(),
@@ -630,6 +932,7 @@ pub mod tests {
             MockNotificationHandlerApi::new(),
             MockNotificationHandlerApi::new(),
             MockIdentityProofStore::new(),
+            MockNotificationJsonTransport::new(),
         )
     }
 }
