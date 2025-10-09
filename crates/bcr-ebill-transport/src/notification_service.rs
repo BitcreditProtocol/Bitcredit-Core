@@ -423,6 +423,18 @@ impl NotificationService {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NotificationServiceApi for NotificationService {
+    async fn connect(&self) {
+        let transports = self.notification_transport.lock().await;
+        for (_, transport) in transports.iter() {
+            if let Err(e) = transport.connect().await {
+                error!(
+                    "Failed to connect to transport for node id {}: {e}",
+                    transport.get_sender_node_id()
+                );
+            }
+        }
+    }
+
     /// Adds a new transport client for a company if it does not already exist
     async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         self.add_company_client(company, keys).await

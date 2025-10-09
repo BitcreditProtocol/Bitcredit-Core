@@ -1,5 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
+use bcr_ebill_api::constants::DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS;
 use bcr_ebill_api::data::validate_node_id_network;
 use bcr_ebill_api::{
     Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
@@ -13,7 +14,6 @@ use serde::Deserialize;
 use std::thread_local;
 use std::time::Duration;
 use std::{cell::RefCell, str::FromStr};
-use tokio::spawn;
 use tokio_with_wasm::alias as tokio;
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
@@ -35,6 +35,7 @@ pub struct Config {
     pub nostr_only_known_contacts: Option<bool>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
+    pub transport_initial_subsciption_delay_seconds: Option<u32>,
     pub default_mint_url: String,
     pub default_mint_node_id: String,
     pub num_confirmations_for_payment: usize,
@@ -136,6 +137,11 @@ pub async fn initialize_api(
             config.job_runner_initial_delay_seconds as u64,
         ))
         .await;
+
+        // before first run we ensure if we have a connection to the transports
+        // as there could be jobs that require a connection
+        get_ctx().notification_service.connect().await;
+
         run_jobs(); // initial run
         let mut interval = tokio::time::interval(Duration::from_secs(
             config.job_runner_check_interval_seconds as u64,
@@ -147,12 +153,28 @@ pub async fn initialize_api(
     });
 
     // start nostr subscription
-    spawn(async {
-        get_ctx()
+    wasm_bindgen_futures::spawn_local(async move {
+        tokio::time::sleep(Duration::from_secs(
+            config
+                .transport_initial_subsciption_delay_seconds
+                .unwrap_or(DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS) as u64,
+        ))
+        .await;
+
+        let ctx = get_ctx();
+
+        // before subscription we ensure if we have a connection to the transports
+        ctx.notification_service.connect().await;
+
+        let mut handle = ctx
             .nostr_consumer
             .start()
             .await
             .expect("nostr consumer failed");
+
+        while let Some(Ok(_)) = handle.join_next().await {
+            info!("Nostr consumer task shutdown with success");
+        }
     });
     Ok(())
 }

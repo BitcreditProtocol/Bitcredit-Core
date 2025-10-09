@@ -58,4 +58,8 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
 
     /// Publishes the relay list via the Nostr client
     async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()>;
+
+    /// Opens the connection(s) to the underlying network. This can be called multiple times and
+    /// will only open the connection once.
+    async fn connect(&self) -> Result<()>;
 }

@@ -15,8 +15,8 @@ use nostr_sdk::{
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp,
     ToBech32,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, atomic::Ordering};
+use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use bcr_ebill_api::{
     constants::NOSTR_EVENT_TIME_SLACK,
@@ -32,7 +32,7 @@ use bcr_ebill_api::{
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
 
-use tokio::task::spawn;
+use tokio::task::JoinSet;
 use tokio_with_wasm::alias as tokio;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SortOrder {
@@ -60,13 +60,13 @@ pub struct NostrClient {
     pub keys: BcrKeys,
     pub client: Client,
     config: NostrConfig,
+    connected: Arc<AtomicBool>,
 }
 
 impl NostrClient {
     /// Creates a new nostr client with the given config and publishes the relay list.
     pub async fn new(config: &NostrConfig) -> Result<Self> {
         let client = NostrClient::default(config).await?;
-        client.publish_relay_list(config.relays.clone()).await?;
         Ok(client)
     }
 
@@ -84,17 +84,17 @@ impl NostrClient {
                 Error::Network("Failed to add relay to Nostr client".to_string())
             })?;
         }
-        client.connect().await;
 
         let client = Self {
             keys,
             client,
             config: config.clone(),
+            connected: Arc::new(AtomicBool::new(false)),
         };
         Ok(client)
     }
 
-    async fn publish_relay_list(&self, relays: Vec<String>) -> Result<()> {
+    pub async fn publish_relay_list(&self, relays: Vec<String>) -> Result<()> {
         let urls = relays
             .iter()
             .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None)))
@@ -390,6 +390,15 @@ impl NotificationJsonTransportApi for NostrClient {
             })?;
         Ok(())
     }
+
+    async fn connect(&self) -> Result<()> {
+        if !self.connected.load(Ordering::Relaxed) {
+            self.connected.store(true, Ordering::Relaxed);
+            self.client.connect().await;
+            self.publish_relay_list(self.config.relays.clone()).await?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -423,7 +432,7 @@ impl NostrConsumer {
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self) -> Result<JoinSet<()>> {
         // move dependencies into thread scope
         let clients = self.clients.clone();
         let event_handlers = self.event_handlers.clone();
@@ -431,7 +440,7 @@ impl NostrConsumer {
         let offset_store = self.offset_store.clone();
         let chain_key_store = self.chain_key_service.clone();
 
-        let mut tasks = Vec::new();
+        let mut tasks = JoinSet::new();
         let local_node_ids = clients.keys().cloned().collect::<Vec<NodeId>>();
 
         for (node_id, node_client) in clients.into_iter() {
@@ -444,7 +453,7 @@ impl NostrConsumer {
             let local_node_ids = local_node_ids.clone();
 
             // Spawn a task for each client
-            let task = spawn(async move {
+            tasks.spawn(async move {
                 // continue where we left off
                 let offset_ts = get_offset(&offset_store, &client_id).await;
 
@@ -520,18 +529,9 @@ impl NostrConsumer {
                     .await
                     .expect("Nostr notification handler failed");
             });
-
-            tasks.push(task);
         }
 
-        // Wait for all tasks to complete (they would run indefinitely unless interrupted)
-        for task in tasks {
-            if let Err(e) = task.await {
-                error!("Nostr client task failed: {e}");
-            }
-        }
-
-        Ok(())
+        Ok(tasks)
     }
 }
 

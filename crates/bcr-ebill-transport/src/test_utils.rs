@@ -364,6 +364,7 @@ mockall::mock! {
 
     #[async_trait]
     impl NotificationJsonTransportApi for NotificationJsonTransport {
+        async fn connect(&self) -> Result<()>;
         fn get_sender_node_id(&self) -> NodeId;
         fn get_sender_keys(&self) -> BcrKeys;
         async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
