@@ -94,7 +94,7 @@ impl NostrClient {
         Ok(client)
     }
 
-    pub async fn publish_relay_list(&self, relays: Vec<String>) -> Result<()> {
+    pub async fn publish_relay_list(&self, relays: Vec<url::Url>) -> Result<()> {
         let urls = relays
             .iter()
             .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None)))
@@ -164,7 +164,7 @@ impl NostrClient {
     pub async fn fetch_relay_list(
         &self,
         npub: PublicKey,
-        relays: Vec<String>,
+        relays: Vec<url::Url>,
     ) -> Result<Vec<RelayUrl>> {
         let filter = Filter::new().author(npub).kind(Kind::RelayList).limit(1);
         let events = self.fetch_events(filter, None, Some(relays)).await?;
@@ -204,7 +204,7 @@ impl NostrClient {
         &self,
         filter: Filter,
         order: Option<SortOrder>,
-        relays: Option<Vec<String>>,
+        relays: Option<Vec<url::Url>>,
     ) -> Result<Vec<Event>> {
         let events = self
             .client
@@ -751,11 +751,11 @@ mod tests {
     #[tokio::test]
     async fn test_connect() {
         let relay = get_mock_relay().await;
-        let url = relay.url();
+        let url = url::Url::parse(&relay.url()).unwrap();
         let keys = BcrKeys::new();
         let config = NostrConfig::new(
             keys.clone(),
-            vec![url.to_string()],
+            vec![url.to_owned()],
             true,
             NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
         );
@@ -773,7 +773,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_and_receive_event() {
         let relay = get_mock_relay().await;
-        let url = relay.url();
+        let url = url::Url::parse(&relay.url()).unwrap();
 
         let keys1 = BcrKeys::new();
         let keys2 = BcrKeys::new();
@@ -781,7 +781,7 @@ mod tests {
         // given two clients
         let config1 = NostrConfig::new(
             keys1.clone(),
-            vec![url.to_string()],
+            vec![url.to_owned()],
             true,
             NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet),
         );
@@ -793,7 +793,7 @@ mod tests {
 
         let config2 = NostrConfig::new(
             keys2.clone(),
-            vec![url.to_string()],
+            vec![url.to_owned()],
             true,
             NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
         );

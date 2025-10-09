@@ -54,7 +54,7 @@ pub struct Identity {
     pub country_of_birth: Option<Country>,
     pub city_of_birth: Option<String>,
     pub identification_number: Option<String>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
     pub profile_picture_file: Option<File>,
     pub identity_document_file: Option<File>,
 }

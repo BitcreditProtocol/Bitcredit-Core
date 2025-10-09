@@ -479,7 +479,7 @@ pub mod tests {
                     data_dir: ".".to_string(),
                     nostr_config: NostrConfig {
                         only_known_contacts: false,
-                        relays: vec!["ws://localhost:8080".to_string()],
+                        relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
                     },
                     mint_config: MintConfig {
                         default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),

@@ -54,7 +54,7 @@ pub struct Contact {
     pub identification_number: Option<String>,
     pub avatar_file: Option<File>,
     pub proof_document_file: Option<File>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
     pub is_logical: bool, // indicates that this contact is just a nostr contact
 }
 
@@ -93,7 +93,7 @@ impl BillParticipant {
         }
     }
 
-    pub fn nostr_relays(&self) -> Vec<String> {
+    pub fn nostr_relays(&self) -> Vec<url::Url> {
         match self {
             BillParticipant::Ident(data) => data.nostr_relays.to_owned(),
             BillParticipant::Anon(data) => data.nostr_relays.to_owned(),
@@ -119,7 +119,7 @@ pub struct BillAnonParticipant {
     /// email address of the participant
     pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
 }
 
 impl From<BillIdentParticipant> for BillAnonParticipant {
@@ -156,7 +156,7 @@ pub struct BillIdentParticipant {
     /// email address of the identity
     pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -800,7 +800,7 @@ pub struct BillAnonParticipantWeb {
     #[tsify(type = "string")]
     pub node_id: NodeId,
     pub email: Option<String>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
 }
 
 impl From<BillAnonParticipant> for BillAnonParticipantWeb {
@@ -822,7 +822,7 @@ pub struct BillIdentParticipantWeb {
     pub name: String,
     pub postal_address: PostalAddressWeb,
     pub email: Option<String>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
 }
 
 impl From<BillIdentParticipant> for BillIdentParticipantWeb {

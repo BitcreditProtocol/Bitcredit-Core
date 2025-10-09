@@ -15,7 +15,7 @@ use bcr_ebill_core::NodeId;
 use bcr_ebill_core::util::BcrKeys;
 use nostr::{
     nips::{nip01::Metadata, nip19::ToBech32},
-    types::RelayUrl,
+    types::{RelayUrl, TryIntoUrl},
 };
 use std::time::Duration;
 
@@ -85,7 +85,7 @@ pub struct NostrContactData {
 }
 
 impl NostrContactData {
-    pub fn new(name: &str, relays: Vec<String>, bcr_data: BcrMetadata) -> Self {
+    pub fn new(name: &str, relays: Vec<url::Url>, bcr_data: BcrMetadata) -> Self {
         // At some point we might want to add more metadata like payment info
         let mut metadata = Metadata::new().name(name).display_name(name);
         if let Ok(custom) = serde_json::to_value(bcr_data) {
@@ -94,7 +94,10 @@ impl NostrContactData {
 
         Self {
             metadata,
-            relays: relays.into_iter().filter_map(|r| r.parse().ok()).collect(),
+            relays: relays
+                .into_iter()
+                .filter_map(|r| r.try_into_url().ok())
+                .collect(),
         }
     }
 
@@ -117,14 +120,14 @@ pub struct BcrMetadata {
 #[derive(Clone, Debug)]
 pub struct NostrConfig {
     pub keys: BcrKeys,
-    pub relays: Vec<String>,
+    pub relays: Vec<url::Url>,
     pub default_timeout: Duration,
     pub is_primary: bool,
     pub node_id: NodeId,
 }
 
 impl NostrConfig {
-    pub fn new(keys: BcrKeys, relays: Vec<String>, is_primary: bool, node_id: NodeId) -> Self {
+    pub fn new(keys: BcrKeys, relays: Vec<url::Url>, is_primary: bool, node_id: NodeId) -> Self {
         assert!(!relays.is_empty());
         Self {
             keys,
@@ -143,7 +146,7 @@ impl NostrConfig {
             .expect("checked conversion")
     }
 
-    pub fn get_relay(&self) -> String {
+    pub fn get_relay(&self) -> url::Url {
         self.relays[0].clone()
     }
 }

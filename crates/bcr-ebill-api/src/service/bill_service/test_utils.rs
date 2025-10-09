@@ -74,7 +74,7 @@ pub fn get_baseline_identity() -> IdentityWithAll {
     identity.postal_address.country = Some(Country::AT);
     identity.postal_address.city = Some("Vienna".to_owned());
     identity.postal_address.address = Some("Hayekweg 5".to_owned());
-    identity.nostr_relays = vec!["ws://localhost:8080".into()];
+    identity.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
     IdentityWithAll {
         identity,
         key_pair: keys,

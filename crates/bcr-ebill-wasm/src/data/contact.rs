@@ -116,7 +116,7 @@ pub struct ContactWeb {
     pub identification_number: Option<String>,
     pub avatar_file: Option<FileWeb>,
     pub proof_document_file: Option<FileWeb>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
     pub is_logical: bool,
 }
 

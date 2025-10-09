@@ -56,7 +56,7 @@ pub struct NotificationService {
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     email_client: Arc<dyn EmailClientApi>,
     bill_chain_event_processor: Arc<dyn BillChainEventProcessorApi>,
-    nostr_relays: Vec<String>,
+    nostr_relays: Vec<url::Url>,
 }
 
 impl ServiceTraitBounds for NotificationService {}
@@ -75,7 +75,7 @@ impl NotificationService {
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         email_client: Arc<dyn EmailClientApi>,
         bill_chain_event_processor: Arc<dyn BillChainEventProcessorApi>,
-        nostr_relays: Vec<String>,
+        nostr_relays: Vec<url::Url>,
     ) -> Self {
         let transports: Mutex<HashMap<NodeId, Arc<dyn NotificationJsonTransportApi>>> = Mutex::new(
             notification_transport
@@ -219,7 +219,7 @@ impl NotificationService {
         &self,
         sender: &NodeId,
         recipient: &NodeId,
-        relays: &[String],
+        relays: &[url::Url],
         message: EventEnvelope,
     ) -> Result<()> {
         if let Some(transport) = self.get_node_transport(sender).await {
@@ -1075,7 +1075,7 @@ impl NotificationServiceApi for NotificationService {
 
     async fn register_email_notifications(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         email: &str,
         node_id: &NodeId,
         caller_keys: &BcrKeys,
@@ -1129,7 +1129,7 @@ impl NotificationServiceApi for NotificationService {
             _ => self
                 .resolve_contact(recipient)
                 .await?
-                .map(|c| c.relays.iter().map(|r| r.as_str().to_owned()).collect())
+                .map(|c| c.relays.iter().map(|r| r.to_owned().into()).collect())
                 .unwrap_or_default(),
         };
         if relays.is_empty() {
@@ -1227,7 +1227,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service.connect().await;
@@ -1354,7 +1354,7 @@ mod tests {
             Arc::new(mock_event_store),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -1444,7 +1444,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -1503,7 +1503,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -1572,7 +1572,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -1718,7 +1718,7 @@ mod tests {
             Arc::new(event_store),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -1793,7 +1793,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -1864,7 +1864,7 @@ mod tests {
             Arc::new(mock_event_store),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let event = BillChainEvent::new(
@@ -1980,7 +1980,7 @@ mod tests {
             Arc::new(mock_event_store),
             Arc::new(mock_email_client),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         (
@@ -2469,7 +2469,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let res = service
@@ -2505,7 +2505,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         assert!(service.get_client_notifications(filter).await.is_err());
@@ -2554,7 +2554,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         service
@@ -2623,7 +2623,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -2634,8 +2634,11 @@ mod tests {
     async fn test_send_email_notification() {
         init_test_cfg();
         let node_id = node_id_test_other();
-        let identity =
-            get_identity_public_data(&node_id, "test@example.com", vec!["ws://test.relay"]);
+        let identity = get_identity_public_data(
+            &node_id,
+            "test@example.com",
+            vec![&url::Url::parse("ws://test.relay").unwrap()],
+        );
         // Set up mocks
         let mut mock_contact_store = MockContactStore::new();
         mock_contact_store
@@ -2669,7 +2672,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(mock_email_client),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
         let event = Event::new(
             EventType::Bill,
@@ -2747,7 +2750,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -2856,7 +2859,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -2906,7 +2909,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -2980,7 +2983,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -3054,7 +3057,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -3085,7 +3088,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service.send_retry_messages().await;
@@ -3122,12 +3125,12 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(mock_email_client),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service
             .register_email_notifications(
-                "ws://test.relay",
+                &url::Url::parse("ws://test.relay").unwrap(),
                 "test@example.com",
                 &node_id_test(),
                 &BcrKeys::new(),
@@ -3159,7 +3162,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
 
         let result = service
@@ -3195,7 +3198,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockEmailClient::new()),
             Arc::new(MockBillChainEventProcessorApi::new()),
-            vec!["ws://test.relay".into()],
+            vec![url::Url::parse("ws://test.relay").unwrap()],
         );
         let result = service
             .get_email_notifications_preferences_link(&node_id_test())

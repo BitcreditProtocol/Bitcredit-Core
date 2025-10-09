@@ -38,9 +38,9 @@ use mockall::automock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait FileStorageClientApi: ServiceTraitBounds {
     /// Upload the given bytes, checking and returning the nostr_hash
-    async fn upload(&self, relay_url: &str, bytes: Vec<u8>) -> Result<Sha256Hash>;
+    async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256Hash>;
     /// Download the bytes with the given nostr_hash and compare if the hash matches the file
-    async fn download(&self, relay_url: &str, nostr_hash: &str) -> Result<Vec<u8>>;
+    async fn download(&self, relay_url: &url::Url, nostr_hash: &str) -> Result<Vec<u8>>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -61,9 +61,9 @@ impl FileStorageClient {
     }
 }
 
-pub fn to_url(relay_url: &str, to_join: &str) -> Result<Url> {
-    let mut url = reqwest::Url::parse(relay_url)
-        .and_then(|url| url.join(to_join))
+pub fn to_url(relay_url: &url::Url, to_join: &str) -> Result<Url> {
+    let mut url = relay_url
+        .join(to_join)
         .map_err(|_| Error::InvalidRelayUrl)?;
     match url.scheme() {
         "ws" => {
@@ -81,7 +81,7 @@ pub fn to_url(relay_url: &str, to_join: &str) -> Result<Url> {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileStorageClientApi for FileStorageClient {
-    async fn upload(&self, relay_url: &str, bytes: Vec<u8>) -> Result<Sha256Hash> {
+    async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256Hash> {
         // Calculate hash to compare with the hash we get back
         let mut hash_engine = sha256::HashEngine::default();
         if hash_engine.write_all(&bytes).is_err() {
@@ -108,7 +108,7 @@ impl FileStorageClientApi for FileStorageClient {
         Ok(nostr_hash)
     }
 
-    async fn download(&self, relay_url: &str, nostr_hash: &str) -> Result<Vec<u8>> {
+    async fn download(&self, relay_url: &url::Url, nostr_hash: &str) -> Result<Vec<u8>> {
         // Make download request
         let resp: Vec<u8> = self
             .cl

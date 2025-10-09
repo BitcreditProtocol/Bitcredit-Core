@@ -155,7 +155,7 @@ pub struct NostrContactDb {
     pub name: Option<String>,
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.
-    pub relays: Vec<String>,
+    pub relays: Vec<url::Url>,
     /// The trust level we assign to this contact.
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
@@ -495,7 +495,7 @@ mod tests {
             npub: node_id.npub(),
             node_id: node_id.clone(),
             name: name.or(Some("contact_name".to_string())),
-            relays: vec!["test_relay".to_string()],
+            relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
             trust_level: TrustLevel::None,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,

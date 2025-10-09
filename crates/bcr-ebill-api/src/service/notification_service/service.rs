@@ -195,7 +195,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     /// Register email notifications for the currently selected identity
     async fn register_email_notifications(
         &self,
-        relay_url: &str,
+        relay_url: &url::Url,
         email: &str,
         node_id: &NodeId,
         caller_keys: &BcrKeys,

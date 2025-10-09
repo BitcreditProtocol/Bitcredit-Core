@@ -11,6 +11,7 @@
     * added `Country` type that validates against a list of valid countries (breaking DB change)
 * Change config url values to `url::Url`
 * Print bech32 npub at startup
+* Use strongly typed `url::Url` for nostr relays
 
 # 0.4.9
 

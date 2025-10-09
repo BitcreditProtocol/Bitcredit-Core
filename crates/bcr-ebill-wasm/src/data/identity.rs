@@ -127,7 +127,7 @@ pub struct IdentityWeb {
     pub identification_number: Option<String>,
     pub profile_picture_file: Option<FileWeb>,
     pub identity_document_file: Option<FileWeb>,
-    pub nostr_relays: Vec<String>,
+    pub nostr_relays: Vec<url::Url>,
 }
 
 impl IdentityWeb {
