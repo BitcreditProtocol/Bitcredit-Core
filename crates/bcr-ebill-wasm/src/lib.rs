@@ -179,6 +179,11 @@ pub async fn initialize_api(
         // before subscription we ensure if we have a connection to the transports
         ctx.notification_service.connect().await;
 
+        // and make sure the configured default mint exists
+        ctx.notification_service
+            .ensure_nostr_contact(&api_config.mint_config.default_mint_node_id)
+            .await;
+
         let mut handle = ctx
             .nostr_consumer
             .start()

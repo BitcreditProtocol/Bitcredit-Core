@@ -223,4 +223,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
 
     /// Connects to all relays
     async fn connect(&self);
+
+    /// Ensures that the given node id is in our nostr contacts
+    async fn ensure_nostr_contact(&self, node_id: &NodeId);
 }

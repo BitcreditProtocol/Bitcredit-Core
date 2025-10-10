@@ -20,7 +20,7 @@ use handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
     CompanyChainEventHandler, CompanyChainEventProcessor, CompanyInviteEventHandler,
     IdentityChainEventHandler, IdentityChainEventProcessor, LoggingEventHandler,
-    NostrContactProcessor, NostrContactProcessorApi, NotificationHandlerApi,
+    NostrContactProcessor, NotificationHandlerApi,
 };
 use log::{debug, error};
 
@@ -164,6 +164,7 @@ pub async fn create_notification_service(
         bill_processor,
         company_processor,
         identity_processor,
+        nostr_contact_processor,
         nostr_relays,
     )))
 }
@@ -230,11 +231,6 @@ pub async fn create_nostr_consumer(
         transport.clone(),
         get_config().bitcoin_network(),
     ));
-
-    // on startup, we make sure the configured default mint exists
-    nostr_contact_processor
-        .ensure_nostr_contact(&get_config().mint_config.default_mint_node_id)
-        .await;
 
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
