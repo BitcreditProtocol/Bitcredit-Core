@@ -432,6 +432,7 @@ pub mod tests {
         },
         identity::Identity,
         identity_proof::IdentityProofStamp,
+        name::Name,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -551,7 +552,7 @@ pub mod tests {
         ) = create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
-        identity.name = "new name".to_string();
+        identity.name = Name::new("new name").unwrap();
         let keys = full.key_pair.clone();
 
         store.expect_get().returning(move || Ok(identity.clone()));
@@ -591,7 +592,7 @@ pub mod tests {
         let blocks = vec![get_identity_create_block(full.identity, &full.key_pair)];
         let chain = IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
         let data = IdentityUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let update_block = get_identity_update_block(chain.get_latest_block(), &keys, &data);
@@ -618,7 +619,7 @@ pub mod tests {
         // apply changes from block and update the identity
         store
             .expect_save()
-            .withf(move |n| n.name == "new_name")
+            .withf(move |n| n.name == Name::new("new_name").unwrap())
             .returning(|_| Ok(()))
             .once();
 
@@ -668,7 +669,7 @@ pub mod tests {
             IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
 
         let data_skipped = IdentityUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let skipped_block =
@@ -678,7 +679,7 @@ pub mod tests {
         full_chain.try_add_block(skipped_block.clone());
 
         let data = IdentityUpdateBlockData {
-            name: Some("another_name".to_string()),
+            name: Some(Name::new("another_name").unwrap()),
             ..Default::default()
         };
         let update_block = get_identity_update_block(full_chain.get_latest_block(), &keys, &data);
@@ -747,14 +748,14 @@ pub mod tests {
         // apply missing block event
         store
             .expect_save()
-            .withf(move |n| n.name == "new_name")
+            .withf(move |n| n.name == Name::new("new_name").unwrap())
             .returning(|_| Ok(()))
             .once();
 
         // apply last block event
         store
             .expect_save()
-            .withf(move |n| n.name == "another_name")
+            .withf(move |n| n.name == Name::new("another_name").unwrap())
             .returning(|_| Ok(()))
             .once();
 

@@ -9,8 +9,10 @@ use bcr_ebill_api::{
             BillAction, BillId, BillIssueData, BillsFilterRole, LightBitcreditBillResult,
             RecourseReason,
         },
+        city::City,
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
         country::Country,
+        date::Date,
         identity::IdentityType,
     },
     external,
@@ -213,9 +215,10 @@ impl Bill {
         let (from, to) = match filter.date_range {
             None => (None, None),
             Some(date_range) => {
-                let from = util::date::date_string_to_timestamp(&date_range.from, None)?;
+                let from = Date::new(&date_range.from)?.to_timestamp();
                 // Change the date to the end of the day, so we collect bills during the day as well
-                let to = util::date::date_string_to_timestamp(&date_range.to, None)
+                let to = Date::new(&date_range.to)
+                    .map(|d| d.to_timestamp())
                     .map(util::date::end_of_day_as_timestamp)?;
                 (Some(from), Some(to))
             }
@@ -375,15 +378,15 @@ impl Bill {
             .issue_new_bill(BillIssueData {
                 t: bill_payload.t,
                 country_of_issuing: Country::parse(&bill_payload.country_of_issuing)?,
-                city_of_issuing: bill_payload.city_of_issuing.to_owned(),
-                issue_date: bill_payload.issue_date.to_owned(),
-                maturity_date: bill_payload.maturity_date.to_owned(),
+                city_of_issuing: City::new(bill_payload.city_of_issuing)?,
+                issue_date: Date::new(bill_payload.issue_date)?,
+                maturity_date: Date::new(bill_payload.maturity_date)?,
                 drawee: NodeId::from_str(&bill_payload.drawee).map_err(ValidationError::from)?,
                 payee: NodeId::from_str(&bill_payload.payee).map_err(ValidationError::from)?,
                 sum: bill_payload.sum.to_owned(),
                 currency: bill_payload.currency.to_owned(),
                 country_of_payment: Country::parse(&bill_payload.country_of_payment)?,
-                city_of_payment: bill_payload.city_of_payment.to_owned(),
+                city_of_payment: City::new(bill_payload.city_of_payment)?,
                 file_upload_ids: bill_payload.file_upload_ids.to_owned(),
                 drawer_public_data: drawer_public_data.clone(),
                 drawer_keys: drawer_keys.clone(),
@@ -468,7 +471,7 @@ impl Bill {
 
         let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
+        let deadline_ts = Date::new(&offer_to_sell_payload.buying_deadline)?.to_timestamp();
         self.offer_to_sell_bill(
             offer_to_sell_payload,
             public_data_buyer,

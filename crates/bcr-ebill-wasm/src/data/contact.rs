@@ -1,8 +1,13 @@
 use bcr_ebill_api::{
     data::{
         NodeId,
+        city::City,
         contact::{Contact, ContactType},
         country::Country,
+        date::Date,
+        email::Email,
+        identification::Identification,
+        name::Name,
     },
     service::Error,
 };
@@ -10,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::{FileWeb, OptionalPostalAddressWeb, PostalAddressWeb};
+use crate::data::{CreateOptionalPostalAddressWeb, CreatePostalAddressWeb};
+
+use super::{FileWeb, PostalAddressWeb};
 
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -26,7 +33,7 @@ pub struct NewContactPayload {
     pub node_id: NodeId,
     pub name: String,
     pub email: Option<String>,
-    pub postal_address: Option<PostalAddressWeb>,
+    pub postal_address: Option<CreatePostalAddressWeb>,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -42,7 +49,7 @@ pub struct EditContactPayload {
     pub node_id: NodeId,
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: OptionalPostalAddressWeb,
+    pub postal_address: CreateOptionalPostalAddressWeb,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -106,14 +113,19 @@ pub struct ContactWeb {
     pub t: ContactTypeWeb,
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>,
+    #[tsify(type = "string")]
+    pub name: Name,
+    #[tsify(type = "string | undefined")]
+    pub email: Option<Email>,
     pub postal_address: Option<PostalAddressWeb>,
-    pub date_of_birth_or_registration: Option<String>,
+    #[tsify(type = "string")]
+    pub date_of_birth_or_registration: Option<Date>,
     #[tsify(type = "string | undefined")]
     pub country_of_birth_or_registration: Option<Country>,
-    pub city_of_birth_or_registration: Option<String>,
-    pub identification_number: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub city_of_birth_or_registration: Option<City>,
+    #[tsify(type = "string | undefined")]
+    pub identification_number: Option<Identification>,
     pub avatar_file: Option<FileWeb>,
     pub proof_document_file: Option<FileWeb>,
     pub nostr_relays: Vec<url::Url>,

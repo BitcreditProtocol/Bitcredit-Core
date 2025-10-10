@@ -16,6 +16,7 @@ use crate::blockchain::{Block, Blockchain, Error, borsh_to_json_string};
 use crate::contact::{
     BillParticipant, ContactType, LightBillIdentParticipant, LightBillParticipant,
 };
+use crate::date::Date;
 use crate::util::{self, BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -608,7 +609,7 @@ impl BillBlockchain {
         req_to_pay: &BillBlock,
         bill_keys: &BillKeys,
         current_timestamp: u64,
-        bill_maturity_date: Option<&str>,
+        bill_maturity_date: Option<&Date>,
     ) -> Result<(bool, u64)> {
         let block_data_decrypted: BillRequestToPayBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;

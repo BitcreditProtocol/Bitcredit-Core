@@ -44,6 +44,7 @@ use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillParticipant, Contact, LightBillParticipant,
 };
+use bcr_ebill_core::email::Email;
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
@@ -197,7 +198,7 @@ impl BillService {
         t: ContactType,
         identity: &Identity,
         contacts: &HashMap<NodeId, Contact>,
-    ) -> (Option<String>, Vec<url::Url>) {
+    ) -> (Option<Email>, Vec<url::Url>) {
         match node_id {
             v if *v == identity.node_id => (identity.email.clone(), identity.nostr_relays.clone()),
             other_node_id => {
@@ -791,19 +792,16 @@ impl BillServiceApi for BillService {
         // directly
         for bill in bills {
             // if the bill wasn't issued between from and to, we kick them out
-            if let Ok(issue_date_ts) =
-                util::date::date_string_to_timestamp(&bill.data.issue_date, None)
+            let issue_date_ts = bill.data.issue_date.to_timestamp();
+            if let Some(from) = date_range_from
+                && from > issue_date_ts
             {
-                if let Some(from) = date_range_from
-                    && from > issue_date_ts
-                {
-                    continue;
-                }
-                if let Some(to) = date_range_to
-                    && to < issue_date_ts
-                {
-                    continue;
-                }
+                continue;
+            }
+            if let Some(to) = date_range_to
+                && to < issue_date_ts
+            {
+                continue;
             }
 
             let bill_role = match bill.get_bill_role_for_node_id(current_identity_node_id) {

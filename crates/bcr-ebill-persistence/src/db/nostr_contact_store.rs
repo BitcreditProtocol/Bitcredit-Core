@@ -9,6 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, SecretKey, ServiceTraitBounds,
+    name::Name,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
 };
 use serde::{Deserialize, Serialize};
@@ -152,7 +153,7 @@ pub struct NostrContactDb {
     /// The node id of this contact
     pub node_id: NodeId,
     /// The Nostr name of the contact as retreived via Nostr metadata.
-    pub name: Option<String>,
+    pub name: Option<Name>,
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.
     pub relays: Vec<url::Url>,
@@ -371,7 +372,7 @@ mod tests {
         let keys = BcrKeys::new();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(&node_id, Some("Albert".to_string()));
+        let contact = get_test_contact(&node_id, Some(Name::new("Albert").unwrap()));
 
         // Upsert the contact
         store
@@ -387,7 +388,7 @@ mod tests {
 
         let keys2 = BcrKeys::new();
         let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
-        let contact2 = get_test_contact(&node_id2, Some("Berta".to_string()));
+        let contact2 = get_test_contact(&node_id2, Some(Name::new("Berta").unwrap()));
 
         // Upsert the contact
         store
@@ -403,7 +404,7 @@ mod tests {
 
         let keys3 = BcrKeys::new();
         let node_id3 = NodeId::new(keys3.pub_key(), bitcoin::Network::Testnet);
-        let contact3 = get_test_contact(&node_id3, Some("Bertrand".to_string()));
+        let contact3 = get_test_contact(&node_id3, Some(Name::new("Bertrand").unwrap()));
 
         // Upsert the contact
         store
@@ -448,7 +449,7 @@ mod tests {
         let keys = BcrKeys::new();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let store = get_store().await;
-        let contact = get_test_contact(&node_id, Some("Albert".to_string()));
+        let contact = get_test_contact(&node_id, Some(Name::new("Albert").unwrap()));
 
         // Upsert the contact
         store
@@ -458,7 +459,7 @@ mod tests {
 
         let keys2 = BcrKeys::new();
         let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
-        let contact2 = get_test_contact(&node_id2, Some("Berta".to_string()));
+        let contact2 = get_test_contact(&node_id2, Some(Name::new("Berta").unwrap()));
 
         // Upsert the contact
         store
@@ -490,11 +491,11 @@ mod tests {
         })
     }
 
-    fn get_test_contact(node_id: &NodeId, name: Option<String>) -> NostrContact {
+    fn get_test_contact(node_id: &NodeId, name: Option<Name>) -> NostrContact {
         NostrContact {
             npub: node_id.npub(),
             node_id: node_id.clone(),
-            name: name.or(Some("contact_name".to_string())),
+            name: name.or(Some(Name::new("contact_name").unwrap())),
             relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
             trust_level: TrustLevel::None,
             handshake_status: HandshakeStatus::None,

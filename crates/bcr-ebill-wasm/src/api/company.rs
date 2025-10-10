@@ -3,7 +3,10 @@ use std::str::FromStr;
 use super::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
-    data::{NodeId, OptionalPostalAddress, PostalAddress, country::Country},
+    data::{
+        NodeId, OptionalPostalAddress, PostalAddress, city::City, country::Country, date::Date,
+        email::Email, identification::Identification, name::Name,
+    },
     external,
     service::Error,
     util::{
@@ -17,7 +20,8 @@ use wasm_bindgen::prelude::*;
 use crate::{
     context::get_ctx,
     data::{
-        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, PostalAddressWeb,
+        UploadFile, UploadFileResponse,
         company::{
             AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload,
             EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload,
@@ -164,17 +168,26 @@ impl Company {
         let created_company = get_ctx()
             .company_service
             .create_company(
-                company_payload.name,
+                Name::new(company_payload.name)?,
                 company_payload
                     .country_of_registration
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                company_payload.city_of_registration,
-                PostalAddress::from(company_payload.postal_address),
-                company_payload.email,
-                company_payload.registration_number,
-                company_payload.registration_date,
+                company_payload
+                    .city_of_registration
+                    .map(City::new)
+                    .transpose()?,
+                PostalAddress::from(PostalAddressWeb::try_from(company_payload.postal_address)?),
+                Email::new(company_payload.email)?,
+                company_payload
+                    .registration_number
+                    .map(Identification::new)
+                    .transpose()?,
+                company_payload
+                    .registration_date
+                    .map(|d| Date::new(&d))
+                    .transpose()?,
                 company_payload.proof_of_registration_file_upload_id,
                 company_payload.logo_file_upload_id,
                 timestamp,
@@ -215,17 +228,28 @@ impl Company {
             .company_service
             .edit_company(
                 &company_payload.id,
-                company_payload.name,
-                company_payload.email,
-                OptionalPostalAddress::from(company_payload.postal_address),
+                company_payload.name.map(Name::new).transpose()?,
+                company_payload.email.map(Email::new).transpose()?,
+                OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                    company_payload.postal_address,
+                )?),
                 company_payload
                     .country_of_registration
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                company_payload.city_of_registration,
-                company_payload.registration_number,
-                company_payload.registration_date,
+                company_payload
+                    .city_of_registration
+                    .map(City::new)
+                    .transpose()?,
+                company_payload
+                    .registration_number
+                    .map(Identification::new)
+                    .transpose()?,
+                company_payload
+                    .registration_date
+                    .map(|d| Date::new(&d))
+                    .transpose()?,
                 company_payload.logo_file_upload_id,
                 !has_logo_file_upload_id,
                 company_payload.proof_of_registration_file_upload_id,

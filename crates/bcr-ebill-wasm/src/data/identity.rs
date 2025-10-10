@@ -1,8 +1,13 @@
 use bcr_ebill_api::{
     data::{
         NodeId, PublicKey,
+        city::City,
         country::Country,
+        date::Date,
+        email::Email,
+        identification::Identification,
         identity::{Identity, IdentityType, SwitchIdentityType},
+        name::Name,
         nostr_contact::NostrPublicKey,
     },
     service::{Error, Result},
@@ -10,6 +15,8 @@ use bcr_ebill_api::{
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
+
+use crate::data::CreateOptionalPostalAddressWeb;
 
 use super::{FileWeb, OptionalPostalAddressWeb};
 
@@ -84,7 +91,7 @@ pub struct NewIdentityPayload {
     pub t: u64,
     pub name: String,
     pub email: Option<String>,
-    pub postal_address: OptionalPostalAddressWeb,
+    pub postal_address: CreateOptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
     pub country_of_birth: Option<String>,
     pub city_of_birth: Option<String>,
@@ -98,7 +105,7 @@ pub struct NewIdentityPayload {
 pub struct ChangeIdentityPayload {
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: OptionalPostalAddressWeb,
+    pub postal_address: CreateOptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
     pub country_of_birth: Option<String>,
     pub city_of_birth: Option<String>,
@@ -113,18 +120,23 @@ pub struct IdentityWeb {
     pub t: IdentityTypeWeb,
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>,
+    #[tsify(type = "string")]
+    pub name: Name,
+    #[tsify(type = "string | undefined")]
+    pub email: Option<Email>,
     #[tsify(type = "string")]
     pub bitcoin_public_key: PublicKey,
     #[tsify(type = "string")]
     pub npub: NostrPublicKey,
     pub postal_address: OptionalPostalAddressWeb,
-    pub date_of_birth: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub date_of_birth: Option<Date>,
     #[tsify(type = "string | undefined")]
     pub country_of_birth: Option<Country>,
-    pub city_of_birth: Option<String>,
-    pub identification_number: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub city_of_birth: Option<City>,
+    #[tsify(type = "string | undefined")]
+    pub identification_number: Option<Identification>,
     pub profile_picture_file: Option<FileWeb>,
     pub identity_document_file: Option<FileWeb>,
     pub nostr_relays: Vec<url::Url>,

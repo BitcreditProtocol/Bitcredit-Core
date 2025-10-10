@@ -532,6 +532,7 @@ pub mod tests {
         },
         company::{Company, CompanyKeys},
         identity_proof::IdentityProofStamp,
+        name::Name,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -749,7 +750,7 @@ pub mod tests {
         )];
         let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
         let data = CompanyUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let update_block = get_company_update_block(
@@ -793,7 +794,9 @@ pub mod tests {
         store
             .expect_update()
             .withf(move |n, c| {
-                n == &expected_node.clone() && c.id == expected_node.clone() && c.name == "new_name"
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.name == Name::new("new_name").unwrap()
             })
             .returning(|_, _| Ok(()))
             .once();
@@ -857,7 +860,7 @@ pub mod tests {
         let skipped_chain =
             CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
         let data_skipped = CompanyUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
 
@@ -873,7 +876,7 @@ pub mod tests {
         full_chain.try_add_block(skipped_block.clone());
 
         let data = CompanyUpdateBlockData {
-            name: Some("another_name".to_string()),
+            name: Some(Name::new("another_name").unwrap()),
             ..Default::default()
         };
         let update_block = get_company_update_block(
@@ -950,7 +953,9 @@ pub mod tests {
         store
             .expect_update()
             .withf(move |n, c| {
-                n == &expected_node.clone() && c.id == expected_node.clone() && c.name == "new_name"
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.name == Name::new("new_name").unwrap()
             })
             .returning(|_, _| Ok(()))
             .once();
@@ -962,7 +967,7 @@ pub mod tests {
             .withf(move |n, c| {
                 n == &expected_node.clone()
                     && c.id == expected_node.clone()
-                    && c.name == "another_name"
+                    && c.name == Name::new("another_name").unwrap()
             })
             .returning(|_, _| Ok(()))
             .once();

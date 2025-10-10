@@ -4,8 +4,13 @@ use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
 use crate::blockchain::{Error, borsh_to_json_string};
+use crate::city::City;
 use crate::country::Country;
+use crate::date::Date;
+use crate::email::Email;
+use crate::identification::Identification;
 use crate::identity_proof::IdentityProofStamp;
+use crate::name::Name;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{
     File, OptionalPostalAddress, PostalAddress,
@@ -113,13 +118,13 @@ impl CompanyBlockPlaintextWrapper {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyCreateBlockData {
     pub id: NodeId,
-    pub name: String,
+    pub name: Name,
     pub country_of_registration: Option<Country>,
-    pub city_of_registration: Option<String>,
+    pub city_of_registration: Option<City>,
     pub postal_address: PostalAddress,
-    pub email: String,
-    pub registration_number: Option<String>,
-    pub registration_date: Option<String>,
+    pub email: Email,
+    pub registration_number: Option<Identification>,
+    pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<NodeId>,
@@ -147,13 +152,13 @@ impl From<Company> for CompanyCreateBlockData {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Default, PartialEq,
 )]
 pub struct CompanyUpdateBlockData {
-    pub name: Option<String>,
-    pub email: Option<String>,
+    pub name: Option<Name>,
+    pub email: Option<Email>,
     pub postal_address: OptionalPostalAddress,
     pub country_of_registration: Option<Country>,
-    pub city_of_registration: Option<String>,
-    pub registration_number: Option<String>,
-    pub registration_date: Option<String>,
+    pub city_of_registration: Option<City>,
+    pub registration_number: Option<Identification>,
+    pub registration_date: Option<Date>,
     pub logo_file: Option<File>,
     pub proof_of_registration_file: Option<File>,
 }
@@ -692,13 +697,13 @@ mod tests {
             (
                 Company {
                     id: node_id_test(),
-                    name: "some_name".to_string(),
+                    name: Name::new("some_name").unwrap(),
                     country_of_registration: Some(Country::AT),
-                    city_of_registration: Some("Vienna".to_string()),
+                    city_of_registration: Some(City::new("Vienna").unwrap()),
                     postal_address: valid_address(),
-                    email: "company@example.com".to_string(),
-                    registration_number: Some("some_number".to_string()),
-                    registration_date: Some("2012-01-01".to_string()),
+                    email: Email::new("company@example.com").unwrap(),
+                    registration_number: Some(Identification::new("some_number").unwrap()),
+                    registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
                     signatories: vec![node_id_test()],
@@ -762,7 +767,7 @@ mod tests {
             id.clone(),
             chain.get_latest_block(),
             &CompanyUpdateBlockData {
-                name: Some("new_name".to_string()),
+                name: Some(Name::new("new_name").unwrap()),
                 email: None,
                 postal_address: valid_optional_address(),
                 country_of_registration: None,

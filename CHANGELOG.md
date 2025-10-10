@@ -12,6 +12,7 @@
 * Change config url values to `url::Url`
 * Print bech32 npub at startup
 * Use strongly typed `url::Url` for nostr relays
+* Use strong types for Date, Name, City, Address, Zip, Country, Identification, Email (breaking API change)
 
 # 0.4.9
 

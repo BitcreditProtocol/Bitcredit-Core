@@ -141,10 +141,13 @@ pub fn create_bill_to_share_with_external_party(
 pub mod tests {
     use super::*;
     use crate::{
+        address::Address,
         bill::BillKeys,
         blockchain::Blockchain,
+        city::City,
         country::Country,
         identity::IdentityWithAll,
+        name::Name,
         tests::tests::{empty_bitcredit_bill, empty_identity, node_id_test, private_key_test},
         util::BcrKeys,
     };
@@ -163,10 +166,10 @@ pub mod tests {
         let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
         let mut identity = empty_identity();
         identity.node_id = node_id_test();
-        identity.name = "drawer".to_owned();
+        identity.name = Name::new("drawer").unwrap();
         identity.postal_address.country = Some(Country::AT);
-        identity.postal_address.city = Some("Vienna".to_owned());
-        identity.postal_address.address = Some("Hayekweg 5".to_owned());
+        identity.postal_address.city = Some(City::new("Vienna").unwrap());
+        identity.postal_address.address = Some(Address::new("Hayekweg 5").unwrap());
         IdentityWithAll {
             identity,
             key_pair: keys,

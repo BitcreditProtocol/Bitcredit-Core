@@ -5,24 +5,29 @@ pub mod tests {
 
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
+        address::Address,
         bill::{
             BillAcceptanceStatus, BillData, BillId, BillKeys, BillMintStatus, BillParticipants,
             BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill,
             BitcreditBillResult,
         },
+        city::City,
         constants::CURRENCY_SAT,
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         country::Country,
+        date::Date,
+        email::Email,
         identity::{Identity, IdentityType},
+        name::Name,
         util::BcrKeys,
     };
 
     pub fn empty_address() -> PostalAddress {
         PostalAddress {
             country: Country::AT,
-            city: "".to_string(),
+            city: City::new("Vienna").unwrap(),
             zip: None,
-            address: "".to_string(),
+            address: Address::new("Praterstrasse 1").unwrap(),
         }
     }
 
@@ -39,8 +44,8 @@ pub mod tests {
         Identity {
             t: IdentityType::Ident,
             node_id: node_id_test(),
-            name: "".to_string(),
-            email: Some("".to_string()),
+            name: Name::new("Minka").unwrap(),
+            email: Some(Email::new("test@example.com").unwrap()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,
@@ -56,7 +61,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "".to_string(),
+            name: Name::new("Minka").unwrap(),
             postal_address: empty_address(),
             email: None,
             nostr_relays: vec![],
@@ -67,7 +72,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id,
-            name: "".to_string(),
+            name: Name::new("Minka").unwrap(),
             postal_address: empty_address(),
             email: None,
             nostr_relays: vec![],
@@ -78,7 +83,7 @@ pub mod tests {
         BitcreditBill {
             id: bill_id_test(),
             country_of_issuing: Country::AT,
-            city_of_issuing: "".to_string(),
+            city_of_issuing: City::new("Vienna").unwrap(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(bill_identified_participant_only_node_id(NodeId::new(
@@ -88,9 +93,9 @@ pub mod tests {
             endorsee: None,
             currency: "".to_string(),
             sum: 0,
-            maturity_date: "".to_string(),
-            issue_date: "".to_string(),
-            city_of_payment: "".to_string(),
+            maturity_date: Date::new("2025-03-15").unwrap(),
+            issue_date: Date::new("2025-01-15").unwrap(),
+            city_of_payment: City::new("Vienna").unwrap(),
             country_of_payment: Country::AT,
             files: vec![],
         }
@@ -112,13 +117,13 @@ pub mod tests {
             },
             data: BillData {
                 time_of_drawing: 1731593928,
-                issue_date: "2024-05-01".to_string(),
+                issue_date: Date::new("2024-05-01").unwrap(),
                 time_of_maturity: 1731593928,
-                maturity_date: "2024-07-01".to_string(),
+                maturity_date: Date::new("2024-07-01").unwrap(),
                 country_of_issuing: Country::AT,
-                city_of_issuing: "Vienna".to_string(),
+                city_of_issuing: City::new("Vienna").unwrap(),
                 country_of_payment: Country::AT,
-                city_of_payment: "Vienna".to_string(),
+                city_of_payment: City::new("Vienna").unwrap(),
                 currency: CURRENCY_SAT.to_string(),
                 sum: "15000".to_string(),
                 files: vec![],

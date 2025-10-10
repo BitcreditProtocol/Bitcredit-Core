@@ -114,7 +114,7 @@ mod tests {
         service::notification_service::{BcrMetadata, NostrContactData},
         util::{base58_encode, crypto::encrypt_ecies},
     };
-    use bcr_ebill_core::{contact::ContactType, util::crypto::BcrKeys};
+    use bcr_ebill_core::{contact::ContactType, name::Name, util::crypto::BcrKeys};
     use mockall::predicate::{always, eq};
 
     #[tokio::test]
@@ -175,7 +175,7 @@ mod tests {
         let encypted = base58_encode(&encrypt_ecies(payload.as_slice(), &keys.pub_key()).unwrap());
 
         NostrContactData::new(
-            "My Name",
+            &Name::new("My Name").unwrap(),
             vec![],
             BcrMetadata {
                 contact_data: encypted,
@@ -187,7 +187,7 @@ mod tests {
         Contact {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "My Name".to_owned(),
+            name: Name::new("My Name").unwrap(),
             email: None,
             postal_address: None,
             date_of_birth_or_registration: None,

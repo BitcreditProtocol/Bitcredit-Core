@@ -6,10 +6,16 @@ use bcr_ebill_api::service::notification_service::event::{EventEnvelope, EventTy
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
+use bcr_ebill_core::address::Address;
 use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
 use bcr_ebill_core::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::city::City;
 use bcr_ebill_core::country::Country;
+use bcr_ebill_core::date::Date;
+use bcr_ebill_core::email::Email;
+use bcr_ebill_core::identification::Identification;
+use bcr_ebill_core::name::Name;
 use bcr_ebill_core::{
     NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
     bill::BillId,
@@ -151,7 +157,7 @@ pub fn bill_identified_participant_only_node_id(node_id: NodeId) -> BillIdentPar
     BillIdentParticipant {
         t: ContactType::Person,
         node_id,
-        name: "some name".to_string(),
+        name: Name::new("some name").unwrap(),
         postal_address: empty_address(),
         email: None,
         nostr_relays: vec![],
@@ -164,7 +170,7 @@ pub fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> 
 
 pub fn get_identity_public_data(
     node_id: &NodeId,
-    email: &str,
+    email: &Email,
     nostr_relays: Vec<&url::Url>,
 ) -> BillIdentParticipant {
     let mut identity = bill_identified_participant_only_node_id(node_id.to_owned());
@@ -210,9 +216,9 @@ pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
     let mut bill = empty_bitcredit_bill();
     let keys = BcrKeys::new();
 
-    bill.maturity_date = "2099-10-15".to_string();
+    bill.maturity_date = Date::new("2099-10-15").unwrap();
     let mut payee = empty_bill_identified_participant();
-    payee.name = "payee".to_owned();
+    payee.name = Name::new("payee").unwrap();
     payee.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
     bill.payee = BillParticipant::Ident(payee);
     bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
@@ -223,16 +229,16 @@ pub fn empty_bitcredit_bill() -> BitcreditBill {
     BitcreditBill {
         id: bill_id_test(),
         country_of_issuing: Country::AT,
-        city_of_issuing: "Vienna".to_string(),
+        city_of_issuing: City::new("Vienna").unwrap(),
         drawee: empty_bill_identified_participant(),
         drawer: empty_bill_identified_participant(),
         payee: BillParticipant::Ident(empty_bill_identified_participant()),
         endorsee: None,
         currency: CURRENCY_SAT.to_string(),
         sum: 500,
-        maturity_date: "2099-11-12".to_string(),
-        issue_date: "2099-08-12".to_string(),
-        city_of_payment: "Vienna".to_string(),
+        maturity_date: Date::new("2099-11-12").unwrap(),
+        issue_date: Date::new("2099-08-12").unwrap(),
+        city_of_payment: City::new("Vienna").unwrap(),
         country_of_payment: Country::AT,
         files: vec![],
     }
@@ -248,11 +254,11 @@ pub fn get_bill_keys() -> BillKeys {
 pub fn get_baseline_identity() -> IdentityWithAll {
     let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
     let mut identity = empty_identity();
-    identity.name = "drawer".to_owned();
+    identity.name = Name::new("drawer").unwrap();
     identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
     identity.postal_address.country = Some(Country::AT);
-    identity.postal_address.city = Some("Vienna".to_owned());
-    identity.postal_address.address = Some("Hayekweg 5".to_owned());
+    identity.postal_address.city = Some(City::new("Vienna").unwrap());
+    identity.postal_address.address = Some(Address::new("Hayekweg 5").unwrap());
     IdentityWithAll {
         identity,
         key_pair: keys,
@@ -262,7 +268,7 @@ pub fn empty_bill_identified_participant() -> BillIdentParticipant {
     BillIdentParticipant {
         t: ContactType::Person,
         node_id: node_id_test(),
-        name: "some name".to_string(),
+        name: Name::new("some name").unwrap(),
         postal_address: empty_address(),
         email: None,
         nostr_relays: vec![],
@@ -271,17 +277,17 @@ pub fn empty_bill_identified_participant() -> BillIdentParticipant {
 pub fn empty_address() -> PostalAddress {
     PostalAddress {
         country: Country::AT,
-        city: "Vienna".to_string(),
+        city: City::new("Vienna").unwrap(),
         zip: None,
-        address: "Some address".to_string(),
+        address: Address::new("Some address").unwrap(),
     }
 }
 pub fn empty_identity() -> Identity {
     Identity {
         t: IdentityType::Ident,
         node_id: node_id_test(),
-        name: "some name".to_string(),
-        email: Some("some@example.com".to_string()),
+        name: Name::new("some name").unwrap(),
+        email: Some(Email::new("some@example.com").unwrap()),
         postal_address: empty_optional_address(),
         date_of_birth: None,
         country_of_birth: None,
@@ -528,13 +534,13 @@ mockall::mock! {
     async fn update_contact(
         &self,
         node_id: &NodeId,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         ignore_avatar_file_upload_id: bool,
         proof_document_file_upload_id: Option<String>,
@@ -544,13 +550,13 @@ mockall::mock! {
         &self,
         node_id: &NodeId,
         t: ContactType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> bcr_ebill_api::service::Result<Contact>;
@@ -558,13 +564,13 @@ mockall::mock! {
         &self,
         node_id: &NodeId,
         t: ContactType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> bcr_ebill_api::service::Result<Contact>;
@@ -589,7 +595,7 @@ mockall::mock! {
         async fn register(
             &self,
             relay_url: &url::Url,
-            email: &str,
+            email: &Email,
             private_key: &nostr::SecretKey,
             challenge: &str,
         ) -> bcr_ebill_api::external::email::Result<url::Url>;

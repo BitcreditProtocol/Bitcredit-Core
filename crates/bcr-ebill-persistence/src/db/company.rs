@@ -6,8 +6,13 @@ use crate::constants::{DB_SEARCH_TERM, DB_TABLE};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    city::City,
     company::{Company, CompanyKeys},
     country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    name::Name,
 };
 
 use crate::{Error, company::CompanyStoreApi};
@@ -145,13 +150,13 @@ impl CompanyStoreApi for SurrealCompanyStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyDb {
     pub id: Thing,
-    pub name: String,
+    pub name: Name,
     pub country_of_registration: Option<Country>,
-    pub city_of_registration: Option<String>,
+    pub city_of_registration: Option<City>,
     pub postal_address: PostalAddressDb,
-    pub email: String,
-    pub registration_number: Option<String>,
-    pub registration_date: Option<String>,
+    pub email: Email,
+    pub registration_number: Option<Identification>,
+    pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<FileDb>,
     pub logo_file: Option<FileDb>,
     pub signatories: Vec<NodeId>,
@@ -260,13 +265,13 @@ mod tests {
     fn get_baseline_company() -> Company {
         Company {
             id: node_id_test(),
-            name: "some_name".to_string(),
+            name: Name::new("some_name").unwrap(),
             country_of_registration: Some(Country::AT),
-            city_of_registration: Some("Vienna".to_string()),
+            city_of_registration: Some(City::new("Vienna").unwrap()),
             postal_address: empty_address(),
-            email: "company@example.com".to_string(),
-            registration_number: Some("some_number".to_string()),
-            registration_date: Some("2012-01-01".to_string()),
+            email: Email::new("company@example.com").unwrap(),
+            registration_number: Some(Identification::new("some_number").unwrap()),
+            registration_date: Some(Date::new("2012-01-01").unwrap()),
             proof_of_registration_file: None,
             logo_file: None,
             signatories: vec![node_id_test()],
@@ -298,7 +303,7 @@ mod tests {
         let store = get_store().await;
         store.insert(&get_baseline_company()).await.unwrap();
         let company = store.get(&node_id_test()).await.unwrap();
-        assert_eq!(company.name, "some_name".to_owned());
+        assert_eq!(company.name, Name::new("some_name").unwrap());
     }
 
     #[tokio::test]
@@ -342,17 +347,20 @@ mod tests {
         let store = get_store().await;
         store.insert(&get_baseline_company()).await.unwrap();
         let mut company = store.get(&node_id_test()).await.unwrap();
-        company.name = "some other company".to_string();
+        company.name = Name::new("some other company").unwrap();
         store.update(&node_id_test(), &company).await.unwrap();
         let changed_company = store.get(&node_id_test()).await.unwrap();
-        assert_eq!(changed_company.name, "some other company".to_owned());
+        assert_eq!(
+            changed_company.name,
+            Name::new("some other company").unwrap()
+        );
     }
 
     #[tokio::test]
     async fn test_get_all() {
         let store = get_store().await;
         let mut company = get_baseline_company();
-        company.name = "first".to_string();
+        company.name = Name::new("first").unwrap();
         store.insert(&company).await.unwrap();
         store
             .save_key_pair(
@@ -381,7 +389,7 @@ mod tests {
         assert_eq!(companies.len(), 2);
         assert_eq!(
             companies.get(&node_id_test()).as_ref().unwrap().0.name,
-            "first".to_owned()
+            Name::new("first").unwrap()
         );
         assert_eq!(
             companies
@@ -394,7 +402,7 @@ mod tests {
         );
         assert_eq!(
             companies.get(&company2.id).as_ref().unwrap().0.name,
-            "some_name".to_owned()
+            Name::new("some_name").unwrap()
         );
         assert_eq!(
             companies.get(&company2.id).as_ref().unwrap().1.public_key,
@@ -406,7 +414,7 @@ mod tests {
     async fn test_get_all_and_search_only_return_active_companies() {
         let store = get_store().await;
         let mut company = get_baseline_company();
-        company.name = "first company".to_string();
+        company.name = Name::new("first company").unwrap();
         store.insert(&company).await.unwrap();
         store
             .save_key_pair(
@@ -420,7 +428,7 @@ mod tests {
             .unwrap();
         let mut company2 = get_baseline_company();
         company2.id = node_id_test_other();
-        company2.name = "second company".to_string();
+        company2.name = Name::new("second company").unwrap();
         company2.active = false;
 
         store.insert(&company2).await.unwrap();
@@ -438,13 +446,13 @@ mod tests {
         assert_eq!(companies.len(), 1);
         assert_eq!(
             companies.get(&node_id_test()).as_ref().unwrap().0.name,
-            "first company".to_owned()
+            Name::new("first company").unwrap()
         );
         let search_results = store.search("company").await.unwrap();
         assert_eq!(search_results.len(), 1);
         assert_eq!(
             search_results.first().unwrap().name,
-            "first company".to_owned()
+            Name::new("first company").unwrap()
         );
     }
 }

@@ -6,8 +6,10 @@ use super::{
 use crate::{
     NodeId,
     blockchain::bill::BillBlockchain,
+    city::City,
     contact::{BillParticipant, LightBillParticipant},
     country::Country,
+    date::Date,
     util::BcrKeys,
 };
 use secp256k1::{PublicKey, SecretKey};
@@ -54,15 +56,15 @@ pub enum BillType {
 pub struct BillIssueData {
     pub t: u64,
     pub country_of_issuing: Country,
-    pub city_of_issuing: String,
-    pub issue_date: String,
-    pub maturity_date: String,
+    pub city_of_issuing: City,
+    pub issue_date: Date,
+    pub maturity_date: Date,
     pub drawee: NodeId,
     pub payee: NodeId,
     pub sum: String,
     pub currency: String,
     pub country_of_payment: Country,
-    pub city_of_payment: String,
+    pub city_of_payment: City,
     pub file_upload_ids: Vec<String>,
     pub drawer_public_data: BillParticipant,
     pub drawer_keys: BcrKeys,
@@ -76,7 +78,7 @@ pub struct BillValidateActionData {
     pub drawee_node_id: NodeId,
     pub payee_node_id: NodeId,
     pub endorsee_node_id: Option<NodeId>,
-    pub maturity_date: String,
+    pub maturity_date: Date,
     pub bill_keys: BillKeys,
     pub timestamp: u64,
     pub signer_node_id: NodeId,
@@ -88,7 +90,7 @@ pub struct BillValidateActionData {
 pub struct BitcreditBill {
     pub id: BillId,
     pub country_of_issuing: Country,
-    pub city_of_issuing: String,
+    pub city_of_issuing: City,
     // The party obliged to pay a Bill
     pub drawee: BillIdentParticipant,
     // The party issuing a Bill
@@ -98,10 +100,10 @@ pub struct BitcreditBill {
     pub endorsee: Option<BillParticipant>,
     pub currency: String,
     pub sum: u64,
-    pub maturity_date: String,
-    pub issue_date: String,
+    pub maturity_date: Date,
+    pub issue_date: Date,
     pub country_of_payment: Country,
-    pub city_of_payment: String,
+    pub city_of_payment: City,
     pub files: Vec<File>,
 }
 
@@ -228,13 +230,13 @@ pub struct BillMintStatus {
 #[derive(Debug, Clone)]
 pub struct BillData {
     pub time_of_drawing: u64,
-    pub issue_date: String,
+    pub issue_date: Date,
     pub time_of_maturity: u64,
-    pub maturity_date: String,
+    pub maturity_date: Date,
     pub country_of_issuing: Country,
-    pub city_of_issuing: String,
+    pub city_of_issuing: City,
     pub country_of_payment: Country,
-    pub city_of_payment: String,
+    pub city_of_payment: City,
     pub currency: String,
     pub sum: String,
     pub files: Vec<File>,
@@ -293,7 +295,7 @@ impl BitcreditBillResult {
             .payee
             .name()
             .as_ref()
-            .map(|n| n.to_lowercase().contains(&search_term_lc))
+            .map(|n| n.as_str().to_lowercase().contains(&search_term_lc))
             .unwrap_or(false)
         {
             return true;
@@ -303,6 +305,7 @@ impl BitcreditBillResult {
             .participants
             .drawer
             .name
+            .as_str()
             .to_lowercase()
             .contains(&search_term_lc)
         {
@@ -313,6 +316,7 @@ impl BitcreditBillResult {
             .participants
             .drawee
             .name
+            .as_str()
             .to_lowercase()
             .contains(&search_term_lc)
         {
@@ -323,7 +327,7 @@ impl BitcreditBillResult {
             && endorsee
                 .name()
                 .as_ref()
-                .map(|n| n.to_lowercase().contains(&search_term_lc))
+                .map(|n| n.as_str().to_lowercase().contains(&search_term_lc))
                 .unwrap_or(false)
         {
             return true;
@@ -336,7 +340,7 @@ impl BitcreditBillResult {
                 .buyer
                 .name()
                 .as_ref()
-                .map(|n| n.to_lowercase().contains(&search_term_lc))
+                .map(|n| n.as_str().to_lowercase().contains(&search_term_lc))
                 .unwrap_or(false)
             {
                 return true;
@@ -346,7 +350,7 @@ impl BitcreditBillResult {
                 .seller
                 .name()
                 .as_ref()
-                .map(|n| n.to_lowercase().contains(&search_term_lc))
+                .map(|n| n.as_str().to_lowercase().contains(&search_term_lc))
                 .unwrap_or(false)
             {
                 return true;
@@ -367,7 +371,7 @@ pub struct LightBitcreditBillResult {
     pub active_notification: Option<Notification>,
     pub sum: String,
     pub currency: String,
-    pub issue_date: String,
+    pub issue_date: Date,
     pub time_of_drawing: u64,
     pub time_of_maturity: u64,
     pub last_block_time: u64,

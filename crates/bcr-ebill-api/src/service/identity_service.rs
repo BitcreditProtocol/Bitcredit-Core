@@ -19,9 +19,14 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::identity::IdentityBlockPlaintextWrapper;
+use bcr_ebill_core::city::City;
 use bcr_ebill_core::country::Country;
+use bcr_ebill_core::date::Date;
+use bcr_ebill_core::email::Email;
+use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
+use bcr_ebill_core::name::Name;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError};
@@ -34,13 +39,13 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     /// Updates the identity
     async fn update_identity(
         &self,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth: Option<String>,
+        date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
-        city_of_birth: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth: Option<City>,
+        identification_number: Option<Identification>,
         profile_picture_file_upload_id: Option<String>,
         ignore_profile_picture_file_upload_id: bool,
         identity_document_file_upload_id: Option<String>,
@@ -57,13 +62,13 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     async fn create_identity(
         &self,
         t: IdentityType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth: Option<String>,
+        date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
-        city_of_birth: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth: Option<City>,
+        identification_number: Option<Identification>,
         profile_picture_file_upload_id: Option<String>,
         identity_document_file_upload_id: Option<String>,
         timestamp: u64,
@@ -72,13 +77,13 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     async fn deanonymize_identity(
         &self,
         t: IdentityType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth: Option<String>,
+        date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
-        city_of_birth: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth: Option<City>,
+        identification_number: Option<Identification>,
         profile_picture_file_upload_id: Option<String>,
         identity_document_file_upload_id: Option<String>,
         timestamp: u64,
@@ -241,13 +246,13 @@ impl IdentityServiceApi for IdentityService {
 
     async fn update_identity(
         &self,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth: Option<String>,
+        date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
-        city_of_birth: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth: Option<City>,
+        identification_number: Option<Identification>,
         profile_picture_file_upload_id: Option<String>,
         ignore_profile_picture_file_upload_id: bool,
         identity_document_file_upload_id: Option<String>,
@@ -267,17 +272,15 @@ impl IdentityServiceApi for IdentityService {
 
         validate_update_identity(
             identity.t.clone(),
-            &name,
-            &email,
             &postal_address,
             &profile_picture_file_upload_id,
             &identity_document_file_upload_id,
         )?;
 
         if let Some(ref name_to_set) = name
-            && identity.name != name_to_set.trim()
+            && &identity.name != name_to_set
         {
-            identity.name = name_to_set.trim().to_owned();
+            identity.name = name_to_set.to_owned();
             changed = true;
         }
 
@@ -286,9 +289,9 @@ impl IdentityServiceApi for IdentityService {
             util::update_optional_field(&mut identity.email, &email, &mut changed);
         } else {
             if let Some(ref email_to_set) = email
-                && identity.email != Some(email_to_set.trim().to_string())
+                && identity.email.as_ref() != Some(email_to_set)
             {
-                identity.email = Some(email_to_set.trim().to_owned());
+                identity.email = Some(email_to_set.to_owned());
                 changed = true;
             }
 
@@ -300,9 +303,9 @@ impl IdentityServiceApi for IdentityService {
             }
 
             if let Some(ref city_to_set) = postal_address.city
-                && identity.postal_address.city != Some(city_to_set.trim().to_string())
+                && identity.postal_address.city.as_ref() != Some(city_to_set)
             {
-                identity.postal_address.city = Some(city_to_set.trim().to_owned());
+                identity.postal_address.city = Some(city_to_set.to_owned());
                 changed = true;
             }
 
@@ -313,9 +316,9 @@ impl IdentityServiceApi for IdentityService {
             );
 
             if let Some(ref address_to_set) = postal_address.address
-                && identity.postal_address.address != Some(address_to_set.trim().to_string())
+                && identity.postal_address.address.as_ref() != Some(address_to_set)
             {
-                identity.postal_address.address = Some(address_to_set.trim().to_owned());
+                identity.postal_address.address = Some(address_to_set.to_owned());
                 changed = true;
             }
 
@@ -426,13 +429,13 @@ impl IdentityServiceApi for IdentityService {
     async fn create_identity(
         &self,
         t: IdentityType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth: Option<String>,
+        date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
-        city_of_birth: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth: Option<City>,
+        identification_number: Option<Identification>,
         profile_picture_file_upload_id: Option<String>,
         identity_document_file_upload_id: Option<String>,
         timestamp: u64,
@@ -442,7 +445,6 @@ impl IdentityServiceApi for IdentityService {
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
         validate_create_identity(
             t.clone(),
-            &name,
             &email,
             &postal_address,
             &profile_picture_file_upload_id,
@@ -527,13 +529,13 @@ impl IdentityServiceApi for IdentityService {
     async fn deanonymize_identity(
         &self,
         t: IdentityType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth: Option<String>,
+        date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
-        city_of_birth: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth: Option<City>,
+        identification_number: Option<Identification>,
         profile_picture_file_upload_id: Option<String>,
         identity_document_file_upload_id: Option<String>,
         timestamp: u64,
@@ -559,7 +561,6 @@ impl IdentityServiceApi for IdentityService {
 
         validate_create_identity(
             t.clone(),
-            &name,
             &email,
             &postal_address,
             &profile_picture_file_upload_id,
@@ -823,8 +824,8 @@ mod tests {
         let res = service
             .create_identity(
                 IdentityType::Ident,
-                "name".to_string(),
-                Some("email".to_string()),
+                Name::new("name").unwrap(),
+                Some(Email::new("test@example.com").unwrap()),
                 filled_optional_address(),
                 None,
                 None,
@@ -868,8 +869,8 @@ mod tests {
         let res = service
             .create_identity(
                 IdentityType::Anon,
-                "name".to_string(),
-                Some("email".to_string()),
+                Name::new("name").unwrap(),
+                Some(Email::new("test@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,
@@ -927,8 +928,8 @@ mod tests {
         let res = service
             .deanonymize_identity(
                 IdentityType::Ident,
-                "name".to_string(),
-                Some("email".to_string()),
+                Name::new("name").unwrap(),
+                Some(Email::new("test@example.com").unwrap()),
                 filled_optional_address(),
                 None,
                 None,
@@ -969,8 +970,8 @@ mod tests {
         let res = service
             .deanonymize_identity(
                 IdentityType::Anon,
-                "name".to_string(),
-                Some("email".to_string()),
+                Name::new("name").unwrap(),
+                Some(Email::new("test@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,
@@ -1014,8 +1015,8 @@ mod tests {
         let res = service
             .deanonymize_identity(
                 IdentityType::Ident,
-                "name".to_string(),
-                Some("email".to_string()),
+                Name::new("name").unwrap(),
+                Some(Email::new("test@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,
@@ -1071,7 +1072,7 @@ mod tests {
         let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .update_identity(
-                Some("new_name".to_string()),
+                Some(Name::new("new_name").unwrap()),
                 None,
                 empty_optional_address(),
                 None,
@@ -1098,14 +1099,14 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.name = "name".to_string();
+            identity.name = Name::new("name").unwrap();
             Ok(identity)
         });
 
         let service = get_service(storage);
         let res = service
             .update_identity(
-                Some("name".to_string()),
+                Some(Name::new("name").unwrap()),
                 None,
                 empty_optional_address(),
                 None,
@@ -1158,7 +1159,7 @@ mod tests {
         let service = get_service_with_chain_storage(storage, chain_storage, notification);
         let res = service
             .update_identity(
-                Some("new_name".to_string()),
+                Some(Name::new("new_name").unwrap()),
                 None,
                 empty_optional_address(),
                 None,

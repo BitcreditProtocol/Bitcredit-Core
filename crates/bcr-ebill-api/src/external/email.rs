@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bcr_ebill_core::email::Email;
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, bill::BillId, notification::BillEventType};
 use borsh_derive::BorshSerialize;
 use nostr::hashes::Hash;
@@ -49,7 +50,7 @@ pub trait EmailClientApi: ServiceTraitBounds {
     async fn register(
         &self,
         relay_url: &url::Url,
-        email: &str,
+        email: &Email,
         private_key: &nostr::SecretKey,
         challenge: &str,
     ) -> Result<url::Url>;
@@ -104,7 +105,7 @@ impl EmailClientApi for EmailClient {
     async fn register(
         &self,
         relay_url: &url::Url,
-        email: &str,
+        email: &Email,
         private_key: &nostr::SecretKey,
         challenge: &str,
     ) -> Result<url::Url> {
@@ -119,7 +120,7 @@ impl EmailClientApi for EmailClient {
             .map_err(|_| Error::NostrKey)?;
 
         let req = RegisterEmailNotificationRequest {
-            email: email.to_owned(),
+            email: email.to_string(),
             ebill_url: get_config().app_url.to_owned(),
             npub,
             signed_challenge,

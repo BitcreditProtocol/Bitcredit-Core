@@ -15,11 +15,15 @@ use bcr_ebill_api::service::notification_service::event::{
 };
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::service::notification_service::{NostrConfig, NostrContactData};
+use bcr_ebill_core::address::Address;
 use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::blockchain::BlockchainType;
+use bcr_ebill_core::city::City;
 use bcr_ebill_core::company::Company;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
 use bcr_ebill_core::country::Country;
+use bcr_ebill_core::email::Email;
+use bcr_ebill_core::name::Name;
 use bcr_ebill_core::nostr_contact::TrustLevel;
 use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::ContactStoreApi;
@@ -124,12 +128,12 @@ impl NotificationService {
                 t: ContactType::Person,
                 node_id: node_id.to_owned(),
                 email: None,
-                name: String::new(),
+                name: Name::new("default name").expect("is a valid name"),
                 postal_address: PostalAddress {
                     country: Country::AT,
-                    city: "default city".to_owned(),
+                    city: City::new("default city").expect("is valid city"),
                     zip: None,
-                    address: "default address".to_owned(),
+                    address: Address::new("default address").expect("is valid address"),
                 },
                 nostr_relays: self.nostr_relays.clone(),
             }))
@@ -1094,7 +1098,7 @@ impl NotificationServiceApi for NotificationService {
     async fn register_email_notifications(
         &self,
         relay_url: &url::Url,
-        email: &str,
+        email: &Email,
         node_id: &NodeId,
         caller_keys: &BcrKeys,
     ) -> Result<()> {
@@ -1272,9 +1276,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let buyer = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("buyer@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1420,9 +1436,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_action_rejected_does_not_send_non_rejectable_action() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let buyer = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("buyer@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1501,17 +1529,17 @@ mod tests {
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test(),
-                "part1@example.com",
+                &Email::new("part1@example.com").unwrap(),
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test_other(),
-                "part2@example.com",
+                &Email::new("part2@example.com").unwrap(),
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test_other2(),
-                "part3@example.com",
+                &Email::new("part3@example.com").unwrap(),
                 vec![],
             )),
         ];
@@ -1586,17 +1614,17 @@ mod tests {
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test(),
-                "part1@example.com",
+                &Email::new("part1@example.com").unwrap(),
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test_other(),
-                "part2@example.com",
+                &Email::new("part2@example.com").unwrap(),
                 vec![],
             )),
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test_other2(),
-                "part3@example.com",
+                &Email::new("part3@example.com").unwrap(),
                 vec![],
             )),
         ];
@@ -1642,7 +1670,7 @@ mod tests {
         Contact {
             t: id.t.clone(),
             node_id: id.node_id.clone(),
-            name: id.name.to_string(),
+            name: id.name.to_owned(),
             email: id.email.clone(),
             postal_address: Some(id.postal_address.clone()),
             nostr_relays: id.nostr_relays.clone(),
@@ -1659,9 +1687,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_recourse_action_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let buyer = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("buyer@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1786,9 +1826,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_recourse_action_event_does_not_send_non_recurse_action() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let buyer = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("buyer@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -1860,8 +1912,16 @@ mod tests {
     async fn test_failed_to_send_is_added_to_retry_queue() {
         init_test_cfg();
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
 
@@ -2063,8 +2123,16 @@ mod tests {
     async fn test_send_bill_is_signed_event() {
         init_test_cfg();
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let (service, event) = setup_chain_expectation(
@@ -2093,8 +2161,16 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_accepted_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2140,8 +2216,16 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_accept_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2188,8 +2272,16 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_pay_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2237,8 +2329,16 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_paid_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
         let (service, event) = setup_chain_expectation(
@@ -2260,10 +2360,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_endorsed_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let endorsee =
-            get_identity_public_data(&node_id_test_other2(), "endorsee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let endorsee = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("endorsee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, Some(&endorsee));
         let chain = get_genesis_chain(Some(bill.clone()));
 
@@ -2291,9 +2402,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_offer_to_sell_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let buyer = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("buyer@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2345,9 +2468,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_sold_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let buyer = get_identity_public_data(&node_id_test_other2(), "buyer@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let buyer = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("buyer@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2399,10 +2534,21 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_recourse_paid_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
-        let recoursee =
-            get_identity_public_data(&node_id_test_other2(), "recoursee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let recoursee = get_identity_public_data(
+            &node_id_test_other2(),
+            &Email::new("recoursee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2453,8 +2599,16 @@ mod tests {
     #[tokio::test]
     async fn test_send_request_to_mint_event() {
         init_test_cfg();
-        let payer = get_identity_public_data(&node_id_test(), "drawee@example.com", vec![]);
-        let payee = get_identity_public_data(&node_id_test_other(), "payee@example.com", vec![]);
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
         let timestamp = now().timestamp() as u64;
@@ -2651,7 +2805,8 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
+        let identity =
+            get_identity_public_data(&node_id, &Email::new("test@example.com").unwrap(), vec![]);
 
         // Set up mocks
         let mut mock_contact_store = MockContactStore::new();
@@ -2708,7 +2863,7 @@ mod tests {
         let node_id = node_id_test_other();
         let identity = get_identity_public_data(
             &node_id,
-            "test@example.com",
+            &Email::new("test@example.com").unwrap(),
             vec![&url::Url::parse("ws://test.relay").unwrap()],
         );
         // Set up mocks
@@ -2783,7 +2938,8 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
+        let identity =
+            get_identity_public_data(&node_id, &Email::new("test@example.com").unwrap(), vec![]);
 
         // Set up mocks
         let mut mock_contact_store = MockContactStore::new();
@@ -2872,8 +3028,10 @@ mod tests {
             payload: payload2.clone(),
         };
 
-        let identity1 = get_identity_public_data(&node_id1, "test1@example.com", vec![]);
-        let identity2 = get_identity_public_data(&node_id2, "test2@example.com", vec![]);
+        let identity1 =
+            get_identity_public_data(&node_id1, &Email::new("test1@example.com").unwrap(), vec![]);
+        let identity2 =
+            get_identity_public_data(&node_id2, &Email::new("test2@example.com").unwrap(), vec![]);
 
         // Set up mocks
         let mut mock_contact_store = MockContactStore::new();
@@ -3020,7 +3178,8 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
+        let identity =
+            get_identity_public_data(&node_id, &Email::new("test@example.com").unwrap(), vec![]);
 
         // Set up mocks
         let mut mock_contact_store = MockContactStore::new();
@@ -3097,7 +3256,8 @@ mod tests {
             payload: payload.clone(),
         };
 
-        let identity = get_identity_public_data(&node_id, "test@example.com", vec![]);
+        let identity =
+            get_identity_public_data(&node_id, &Email::new("test@example.com").unwrap(), vec![]);
 
         // Set up mocks
         let mut mock_contact_store = MockContactStore::new();
@@ -3227,7 +3387,7 @@ mod tests {
         let result = service
             .register_email_notifications(
                 &url::Url::parse("ws://test.relay").unwrap(),
-                "test@example.com",
+                &Email::new("test@example.com").unwrap(),
                 &node_id_test(),
                 &BcrKeys::new(),
             )

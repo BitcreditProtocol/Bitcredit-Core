@@ -5,8 +5,13 @@ use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, SecretKey, ServiceTraitBounds,
+    city::City,
     country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
     identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
+    name::Name,
 };
 use serde::{Deserialize, Serialize};
 
@@ -206,13 +211,13 @@ pub struct IdentityDb {
     #[serde(rename = "type")]
     pub t: IdentityType,
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>,
+    pub name: Name,
+    pub email: Option<Email>,
     pub postal_address: OptionalPostalAddressDb,
-    pub date_of_birth: Option<String>,
+    pub date_of_birth: Option<Date>,
     pub country_of_birth: Option<Country>,
-    pub city_of_birth: Option<String>,
-    pub identification_number: Option<String>,
+    pub city_of_birth: Option<City>,
+    pub identification_number: Option<Identification>,
     pub nostr_relays: Vec<url::Url>,
     pub profile_picture_file: Option<FileDb>,
     pub identity_document_file: Option<FileDb>,
@@ -308,7 +313,7 @@ mod tests {
     async fn test_identity() {
         let store = get_store().await;
         let mut identity = empty_identity();
-        identity.name = "Minka".to_string();
+        identity.name = Name::new("Minka").unwrap();
         store.save(&identity).await.unwrap();
         let fetched_identity = store.get().await.unwrap();
         assert_eq!(identity, fetched_identity);
@@ -318,7 +323,7 @@ mod tests {
     async fn test_full_identity() {
         let store = get_store().await;
         let mut identity = empty_identity();
-        identity.name = "Minka".to_string();
+        identity.name = Name::new("Minka").unwrap();
         let (keys, seed) = BcrKeys::new_with_seed_phrase().expect("key could not be generated");
         store.save(&identity).await.unwrap();
         store.save_key_pair(&keys, &seed).await.unwrap();

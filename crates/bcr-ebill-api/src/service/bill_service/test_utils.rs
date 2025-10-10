@@ -19,6 +19,7 @@ use crate::{
     util,
 };
 use bcr_ebill_core::{
+    address::Address,
     bill::{
         BillAcceptanceStatus, BillData, BillMintStatus, BillParticipants, BillPaymentStatus,
         BillRecourseStatus, BillSellStatus, BillStatus, PaidData, PaymentState,
@@ -36,12 +37,15 @@ use bcr_ebill_core::{
         },
         identity::IdentityBlockchain,
     },
+    city::City,
     constants::{
         ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
         RECOURSE_DEADLINE_SECONDS,
     },
     contact::{BillIdentParticipant, BillParticipant},
     country::Country,
+    date::Date,
+    name::Name,
     util::date::now,
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
@@ -69,11 +73,11 @@ pub struct MockBillContext {
 pub fn get_baseline_identity() -> IdentityWithAll {
     let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
     let mut identity = empty_identity();
-    identity.name = "drawer".to_owned();
+    identity.name = Name::new("drawer").unwrap();
     identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
     identity.postal_address.country = Some(Country::AT);
-    identity.postal_address.city = Some("Vienna".to_owned());
-    identity.postal_address.address = Some("Hayekweg 5".to_owned());
+    identity.postal_address.city = Some(City::new("Vienna").unwrap());
+    identity.postal_address.address = Some(Address::new("Hayekweg 5").unwrap());
     identity.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
     IdentityWithAll {
         identity,
@@ -101,13 +105,13 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
         },
         data: BillData {
             time_of_drawing: 1731593928,
-            issue_date: "2024-05-01".to_string(),
+            issue_date: Date::new("2024-05-01").unwrap(),
             time_of_maturity: 1731593928,
-            maturity_date: "2024-07-01".to_string(),
+            maturity_date: Date::new("2024-07-01").unwrap(),
             country_of_issuing: Country::AT,
-            city_of_issuing: "Vienna".to_string(),
+            city_of_issuing: City::new("Vienna").unwrap(),
             country_of_payment: Country::AT,
-            city_of_payment: "Vienna".to_string(),
+            city_of_payment: City::new("Vienna").unwrap(),
             currency: CURRENCY_SAT.to_string(),
             sum: "15000".to_string(),
             files: vec![],
@@ -161,9 +165,9 @@ pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
     let mut bill = empty_bitcredit_bill();
     let keys = BcrKeys::new();
 
-    bill.maturity_date = "2099-10-15".to_string();
+    bill.maturity_date = Date::new("2099-10-15").unwrap();
     let mut payee = empty_bill_identified_participant();
-    payee.name = "payee".to_owned();
+    payee.name = Name::new("payee").unwrap();
     payee.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
     bill.payee = BillParticipant::Ident(payee);
     bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();

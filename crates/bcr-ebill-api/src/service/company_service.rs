@@ -32,8 +32,13 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::blockchain::company::CompanyBlockPlaintextWrapper;
+use bcr_ebill_core::city::City;
 use bcr_ebill_core::country::Country;
+use bcr_ebill_core::date::Date;
+use bcr_ebill_core::email::Email;
+use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::name::Name;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError};
@@ -61,13 +66,13 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     /// Create a new company
     async fn create_company(
         &self,
-        name: String,
+        name: Name,
         country_of_registration: Option<Country>,
-        city_of_registration: Option<String>,
+        city_of_registration: Option<City>,
         postal_address: PostalAddress,
-        email: String,
-        registration_number: Option<String>,
-        registration_date: Option<String>,
+        email: Email,
+        registration_number: Option<Identification>,
+        registration_date: Option<Date>,
         proof_of_registration_file_upload_id: Option<String>,
         logo_file_upload_id: Option<String>,
         timestamp: u64,
@@ -77,13 +82,13 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     async fn edit_company(
         &self,
         id: &NodeId,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
         country_of_registration: Option<Country>,
-        city_of_registration: Option<String>,
-        registration_number: Option<String>,
-        registration_date: Option<String>,
+        city_of_registration: Option<City>,
+        registration_number: Option<Identification>,
+        registration_date: Option<Date>,
         logo_file_upload_id: Option<String>,
         ignore_logo_file_upload_id: bool,
         proof_of_registration_file_upload_id: Option<String>,
@@ -364,13 +369,13 @@ impl CompanyServiceApi for CompanyService {
 
     async fn create_company(
         &self,
-        name: String,
+        name: Name,
         country_of_registration: Option<Country>,
-        city_of_registration: Option<String>,
+        city_of_registration: Option<City>,
         postal_address: PostalAddress,
-        email: String,
-        registration_number: Option<String>,
-        registration_date: Option<String>,
+        email: Email,
+        registration_number: Option<Identification>,
+        registration_date: Option<Date>,
         proof_of_registration_file_upload_id: Option<String>,
         logo_file_upload_id: Option<String>,
         timestamp: u64,
@@ -511,13 +516,13 @@ impl CompanyServiceApi for CompanyService {
     async fn edit_company(
         &self,
         id: &NodeId,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
         country_of_registration: Option<Country>,
-        city_of_registration: Option<String>,
-        registration_number: Option<String>,
-        registration_date: Option<String>,
+        city_of_registration: Option<City>,
+        registration_number: Option<Identification>,
+        registration_date: Option<Date>,
         logo_file_upload_id: Option<String>,
         ignore_logo_file_upload_id: bool,
         proof_of_registration_file_upload_id: Option<String>,
@@ -1073,13 +1078,13 @@ pub mod tests {
             (
                 Company {
                     id: node_id_test(),
-                    name: "some_name".to_string(),
+                    name: Name::new("some_name").unwrap(),
                     country_of_registration: Some(Country::AT),
-                    city_of_registration: Some("Vienna".to_string()),
+                    city_of_registration: Some(City::new("Vienna").unwrap()),
                     postal_address: empty_address(),
-                    email: "company@example.com".to_string(),
-                    registration_number: Some("some_number".to_string()),
-                    registration_date: Some("2012-01-01".to_string()),
+                    email: Email::new("company@example.com").unwrap(),
+                    registration_number: Some(Identification::new("some_number").unwrap()),
+                    registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
                     signatories: vec![node_id_test()],
@@ -1373,20 +1378,20 @@ pub mod tests {
 
         let res = service
             .create_company(
-                "name".to_string(),
+                Name::new("name").unwrap(),
                 Some(Country::AT),
-                Some("Vienna".to_string()),
+                Some(City::new("Vienna").unwrap()),
                 empty_address(),
-                "company@example.com".to_string(),
-                Some("some_number".to_string()),
-                Some("2012-01-01".to_string()),
+                Email::new("company@example.com").unwrap(),
+                Some(Identification::new("some_number").unwrap()),
+                Some(Date::new("2012-01-01").unwrap()),
                 Some("some_file_id".to_string()),
                 Some("some_other_file_id".to_string()),
                 1731593928,
             )
             .await;
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap().name, "name".to_string());
+        assert_eq!(res.as_ref().unwrap().name, Name::new("name").unwrap());
         assert_eq!(
             res.as_ref()
                 .unwrap()
@@ -1441,13 +1446,13 @@ pub mod tests {
         );
         let res = service
             .create_company(
-                "name".to_string(),
+                Name::new("name").unwrap(),
                 Some(Country::AT),
-                Some("Vienna".to_string()),
+                Some(City::new("Vienna").unwrap()),
                 empty_address(),
-                "company@example.com".to_string(),
-                Some("some_number".to_string()),
-                Some("2012-01-01".to_string()),
+                Email::new("company@example.com").unwrap(),
+                Some(Identification::new("some_number").unwrap()),
+                Some(Date::new("2012-01-01").unwrap()),
                 None,
                 None,
                 1731593928,
@@ -1537,8 +1542,8 @@ pub mod tests {
         let res = service
             .edit_company(
                 &node_id_test(),
-                Some("name".to_string()),
-                Some("company@example.com".to_string()),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,
@@ -1582,8 +1587,8 @@ pub mod tests {
         let res = service
             .edit_company(
                 &node_id_test_other(),
-                Some("name".to_string()),
-                Some("company@example.com".to_string()),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,
@@ -1639,8 +1644,8 @@ pub mod tests {
         let res = service
             .edit_company(
                 &node_id_test(),
-                Some("name".to_string()),
-                Some("company@example.com".to_string()),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,
@@ -1708,8 +1713,8 @@ pub mod tests {
         let res = service
             .edit_company(
                 &node_id_test(),
-                Some("name".to_string()),
-                Some("company@example.com".to_string()),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
                 empty_optional_address(),
                 None,
                 None,

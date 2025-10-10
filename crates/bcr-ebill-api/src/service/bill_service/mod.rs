@@ -276,13 +276,16 @@ pub mod tests {
                 },
             },
         },
+        city::City,
         constants::{
             ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
         country::Country,
+        date::Date,
         mint::{MintOffer, MintRequest, MintRequestStatus},
+        name::Name,
         notification::ActionType,
         util::date::DateTimeUtc,
     };
@@ -379,18 +382,18 @@ pub mod tests {
         let company_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
 
         let mut bill1 = get_baseline_bill(&bill_id_test());
-        bill1.issue_date = "2020-05-01".to_string();
+        bill1.issue_date = Date::new("2020-05-01").unwrap();
         bill1.sum = 1000;
         bill1.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut bill2 = get_baseline_bill(&bill_id_test_other());
-        bill2.issue_date = "2030-05-01".to_string();
+        bill2.issue_date = Date::new("2030-05-01").unwrap();
         bill2.sum = 2000;
         bill2.drawee = bill_identified_participant_only_node_id(company_node_id.clone());
         let mut payee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
-        payee.name = "hayek".to_string();
+        payee.name = Name::new("hayek").unwrap();
         bill2.payee = BillParticipant::Ident(payee);
         let mut bill3 = get_baseline_bill(&bill_id_test_other2());
-        bill3.issue_date = "2030-05-01".to_string();
+        bill3.issue_date = Date::new("2030-05-01").unwrap();
         bill3.sum = 20000;
         bill3.drawer = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         bill3.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
@@ -464,14 +467,14 @@ pub mod tests {
         assert!(res_term.is_ok());
         assert_eq!(res_term.as_ref().unwrap().len(), 1);
 
-        let from_ts = util::date::date_string_to_timestamp("2030-05-01", None).unwrap();
-        let to_ts = util::date::date_string_to_timestamp("2030-05-30", None).unwrap();
+        let from_ts = Date::new("2030-05-01").unwrap().to_timestamp();
+        let to_ts = Date::new("2030-05-30").unwrap().to_timestamp();
         let res_fromto = service
             .search_bills(
                 CURRENCY_SAT,
                 &None,
-                Some(from_ts as u64),
-                Some(to_ts as u64),
+                Some(from_ts),
+                Some(to_ts),
                 &BillsFilterRole::All,
                 &identity.identity.node_id,
             )
@@ -496,8 +499,8 @@ pub mod tests {
             .search_bills(
                 CURRENCY_SAT,
                 &Some(String::from("hayek")),
-                Some(from_ts as u64),
-                Some(to_ts as u64),
+                Some(from_ts),
+                Some(to_ts),
                 &BillsFilterRole::Payee,
                 &identity.identity.node_id,
             )
@@ -548,15 +551,15 @@ pub mod tests {
             .issue_new_bill(BillIssueData {
                 t: 2,
                 country_of_issuing: Country::GB,
-                city_of_issuing: String::from("London"),
-                issue_date: String::from("2030-01-01"),
-                maturity_date: String::from("2030-04-01"),
+                city_of_issuing: City::new("London").unwrap(),
+                issue_date: Date::new("2030-01-01").unwrap(),
+                maturity_date: Date::new("2030-04-01").unwrap(),
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
                 country_of_payment: Country::AT,
-                city_of_payment: String::from("Vienna"),
+                city_of_payment: City::new("Vienna").unwrap(),
                 file_upload_ids: vec!["some_file_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
@@ -614,15 +617,15 @@ pub mod tests {
             .issue_new_bill(BillIssueData {
                 t: 2,
                 country_of_issuing: Country::GB,
-                city_of_issuing: String::from("London"),
-                issue_date: String::from("2030-01-01"),
-                maturity_date: String::from("2030-04-01"),
+                city_of_issuing: City::new("London").unwrap(),
+                issue_date: Date::new("2030-01-01").unwrap(),
+                maturity_date: Date::new("2030-04-01").unwrap(),
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
                 country_of_payment: Country::AT,
-                city_of_payment: String::from("Vienna"),
+                city_of_payment: City::new("Vienna").unwrap(),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
@@ -653,15 +656,15 @@ pub mod tests {
             .issue_new_bill(BillIssueData {
                 t: 2,
                 country_of_issuing: Country::GB,
-                city_of_issuing: String::from("London"),
-                issue_date: String::from("2030-01-01"),
-                maturity_date: String::from("2030-04-01"),
+                city_of_issuing: City::new("London").unwrap(),
+                issue_date: Date::new("2030-01-01").unwrap(),
+                maturity_date: Date::new("2030-04-01").unwrap(),
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
                 country_of_payment: Country::AT,
-                city_of_payment: String::from("Vienna"),
+                city_of_payment: City::new("Vienna").unwrap(),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Anon(BillAnonParticipant::new(
                     drawer.identity,
@@ -694,15 +697,15 @@ pub mod tests {
             .issue_new_bill(BillIssueData {
                 t: 1,
                 country_of_issuing: Country::GB,
-                city_of_issuing: String::from("London"),
-                issue_date: String::from("2030-01-01"),
-                maturity_date: String::from("2030-04-01"),
+                city_of_issuing: City::new("London").unwrap(),
+                issue_date: Date::new("2030-01-01").unwrap(),
+                maturity_date: Date::new("2030-04-01").unwrap(),
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
                 country_of_payment: Country::AT,
-                city_of_payment: String::from("Vienna"),
+                city_of_payment: City::new("Vienna").unwrap(),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
@@ -765,15 +768,15 @@ pub mod tests {
             .issue_new_bill(BillIssueData {
                 t: 2,
                 country_of_issuing: Country::GB,
-                city_of_issuing: String::from("London"),
-                issue_date: String::from("2030-01-01"),
-                maturity_date: String::from("2030-04-01"),
+                city_of_issuing: City::new("London").unwrap(),
+                issue_date: Date::new("2030-01-01").unwrap(),
+                maturity_date: Date::new("2030-04-01").unwrap(),
                 drawee: drawee.node_id,
                 payee: payee.node_id,
                 sum: String::from("100"),
                 currency: String::from(CURRENCY_SAT),
                 country_of_payment: Country::AT,
-                city_of_payment: String::from("Vienna"),
+                city_of_payment: City::new("Vienna").unwrap(),
                 file_upload_ids: vec!["some_file_upload_id".to_string()],
                 drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
                 drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
@@ -1965,8 +1968,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(&bill_id_test());
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let now = util::date::now().timestamp() as u64;
-        bill.maturity_date =
-            util::date::format_date_string(util::date::seconds(now - PAYMENT_DEADLINE_SECONDS * 2));
+        bill.maturity_date = Date::from(util::date::seconds(now - PAYMENT_DEADLINE_SECONDS * 2));
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -2498,7 +2500,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
-        bill.maturity_date = "2022-11-12".to_string(); // maturity date has to be in the past
+        bill.maturity_date = Date::new("2022-11-12").unwrap(); // maturity date has to be in the past
         bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
             identity.identity.node_id.clone(),
         ));
@@ -2543,7 +2545,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
-        bill.maturity_date = "2022-11-12".to_string(); // maturity date has to be in the past
+        bill.maturity_date = Date::new("2022-11-12").unwrap(); // maturity date has to be in the past
         bill.payee = BillParticipant::Anon(BillAnonParticipant::from(
             bill_identified_participant_only_node_id(identity.identity.node_id.clone()),
         ));
@@ -6274,7 +6276,7 @@ pub mod tests {
                 .check_requests_for_expiration(&bill_payment, 1431593928)
                 .unwrap()
         );
-        bill_payment.data.maturity_date = "2018-07-15".into(); // before ts
+        bill_payment.data.maturity_date = Date::new("2018-07-15").unwrap(); // before ts
         // false, because maturity date is before the deadline
         assert!(
             !service
@@ -7246,15 +7248,15 @@ pub mod tests {
                 .issue_new_bill(BillIssueData {
                     t: 2,
                     country_of_issuing: Country::GB,
-                    city_of_issuing: String::from("London"),
-                    issue_date: String::from("2030-01-01"),
-                    maturity_date: String::from("2030-04-01"),
+                    city_of_issuing: City::new("London").unwrap(),
+                    issue_date: Date::new("2030-01-01").unwrap(),
+                    maturity_date: Date::new("2030-04-01").unwrap(),
                     drawee: mainnet_node_id.clone(),
                     payee: node_id_test(),
                     sum: String::from("100"),
                     currency: String::from(CURRENCY_SAT),
                     country_of_payment: Country::AT,
-                    city_of_payment: String::from("Vienna"),
+                    city_of_payment: City::new("Vienna").unwrap(),
                     file_upload_ids: vec!["some_file_id".to_string()],
                     drawer_public_data: participant.clone(),
                     drawer_keys: BcrKeys::new(),
@@ -7269,15 +7271,15 @@ pub mod tests {
                 .issue_new_bill(BillIssueData {
                     t: 2,
                     country_of_issuing: Country::GB,
-                    city_of_issuing: String::from("London"),
-                    issue_date: String::from("2030-01-01"),
-                    maturity_date: String::from("2030-04-01"),
+                    city_of_issuing: City::new("London").unwrap(),
+                    issue_date: Date::new("2030-01-01").unwrap(),
+                    maturity_date: Date::new("2030-04-01").unwrap(),
                     drawee: node_id_test(),
                     payee: mainnet_node_id.clone(),
                     sum: String::from("100"),
                     currency: String::from(CURRENCY_SAT),
                     country_of_payment: Country::AT,
-                    city_of_payment: String::from("Vienna"),
+                    city_of_payment: City::new("Vienna").unwrap(),
                     file_upload_ids: vec!["some_file_id".to_string()],
                     drawer_public_data: participant.clone(),
                     drawer_keys: BcrKeys::new(),
@@ -7292,15 +7294,15 @@ pub mod tests {
                 .issue_new_bill(BillIssueData {
                     t: 2,
                     country_of_issuing: Country::GB,
-                    city_of_issuing: String::from("London"),
-                    issue_date: String::from("2030-01-01"),
-                    maturity_date: String::from("2030-04-01"),
+                    city_of_issuing: City::new("London").unwrap(),
+                    issue_date: Date::new("2030-01-01").unwrap(),
+                    maturity_date: Date::new("2030-04-01").unwrap(),
                     drawee: node_id_test(),
                     payee: node_id_test(),
                     sum: String::from("100"),
                     currency: String::from(CURRENCY_SAT),
                     country_of_payment: Country::AT,
-                    city_of_payment: String::from("Vienna"),
+                    city_of_payment: City::new("Vienna").unwrap(),
                     file_upload_ids: vec!["some_file_id".to_string()],
                     drawer_public_data: mainnet_participant.clone(),
                     drawer_keys: BcrKeys::new(),
