@@ -4,7 +4,7 @@ use strum::{Display, EnumString};
 
 use crate::ValidationError;
 
-#[derive(Debug, Clone, EnumString, Display, PartialEq, Eq)]
+#[derive(Debug, Clone, EnumString, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
 pub enum Country {
     AF,
