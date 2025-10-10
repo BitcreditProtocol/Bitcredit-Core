@@ -125,6 +125,11 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
         node_id: &NodeId,
         sender: nostr::PublicKey,
     ) -> Result<bool>;
+
+    /// Tries to resync the chain for the given node id. This will try to find the company keys and
+    /// then try to find the chain data for the given company id. Will add all potentially missing
+    /// blocks to the chain.
+    async fn resync_chain(&self, company_id: &NodeId) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -147,6 +152,10 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
     /// Validates that a given bill id is relevant for us, and if so also checks that the sender
     /// of the event is part of the chain this event is for.
     fn validate_chain_event_and_sender(&self, node_id: &NodeId, sender: nostr::PublicKey) -> bool;
+
+    /// Tries to resync the chain for the primary local identity. This will try to find the chain data for the current identity.
+    /// Will add all potentially missing blocks to the chain.
+    async fn resync_chain(&self) -> Result<()>;
 }
 
 #[cfg(test)]

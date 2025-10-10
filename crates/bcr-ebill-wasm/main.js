@@ -24,6 +24,7 @@ document.getElementById("search_contacts").addEventListener("click", searchConta
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
 document.getElementById("share_contact_to").addEventListener("click", shareContact);
 document.getElementById("dev_mode_get_identity_chain").addEventListener("click", devModeGetIdentityChain);
+document.getElementById("sync_identity_chain").addEventListener("click", syncIdentityChain);
 
 // identity proofs
 document.getElementById("identity_proof_get_stamp").addEventListener("click", identityProofGetStamp);
@@ -76,6 +77,7 @@ document.getElementById("company_list").addEventListener("click", listCompanies)
 document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
 document.getElementById("dev_mode_get_company_chain").addEventListener("click", devModeGetCompanyChain);
 document.getElementById("list_signatories").addEventListener("click", listSignatories);
+document.getElementById("sync_company_chain").addEventListener("click", syncCompanyChain);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -717,6 +719,23 @@ async function syncBillChain() {
   console.log("syncBillChain", bill_id);
   let measured = measure(async () => {
     return await billApi.sync_bill_chain({ bill_id: bill_id });
+  });
+  await measured();
+}
+
+async function syncCompanyChain() {
+  let node_id = document.getElementById("company_update_id").value;
+  console.log("syncCompanyChain", node_id);
+  let measured = measure(async () => {
+    return await companyApi.sync_company_chain({ node_id: node_id });
+  });
+  await measured();
+}
+
+async function syncIdentityChain() {
+  console.log("syncIdentityChain");
+  let measured = measure(async () => {
+    return await identityApi.sync_identity_chain();
   });
   await measured();
 }

@@ -365,6 +365,16 @@ impl Identity {
         let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
         Ok(res)
     }
+
+    /// Resync the identity chain via block transport
+    #[wasm_bindgen]
+    pub async fn sync_identity_chain(&self) -> Result<()> {
+        get_ctx()
+            .notification_service
+            .resync_identity_chain()
+            .await?;
+        Ok(())
+    }
 }
 
 impl Default for Identity {

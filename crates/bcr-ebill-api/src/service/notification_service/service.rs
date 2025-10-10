@@ -207,6 +207,12 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     /// Resync bill chain
     async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
 
+    /// Resync company chain
+    async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
+
+    /// Resync identity chain
+    async fn resync_identity_chain(&self) -> Result<()>;
+
     /// Shares derived keys for private contact information via DM.
     async fn share_contact_details_keys(
         &self,
