@@ -7,20 +7,26 @@ use std::fmt;
 use thiserror::Error;
 use util::is_blank;
 
+pub mod address;
 pub mod bill;
 pub mod blockchain;
+pub mod city;
 pub mod company;
 pub mod constants;
 pub mod contact;
 pub mod country;
+pub mod email;
+pub mod identification;
 pub mod identity;
 pub mod identity_proof;
 pub mod mint;
+pub mod name;
 pub mod nostr_contact;
 pub mod notification;
 #[cfg(test)]
 mod tests;
 pub mod util;
+pub mod zip;
 
 pub use bcr_common::core::NodeId;
 pub use bitcoin::secp256k1::{PublicKey, SecretKey};
@@ -220,6 +226,7 @@ pub enum Field {
     CityOfIssuing,
     CountryOfPayment,
     CityOfPayment,
+    Identification,
 }
 
 /// Generic validation error type
@@ -228,6 +235,10 @@ pub enum ValidationError {
     /// error returned if a field that is not allowed to be empty is empty
     #[error("Field {0:?} can't be empty")]
     FieldEmpty(Field),
+
+    /// error returned if a field has invalid data
+    #[error("Field {0:?} has invalid data")]
+    FieldInvalid(Field),
 
     /// error returned if the sum was invalid
     #[error("Invalid sum")]
