@@ -1,9 +1,14 @@
 use bcr_ebill_api::{
     data::{
         NodeId,
+        city::City,
         company::Company,
         contact::{Contact, ContactType},
         country::Country,
+        date::Date,
+        email::Email,
+        identification::Identification,
+        name::Name,
     },
     util::ValidationError,
 };
@@ -11,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use super::{FileWeb, OptionalPostalAddressWeb, PostalAddressWeb, contact::ContactTypeWeb};
+use crate::data::{CreateOptionalPostalAddressWeb, CreatePostalAddressWeb};
+
+use super::{FileWeb, PostalAddressWeb, contact::ContactTypeWeb};
 
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -19,19 +26,24 @@ pub struct CompaniesResponse {
     pub companies: Vec<CompanyWeb>,
 }
 
-#[derive(Tsify, Debug, Serialize, Deserialize, Clone)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
 pub struct CompanyWeb {
     #[tsify(type = "string")]
     pub id: NodeId,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     #[tsify(type = "string | undefined")]
     pub country_of_registration: Option<Country>,
-    pub city_of_registration: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub city_of_registration: Option<City>,
     pub postal_address: PostalAddressWeb,
-    pub email: String,
-    pub registration_number: Option<String>,
-    pub registration_date: Option<String>,
+    #[tsify(type = "string")]
+    pub email: Email,
+    #[tsify(type = "string | undefined")]
+    pub registration_number: Option<Identification>,
+    #[tsify(type = "string | undefined")]
+    pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<FileWeb>,
     pub logo_file: Option<FileWeb>,
     #[tsify(type = "string[]")]
@@ -62,7 +74,7 @@ pub struct CreateCompanyPayload {
     pub name: String,
     pub country_of_registration: Option<String>,
     pub city_of_registration: Option<String>,
-    pub postal_address: PostalAddressWeb,
+    pub postal_address: CreatePostalAddressWeb,
     pub email: String,
     pub registration_number: Option<String>,
     pub registration_date: Option<String>,
@@ -77,7 +89,7 @@ pub struct EditCompanyPayload {
     pub id: NodeId,
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: OptionalPostalAddressWeb,
+    pub postal_address: CreateOptionalPostalAddressWeb,
     pub country_of_registration: Option<String>,
     pub city_of_registration: Option<String>,
     pub registration_number: Option<String>,
@@ -116,7 +128,8 @@ pub struct SignatoryResponse {
     pub t: ContactTypeWeb,
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     pub postal_address: Option<PostalAddressWeb>,
     pub avatar_file: Option<FileWeb>,
     pub is_logical: bool,

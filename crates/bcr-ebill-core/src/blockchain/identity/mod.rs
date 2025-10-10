@@ -4,8 +4,13 @@ use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::NodeId;
 use crate::bill::BillId;
 use crate::blockchain::{Error, borsh_to_json_string};
+use crate::city::City;
 use crate::country::Country;
+use crate::date::Date;
+use crate::email::Email;
+use crate::identification::Identification;
 use crate::identity_proof::IdentityProofStamp;
+use crate::name::Name;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
 use borsh::{from_slice, to_vec};
@@ -98,13 +103,13 @@ impl IdentityBlockPlaintextWrapper {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>,
+    pub name: Name,
+    pub email: Option<Email>,
     pub postal_address: OptionalPostalAddress,
-    pub date_of_birth: Option<String>,
-    pub city_of_birth: Option<String>,
+    pub date_of_birth: Option<Date>,
+    pub city_of_birth: Option<City>,
     pub country_of_birth: Option<Country>,
-    pub identification_number: Option<String>,
+    pub identification_number: Option<Identification>,
     #[borsh(
         serialize_with = "crate::util::borsh::serialize_vec_url",
         deserialize_with = "crate::util::borsh::deserialize_vec_url"
@@ -136,13 +141,13 @@ impl From<Identity> for IdentityCreateBlockData {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Default, Debug, Clone, PartialEq,
 )]
 pub struct IdentityUpdateBlockData {
-    pub name: Option<String>,
-    pub email: Option<String>,
+    pub name: Option<Name>,
+    pub email: Option<Email>,
     pub postal_address: OptionalPostalAddress,
-    pub date_of_birth: Option<String>,
+    pub date_of_birth: Option<Date>,
     pub country_of_birth: Option<Country>,
-    pub city_of_birth: Option<String>,
-    pub identification_number: Option<String>,
+    pub city_of_birth: Option<City>,
+    pub identification_number: Option<Identification>,
     pub profile_picture_file: Option<File>,
     pub identity_document_file: Option<File>,
 }
@@ -654,7 +659,7 @@ mod tests {
         let update_block = IdentityBlock::create_block_for_update(
             chain.get_latest_block(),
             &IdentityUpdateBlockData {
-                name: Some("newname".to_string()),
+                name: Some(Name::new("newname").unwrap()),
                 email: None,
                 postal_address: valid_optional_address(),
                 date_of_birth: None,

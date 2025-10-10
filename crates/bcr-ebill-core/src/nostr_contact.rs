@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     NodeId, ValidationError,
     contact::{Contact, ContactType},
+    name::Name,
 };
 
 /// Make key type clear
@@ -19,7 +20,7 @@ pub struct NostrContact {
     /// The node id of this contact
     pub node_id: NodeId,
     /// The Nostr name of the contact as retrieved via Nostr metadata.
-    pub name: Option<String>,
+    pub name: Option<Name>,
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.
     pub relays: Vec<url::Url>,

@@ -1,5 +1,5 @@
 use crate::{external, util};
-use bcr_ebill_core::util::crypto;
+use bcr_ebill_core::{name::Name, util::crypto};
 
 pub mod chain_keys;
 pub mod event;
@@ -85,9 +85,11 @@ pub struct NostrContactData {
 }
 
 impl NostrContactData {
-    pub fn new(name: &str, relays: Vec<url::Url>, bcr_data: BcrMetadata) -> Self {
+    pub fn new(name: &Name, relays: Vec<url::Url>, bcr_data: BcrMetadata) -> Self {
         // At some point we might want to add more metadata like payment info
-        let mut metadata = Metadata::new().name(name).display_name(name);
+        let mut metadata = Metadata::new()
+            .name(name.as_str())
+            .display_name(name.as_str());
         if let Ok(custom) = serde_json::to_value(bcr_data) {
             metadata = metadata.custom_field("bcr", custom);
         }

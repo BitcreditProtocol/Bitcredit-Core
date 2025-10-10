@@ -734,6 +734,7 @@ mod tests {
     use bcr_ebill_api::util::BcrKeys;
     use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
+    use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
@@ -806,7 +807,7 @@ mod tests {
         // and a contact we want to send an event to
         let contact = get_identity_public_data(
             &NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
-            "payee@example.com",
+            &Email::new("payee@example.com").unwrap(),
             vec![&url],
         );
         let event = create_test_event(&BillEventType::BillSigned);

@@ -130,6 +130,7 @@ mod tests {
     use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
+        address::Address,
         bill::{BillId, BillKeys, BitcreditBill},
         blockchain::{
             Blockchain,
@@ -138,9 +139,13 @@ mod tests {
                 block::{BillEndorseBlockData, BillIssueBlockData, BillParticipantBlockData},
             },
         },
+        city::City,
         contact::{BillIdentParticipant, BillParticipant, ContactType},
         country::Country,
+        date::Date,
+        email::Email,
         identity::{Identity, IdentityType, IdentityWithAll},
+        name::Name,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -339,9 +344,9 @@ mod tests {
         let mut bill = empty_bitcredit_bill();
         let keys = BcrKeys::new();
 
-        bill.maturity_date = "2099-10-15".to_string();
+        bill.maturity_date = Date::new("2099-10-15").unwrap();
         let mut payee = empty_bill_identified_participant();
-        payee.name = "payee".to_owned();
+        payee.name = Name::new("payee").unwrap();
         payee.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         bill.payee = BillParticipant::Ident(payee);
         bill.drawee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
@@ -352,16 +357,16 @@ mod tests {
         BitcreditBill {
             id: bill_id_test(),
             country_of_issuing: Country::AT,
-            city_of_issuing: "Vienna".to_string(),
+            city_of_issuing: City::new("Vienna").unwrap(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
             currency: CURRENCY_SAT.to_string(),
             sum: 500,
-            maturity_date: "2099-11-12".to_string(),
-            issue_date: "2099-08-12".to_string(),
-            city_of_payment: "Vienna".to_string(),
+            maturity_date: Date::new("2099-11-12").unwrap(),
+            issue_date: Date::new("2099-08-12").unwrap(),
+            city_of_payment: City::new("Vienna").unwrap(),
             country_of_payment: Country::AT,
             files: vec![],
         }
@@ -377,11 +382,11 @@ mod tests {
     fn get_baseline_identity() -> IdentityWithAll {
         let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
         let mut identity = empty_identity();
-        identity.name = "drawer".to_owned();
+        identity.name = Name::new("drawer").unwrap();
         identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         identity.postal_address.country = Some(Country::AT);
-        identity.postal_address.city = Some("Vienna".to_owned());
-        identity.postal_address.address = Some("Hayekweg 5".to_owned());
+        identity.postal_address.city = Some(City::new("Vienna").unwrap());
+        identity.postal_address.address = Some(Address::new("Hayekweg 5").unwrap());
         IdentityWithAll {
             identity,
             key_pair: keys,
@@ -391,7 +396,7 @@ mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "some name".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: empty_address(),
             email: None,
             nostr_relays: vec![],
@@ -400,17 +405,17 @@ mod tests {
     fn empty_address() -> PostalAddress {
         PostalAddress {
             country: Country::AT,
-            city: "Vienna".to_string(),
+            city: City::new("Vienna").unwrap(),
             zip: None,
-            address: "Some address".to_string(),
+            address: Address::new("Some address").unwrap(),
         }
     }
     fn empty_identity() -> Identity {
         Identity {
             t: IdentityType::Ident,
             node_id: node_id_test(),
-            name: "some name".to_string(),
-            email: Some("some@example.com".to_string()),
+            name: Name::new("some name").unwrap(),
+            email: Some(Email::new("some@example.com").unwrap()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,

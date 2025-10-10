@@ -8,8 +8,13 @@ pub mod tests {
         data::bill::BillKeys,
     };
     use async_trait::async_trait;
+    use bcr_ebill_core::address::Address;
+    use bcr_ebill_core::city::City;
     use bcr_ebill_core::constants::CURRENCY_SAT;
     use bcr_ebill_core::country::Country;
+    use bcr_ebill_core::date::Date;
+    use bcr_ebill_core::email::Email;
+    use bcr_ebill_core::name::Name;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
@@ -504,18 +509,18 @@ pub mod tests {
     pub fn empty_address() -> PostalAddress {
         PostalAddress {
             country: Country::AT,
-            city: "Vienna".to_string(),
+            city: City::new("Vienna").unwrap(),
             zip: None,
-            address: "Some Address 1".to_string(),
+            address: Address::new("Some Address 1").unwrap(),
         }
     }
 
     pub fn filled_optional_address() -> OptionalPostalAddress {
         OptionalPostalAddress {
             country: Some(Country::AT),
-            city: Some("Vienna".to_string()),
+            city: Some(City::new("Vienna").unwrap()),
             zip: None,
-            address: Some("Some Address 1".to_string()),
+            address: Some(Address::new("Some Address 1").unwrap()),
         }
     }
 
@@ -532,8 +537,8 @@ pub mod tests {
         Identity {
             t: IdentityType::Ident,
             node_id: node_id_test(),
-            name: "some name".to_string(),
-            email: Some("some@example.com".to_string()),
+            name: Name::new("some name").unwrap(),
+            email: Some(Email::new("some@example.com").unwrap()),
             postal_address: empty_optional_address(),
             date_of_birth: None,
             country_of_birth: None,
@@ -549,7 +554,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "some@example.com".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: empty_address(),
             email: None,
             nostr_relays: vec![],
@@ -560,7 +565,7 @@ pub mod tests {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id,
-            name: "some name".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: empty_address(),
             email: None,
             nostr_relays: vec![],
@@ -571,16 +576,16 @@ pub mod tests {
         BitcreditBill {
             id: bill_id_test(),
             country_of_issuing: Country::AT,
-            city_of_issuing: "Vienna".to_string(),
+            city_of_issuing: City::new("Vienna").unwrap(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
             currency: CURRENCY_SAT.to_string(),
             sum: 5000,
-            maturity_date: "2099-11-12".to_string(),
-            issue_date: "2099-08-12".to_string(),
-            city_of_payment: "Vienna".to_string(),
+            maturity_date: Date::new("2099-11-12").unwrap(),
+            issue_date: Date::new("2099-08-12").unwrap(),
+            city_of_payment: City::new("Vienna").unwrap(),
             country_of_payment: Country::AT,
             files: vec![],
         }
@@ -590,7 +595,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id,
-            name: "some name".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: empty_address(),
             email: None,
             nostr_relays: vec![],

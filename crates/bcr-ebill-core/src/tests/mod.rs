@@ -3,19 +3,25 @@
 pub mod tests {
     use std::str::FromStr;
 
+    use crate::address::Address;
     use crate::bill::BillId;
+    use crate::city::City;
     use crate::constants::CURRENCY_SAT;
     use crate::contact::BillParticipant;
     use crate::country::Country;
+    use crate::date::Date;
+    use crate::email::Email;
     use crate::identity::IdentityType;
+    use crate::name::Name;
     use crate::util::date::now;
+    use crate::zip::Zip;
+    use crate::{NodeId, Validate};
     use crate::{
-        Field, OptionalPostalAddress, PostalAddress, ValidationError,
+        OptionalPostalAddress, PostalAddress,
         bill::{BillKeys, BitcreditBill},
         contact::{BillIdentParticipant, ContactType},
         identity::Identity,
     };
-    use crate::{NodeId, Validate};
     use borsh::BorshDeserialize;
     use rstest::rstest;
     use serde::{Deserialize, Serialize};
@@ -23,40 +29,17 @@ pub mod tests {
     pub fn valid_address() -> PostalAddress {
         PostalAddress {
             country: Country::AT,
-            city: "Vienna".into(),
-            zip: Some("1010".into()),
-            address: "Kärntner Straße 1".into(),
+            city: City::new("Vienna").unwrap(),
+            zip: Some(Zip::new("1010").unwrap()),
+            address: Address::new("Kärntner Straße 1").unwrap(),
         }
-    }
-
-    pub fn invalid_address() -> PostalAddress {
-        PostalAddress {
-            country: Country::AT,
-            city: "".into(),
-            zip: Some("".into()),
-            address: "".into(),
-        }
-    }
-
-    #[rstest]
-    #[case::empty_city( PostalAddress { city: "".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::City))]
-    #[case::blank_city( PostalAddress { city: "  ".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::City))]
-    #[case::empty_zip( PostalAddress { zip: Some("".into()), ..valid_address() }, ValidationError::FieldEmpty(Field::Zip))]
-    #[case::blank_zip(PostalAddress { zip: Some("   ".into()), ..valid_address() }, ValidationError::FieldEmpty(Field::Zip))]
-    #[case::empty_address( PostalAddress { address: "".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::Address))]
-    #[case::blank_address(PostalAddress { address: "  ".into(), ..valid_address() }, ValidationError::FieldEmpty(Field::Address))]
-    fn test_invalid_address_cases(
-        #[case] address: PostalAddress,
-        #[case] expected_error: ValidationError,
-    ) {
-        assert_eq!(address.validate(), Err(expected_error));
     }
 
     #[rstest]
     #[case::baseline(valid_address())]
     #[case::no_zip( PostalAddress { zip: None, ..valid_address() },)]
-    #[case::spaced_zip(PostalAddress { zip: Some(" Some Street 1 ".into()), ..valid_address() })]
-    #[case::spaced_zip_address(PostalAddress { zip: Some(" 10101 ".into()), address: " 56 Rue de Paris ".into(), ..valid_address() })]
+    #[case::spaced_zip(PostalAddress { zip: Some(Zip::new(" Some Street 1 ").unwrap()), ..valid_address() })]
+    #[case::spaced_zip_address(PostalAddress { zip: Some(Zip::new(" 10101 ").unwrap()), address: Address::new(" 56 Rue de Paris ").unwrap(), ..valid_address() })]
     fn test_valid_addresses(#[case] address: PostalAddress) {
         assert_eq!(address.validate(), Ok(()));
     }
@@ -64,9 +47,9 @@ pub mod tests {
     pub fn valid_optional_address() -> OptionalPostalAddress {
         OptionalPostalAddress {
             country: Some(Country::AT),
-            city: Some("Vienna".into()),
-            zip: Some("1010".into()),
-            address: Some("Kärntner Straße 1".into()),
+            city: Some(City::new("Vienna").unwrap()),
+            zip: Some(Zip::new("1010").unwrap()),
+            address: Some(Address::new("Kärntner Straße 1").unwrap()),
         }
     }
 
@@ -86,26 +69,12 @@ pub mod tests {
         );
     }
 
-    #[rstest]
-    #[case::empty_city( OptionalPostalAddress { city: Some("".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::City))]
-    #[case::blank_city( OptionalPostalAddress { city: Some("\n\t".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::City))]
-    #[case::empty_zip( OptionalPostalAddress { zip: Some("".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Zip))]
-    #[case::blank_zip( OptionalPostalAddress { zip: Some("  ".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Zip))]
-    #[case::empty_address( OptionalPostalAddress { address: Some("".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Address))]
-    #[case::blank_address( OptionalPostalAddress { address: Some("    ".into()), ..valid_optional_address() }, ValidationError::FieldEmpty(Field::Address))]
-    fn test_optional_address(
-        #[case] address: OptionalPostalAddress,
-        #[case] expected_error: ValidationError,
-    ) {
-        assert_eq!(address.validate(), Err(expected_error));
-    }
-
     pub fn empty_identity() -> Identity {
         Identity {
             t: IdentityType::Ident,
             node_id: node_id_test(),
-            name: "some name".to_string(),
-            email: Some("some@example.com".to_string()),
+            name: Name::new("some name").unwrap(),
+            email: Some(Email::new("some@example.com").unwrap()),
             postal_address: valid_optional_address(),
             date_of_birth: None,
             country_of_birth: None,
@@ -121,7 +90,7 @@ pub mod tests {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "Johanna Smith".into(),
+            name: Name::new("Johanna Smith").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -132,7 +101,7 @@ pub mod tests {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test_other(),
-            name: "John Smith".into(),
+            name: Name::new("John Smith").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -143,7 +112,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "Johanna Smith".into(),
+            name: Name::new("Johanna Smith").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -154,7 +123,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test_other(),
-            name: "John Smith".into(),
+            name: Name::new("John Smith").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -165,7 +134,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "some name".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -176,7 +145,7 @@ pub mod tests {
         BillParticipant::Ident(BillIdentParticipant {
             t: ContactType::Person,
             node_id,
-            name: "some name".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -187,7 +156,7 @@ pub mod tests {
         BillIdentParticipant {
             t: ContactType::Person,
             node_id,
-            name: "some name".to_string(),
+            name: Name::new("some name").unwrap(),
             postal_address: valid_address(),
             email: None,
             nostr_relays: vec![],
@@ -198,16 +167,16 @@ pub mod tests {
         BitcreditBill {
             id: bill_id_test(),
             country_of_issuing: Country::AT,
-            city_of_issuing: "Vienna".to_string(),
+            city_of_issuing: City::new("Vienna").unwrap(),
             drawee: empty_bill_identified_participant(),
             drawer: empty_bill_identified_participant(),
             payee: valid_bill_participant(),
             endorsee: None,
             currency: CURRENCY_SAT.to_string(),
             sum: 500,
-            maturity_date: "2099-11-12".to_string(),
-            issue_date: "2099-08-12".to_string(),
-            city_of_payment: "Vienna".to_string(),
+            maturity_date: Date::new("2099-11-12").unwrap(),
+            issue_date: Date::new("2099-08-12").unwrap(),
+            city_of_payment: City::new("Vienna").unwrap(),
             country_of_payment: Country::AT,
             files: vec![],
         }

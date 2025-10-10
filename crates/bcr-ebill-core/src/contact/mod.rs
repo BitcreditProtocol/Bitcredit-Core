@@ -1,4 +1,7 @@
-use crate::{NodeId, ValidationError, country::Country, identity::IdentityType};
+use crate::{
+    NodeId, ValidationError, city::City, country::Country, date::Date, email::Email,
+    identification::Identification, identity::IdentityType, name::Name,
+};
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -44,14 +47,14 @@ pub struct Contact {
     #[serde(rename = "type")]
     pub t: ContactType,
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>, // optional for anon only
+    pub name: Name,
+    pub email: Option<Email>, // optional for anon only
     #[serde(flatten)]
     pub postal_address: Option<PostalAddress>, // optional for anon only
-    pub date_of_birth_or_registration: Option<String>,
+    pub date_of_birth_or_registration: Option<Date>,
     pub country_of_birth_or_registration: Option<Country>,
-    pub city_of_birth_or_registration: Option<String>,
-    pub identification_number: Option<String>,
+    pub city_of_birth_or_registration: Option<City>,
+    pub identification_number: Option<Identification>,
     pub avatar_file: Option<File>,
     pub proof_document_file: Option<File>,
     pub nostr_relays: Vec<url::Url>,
@@ -79,14 +82,14 @@ impl BillParticipant {
         }
     }
 
-    pub fn name(&self) -> Option<String> {
+    pub fn name(&self) -> Option<Name> {
         match self {
             BillParticipant::Ident(data) => Some(data.name.to_owned()),
             BillParticipant::Anon(_) => None,
         }
     }
 
-    pub fn email(&self) -> Option<String> {
+    pub fn email(&self) -> Option<Email> {
         match self {
             BillParticipant::Ident(data) => data.email.to_owned(),
             BillParticipant::Anon(data) => data.email.to_owned(),
@@ -117,7 +120,7 @@ pub struct BillAnonParticipant {
     /// The node id of the participant
     pub node_id: NodeId,
     /// email address of the participant
-    pub email: Option<String>,
+    pub email: Option<Email>,
     /// The preferred Nostr relay to deliver Nostr messages to
     pub nostr_relays: Vec<url::Url>,
 }
@@ -149,12 +152,12 @@ pub struct BillIdentParticipant {
     /// The node id of the identity
     pub node_id: NodeId,
     /// The name of the identity
-    pub name: String,
+    pub name: Name,
     /// Full postal address of the identity
     #[serde(flatten)]
     pub postal_address: PostalAddress,
     /// email address of the identity
-    pub email: Option<String>,
+    pub email: Option<Email>,
     /// The preferred Nostr relay to deliver Nostr messages to
     pub nostr_relays: Vec<url::Url>,
 }
@@ -183,7 +186,7 @@ pub struct LightBillAnonParticipant {
 pub struct LightBillIdentParticipant {
     #[serde(rename = "type")]
     pub t: ContactType,
-    pub name: String,
+    pub name: Name,
     pub node_id: NodeId,
 }
 
@@ -218,7 +221,7 @@ impl From<BillAnonParticipant> for LightBillAnonParticipant {
 pub struct LightBillIdentParticipantWithAddress {
     #[serde(rename = "type")]
     pub t: ContactType,
-    pub name: String,
+    pub name: Name,
     pub node_id: NodeId,
     #[serde(flatten)]
     pub postal_address: PostalAddress,

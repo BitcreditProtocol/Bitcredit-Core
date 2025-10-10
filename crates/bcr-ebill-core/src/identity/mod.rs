@@ -2,8 +2,13 @@ use super::{File, OptionalPostalAddress};
 use crate::{
     NodeId, ValidationError,
     blockchain::identity::{IdentityBlockPayload, IdentityCreateBlockData},
+    city::City,
     contact::{Contact, ContactType},
     country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    name::Name,
     util::BcrKeys,
 };
 use serde::{Deserialize, Serialize};
@@ -47,13 +52,13 @@ pub struct Identity {
     #[serde(rename = "type")]
     pub t: IdentityType,
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>,
+    pub name: Name,
+    pub email: Option<Email>,
     pub postal_address: OptionalPostalAddress,
-    pub date_of_birth: Option<String>,
+    pub date_of_birth: Option<Date>,
     pub country_of_birth: Option<Country>,
-    pub city_of_birth: Option<String>,
-    pub identification_number: Option<String>,
+    pub city_of_birth: Option<City>,
+    pub identification_number: Option<Identification>,
     pub nostr_relays: Vec<url::Url>,
     pub profile_picture_file: Option<File>,
     pub identity_document_file: Option<File>,
@@ -61,7 +66,7 @@ pub struct Identity {
 
 impl Identity {
     pub fn get_nostr_name(&self) -> String {
-        self.name.clone()
+        self.name.to_string()
     }
 
     pub fn from_block_data(data: IdentityCreateBlockData) -> Self {

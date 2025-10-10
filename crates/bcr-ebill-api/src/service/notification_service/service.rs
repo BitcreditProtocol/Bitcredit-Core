@@ -7,6 +7,7 @@ use bcr_ebill_core::{
     NodeId,
     bill::{BillId, BitcreditBill},
     contact::{BillIdentParticipant, BillParticipant},
+    email::Email,
     notification::{ActionType, Notification},
 };
 use bcr_ebill_core::{ServiceTraitBounds, company::Company, util::BcrKeys};
@@ -196,7 +197,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
     async fn register_email_notifications(
         &self,
         relay_url: &url::Url,
-        email: &str,
+        email: &Email,
         node_id: &NodeId,
         caller_keys: &BcrKeys,
     ) -> Result<()>;

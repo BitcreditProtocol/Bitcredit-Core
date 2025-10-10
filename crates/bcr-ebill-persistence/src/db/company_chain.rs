@@ -245,8 +245,13 @@ mod tests {
     };
     use bcr_ebill_core::{
         blockchain::company::CompanyUpdateBlockData,
+        city::City,
         company::{Company, CompanyKeys},
         country::Country,
+        date::Date,
+        email::Email,
+        identification::Identification,
+        name::Name,
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -274,13 +279,13 @@ mod tests {
             "genesis hash".to_string(),
             &Company {
                 id: node_id_test(),
-                name: "Hayek Ltd".to_string(),
+                name: Name::new("Hayek Ltd").unwrap(),
                 country_of_registration: Some(Country::AT),
-                city_of_registration: Some("Vienna".to_string()),
+                city_of_registration: Some(City::new("Vienna").unwrap()),
                 postal_address: empty_address(),
-                email: "hayekltd@example.com".to_string(),
-                registration_number: Some("123124123".to_string()),
-                registration_date: Some("2024-01-01".to_string()),
+                email: Email::new("hayekltd@example.com").unwrap(),
+                registration_number: Some(Identification::new("123124123").unwrap()),
+                registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
                 signatories: vec![node_id_test()],
@@ -330,13 +335,13 @@ mod tests {
             "genesis hash".to_string(),
             &Company {
                 id: node_id_test(),
-                name: "Hayek Ltd".to_string(),
+                name: Name::new("Hayek Ltd").unwrap(),
                 country_of_registration: Some(Country::AT),
-                city_of_registration: Some("Vienna".to_string()),
+                city_of_registration: Some(City::new("Vienna").unwrap()),
                 postal_address: empty_address(),
-                email: "hayekltd@example.com".to_string(),
-                registration_number: Some("123124123".to_string()),
-                registration_date: Some("2024-01-01".to_string()),
+                email: Email::new("hayekltd@example.com").unwrap(),
+                registration_number: Some(Identification::new("123124123").unwrap()),
+                registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
                 signatories: vec![node_id_test()],

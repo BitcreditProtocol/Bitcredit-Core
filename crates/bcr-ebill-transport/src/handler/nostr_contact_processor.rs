@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
+    name::Name,
     nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
 };
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
@@ -53,7 +54,7 @@ impl NostrContactProcessorApi for NostrContactProcessor {
                 &NostrContact {
                     npub: node_id.npub(),
                     node_id: node_id.clone(),
-                    name: contact.metadata.name,
+                    name: contact.metadata.name.and_then(|n| Name::new(&n).ok()), // if it's a valid name, set it, otherwise set it to None
                     relays,
                     trust_level: TrustLevel::Participant,
                     handshake_status: HandshakeStatus::None,

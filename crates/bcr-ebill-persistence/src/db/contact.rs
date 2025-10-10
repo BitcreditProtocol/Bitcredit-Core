@@ -13,8 +13,13 @@ use crate::{
 };
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
+    city::City,
     contact::{Contact, ContactType},
     country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    name::Name,
 };
 
 #[derive(Clone)]
@@ -89,13 +94,13 @@ pub struct ContactDb {
     #[serde(rename = "type")]
     pub t: ContactType,
     pub node_id: NodeId,
-    pub name: String,
-    pub email: Option<String>,                   // only optional for anon,
+    pub name: Name,
+    pub email: Option<Email>,                    // only optional for anon,
     pub postal_address: Option<PostalAddressDb>, // only optional for anon
-    pub date_of_birth_or_registration: Option<String>,
+    pub date_of_birth_or_registration: Option<Date>,
     pub country_of_birth_or_registration: Option<Country>,
-    pub city_of_birth_or_registration: Option<String>,
-    pub identification_number: Option<String>,
+    pub city_of_birth_or_registration: Option<City>,
+    pub identification_number: Option<Identification>,
     pub avatar_file: Option<FileDb>,
     pub proof_document_file: Option<FileDb>,
     pub nostr_relays: Vec<url::Url>,
@@ -152,8 +157,8 @@ pub mod tests {
         Contact {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "some_name".to_string(),
-            email: Some("some_mail@example.com".to_string()),
+            name: Name::new("some_name").unwrap(),
+            email: Some(Email::new("some_mail@example.com").unwrap()),
             postal_address: Some(empty_address()),
             date_of_birth_or_registration: None,
             country_of_birth_or_registration: None,
@@ -181,7 +186,7 @@ pub mod tests {
             .expect("could not query contact")
             .expect("could not find created contact");
 
-        assert_eq!(&stored.name, "some_name");
+        assert_eq!(&stored.name, &Name::new("some_name").unwrap());
         assert_eq!(&stored.node_id, &node_id_test());
     }
 
@@ -200,7 +205,7 @@ pub mod tests {
             .expect("could not query contact")
             .expect("could not find created contact");
 
-        assert_eq!(&stored.name, "some_name");
+        assert_eq!(&stored.name, &Name::new("some_name").unwrap());
 
         store
             .delete(&node_id_test())
@@ -224,7 +229,7 @@ pub mod tests {
             .expect("could not create contact");
 
         let mut data = contact.clone();
-        data.name = "other_name".to_string();
+        data.name = Name::new("other_name").unwrap();
         store
             .update(&node_id_test(), data)
             .await
@@ -236,7 +241,7 @@ pub mod tests {
             .expect("could not query contact")
             .expect("could not find created contact");
 
-        assert_eq!(&updated.name, "other_name");
+        assert_eq!(&updated.name, &Name::new("other_name").unwrap());
     }
 
     #[tokio::test]
@@ -245,7 +250,7 @@ pub mod tests {
         let contact = get_baseline_contact();
         let mut contact2 = get_baseline_contact();
         contact2.node_id = node_id_test_other();
-        contact2.name = "other_name".to_string();
+        contact2.name = Name::new("other_name").unwrap();
         store
             .insert(&node_id_test(), contact.clone())
             .await
@@ -259,7 +264,10 @@ pub mod tests {
         assert_eq!(all.len(), 2);
         assert!(all.contains_key(&node_id_test()));
         assert!(all.contains_key(&contact2.node_id));
-        assert_eq!(all.get(&contact2.node_id).unwrap().name, "other_name");
+        assert_eq!(
+            all.get(&contact2.node_id).unwrap().name,
+            Name::new("other_name").unwrap()
+        );
     }
 
     async fn get_store() -> SurrealContactStore {

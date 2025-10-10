@@ -124,6 +124,7 @@ mod tests {
             identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData},
         },
         identity::IdentityWithAll,
+        name::Name,
     };
     use mockall::predicate::always;
 
@@ -148,7 +149,7 @@ mod tests {
         let keys = full.key_pair.clone();
         let chain = create_identity_chain(full.clone());
         let data = IdentityUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let block = get_identity_update_block(chain.get_latest_block(), &keys, &data);
@@ -207,7 +208,7 @@ mod tests {
         let node_id = identity.node_id.clone();
         let chain = create_identity_chain(full.clone());
         let data = IdentityUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let block = IdentityBlock::create_block_for_update(
