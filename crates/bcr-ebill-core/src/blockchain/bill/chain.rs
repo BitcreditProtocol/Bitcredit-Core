@@ -10,7 +10,9 @@ use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
 use crate::NodeId;
 use crate::bill::validation::get_expiration_deadline_base_for_req_to_pay;
-use crate::bill::{BillKeys, Endorsement, LightSignedBy, PastEndorsee, PastPaymentStatus};
+use crate::bill::{
+    BillHistory, BillHistoryBlock, BillKeys, LightSignedBy, PastEndorsee, PastPaymentStatus,
+};
 use crate::blockchain::bill::block::BillRejectToBuyBlockData;
 use crate::blockchain::{Block, Blockchain, Error, borsh_to_json_string};
 use crate::contact::{
@@ -85,7 +87,7 @@ impl BillBlockPlaintextWrapper {
                 let block: BillRecourseBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
                 Ok(Some(HolderFromBlock {
                     holder: BillParticipantBlockData::Ident(block.recoursee),
-                    signer: BillParticipantBlockData::Ident(block.recourser),
+                    signer: block.recourser,
                     signatory: block.signatory,
                 }))
             }
@@ -758,17 +760,7 @@ impl BillBlockchain {
         Ok(OfferToSellWaitingForPayment::No)
     }
 
-    /// This function extracts the first block's data, decrypts it using the private key
-    /// associated with the bill, and then deserializes the decrypted data into a `BitcreditBill`
-    /// object.
-    ///
-    /// # Arguments
-    /// * `bill_keys` - The keys for the bill.
-    ///
-    /// # Returns
-    ///
-    /// * `BitcreditBill` - The first version of the bill
-    ///
+    /// Returns the data the bill was created with (the data of the issue block)
     pub fn get_first_version_bill(&self, bill_keys: &BillKeys) -> Result<BillIssueBlockData> {
         let first_block_data = &self.get_first_block();
         let bill_first_version: BillIssueBlockData =
@@ -776,23 +768,13 @@ impl BillBlockchain {
         Ok(bill_first_version)
     }
 
-    /// This function iterates over all the blocks in the blockchain, extracts the nodes
-    /// from each block, and compiles a unique list of nodes.
-    ///
-    /// # Returns
-    /// `Vec<String>`:
-    /// - A vector containing the unique identifiers of nodes associated with the bill.
-    ///
+    /// Returns all nodes of the bill
     pub fn get_all_nodes_from_bill(&self, bill_keys: &BillKeys) -> Result<Vec<NodeId>> {
         let node_map = self.get_all_nodes_with_added_block_height(bill_keys)?;
         Ok(node_map.keys().cloned().collect())
     }
 
-    /// Returns all nodes that are part of this chain with the block height they were added.
-    ///
-    /// # Returns
-    /// `HashMap<String, usize>`:
-    /// - A map containing the unique identifiers of nodes and the block height they were added.
+    /// Returns all nodes of the bill with the block height they were added in
     pub fn get_all_nodes_with_added_block_height(
         &self,
         bill_keys: &BillKeys,
@@ -807,40 +789,13 @@ impl BillBlockchain {
         Ok(nodes)
     }
 
-    /// Returns all endorsements for the bill (including anonymous holders)
-    pub fn get_endorsements_for_bill(&self, bill_keys: &BillKeys) -> Vec<Endorsement> {
-        let mut result: Vec<Endorsement> = vec![];
-        // iterate from the back to the front, collecting all endorsement blocks
-        for block in self.blocks().iter().rev() {
-            // we ignore issue blocks, since we are only interested in endorsements
-            if block.op_code == BillOpCode::Issue {
-                continue;
-            }
-            if let Ok(Some(holder_from_block)) = block.get_holder_from_block(bill_keys) {
-                let holder_data = holder_from_block.holder;
-                result.push(Endorsement {
-                    pay_to_the_order_of: holder_data.clone().into(),
-                    signed: LightSignedBy {
-                        data: holder_from_block.signer.clone().into(),
-                        signatory: holder_from_block.signatory.map(|s| {
-                            LightBillIdentParticipant {
-                                // signatories are always identified people
-                                t: ContactType::Person,
-                                name: s.name,
-                                node_id: s.node_id,
-                            }
-                        }),
-                    },
-                    signing_timestamp: block.timestamp,
-                    signing_address: match holder_from_block.signer {
-                        BillParticipantBlockData::Anon(_) => None,
-                        BillParticipantBlockData::Ident(data) => Some(data.postal_address),
-                    },
-                });
-            }
-        }
-
-        result
+    pub fn get_bill_history(&self, bill_keys: &BillKeys) -> Result<BillHistory> {
+        let result: Result<Vec<BillHistoryBlock>> = self
+            .blocks
+            .iter()
+            .map(|b| b.get_history_from_block(bill_keys))
+            .collect();
+        Ok(BillHistory { blocks: result? })
     }
 
     /// Returns all endorsees from front to back (current holder is the last one in the list)
@@ -1481,14 +1436,14 @@ mod tests {
             bill_id.clone(),
             &mint,
             &BillRecourseBlockData {
-                recourser: other_party.clone().into(),
+                recourser: BillParticipant::Ident(other_party.clone()).into(),
                 recoursee: signer.clone().into(),
                 sum: 15000,
                 currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593932,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity.key_pair,
             None,

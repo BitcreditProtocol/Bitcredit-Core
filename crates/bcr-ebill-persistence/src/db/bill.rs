@@ -6,9 +6,9 @@ use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
 use bcr_ebill_core::bill::{
-    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillMintStatus,
-    BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
-    BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
+    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillId,
+    BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
+    BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
     BillWaitingStatePaymentData, BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy,
     PaidData, PaymentState,
 };
@@ -372,6 +372,7 @@ pub struct BitcreditBillResultDb {
     pub data: BillDataDb,
     pub status: BillStatusDb,
     pub current_waiting_state: Option<BillCurrentWaitingStateDb>,
+    pub history: BillHistoryDb,
     pub identity_node_id: NodeId,
 }
 
@@ -383,6 +384,7 @@ impl From<BitcreditBillResultDb> for BitcreditBillResult {
             data: value.data.into(),
             status: value.status.into(),
             current_waiting_state: value.current_waiting_state.map(|cws| cws.into()),
+            history: value.history.into(),
         }
     }
 }
@@ -395,6 +397,7 @@ impl From<(&BitcreditBillResult, &NodeId)> for BitcreditBillResultDb {
             data: (&value.data).into(),
             status: (&value.status).into(),
             current_waiting_state: value.current_waiting_state.as_ref().map(|cws| cws.into()),
+            history: value.history.clone().into(),
             identity_node_id: identity_node_id.to_owned(),
         }
     }
@@ -862,6 +865,63 @@ impl From<&BillParticipants> for BillParticipantsDb {
             endorsements: value.endorsements.iter().map(|e| e.into()).collect(),
             endorsements_count: value.endorsements_count,
             all_participant_node_ids: value.all_participant_node_ids.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillHistoryDb {
+    pub blocks: Vec<BillHistoryBlockDb>,
+}
+
+impl From<BillHistoryDb> for BillHistory {
+    fn from(value: BillHistoryDb) -> Self {
+        Self {
+            blocks: value.blocks.into_iter().map(|b| b.into()).collect(),
+        }
+    }
+}
+
+impl From<BillHistory> for BillHistoryDb {
+    fn from(value: BillHistory) -> Self {
+        Self {
+            blocks: value.blocks.into_iter().map(|b| b.into()).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BillHistoryBlockDb {
+    pub block_id: u64,
+    pub block_type: BillOpCode,
+    pub pay_to_the_order_of: Option<BillParticipantDb>,
+    pub signed: LightSignedByDb,
+    pub signing_timestamp: u64,
+    pub signing_address: Option<PostalAddressDb>,
+}
+
+impl From<BillHistoryBlockDb> for BillHistoryBlock {
+    fn from(value: BillHistoryBlockDb) -> Self {
+        Self {
+            block_id: value.block_id,
+            block_type: value.block_type,
+            pay_to_the_order_of: value.pay_to_the_order_of.map(|pttoo| pttoo.into()),
+            signed: value.signed.into(),
+            signing_timestamp: value.signing_timestamp,
+            signing_address: value.signing_address.map(|sa| sa.into()),
+        }
+    }
+}
+
+impl From<BillHistoryBlock> for BillHistoryBlockDb {
+    fn from(value: BillHistoryBlock) -> Self {
+        Self {
+            block_id: value.block_id,
+            block_type: value.block_type,
+            pay_to_the_order_of: value.pay_to_the_order_of.as_ref().map(|pttoo| pttoo.into()),
+            signed: (&value.signed).into(),
+            signing_timestamp: value.signing_timestamp,
+            signing_address: value.signing_address.map(|sa| sa.into()),
         }
     }
 }
@@ -1919,7 +1979,10 @@ pub mod tests {
                     bill_id_test(),
                     &second_block,
                     &BillRecourseBlockData {
-                        recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+                        recourser: BillParticipant::Ident(
+                            bill_identified_participant_only_node_id(node_id_test()),
+                        )
+                        .into(),
                         recoursee: bill_identified_participant_only_node_id(NodeId::new(
                             BcrKeys::new().pub_key(),
                             bitcoin::Network::Testnet,
@@ -1930,7 +1993,7 @@ pub mod tests {
                         sum: 15000,
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: empty_address(),
+                        signing_address: Some(empty_address()),
                     },
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                     None,

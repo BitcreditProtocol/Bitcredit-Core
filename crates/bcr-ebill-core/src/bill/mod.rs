@@ -5,9 +5,15 @@ use super::{
 };
 use crate::{
     NodeId,
-    blockchain::bill::BillBlockchain,
+    blockchain::{
+        Block,
+        bill::{
+            BillBlock, BillBlockchain, BillOpCode,
+            block::{BillParticipantBlockData, BillSignatoryBlockData},
+        },
+    },
     city::City,
-    contact::{BillParticipant, LightBillParticipant},
+    contact::{BillParticipant, ContactType, LightBillParticipant},
     country::Country,
     date::Date,
     util::BcrKeys,
@@ -126,6 +132,7 @@ pub struct BitcreditBillResult {
     pub data: BillData,
     pub status: BillStatus,
     pub current_waiting_state: Option<BillCurrentWaitingState>,
+    pub history: BillHistory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -252,6 +259,68 @@ pub struct BillParticipants {
     pub endorsements: Vec<Endorsement>,
     pub endorsements_count: u64,
     pub all_participant_node_ids: Vec<NodeId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BillHistory {
+    pub blocks: Vec<BillHistoryBlock>,
+}
+
+impl BillHistory {
+    /// Gets endorsements from bill history
+    pub fn get_endorsements(&self) -> Vec<Endorsement> {
+        let mut result: Vec<Endorsement> = vec![];
+
+        // iterate from the back to the front, collecting all endorsement blocks
+        for block in self.blocks.iter().rev() {
+            if let Some(ref pay_to_the_order_of) = block.pay_to_the_order_of
+                && matches!(
+                    block.block_type,
+                    BillOpCode::Mint
+                        | BillOpCode::Sell
+                        | BillOpCode::Endorse
+                        | BillOpCode::Recourse
+                )
+            {
+                result.push(Endorsement {
+                    pay_to_the_order_of: pay_to_the_order_of.to_owned(),
+                    signed: block.signed.to_owned(),
+                    signing_timestamp: block.signing_timestamp,
+                    signing_address: block.signing_address.to_owned(),
+                });
+            }
+        }
+
+        result
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BillHistoryBlock {
+    pub block_id: u64,
+    pub block_type: BillOpCode,
+    pub pay_to_the_order_of: Option<LightBillParticipant>,
+    pub signed: LightSignedBy,
+    pub signing_timestamp: u64,
+    pub signing_address: Option<PostalAddress>,
+}
+
+impl BillHistoryBlock {
+    pub fn new(
+        block: &BillBlock,
+        pay_to_the_order_of: Option<LightBillParticipant>,
+        signed: LightSignedBy,
+        signing_address: Option<PostalAddress>,
+    ) -> Self {
+        Self {
+            block_id: block.id(),
+            block_type: block.op_code().to_owned(),
+            pay_to_the_order_of,
+            signed,
+            signing_timestamp: block.timestamp(),
+            signing_address,
+        }
+    }
 }
 
 impl BitcreditBillResult {
@@ -448,6 +517,22 @@ pub struct Endorsement {
 pub struct LightSignedBy {
     pub data: LightBillParticipant,
     pub signatory: Option<LightBillIdentParticipant>,
+}
+
+impl From<(BillParticipantBlockData, Option<BillSignatoryBlockData>)> for LightSignedBy {
+    fn from(value: (BillParticipantBlockData, Option<BillSignatoryBlockData>)) -> Self {
+        Self {
+            data: value.0.clone().into(),
+            signatory: value.1.map(|s| {
+                LightBillIdentParticipant {
+                    // signatories are always identified people
+                    t: ContactType::Person,
+                    name: s.name,
+                    node_id: s.node_id,
+                }
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

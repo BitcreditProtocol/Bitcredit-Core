@@ -1,22 +1,26 @@
-use bcr_ebill_api::data::{
-    NodeId,
-    bill::{
-        BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData, BillId,
-        BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
-        BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
-        BillWaitingForSellState, BillWaitingStatePaymentData, BillsFilterRole, BitcreditBillResult,
-        Endorsement, LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
-        PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+use bcr_ebill_api::{
+    BillOpCode,
+    data::{
+        NodeId,
+        bill::{
+            BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData,
+            BillHistory, BillHistoryBlock, BillId, BillMintStatus, BillParticipants,
+            BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
+            BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
+            BillWaitingStatePaymentData, BillsFilterRole, BitcreditBillResult, Endorsement,
+            LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
+            PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+        },
+        city::City,
+        contact::{
+            BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
+            LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
+        },
+        country::Country,
+        date::Date,
+        email::Email,
+        name::Name,
     },
-    city::City,
-    contact::{
-        BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
-        LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
-    },
-    country::Country,
-    date::Date,
-    email::Email,
-    name::Name,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -259,6 +263,44 @@ pub struct BillsSearchFilter {
 #[tsify(into_wasm_abi)]
 pub struct BillsResponse {
     pub bills: Vec<BitcreditBillWeb>,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillHistoryResponse {
+    pub blocks: Vec<BillHistoryBlockWeb>,
+}
+
+impl From<BillHistory> for BillHistoryResponse {
+    fn from(value: BillHistory) -> Self {
+        Self {
+            blocks: value.blocks.into_iter().map(|b| b.into()).collect(),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillHistoryBlockWeb {
+    pub block_id: u64,
+    pub block_type: BillOpCodeWeb,
+    pub pay_to_the_order_of: Option<LightBillParticipantWeb>,
+    pub signed: LightSignedByWeb,
+    pub signing_timestamp: u64,
+    pub signing_address: Option<PostalAddressWeb>,
+}
+
+impl From<BillHistoryBlock> for BillHistoryBlockWeb {
+    fn from(value: BillHistoryBlock) -> Self {
+        Self {
+            block_id: value.block_id,
+            block_type: value.block_type.into(),
+            pay_to_the_order_of: value.pay_to_the_order_of.map(|pttoo| pttoo.into()),
+            signed: value.signed.into(),
+            signing_timestamp: value.signing_timestamp,
+            signing_address: value.signing_address.map(|sa| sa.into()),
+        }
+    }
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -940,4 +982,44 @@ pub struct ShareBillWithCourtPayload {
     pub bill_id: BillId,
     #[tsify(type = "string")]
     pub court_node_id: NodeId,
+}
+
+#[derive(Tsify, Debug, Copy, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum BillOpCodeWeb {
+    Issue,
+    Accept,
+    Endorse,
+    RequestToAccept,
+    RequestToPay,
+    OfferToSell,
+    Sell,
+    Mint,
+    RejectToAccept,
+    RejectToPay,
+    RejectToBuy,
+    RejectToPayRecourse,
+    RequestRecourse,
+    Recourse,
+}
+
+impl From<BillOpCode> for BillOpCodeWeb {
+    fn from(value: BillOpCode) -> Self {
+        match value {
+            BillOpCode::Issue => BillOpCodeWeb::Issue,
+            BillOpCode::Accept => BillOpCodeWeb::Accept,
+            BillOpCode::Endorse => BillOpCodeWeb::Endorse,
+            BillOpCode::RequestToAccept => BillOpCodeWeb::RequestToAccept,
+            BillOpCode::RequestToPay => BillOpCodeWeb::RequestToPay,
+            BillOpCode::OfferToSell => BillOpCodeWeb::OfferToSell,
+            BillOpCode::Sell => BillOpCodeWeb::Sell,
+            BillOpCode::Mint => BillOpCodeWeb::Mint,
+            BillOpCode::RejectToAccept => BillOpCodeWeb::RejectToAccept,
+            BillOpCode::RejectToPay => BillOpCodeWeb::RejectToPay,
+            BillOpCode::RejectToBuy => BillOpCodeWeb::RejectToBuy,
+            BillOpCode::RejectToPayRecourse => BillOpCodeWeb::RejectToPayRecourse,
+            BillOpCode::RequestRecourse => BillOpCodeWeb::RequestRecourse,
+            BillOpCode::Recourse => BillOpCodeWeb::Recourse,
+        }
+    }
 }

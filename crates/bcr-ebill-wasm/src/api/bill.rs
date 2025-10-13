@@ -31,8 +31,8 @@ use crate::{
     data::{
         Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
-            AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillIdResponse,
-            BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
+            AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillHistoryResponse,
+            BillIdResponse, BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
             BitcreditBillPayload, BitcreditBillWeb, EndorseBitcreditBillPayload,
             EndorsementsResponse, LightBillsResponse, OfferToSellBitcreditBillPayload,
             PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
@@ -938,6 +938,25 @@ impl Bill {
             )
             .await?;
         Ok(())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "BillHistoryResponse")]
+    pub async fn bill_history(&self, bill_id: &str) -> Result<JsValue> {
+        let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
+        let current_timestamp = util::date::now().timestamp() as u64;
+        let identity = get_ctx().identity_service.get_identity().await?;
+        let res: BillHistoryResponse = get_ctx()
+            .bill_service
+            .get_bill_history(
+                &parsed_bill_id,
+                &identity,
+                &get_current_identity_node_id().await?,
+                current_timestamp,
+            )
+            .await?
+            .into();
+        let res = serde_wasm_bindgen::to_value(&res)?;
+        Ok(res)
     }
 }
 

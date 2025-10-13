@@ -163,19 +163,33 @@ impl BillService {
                     debug!(
                         "bill {bill_id} is recourse-paid - creating recourse block if we're recourser"
                     );
-                    // If we are the recourser and a bill issuer and it's paid, we add a Recourse block
+                    // If we are the recourser and it's paid, we add a Recourse block
                     if payment_info.recourser.node_id() == identity.identity.node_id {
-                        if let Ok(signer_identity) =
-                            BillIdentParticipant::new(identity.identity.clone())
-                        {
-                            let reason = match payment_info.reason {
-                                BillRecourseReasonBlockData::Pay => RecourseReason::Pay(
-                                    payment_info.sum,
-                                    payment_info.currency.clone(),
-                                ),
-                                BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
-                            };
-                            let _ = self
+                        let signer_identity = match identity.identity.t {
+                            IdentityType::Ident => {
+                                if let Ok(signer_identity) =
+                                    BillIdentParticipant::new(identity.identity.clone())
+                                {
+                                    BillParticipant::Ident(signer_identity)
+                                } else {
+                                    log::error!(
+                                        "Signer {} for bill {bill_id} is not a valid signer",
+                                        &identity.identity.node_id
+                                    );
+                                    return Ok(()); // return early
+                                }
+                            }
+                            IdentityType::Anon => BillParticipant::Anon(BillAnonParticipant::new(
+                                identity.identity.clone(),
+                            )),
+                        };
+                        let reason = match payment_info.reason {
+                            BillRecourseReasonBlockData::Pay => {
+                                RecourseReason::Pay(payment_info.sum, payment_info.currency.clone())
+                            }
+                            BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
+                        };
+                        let _ = self
                             .execute_bill_action(
                                 bill_id,
                                 BillAction::Recourse(
@@ -189,17 +203,11 @@ impl BillService {
                                     payment_info.currency,
                                     reason,
                                 ),
-                                &BillParticipant::Ident(signer_identity),
+                                &signer_identity,
                                 &identity.key_pair,
                                 now,
                             )
                             .await?;
-                        } else {
-                            log::error!(
-                                "Signer {} for bill {bill_id} is not a valid signer",
-                                &identity.identity.node_id
-                            );
-                        }
                         return Ok(()); // return early
                     }
 
@@ -297,7 +305,7 @@ impl BillService {
                 // if offer to sell was paid, attempt to create sell block
                 if matches!(payment_state, PaymentState::PaidConfirmed(..)) {
                     debug!("bill {bill_id} got bought - creating sell block if we're seller");
-                    // If we are the seller and anon, or a bill issuer and it's paid, we add a Sell block
+                    // If we are the seller and it's paid, we add a Sell block
                     if payment_info.seller.node_id() == identity.identity.node_id {
                         let signer_identity = match identity.identity.t {
                             IdentityType::Ident => {

@@ -13,6 +13,9 @@
 * Print bech32 npub at startup
 * Use strongly typed `url::Url` for nostr relays
 * Use strong types for Date, Name, City, Address, Zip, Country, Identification, Email (breaking API change)
+* Re-Fetch Identity and Company chain endpoints
+* Add endpoint to fetch bill history `billApi.bill_history(bill_id)`
+* Fixed a bug where an anon user could request to recourse, but not actually do the recourse
 
 # 0.4.9
 

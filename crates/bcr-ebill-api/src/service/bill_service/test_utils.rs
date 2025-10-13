@@ -158,6 +158,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             last_block_time: 1731593928,
         },
         current_waiting_state: None,
+        history: BillHistory { blocks: vec![] },
     }
 }
 
@@ -380,14 +381,17 @@ pub fn recourse_block(
         id.to_owned(),
         first_block,
         &BillRecourseBlockData {
-            recourser: bill_identified_participant_only_node_id(node_id_test()).into(),
+            recourser: BillParticipant::Ident(bill_identified_participant_only_node_id(
+                node_id_test(),
+            ))
+            .into(),
             recoursee: recoursee.to_owned().into(),
             sum: 15000,
             currency: CURRENCY_SAT.to_string(),
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
-            signing_address: empty_address(),
+            signing_address: Some(empty_address()),
         },
         &BcrKeys::from_private_key(&private_key_test()).unwrap(),
         None,
