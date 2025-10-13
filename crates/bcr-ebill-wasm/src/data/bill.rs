@@ -8,11 +8,15 @@ use bcr_ebill_api::data::{
         Endorsement, LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
         PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
     },
+    city::City,
     contact::{
         BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
         LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
     },
     country::Country,
+    date::Date,
+    email::Email,
+    name::Name,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -682,15 +686,19 @@ impl From<BillMintStatus> for BillMintStatusWeb {
 #[tsify(into_wasm_abi)]
 pub struct BillDataWeb {
     pub time_of_drawing: u64,
-    pub issue_date: String,
+    #[tsify(type = "string")]
+    pub issue_date: Date,
     pub time_of_maturity: u64,
-    pub maturity_date: String,
+    #[tsify(type = "string")]
+    pub maturity_date: Date,
     #[tsify(type = "string")]
     pub country_of_issuing: Country,
-    pub city_of_issuing: String,
+    #[tsify(type = "string")]
+    pub city_of_issuing: City,
     #[tsify(type = "string")]
     pub country_of_payment: Country,
-    pub city_of_payment: String,
+    #[tsify(type = "string")]
+    pub city_of_payment: City,
     pub currency: String,
     pub sum: String,
     pub files: Vec<FileWeb>,
@@ -753,7 +761,8 @@ pub struct LightBitcreditBillWeb {
     pub active_notification: Option<NotificationWeb>,
     pub sum: String,
     pub currency: String,
-    pub issue_date: String,
+    #[tsify(type = "string")]
+    pub issue_date: Date,
     pub time_of_drawing: u64,
     pub time_of_maturity: u64,
     pub last_block_time: u64,
@@ -799,7 +808,8 @@ impl From<BillParticipant> for BillParticipantWeb {
 pub struct BillAnonParticipantWeb {
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    pub email: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub email: Option<Email>,
     pub nostr_relays: Vec<url::Url>,
 }
 
@@ -819,9 +829,11 @@ pub struct BillIdentParticipantWeb {
     pub t: ContactTypeWeb,
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     pub postal_address: PostalAddressWeb,
-    pub email: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub email: Option<Email>,
     pub nostr_relays: Vec<url::Url>,
 }
 
@@ -842,7 +854,8 @@ impl From<BillIdentParticipant> for BillIdentParticipantWeb {
 #[tsify(into_wasm_abi)]
 pub struct LightBillIdentParticipantWithAddressWeb {
     pub t: ContactTypeWeb,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     #[tsify(type = "string")]
     pub node_id: NodeId,
     pub postal_address: PostalAddressWeb,
@@ -894,7 +907,8 @@ impl From<LightBillAnonParticipant> for LightBillAnonParticipantWeb {
 #[tsify(into_wasm_abi)]
 pub struct LightBillIdentParticipantWeb {
     pub t: ContactTypeWeb,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     #[tsify(type = "string")]
     pub node_id: NodeId,
 }

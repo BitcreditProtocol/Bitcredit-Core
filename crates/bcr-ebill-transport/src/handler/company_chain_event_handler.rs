@@ -124,6 +124,7 @@ mod tests {
             company::{CompanyBlockchain, CompanyUpdateBlockData},
         },
         company::{Company, CompanyKeys},
+        name::Name,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -147,7 +148,7 @@ mod tests {
         let (node_id, (company, keys)) = get_company_data();
         let chain = create_company_chain(node_id.clone(), company.clone(), &keys);
         let data = CompanyUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let block = get_company_update_block(
@@ -206,7 +207,7 @@ mod tests {
         let (node_id, (company, keys)) = get_company_data();
         let chain = create_company_chain(node_id.clone(), company.clone(), &keys);
         let data = CompanyUpdateBlockData {
-            name: Some("new_name".to_string()),
+            name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
         };
         let block = get_company_update_block(

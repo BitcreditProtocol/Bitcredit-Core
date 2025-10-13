@@ -3,7 +3,8 @@ use bcr_ebill_api::{
     NotificationFilter,
     data::{
         File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
-        PostalAddress, UploadFileResult, country::Country,
+        PostalAddress, UploadFileResult, address::Address, city::City, country::Country,
+        date::Date, zip::Zip,
     },
     util::{
         self, ValidationError,
@@ -115,14 +116,48 @@ pub struct CurrencyResponse {
     pub code: String,
 }
 
-#[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-pub struct OptionalPostalAddressWeb {
-    #[tsify(type = "string | undefined")]
-    pub country: Option<Country>,
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct CreateOptionalPostalAddressWeb {
+    pub country: Option<String>,
     pub city: Option<String>,
     pub zip: Option<String>,
     pub address: Option<String>,
+}
+
+impl CreateOptionalPostalAddressWeb {
+    pub fn is_none(&self) -> bool {
+        self.country.is_none()
+            && self.city.is_none()
+            && self.zip.is_none()
+            && self.address.is_none()
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct OptionalPostalAddressWeb {
+    #[tsify(type = "string | undefined")]
+    pub country: Option<Country>,
+    #[tsify(type = "string | undefined")]
+    pub city: Option<City>,
+    #[tsify(type = "string | undefined")]
+    pub zip: Option<Zip>,
+    #[tsify(type = "string | undefined")]
+    pub address: Option<Address>,
+}
+
+impl TryFrom<CreateOptionalPostalAddressWeb> for OptionalPostalAddressWeb {
+    type Error = ValidationError;
+
+    fn try_from(value: CreateOptionalPostalAddressWeb) -> Result<Self, Self::Error> {
+        Ok(OptionalPostalAddressWeb {
+            country: value.country.map(|c| Country::parse(&c)).transpose()?,
+            city: value.city.map(City::new).transpose()?,
+            zip: value.zip.map(Zip::new).transpose()?,
+            address: value.address.map(Address::new).transpose()?,
+        })
+    }
 }
 
 impl OptionalPostalAddressWeb {
@@ -156,14 +191,39 @@ impl From<OptionalPostalAddress> for OptionalPostalAddressWeb {
     }
 }
 
-#[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-pub struct PostalAddressWeb {
-    #[tsify(type = "string")]
-    pub country: Country,
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct CreatePostalAddressWeb {
+    pub country: String,
     pub city: String,
     pub zip: Option<String>,
     pub address: String,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct PostalAddressWeb {
+    #[tsify(type = "string")]
+    pub country: Country,
+    #[tsify(type = "string")]
+    pub city: City,
+    #[tsify(type = "string | undefined")]
+    pub zip: Option<Zip>,
+    #[tsify(type = "string")]
+    pub address: Address,
+}
+
+impl TryFrom<CreatePostalAddressWeb> for PostalAddressWeb {
+    type Error = ValidationError;
+
+    fn try_from(value: CreatePostalAddressWeb) -> Result<Self, Self::Error> {
+        Ok(PostalAddressWeb {
+            country: Country::parse(&value.country)?,
+            city: City::new(&value.city)?,
+            zip: value.zip.map(Zip::new).transpose()?,
+            address: Address::new(&value.address)?,
+        })
+    }
 }
 
 impl From<PostalAddressWeb> for PostalAddress {
@@ -307,10 +367,7 @@ pub fn has_field(js_value: &JsValue, field: &str) -> bool {
 
 /// Parses the given date of format YYYY-mm-dd to a UTC end-of-day timestamp
 pub fn parse_deadline_string(deadline_date: &str) -> Result<u64, ValidationError> {
-    let ts = util::date::end_of_day_as_timestamp(util::date::date_string_to_timestamp(
-        deadline_date,
-        None,
-    )?);
+    let ts = util::date::end_of_day_as_timestamp(Date::new(deadline_date)?.to_timestamp());
     util::date::validate_timestamp(ts)?;
     Ok(ts)
 }

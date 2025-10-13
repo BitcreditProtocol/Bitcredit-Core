@@ -3,11 +3,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    city::City,
     contact::{
         BillParticipant,
         validation::{validate_create_contact, validate_update_contact},
     },
     country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    name::Name,
     nostr_contact::{NostrContact, NostrPublicKey, TrustLevel},
 };
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
@@ -64,13 +69,13 @@ pub trait ContactServiceApi: ServiceTraitBounds {
     async fn update_contact(
         &self,
         node_id: &NodeId,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         ignore_avatar_file_upload_id: bool,
         proof_document_file_upload_id: Option<String>,
@@ -82,13 +87,13 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         &self,
         node_id: &NodeId,
         t: ContactType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact>;
@@ -98,13 +103,13 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         &self,
         node_id: &NodeId,
         t: ContactType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact>;
@@ -301,13 +306,13 @@ impl ContactServiceApi for ContactService {
     async fn update_contact(
         &self,
         node_id: &NodeId,
-        name: Option<String>,
-        email: Option<String>,
+        name: Option<Name>,
+        email: Option<Email>,
         postal_address: OptionalPostalAddress,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         ignore_avatar_file_upload_id: bool,
         proof_document_file_upload_id: Option<String>,
@@ -326,8 +331,6 @@ impl ContactServiceApi for ContactService {
 
         validate_update_contact(
             contact.t.clone(),
-            &name,
-            &email,
             &postal_address,
             &avatar_file_upload_id,
             &proof_document_file_upload_id,
@@ -465,13 +468,13 @@ impl ContactServiceApi for ContactService {
         &self,
         node_id: &NodeId,
         t: ContactType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
@@ -480,7 +483,6 @@ impl ContactServiceApi for ContactService {
         validate_create_contact(
             t.clone(),
             node_id,
-            &name,
             &email,
             &postal_address,
             &avatar_file_upload_id,
@@ -565,13 +567,13 @@ impl ContactServiceApi for ContactService {
         &self,
         node_id: &NodeId,
         t: ContactType,
-        name: String,
-        email: Option<String>,
+        name: Name,
+        email: Option<Email>,
         postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<String>,
+        date_of_birth_or_registration: Option<Date>,
         country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<String>,
-        identification_number: Option<String>,
+        city_of_birth_or_registration: Option<City>,
+        identification_number: Option<Identification>,
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
@@ -580,7 +582,6 @@ impl ContactServiceApi for ContactService {
         validate_create_contact(
             t.clone(),
             node_id,
-            &name,
             &email,
             &postal_address,
             &avatar_file_upload_id,
@@ -760,8 +761,8 @@ pub mod tests {
         Contact {
             t: ContactType::Person,
             node_id: node_id_test(),
-            name: "some_name".to_string(),
-            email: Some("some_mail@example.com".to_string()),
+            name: Name::new("some_name").unwrap(),
+            email: Some(Email::new("some_mail@example.com").unwrap()),
             postal_address: Some(empty_address()),
             date_of_birth_or_registration: None,
             country_of_birth_or_registration: None,
@@ -778,7 +779,7 @@ pub mod tests {
         NostrContact {
             npub: node_id_test_other().npub(),
             node_id: node_id_test_other(),
-            name: Some("Other Contact".to_string()),
+            name: Some(Name::new("Other Contact").unwrap()),
             relays: vec![],
             trust_level: TrustLevel::Participant,
             handshake_status: HandshakeStatus::None,
@@ -835,7 +836,7 @@ pub mod tests {
         ) = get_storages();
         store.expect_get_map().returning(|| {
             let mut contact = get_baseline_contact();
-            contact.name = "Minka".to_string();
+            contact.name = Name::new("Minka").unwrap();
             let mut map = HashMap::new();
             map.insert(node_id_test(), contact);
             Ok(map)
@@ -851,7 +852,10 @@ pub mod tests {
         .get_contacts()
         .await;
         assert!(result.is_ok());
-        assert_eq!(result.as_ref().unwrap().first().unwrap().name, *"Minka");
+        assert_eq!(
+            result.as_ref().unwrap().first().unwrap().name,
+            Name::new("Minka").unwrap()
+        );
         assert_eq!(
             result.as_ref().unwrap().first().unwrap().node_id,
             node_id_test()
@@ -870,7 +874,7 @@ pub mod tests {
         ) = get_storages();
         store.expect_get().returning(|_| {
             let mut contact = get_baseline_contact();
-            contact.name = "Minka".to_string();
+            contact.name = Name::new("Minka").unwrap();
             Ok(Some(contact))
         });
         let result = get_service(
@@ -886,7 +890,7 @@ pub mod tests {
         assert!(result.is_ok());
         assert_eq!(
             result.as_ref().unwrap().as_ref().unwrap().name(),
-            Some("Minka".into())
+            Some(Name::new("Minka").unwrap())
         );
     }
 
@@ -948,7 +952,7 @@ pub mod tests {
                 .add_contact(
                     &mainnet_node_id,
                     ContactType::Person,
-                    "name".to_string(),
+                    Name::new("name").unwrap(),
                     None,
                     None,
                     None,
@@ -966,7 +970,7 @@ pub mod tests {
                 .deanonymize_contact(
                     &mainnet_node_id,
                     ContactType::Person,
-                    "name".to_string(),
+                    Name::new("name").unwrap(),
                     None,
                     None,
                     None,
@@ -1042,7 +1046,7 @@ pub mod tests {
         )
         .update_contact(
             &node_id_test(),
-            Some("new_name".to_string()),
+            Some(Name::new("new_name").unwrap()),
             None,
             empty_optional_address(),
             None,
@@ -1092,8 +1096,8 @@ pub mod tests {
         .add_contact(
             &node_id_test(),
             ContactType::Person,
-            "some_name".to_string(),
-            Some("some_email@example.com".to_string()),
+            Name::new("some_name").unwrap(),
+            Some(Email::new("some_email@example.com").unwrap()),
             Some(empty_address()),
             None,
             None,
@@ -1143,8 +1147,8 @@ pub mod tests {
         .add_contact(
             &node_id_test(),
             ContactType::Anon,
-            "some_name".to_string(),
-            Some("some_email@example.com".to_string()),
+            Name::new("some_name").unwrap(),
+            Some(Email::new("some_email@example.com").unwrap()),
             Some(empty_address()),
             None,
             None,
@@ -1192,8 +1196,8 @@ pub mod tests {
         .deanonymize_contact(
             &node_id_test(),
             ContactType::Person,
-            "some_name".to_string(),
-            Some("some_email@example.com".to_string()),
+            Name::new("some_name").unwrap(),
+            Some(Email::new("some_email@example.com").unwrap()),
             Some(empty_address()),
             None,
             None,
@@ -1236,8 +1240,8 @@ pub mod tests {
         .deanonymize_contact(
             &node_id_test(),
             ContactType::Person,
-            "some_name".to_string(),
-            Some("some_email@example.com".to_string()),
+            Name::new("some_name").unwrap(),
+            Some(Email::new("some_email@example.com").unwrap()),
             Some(empty_address()),
             None,
             None,
@@ -1286,8 +1290,8 @@ pub mod tests {
         .deanonymize_contact(
             &node_id_test(),
             ContactType::Anon,
-            "some_name".to_string(),
-            Some("some_email@example.com".to_string()),
+            Name::new("some_name").unwrap(),
+            Some(Email::new("some_email@example.com").unwrap()),
             Some(empty_address()),
             None,
             None,

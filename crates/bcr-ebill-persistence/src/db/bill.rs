@@ -12,12 +12,15 @@ use bcr_ebill_core::bill::{
     BillWaitingStatePaymentData, BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy,
     PaidData, PaymentState,
 };
+use bcr_ebill_core::city::City;
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
     LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
     LightBillParticipant,
 };
 use bcr_ebill_core::country::Country;
+use bcr_ebill_core::date::Date;
+use bcr_ebill_core::name::Name;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
 use serde::{Deserialize, Serialize};
@@ -771,13 +774,13 @@ impl From<&BillMintStatus> for BillMintStatusDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillDataDb {
     pub time_of_drawing: u64,
-    pub issue_date: String,
+    pub issue_date: Date,
     pub time_of_maturity: u64,
-    pub maturity_date: String,
+    pub maturity_date: Date,
     pub country_of_issuing: Country,
-    pub city_of_issuing: String,
+    pub city_of_issuing: City,
     pub country_of_payment: Country,
-    pub city_of_payment: String,
+    pub city_of_payment: City,
     pub currency: String,
     pub sum: String,
     pub files: Vec<FileDb>,
@@ -948,7 +951,7 @@ impl From<&LightBillIdentParticipantWithAddress> for BillIdentParticipantDb {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LightBillIdentParticipantDb {
     pub t: ContactType,
-    pub name: String,
+    pub name: Name,
     pub node_id: NodeId,
 }
 
@@ -982,7 +985,7 @@ pub enum BillParticipantDb {
 pub struct BillIdentParticipantDb {
     pub t: ContactType,
     pub node_id: NodeId,
-    pub name: String,
+    pub name: Name,
     pub postal_address: PostalAddressDb,
 }
 
@@ -1250,6 +1253,7 @@ pub mod tests {
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::BillParticipant,
+        date::Date,
     };
     use chrono::Months;
     use surrealdb::{Surreal, engine::any::Any};
@@ -1276,7 +1280,7 @@ pub mod tests {
 
     pub fn get_first_block(id: &BillId) -> BillBlock {
         let mut bill = empty_bitcredit_bill();
-        bill.maturity_date = "2099-05-05".to_string();
+        bill.maturity_date = Date::new("2099-05-05").unwrap();
         bill.id = id.to_owned();
         bill.drawer = bill_identified_participant_only_node_id(NodeId::new(
             BcrKeys::new().pub_key(),

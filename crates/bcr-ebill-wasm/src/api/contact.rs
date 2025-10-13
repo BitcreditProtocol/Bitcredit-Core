@@ -5,12 +5,18 @@ use crate::data::contact::{
     SearchContactsPayload,
 };
 use crate::data::{
-    Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
+    Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, PostalAddressWeb, UploadFile,
+    UploadFileResponse, has_field,
 };
 use crate::{Result, context::get_ctx};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bcr_ebill_api::data::city::City;
 use bcr_ebill_api::data::contact::ContactType;
 use bcr_ebill_api::data::country::Country;
+use bcr_ebill_api::data::date::Date;
+use bcr_ebill_api::data::email::Email;
+use bcr_ebill_api::data::identification::Identification;
+use bcr_ebill_api::data::name::Name;
 use bcr_ebill_api::data::{NodeId, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_api::service;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
@@ -155,17 +161,30 @@ impl Contact {
             .deanonymize_contact(
                 &contact_payload.node_id,
                 ContactType::from(ContactTypeWeb::try_from(contact_payload.t)?),
-                contact_payload.name,
-                contact_payload.email,
-                contact_payload.postal_address.map(PostalAddress::from),
-                contact_payload.date_of_birth_or_registration,
+                Name::new(contact_payload.name)?,
+                contact_payload.email.map(Email::new).transpose()?,
+                contact_payload
+                    .postal_address
+                    .map(PostalAddressWeb::try_from)
+                    .transpose()?
+                    .map(PostalAddress::from),
+                contact_payload
+                    .date_of_birth_or_registration
+                    .map(|d| Date::new(&d))
+                    .transpose()?,
                 contact_payload
                     .country_of_birth_or_registration
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                contact_payload.city_of_birth_or_registration,
-                contact_payload.identification_number,
+                contact_payload
+                    .city_of_birth_or_registration
+                    .map(City::new)
+                    .transpose()?,
+                contact_payload
+                    .identification_number
+                    .map(Identification::new)
+                    .transpose()?,
                 contact_payload.avatar_file_upload_id,
                 contact_payload.proof_document_file_upload_id,
             )
@@ -185,17 +204,30 @@ impl Contact {
             .add_contact(
                 &contact_payload.node_id,
                 ContactType::from(ContactTypeWeb::try_from(contact_payload.t)?),
-                contact_payload.name,
-                contact_payload.email,
-                contact_payload.postal_address.map(PostalAddress::from),
-                contact_payload.date_of_birth_or_registration,
+                Name::new(contact_payload.name)?,
+                contact_payload.email.map(Email::new).transpose()?,
+                contact_payload
+                    .postal_address
+                    .map(PostalAddressWeb::try_from)
+                    .transpose()?
+                    .map(PostalAddress::from),
+                contact_payload
+                    .date_of_birth_or_registration
+                    .map(|d| Date::new(&d))
+                    .transpose()?,
                 contact_payload
                     .country_of_birth_or_registration
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                contact_payload.city_of_birth_or_registration,
-                contact_payload.identification_number,
+                contact_payload
+                    .city_of_birth_or_registration
+                    .map(City::new)
+                    .transpose()?,
+                contact_payload
+                    .identification_number
+                    .map(Identification::new)
+                    .transpose()?,
                 contact_payload.avatar_file_upload_id,
                 contact_payload.proof_document_file_upload_id,
             )
@@ -221,17 +253,28 @@ impl Contact {
             .contact_service
             .update_contact(
                 &contact_payload.node_id,
-                contact_payload.name,
-                contact_payload.email,
-                OptionalPostalAddress::from(contact_payload.postal_address),
-                contact_payload.date_of_birth_or_registration,
+                contact_payload.name.map(Name::new).transpose()?,
+                contact_payload.email.map(Email::new).transpose()?,
+                OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                    contact_payload.postal_address,
+                )?),
+                contact_payload
+                    .date_of_birth_or_registration
+                    .map(|d| Date::new(&d))
+                    .transpose()?,
                 contact_payload
                     .country_of_birth_or_registration
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                contact_payload.city_of_birth_or_registration,
-                contact_payload.identification_number,
+                contact_payload
+                    .city_of_birth_or_registration
+                    .map(City::new)
+                    .transpose()?,
+                contact_payload
+                    .identification_number
+                    .map(Identification::new)
+                    .transpose()?,
                 contact_payload.avatar_file_upload_id,
                 !has_avatar_file_upload_id,
                 contact_payload.proof_document_file_upload_id,

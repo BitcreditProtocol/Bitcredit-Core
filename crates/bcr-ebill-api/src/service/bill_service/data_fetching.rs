@@ -577,8 +577,7 @@ impl BillService {
         let bill_data = BillData {
             time_of_drawing,
             issue_date: bill.issue_date,
-            time_of_maturity: util::date::date_string_to_timestamp(&bill.maturity_date, None)
-                .unwrap_or(0) as u64,
+            time_of_maturity: bill.maturity_date.to_timestamp(),
             maturity_date: bill.maturity_date,
             country_of_issuing: bill.country_of_issuing,
             city_of_issuing: bill.city_of_issuing,

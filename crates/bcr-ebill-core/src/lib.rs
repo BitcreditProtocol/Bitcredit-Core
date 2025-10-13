@@ -5,7 +5,6 @@ use contact::Contact;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
-use util::is_blank;
 
 pub mod address;
 pub mod bill;
@@ -15,6 +14,7 @@ pub mod company;
 pub mod constants;
 pub mod contact;
 pub mod country;
+pub mod date;
 pub mod email;
 pub mod identification;
 pub mod identity;
@@ -31,7 +31,7 @@ pub mod zip;
 pub use bcr_common::core::NodeId;
 pub use bitcoin::secp256k1::{PublicKey, SecretKey};
 
-use crate::country::Country;
+use crate::{address::Address, city::City, country::Country, zip::Zip};
 
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
 /// multi-threaded (e.g. web) environment without issues.
@@ -48,24 +48,13 @@ pub trait Validate {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PostalAddress {
     pub country: Country,
-    pub city: String,
-    pub zip: Option<String>,
-    pub address: String,
+    pub city: City,
+    pub zip: Option<Zip>,
+    pub address: Address,
 }
 
 impl Validate for PostalAddress {
     fn validate(&self) -> Result<(), ValidationError> {
-        if self.city.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::City));
-        }
-
-        if is_blank(&self.zip) {
-            return Err(ValidationError::FieldEmpty(Field::Zip));
-        }
-
-        if self.address.trim().is_empty() {
-            return Err(ValidationError::FieldEmpty(Field::Address));
-        }
         Ok(())
     }
 }
@@ -101,24 +90,13 @@ impl fmt::Display for PostalAddress {
 )]
 pub struct OptionalPostalAddress {
     pub country: Option<Country>,
-    pub city: Option<String>,
-    pub zip: Option<String>,
-    pub address: Option<String>,
+    pub city: Option<City>,
+    pub zip: Option<Zip>,
+    pub address: Option<Address>,
 }
 
 impl Validate for OptionalPostalAddress {
     fn validate(&self) -> Result<(), ValidationError> {
-        if is_blank(&self.city) {
-            return Err(ValidationError::FieldEmpty(Field::City));
-        }
-
-        if is_blank(&self.zip) {
-            return Err(ValidationError::FieldEmpty(Field::Zip));
-        }
-
-        if is_blank(&self.address) {
-            return Err(ValidationError::FieldEmpty(Field::Address));
-        }
         Ok(())
     }
 }
@@ -167,19 +145,7 @@ impl OptionalPostalAddress {
             return Err(ValidationError::FieldEmpty(Field::City));
         }
 
-        if is_blank(&self.city) {
-            return Err(ValidationError::FieldEmpty(Field::City));
-        }
-
-        if is_blank(&self.zip) {
-            return Err(ValidationError::FieldEmpty(Field::Zip));
-        }
-
         if self.address.is_none() {
-            return Err(ValidationError::FieldEmpty(Field::Address));
-        }
-
-        if is_blank(&self.address) {
             return Err(ValidationError::FieldEmpty(Field::Address));
         }
 

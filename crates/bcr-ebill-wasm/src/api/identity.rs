@@ -2,7 +2,8 @@ use crate::{
     Result,
     context::get_ctx,
     data::{
-        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse, has_field,
+        Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, UploadFile,
+        UploadFileResponse, has_field,
         identity::{
             ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
             ShareContactTo, SwitchIdentity,
@@ -14,8 +15,13 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_ebill_api::{
     data::{
         NodeId, OptionalPostalAddress,
+        city::City,
         country::Country,
+        date::Date,
+        email::Email,
+        identification::Identification,
         identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
+        name::Name,
     },
     external,
     service::{Error, notification_service::restore::RestoreAccountApi},
@@ -134,17 +140,22 @@ impl Identity {
             .identity_service
             .deanonymize_identity(
                 IdentityType::from(IdentityTypeWeb::try_from(identity.t)?),
-                identity.name,
-                identity.email,
-                OptionalPostalAddress::from(identity.postal_address),
-                identity.date_of_birth,
+                Name::new(identity.name)?,
+                identity.email.map(Email::new).transpose()?,
+                OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                    identity.postal_address,
+                )?),
+                identity.date_of_birth.map(|d| Date::new(&d)).transpose()?,
                 identity
                     .country_of_birth
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                identity.city_of_birth,
-                identity.identification_number,
+                identity.city_of_birth.map(City::new).transpose()?,
+                identity
+                    .identification_number
+                    .map(Identification::new)
+                    .transpose()?,
                 identity.profile_picture_file_upload_id,
                 identity.identity_document_file_upload_id,
                 timestamp,
@@ -174,17 +185,22 @@ impl Identity {
             .identity_service
             .create_identity(
                 IdentityType::from(IdentityTypeWeb::try_from(identity.t)?),
-                identity.name,
-                identity.email,
-                OptionalPostalAddress::from(identity.postal_address),
-                identity.date_of_birth,
+                Name::new(identity.name)?,
+                identity.email.map(Email::new).transpose()?,
+                OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                    identity.postal_address,
+                )?),
+                identity.date_of_birth.map(|d| Date::new(&d)).transpose()?,
                 identity
                     .country_of_birth
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                identity.city_of_birth,
-                identity.identification_number,
+                identity.city_of_birth.map(City::new).transpose()?,
+                identity
+                    .identification_number
+                    .map(Identification::new)
+                    .transpose()?,
                 identity.profile_picture_file_upload_id,
                 identity.identity_document_file_upload_id,
                 timestamp,
@@ -230,17 +246,25 @@ impl Identity {
         get_ctx()
             .identity_service
             .update_identity(
-                identity_payload.name,
-                identity_payload.email,
-                OptionalPostalAddress::from(identity_payload.postal_address),
-                identity_payload.date_of_birth,
+                identity_payload.name.map(Name::new).transpose()?,
+                identity_payload.email.map(Email::new).transpose()?,
+                OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                    identity_payload.postal_address,
+                )?),
+                identity_payload
+                    .date_of_birth
+                    .map(|d| Date::new(&d))
+                    .transpose()?,
                 identity_payload
                     .country_of_birth
                     .as_deref()
                     .map(Country::parse)
                     .transpose()?,
-                identity_payload.city_of_birth,
-                identity_payload.identification_number,
+                identity_payload.city_of_birth.map(City::new).transpose()?,
+                identity_payload
+                    .identification_number
+                    .map(Identification::new)
+                    .transpose()?,
                 identity_payload.profile_picture_file_upload_id,
                 !has_profile_picture_file_upload_id,
                 identity_payload.identity_document_file_upload_id,

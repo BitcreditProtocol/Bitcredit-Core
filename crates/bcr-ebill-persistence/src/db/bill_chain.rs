@@ -233,6 +233,7 @@ mod tests {
             bill::block::{BillAcceptBlockData, BillIdentParticipantBlockData},
         },
         contact::ContactType,
+        name::Name,
         util::BcrKeys,
     };
 
@@ -262,7 +263,7 @@ mod tests {
                 accepter: BillIdentParticipantBlockData {
                     t: ContactType::Person,
                     node_id: node_id_test(),
-                    name: "some dude".to_owned(),
+                    name: Name::new("some dude").unwrap(),
                     postal_address: empty_address(),
                 },
                 signatory: None,

@@ -4,6 +4,7 @@ pub use bcr_ebill_core::city;
 pub use bcr_ebill_core::company;
 pub use bcr_ebill_core::contact;
 pub use bcr_ebill_core::country;
+pub use bcr_ebill_core::date;
 pub use bcr_ebill_core::email;
 pub use bcr_ebill_core::identification;
 pub use bcr_ebill_core::identity;

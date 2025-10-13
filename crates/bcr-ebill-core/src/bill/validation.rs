@@ -9,6 +9,7 @@ use crate::{
     },
     constants::PAYMENT_DEADLINE_SECONDS,
     contact::BillParticipant,
+    date::Date,
     util::{self, date::start_of_day_as_timestamp},
 };
 
@@ -26,8 +27,8 @@ pub fn validate_bill_issue(data: &BillIssueData) -> Result<(u64, BillType), Vali
         return Err(ValidationError::SignerCantBeAnon);
     }
 
-    let issue_date_ts = util::date::date_string_to_timestamp(&data.issue_date, None)?;
-    let maturity_date_ts = util::date::date_string_to_timestamp(&data.maturity_date, None)?;
+    let issue_date_ts = data.issue_date.to_timestamp();
+    let maturity_date_ts = data.maturity_date.to_timestamp();
     let start_of_day = start_of_day_as_timestamp(data.timestamp);
 
     if maturity_date_ts < start_of_day {
@@ -400,10 +401,10 @@ impl Validate for BillValidateActionData {
 /// day of the req to pay deadline
 pub fn get_expiration_deadline_base_for_req_to_pay(
     req_to_pay_deadline: u64,
-    bill_maturity_date: &str,
+    bill_maturity_date: &Date,
 ) -> Result<u64, ValidationError> {
     let maturity_date_plus_min_deadline =
-        util::date::date_string_to_timestamp(bill_maturity_date, None)? + PAYMENT_DEADLINE_SECONDS;
+        bill_maturity_date.to_timestamp() + PAYMENT_DEADLINE_SECONDS;
     // we calculate from the end of the day
     let maturity_date_end_of_day =
         util::date::end_of_day_as_timestamp(maturity_date_plus_min_deadline);
@@ -553,6 +554,7 @@ mod tests {
                 tests::valid_bill_issue_block_data,
             },
         },
+        city::City,
         constants::{
             ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
@@ -565,10 +567,7 @@ mod tests {
             valid_bill_identified_participant, valid_bill_participant,
             valid_other_bill_identified_participant, valid_other_bill_participant,
         },
-        util::{
-            BcrKeys,
-            date::{format_date_string, now},
-        },
+        util::{BcrKeys, date::now},
     };
 
     use super::*;
@@ -578,15 +577,15 @@ mod tests {
         BillIssueData {
             t: 0,
             country_of_issuing: Country::AT,
-            city_of_issuing: "Vienna".into(),
-            issue_date: "2025-08-12".into(),
-            maturity_date: "2025-11-12".into(),
+            city_of_issuing: City::new("Vienna").unwrap(),
+            issue_date: Date::new("2025-08-12").unwrap(),
+            maturity_date: Date::new("2025-11-12").unwrap(),
             drawee: node_id_test(),
             payee: node_id_test_other(),
             sum: "500".into(),
             currency: CURRENCY_SAT.into(),
             country_of_payment: Country::FR,
-            city_of_payment: "Paris".into(),
+            city_of_payment: City::new("Paris").unwrap(),
             file_upload_ids: vec![],
             drawer_public_data: BillParticipant::Ident(valid_bill_identified_participant()),
             drawer_keys: BcrKeys::from_private_key(&private_key_test()).unwrap(),
@@ -604,10 +603,8 @@ mod tests {
     #[rstest]
     #[case::invalid_sum( BillIssueData { sum: "invalidsum".into(), ..valid_bill_issue_data() }, ValidationError::InvalidSum)]
     #[case::invalid_file_id( BillIssueData { file_upload_ids: vec!["".into()], ..valid_bill_issue_data() }, ValidationError::InvalidFileUploadId)]
-    #[case::invalid_issue_date( BillIssueData { issue_date: "invaliddate".into(), ..valid_bill_issue_data() }, ValidationError::InvalidDate)]
-    #[case::invalid_maturity_date( BillIssueData { maturity_date: "invaliddate".into(), ..valid_bill_issue_data() }, ValidationError::InvalidDate)]
-    #[case::maturity_date_before_now( BillIssueData { maturity_date: "2004-01-12".into(), ..valid_bill_issue_data() }, ValidationError::MaturityDateInThePast)]
-    #[case::issue_date_after_maturity_date( BillIssueData { issue_date: "2028-01-12".into(), ..valid_bill_issue_data() }, ValidationError::IssueDateAfterMaturityDate)]
+    #[case::maturity_date_before_now( BillIssueData { maturity_date: Date::new("2004-01-12").unwrap(), ..valid_bill_issue_data() }, ValidationError::MaturityDateInThePast)]
+    #[case::issue_date_after_maturity_date( BillIssueData { issue_date: Date::new("2028-01-12").unwrap(), ..valid_bill_issue_data() }, ValidationError::IssueDateAfterMaturityDate)]
     #[case::invalid_bill_type( BillIssueData { t: 5, ..valid_bill_issue_data() }, ValidationError::InvalidBillType)]
     #[case::drawee_equals_payee( BillIssueData { drawee: node_id_test(), payee: node_id_test(), ..valid_bill_issue_data() }, ValidationError::DraweeCantBePayee)]
     fn test_validate_bill_issue_data_errors(
@@ -925,7 +922,7 @@ mod tests {
             drawee_node_id: node_id_test(),
             payee_node_id: node_id_test_other(),
             endorsee_node_id: None,
-            maturity_date: "2024-11-12".into(),
+            maturity_date: Date::new("2024-11-12").unwrap(),
             bill_keys: BillKeys {
                 private_key: private_key_test(),
                 public_key: node_id_test().pub_key(),
@@ -1004,8 +1001,8 @@ mod tests {
 
     #[rstest]
     #[case::req_to_pay(BillValidateActionData { signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: "2022-11-12".into(), signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
+    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: Date::new("2022-11-12").unwrap(), signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), bill_action: BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
     fn test_validate_bill_req_to_pay_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1166,7 +1163,7 @@ mod tests {
 
     #[rstest]
     #[case::offer_to_sell(BillValidateActionData { bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS)), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) ,bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS)), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) ,bill_action: BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS)), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_offer_to_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1195,7 +1192,7 @@ mod tests {
     #[case::sell(BillValidateActionData { bill_action: BillAction::Sell(valid_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     // minus 8 seconds so timestamp is before offer to sell expiry and after req to pay expiry
     // as every block adds 1 sec to issue block, which is now() - 10
-    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: "2099-11-12".into(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), bill_action: BillAction::Sell(valid_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
+    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), bill_action: BillAction::Sell(valid_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into()), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
     fn test_validate_bill_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1281,7 +1278,7 @@ mod tests {
 
     #[rstest]
     #[case::reject_to_pay(BillValidateActionData { bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
-    #[case::reject_to_pay_maturity_not_expired(BillValidateActionData { maturity_date: format_date_string(now()),  bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::reject_to_pay_maturity_not_expired(BillValidateActionData { maturity_date: Date::from(now()),  bill_action: BillAction::RejectPayment, ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_reject_payment_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
