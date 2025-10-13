@@ -42,6 +42,7 @@ document.getElementById("bill_fetch_bill_file").addEventListener("click", fetchB
 document.getElementById("bill_fetch_bills").addEventListener("click", fetchBillBills);
 document.getElementById("bill_balances").addEventListener("click", fetchBillBalances);
 document.getElementById("bill_search").addEventListener("click", fetchBillSearch);
+document.getElementById("bill_history").addEventListener("click", fetchBillHistory);
 document.getElementById("endorse_bill").addEventListener("click", endorseBill);
 document.getElementById("blank_endorse_bill").addEventListener("click", endorseBillBlank);
 document.getElementById("req_to_accept_bill").addEventListener("click", requestToAcceptBill);
@@ -703,6 +704,14 @@ async function fetchBillBalances() {
 async function fetchBillSearch() {
   let measured = measure(async () => {
     return await billApi.search({ filter: { currency: "sat", role: "All" } });
+  });
+  await measured();
+}
+
+async function fetchBillHistory() {
+  let bill_id = document.getElementById("bill_id").value;
+  let measured = measure(async () => {
+    return await billApi.bill_history(bill_id);
   });
   await measured();
 }

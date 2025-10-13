@@ -32,8 +32,9 @@ use crate::util::file::UploadFileType;
 use crate::{external, util};
 use async_trait::async_trait;
 use bcr_ebill_core::bill::{
-    BillIssueData, BillValidateActionData, PastPaymentDataPayment, PastPaymentDataRecourse,
-    PastPaymentDataSell, PastPaymentResult, PastPaymentStatus, PaymentState,
+    BillHistory, BillIssueData, BillValidateActionData, PastPaymentDataPayment,
+    PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+    PaymentState,
 };
 use bcr_ebill_core::blockchain::bill::block::{
     BillParticipantBlockData, BillRequestRecourseBlockData,
@@ -1937,5 +1938,23 @@ impl BillServiceApi for BillService {
             court_url
         );
         Ok(())
+    }
+
+    async fn get_bill_history(
+        &self,
+        bill_id: &BillId,
+        local_identity: &Identity,
+        current_identity_node_id: &NodeId,
+        current_timestamp: u64,
+    ) -> Result<BillHistory> {
+        let detail = self
+            .get_detail(
+                bill_id,
+                local_identity,
+                current_identity_node_id,
+                current_timestamp,
+            )
+            .await?;
+        Ok(detail.history)
     }
 }

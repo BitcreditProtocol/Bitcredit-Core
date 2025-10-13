@@ -7,9 +7,9 @@ pub mod tests {
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
         address::Address,
         bill::{
-            BillAcceptanceStatus, BillData, BillId, BillKeys, BillMintStatus, BillParticipants,
-            BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BitcreditBill,
-            BitcreditBillResult,
+            BillAcceptanceStatus, BillData, BillHistory, BillId, BillKeys, BillMintStatus,
+            BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
+            BitcreditBill, BitcreditBillResult,
         },
         city::City,
         constants::CURRENCY_SAT,
@@ -170,6 +170,7 @@ pub mod tests {
                 last_block_time: 1731593928,
             },
             current_waiting_state: None,
+            history: BillHistory { blocks: vec![] },
         }
     }
 

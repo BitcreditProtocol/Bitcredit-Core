@@ -12,7 +12,7 @@ use crate::data::{
 use crate::util::BcrKeys;
 use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::bill::{BillAction, BillIssueData, PastPaymentResult};
+use bcr_ebill_core::bill::{BillAction, BillHistory, BillIssueData, PastPaymentResult};
 use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
 
 pub use error::Error;
@@ -235,6 +235,14 @@ pub trait BillServiceApi: ServiceTraitBounds {
         signer_keys: &BcrKeys,
         court_node_id: &NodeId,
     ) -> Result<()>;
+
+    async fn get_bill_history(
+        &self,
+        bill_id: &BillId,
+        local_identity: &Identity,
+        current_identity_node_id: &NodeId,
+        current_timestamp: u64,
+    ) -> Result<BillHistory>;
 }
 
 #[cfg(test)]
@@ -6163,7 +6171,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn recourse_bitcredit_bill_fails_for_anon() {
+    async fn recourse_bitcredit_bill_works_for_anon() {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
@@ -6219,6 +6227,9 @@ pub mod tests {
             .expect_send_bill_recourse_paid_event()
             .returning(|_, _| Ok(()));
 
+        // Populates identity block
+        expect_populates_identity_block(&mut ctx);
+
         let service = get_service(ctx);
 
         let res = service
@@ -6235,11 +6246,9 @@ pub mod tests {
                 1731593928,
             )
             .await;
-        assert!(res.is_err());
-        assert!(matches!(
-            res.as_ref().unwrap_err(),
-            Error::Validation(ValidationError::SignerCantBeAnon)
-        ));
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().blocks().len(), 3);
+        assert_eq!(res.unwrap().blocks()[2].op_code, BillOpCode::Recourse);
     }
 
     #[test]
@@ -7359,5 +7368,41 @@ pub mod tests {
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
         ));
+    }
+
+    #[tokio::test]
+    async fn get_bill_history_baseline() {
+        let mut ctx = get_ctx();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill(&bill_id_test());
+        bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+        let drawer_node_id = bill.drawer.node_id.clone();
+        ctx.bill_store.expect_exists().returning(|_| Ok(true));
+        ctx.bill_blockchain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        ctx.notification_service
+            .expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+
+        let res = get_service(ctx)
+            .get_bill_history(
+                &bill_id_test(),
+                &identity.identity,
+                &identity.identity.node_id,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().blocks.len(), 1);
+        assert_eq!(
+            res.as_ref().unwrap().blocks[0].block_type,
+            BillOpCode::Issue
+        );
+        assert_eq!(
+            res.as_ref().unwrap().blocks[0].signed.data.node_id(),
+            drawer_node_id
+        );
     }
 }

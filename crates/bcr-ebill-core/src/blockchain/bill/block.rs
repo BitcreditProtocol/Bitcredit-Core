@@ -5,7 +5,7 @@ use super::BillOpCode::{
     RejectToPayRecourse, RequestRecourse, RequestToAccept, RequestToPay, Sell,
 };
 
-use crate::bill::{BillAction, BillId, RecourseReason};
+use crate::bill::{BillAction, BillHistoryBlock, BillId, LightSignedBy, RecourseReason};
 use crate::blockchain::{Block, FIRST_BLOCK_ID};
 use crate::city::City;
 use crate::constants::{
@@ -491,14 +491,14 @@ impl Validate for BillRequestRecourseBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRecourseBlockData {
-    pub recourser: BillIdentParticipantBlockData, // anon can't do recourse
+    pub recourser: BillParticipantBlockData, // anon can do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
     pub sum: u64,
     pub currency: String,
     pub recourse_reason: BillRecourseReasonBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: PostalAddress, // address of the endorser
+    pub signing_address: Option<PostalAddress>, // address of the endorser
 }
 
 impl Validate for BillRecourseBlockData {
@@ -506,7 +506,7 @@ impl Validate for BillRecourseBlockData {
         self.recourser.validate()?;
         self.recoursee.validate()?;
 
-        if self.recoursee.node_id == self.recourser.node_id {
+        if self.recoursee.node_id == self.recourser.node_id() {
             return Err(ValidationError::RecourserCantBeRecoursee);
         }
 
@@ -1387,7 +1387,7 @@ impl BillBlock {
             Recourse => {
                 let block_data_decrypted: BillRecourseBlockData =
                     self.get_decrypted_block(bill_keys)?;
-                nodes.insert(block_data_decrypted.recourser.node_id);
+                nodes.insert(block_data_decrypted.recourser.node_id());
                 nodes.insert(block_data_decrypted.recoursee.node_id);
             }
         }
@@ -1404,7 +1404,7 @@ impl BillBlock {
             }
             Recourse => {
                 let block: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
-                Ok(Some(block.recourser.node_id))
+                Ok(Some(block.recourser.node_id()))
             }
             _ => Ok(None),
         }
@@ -1431,6 +1431,193 @@ impl BillBlock {
             }
             _ => Ok(None),
         }
+    }
+
+    pub fn get_history_from_block(&self, bill_keys: &BillKeys) -> Result<BillHistoryBlock> {
+        Ok(match self.op_code {
+            Issue => {
+                let block_data_decrypted: BillIssueBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        BillParticipantBlockData::Ident(block_data_decrypted.drawer),
+                        block_data_decrypted.signatory,
+                    )),
+                    Some(block_data_decrypted.signing_address),
+                )
+            }
+            Endorse => {
+                let block_data_decrypted: BillEndorseBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    Some(block_data_decrypted.endorsee.into()),
+                    LightSignedBy::from((
+                        block_data_decrypted.endorser,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            Mint => {
+                let block_data_decrypted: BillMintBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    Some(block_data_decrypted.endorsee.into()),
+                    LightSignedBy::from((
+                        block_data_decrypted.endorser,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            RequestToAccept => {
+                let block_data_decrypted: BillRequestToAcceptBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        block_data_decrypted.requester,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            Accept => {
+                let block_data_decrypted: BillAcceptBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        BillParticipantBlockData::Ident(block_data_decrypted.accepter),
+                        block_data_decrypted.signatory,
+                    )),
+                    Some(block_data_decrypted.signing_address),
+                )
+            }
+            RequestToPay => {
+                let block_data_decrypted: BillRequestToPayBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        block_data_decrypted.requester,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            OfferToSell => {
+                let block_data_decrypted: BillOfferToSellBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    Some(block_data_decrypted.buyer.into()),
+                    LightSignedBy::from((
+                        block_data_decrypted.seller,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            Sell => {
+                let block_data_decrypted: BillSellBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    Some(block_data_decrypted.buyer.into()),
+                    LightSignedBy::from((
+                        block_data_decrypted.seller,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            RejectToAccept => {
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        BillParticipantBlockData::Ident(block_data_decrypted.rejecter),
+                        block_data_decrypted.signatory,
+                    )),
+                    Some(block_data_decrypted.signing_address),
+                )
+            }
+            RejectToPay => {
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        BillParticipantBlockData::Ident(block_data_decrypted.rejecter),
+                        block_data_decrypted.signatory,
+                    )),
+                    Some(block_data_decrypted.signing_address),
+                )
+            }
+            RejectToPayRecourse => {
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        BillParticipantBlockData::Ident(block_data_decrypted.rejecter),
+                        block_data_decrypted.signatory,
+                    )),
+                    Some(block_data_decrypted.signing_address),
+                )
+            }
+            RejectToBuy => {
+                let block_data_decrypted: BillRejectToBuyBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    None,
+                    LightSignedBy::from((
+                        block_data_decrypted.rejecter,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            RequestRecourse => {
+                let block_data_decrypted: BillRequestRecourseBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    Some(BillParticipantBlockData::Ident(block_data_decrypted.recoursee).into()),
+                    LightSignedBy::from((
+                        block_data_decrypted.recourser,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+            Recourse => {
+                let block_data_decrypted: BillRecourseBlockData =
+                    self.get_decrypted_block(bill_keys)?;
+                BillHistoryBlock::new(
+                    self,
+                    Some(BillParticipantBlockData::Ident(block_data_decrypted.recoursee).into()),
+                    LightSignedBy::from((
+                        block_data_decrypted.recourser,
+                        block_data_decrypted.signatory,
+                    )),
+                    block_data_decrypted.signing_address,
+                )
+            }
+        })
     }
 
     /// If the block is holder-changing block (issue, endorse, sell, mint, recourse), returns
@@ -1473,7 +1660,7 @@ impl BillBlock {
                 let block: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 Ok(Some(HolderFromBlock {
                     holder: BillParticipantBlockData::Ident(block.recoursee),
-                    signer: BillParticipantBlockData::Ident(block.recourser),
+                    signer: block.recourser,
                     signatory: block.signatory,
                 }))
             }
@@ -1640,7 +1827,7 @@ impl BillBlock {
                 };
                 data.validate()?;
                 (
-                    data.recourser.node_id,
+                    data.recourser.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::Recourse(
                         data.recoursee.into(),
@@ -2176,14 +2363,14 @@ pub mod tests {
             bill_id_test(),
             &get_first_block(),
             &BillRecourseBlockData {
-                recourser: recourser.clone().into(),
+                recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
                 sum: 15000,
                 currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: recourser.postal_address,
+                signing_address: Some(recourser.postal_address),
             },
             &get_baseline_identity().key_pair,
             None,
@@ -2589,14 +2776,14 @@ pub mod tests {
             bill_id_test(),
             &issue_block,
             &BillRecourseBlockData {
-                recourser: signer.clone().into(),
+                recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
                 currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             None,
@@ -3053,7 +3240,7 @@ pub mod tests {
             bill_id_test(),
             &issue_block,
             &BillRecourseBlockData {
-                recourser: signer.clone().into(),
+                recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
                 sum: 15000,
                 currency: CURRENCY_SAT.to_string(),
@@ -3063,7 +3250,7 @@ pub mod tests {
                     name: Name::new("signatory name").unwrap(),
                 }),
                 signing_timestamp: 1731593928,
-                signing_address: signer.postal_address.clone(),
+                signing_address: Some(signer.postal_address.clone()),
             },
             &identity_keys,
             Some(&company_keys),
@@ -3407,14 +3594,14 @@ pub mod tests {
 
     fn valid_recourse_block_data() -> BillRecourseBlockData {
         BillRecourseBlockData {
-            recourser: valid_bill_identity_block_data(),
+            recourser: BillParticipantBlockData::Ident(valid_bill_identity_block_data()),
             recoursee: other_valid_bill_identity_block_data(),
             currency: CURRENCY_SAT.into(),
             sum: 500,
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
-            signing_address: valid_address(),
+            signing_address: Some(valid_address()),
         }
     }
 

@@ -148,7 +148,8 @@ impl BillService {
         let time_of_drawing = first_version_bill.signing_timestamp;
 
         let bill_participants = chain.get_all_nodes_from_bill(bill_keys)?;
-        let endorsements = chain.get_endorsements_for_bill(bill_keys);
+        let bill_history = chain.get_bill_history(bill_keys)?;
+        let endorsements = bill_history.get_endorsements();
         let endorsements_count = endorsements.len() as u64;
 
         let holder = match bill.endorsee {
@@ -595,6 +596,7 @@ impl BillService {
             data: bill_data,
             status,
             current_waiting_state,
+            history: bill_history,
         })
     }
 
