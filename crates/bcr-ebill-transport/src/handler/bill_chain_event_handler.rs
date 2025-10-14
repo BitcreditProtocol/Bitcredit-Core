@@ -53,7 +53,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
         node_id: &NodeId,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
-        debug!("incoming bill chain event for {node_id}");
+        debug!("incoming bill chain event for {node_id} in chain event handler");
         if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.bill_store.get_keys(&decoded.data.bill_id).await {
                 let valid = self

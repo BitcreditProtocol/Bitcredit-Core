@@ -133,7 +133,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
         node_id: &NodeId,
         evt: Option<Box<nostr::Event>>,
     ) -> Result<()> {
-        debug!("incoming bill chain event for {node_id}");
+        debug!("incoming bill chain event for {node_id} in action event handler");
         if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
             if let Err(e) = self
                 .create_notification(
