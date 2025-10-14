@@ -116,6 +116,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     /// Shares derived keys for private identity contact information. Recipient is the given node id.
     async fn share_contact_details(&self, share_to: &NodeId) -> Result<()>;
 
+    /// Publishes this identity's contact to the nostr profile
+    async fn publish_contact(&self, identity: &Identity, keys: &BcrKeys) -> Result<()>;
+
     /// If dev mode is on, return the full identity chain with decrypted data
     async fn dev_mode_get_full_identity_chain(&self) -> Result<Vec<IdentityBlockPlaintextWrapper>>;
 }
@@ -208,14 +211,8 @@ impl IdentityService {
     }
 
     async fn on_identity_contact_change(&self, identity: &Identity, keys: &BcrKeys) -> Result<()> {
-        debug!("Identity change, publishing our identity contact to nostr profile");
-        let bcr_data = get_bcr_data(identity, keys)?;
-        let contact_data =
-            NostrContactData::new(&identity.name, identity.nostr_relays.clone(), bcr_data);
-        self.notification_service
-            .publish_contact(&identity.node_id, &contact_data)
-            .await?;
-        Ok(())
+        debug!("Identity change");
+        self.publish_contact(identity, keys).await
     }
 }
 
@@ -754,6 +751,17 @@ impl IdentityServiceApi for IdentityService {
         let plaintext_chain = chain.get_chain_with_plaintext_block_data(&keys)?;
 
         Ok(plaintext_chain)
+    }
+
+    async fn publish_contact(&self, identity: &Identity, keys: &BcrKeys) -> Result<()> {
+        debug!("Publishing our identity contact to nostr profile");
+        let bcr_data = get_bcr_data(identity, keys)?;
+        let contact_data =
+            NostrContactData::new(&identity.name, identity.nostr_relays.clone(), bcr_data);
+        self.notification_service
+            .publish_contact(&identity.node_id, &contact_data)
+            .await?;
+        Ok(())
     }
 }
 
