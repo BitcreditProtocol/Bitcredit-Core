@@ -631,7 +631,7 @@ impl BillBlockchain {
 
     /// Checks if the req to accept of the given block is expired, returning the result and
     /// the deadline
-    pub fn is_req_to_accept_block_payment_expired(
+    pub fn is_req_to_accept_block_expired(
         &self,
         req_to_pay: &BillBlock,
         bill_keys: &BillKeys,

@@ -21,8 +21,8 @@ use crate::{
 use bcr_ebill_core::{
     address::Address,
     bill::{
-        BillAcceptanceStatus, BillData, BillMintStatus, BillParticipants, BillPaymentStatus,
-        BillRecourseStatus, BillSellStatus, BillStatus, PaidData, PaymentState,
+        BillAcceptanceStatus, BillCallerActions, BillData, BillMintStatus, BillParticipants,
+        BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, PaidData, PaymentState,
     },
     blockchain::{
         Blockchain,
@@ -159,6 +159,9 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
         },
         current_waiting_state: None,
         history: BillHistory { blocks: vec![] },
+        actions: BillCallerActions {
+            bill_actions: vec![],
+        },
     }
 }
 

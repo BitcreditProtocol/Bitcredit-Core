@@ -6,11 +6,11 @@ use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
 use bcr_ebill_core::bill::{
-    BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillId,
-    BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
-    BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-    BillWaitingStatePaymentData, BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy,
-    PaidData, PaymentState,
+    BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCurrentWaitingState,
+    BillData, BillHistory, BillHistoryBlock, BillId, BillMintStatus, BillParticipants,
+    BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
+    BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
+    BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy, PaidData, PaymentState,
 };
 use bcr_ebill_core::city::City;
 use bcr_ebill_core::contact::{
@@ -373,6 +373,7 @@ pub struct BitcreditBillResultDb {
     pub status: BillStatusDb,
     pub current_waiting_state: Option<BillCurrentWaitingStateDb>,
     pub history: BillHistoryDb,
+    pub actions: BillCallerActionsDb,
     pub identity_node_id: NodeId,
 }
 
@@ -385,6 +386,7 @@ impl From<BitcreditBillResultDb> for BitcreditBillResult {
             status: value.status.into(),
             current_waiting_state: value.current_waiting_state.map(|cws| cws.into()),
             history: value.history.into(),
+            actions: value.actions.into(),
         }
     }
 }
@@ -398,6 +400,7 @@ impl From<(&BitcreditBillResult, &NodeId)> for BitcreditBillResultDb {
             status: (&value.status).into(),
             current_waiting_state: value.current_waiting_state.as_ref().map(|cws| cws.into()),
             history: value.history.clone().into(),
+            actions: value.actions.clone().into(),
             identity_node_id: identity_node_id.to_owned(),
         }
     }
@@ -886,6 +889,27 @@ impl From<BillHistory> for BillHistoryDb {
     fn from(value: BillHistory) -> Self {
         Self {
             blocks: value.blocks.into_iter().map(|b| b.into()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillCallerActionsDb {
+    pub bill_actions: Vec<BillCallerBillAction>,
+}
+
+impl From<BillCallerActionsDb> for BillCallerActions {
+    fn from(value: BillCallerActionsDb) -> Self {
+        Self {
+            bill_actions: value.bill_actions,
+        }
+    }
+}
+
+impl From<BillCallerActions> for BillCallerActionsDb {
+    fn from(value: BillCallerActions) -> Self {
+        Self {
+            bill_actions: value.bill_actions,
         }
     }
 }

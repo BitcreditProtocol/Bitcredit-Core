@@ -514,6 +514,10 @@ pub enum ValidationError {
     /// error returned if the identity proof status was invalid
     #[error("Invalid identity proof status: {0}")]
     InvalidIdentityProofStatus(String),
+
+    /// error returned if the bill action was invalid
+    #[error("Invalid bill action")]
+    InvalidBillAction,
 }
 
 impl From<bcr_common::core::Error> for ValidationError {

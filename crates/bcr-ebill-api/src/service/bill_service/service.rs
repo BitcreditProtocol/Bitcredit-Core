@@ -32,9 +32,9 @@ use crate::util::file::UploadFileType;
 use crate::{external, util};
 use async_trait::async_trait;
 use bcr_ebill_core::bill::{
-    BillHistory, BillIssueData, BillValidateActionData, PastPaymentDataPayment,
-    PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
-    PaymentState,
+    BillHistory, BillIssueData, BillValidateActionData, BillValidationActionMode,
+    PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult,
+    PastPaymentStatus, PaymentState,
 };
 use bcr_ebill_core::blockchain::bill::block::{
     BillParticipantBlockData, BillRequestRecourseBlockData,
@@ -256,7 +256,7 @@ impl BillService {
 
             BillOpCode::RequestToAccept
                 if chain
-                    .is_req_to_accept_block_payment_expired(latest_block, &bill_keys, now)?
+                    .is_req_to_accept_block_expired(latest_block, &bill_keys, now)?
                     .0 =>
             {
                 Some(ActionType::AcceptBill)
@@ -1060,8 +1060,8 @@ impl BillServiceApi for BillService {
             bill_keys: bill_keys.clone(),
             timestamp,
             signer_node_id: signer_public_data.node_id().clone(),
-            bill_action: bill_action.clone(),
             is_paid,
+            mode: BillValidationActionMode::Deep(bill_action.clone()),
         }
         .validate()?;
 
@@ -1515,12 +1515,12 @@ impl BillServiceApi for BillService {
             bill_keys: bill_keys.clone(),
             timestamp,
             signer_node_id: signer_public_data.node_id().clone(),
-            bill_action: BillAction::Mint(
+            is_paid,
+            mode: BillValidationActionMode::Deep(BillAction::Mint(
                 mint_anon_participant.clone(),
                 bill.sum,
                 bill.currency.clone(),
-            ),
-            is_paid,
+            )),
         }
         .validate()?;
 

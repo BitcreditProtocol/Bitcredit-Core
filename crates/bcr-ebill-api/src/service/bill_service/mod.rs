@@ -268,9 +268,9 @@ pub mod tests {
     use bcr_ebill_core::{
         File, ValidationError,
         bill::{
-            BillAcceptanceStatus, BillCurrentWaitingState, BillPaymentStatus, BillRecourseStatus,
-            BillSellStatus, BillWaitingForPaymentState, BillWaitingStatePaymentData,
-            PastPaymentStatus, RecourseReason,
+            BillAcceptanceStatus, BillCallerBillAction, BillCurrentWaitingState, BillPaymentStatus,
+            BillRecourseStatus, BillSellStatus, BillWaitingForPaymentState,
+            BillWaitingStatePaymentData, PastPaymentStatus, RecourseReason,
         },
         blockchain::{
             Blockchain,
@@ -1130,7 +1130,23 @@ pub mod tests {
         );
         assert!(!res.as_ref().unwrap().status.payment.requested_to_pay);
         assert!(!res.as_ref().unwrap().status.payment.paid);
+        assert!(!res.as_ref().unwrap().status.acceptance.accepted);
         assert!(!res.as_ref().unwrap().status.redeemed_funds_available);
+        assert!(
+            res.as_ref()
+                .unwrap()
+                .actions
+                .bill_actions
+                .contains(&BillCallerBillAction::Accept)
+        );
+        assert!(
+            res.as_ref()
+                .unwrap()
+                .actions
+                .bill_actions
+                .contains(&BillCallerBillAction::RejectAcceptance)
+        );
+        assert_eq!(res.as_ref().unwrap().actions.bill_actions.len(), 2);
     }
 
     #[tokio::test]
@@ -1337,6 +1353,15 @@ pub mod tests {
         assert!(res.as_ref().unwrap().current_waiting_state.is_some());
         assert!(!res.as_ref().unwrap().status.redeemed_funds_available);
         assert!(res.as_ref().unwrap().status.has_requested_funds);
+
+        assert!(
+            res.as_ref()
+                .unwrap()
+                .actions
+                .bill_actions
+                .contains(&BillCallerBillAction::RejectBuying)
+        );
+        assert_eq!(res.as_ref().unwrap().actions.bill_actions.len(), 1);
     }
 
     #[tokio::test]
@@ -1447,6 +1472,21 @@ pub mod tests {
         assert!(!res.as_ref().unwrap().status.sell.rejected_offer_to_sell);
         assert!(res.as_ref().unwrap().current_waiting_state.is_none());
         assert!(res.as_ref().unwrap().status.has_requested_funds);
+        assert_eq!(res.as_ref().unwrap().actions.bill_actions.len(), 2);
+        assert!(
+            res.as_ref()
+                .unwrap()
+                .actions
+                .bill_actions
+                .contains(&BillCallerBillAction::Accept)
+        );
+        assert!(
+            res.as_ref()
+                .unwrap()
+                .actions
+                .bill_actions
+                .contains(&BillCallerBillAction::RejectAcceptance)
+        );
     }
 
     #[tokio::test]
@@ -1562,6 +1602,14 @@ pub mod tests {
         assert!(res.as_ref().unwrap().current_waiting_state.is_some());
         assert!(!res.as_ref().unwrap().status.redeemed_funds_available);
         assert!(res.as_ref().unwrap().status.has_requested_funds);
+        assert_eq!(res.as_ref().unwrap().actions.bill_actions.len(), 1);
+        assert!(
+            res.as_ref()
+                .unwrap()
+                .actions
+                .bill_actions
+                .contains(&BillCallerBillAction::RejectPaymentForRecourse)
+        );
     }
 
     #[tokio::test]

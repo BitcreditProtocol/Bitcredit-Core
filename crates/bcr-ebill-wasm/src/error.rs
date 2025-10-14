@@ -141,6 +141,7 @@ enum JsErrorType {
     InvalidUrl,
     InvalidIdentityProofStatus,
     Json,
+    InvalidBillAction,
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -350,6 +351,7 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::InvalidBase58 => err_400(e, JsErrorType::InvalidBase58),
         ValidationError::InvalidSignature => err_400(e, JsErrorType::InvalidSignature),
         ValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
+        ValidationError::InvalidBillAction => err_400(e, JsErrorType::InvalidBillAction),
         ValidationError::InvalidIdentityProofStatus(_) => {
             err_400(e, JsErrorType::InvalidIdentityProofStatus)
         }

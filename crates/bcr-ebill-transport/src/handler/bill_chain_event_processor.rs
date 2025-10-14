@@ -5,8 +5,8 @@ use bcr_ebill_api::service::notification_service::transport::NotificationJsonTra
 use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
-use bcr_ebill_core::bill::BillValidateActionData;
 use bcr_ebill_core::bill::{BillId, BillKeys};
+use bcr_ebill_core::bill::{BillValidateActionData, BillValidationActionMode};
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
@@ -308,16 +308,17 @@ impl BillChainEventProcessor {
             bill_keys: bill_keys.clone(),
             timestamp: block.timestamp,
             signer_node_id: signer,
-            bill_action: bill_action.ok_or_else(|| {
-                error!(
-                    "Received invalid block {block_id} for bill {bill_id} - no valid bill action returned"
-                );
-                Error::Blockchain(
-                    "Received invalid block for bill - no valid bill action returned"
-                    .to_string(),
-                )
-            })?,
             is_paid,
+            mode: BillValidationActionMode::Deep(
+                bill_action.ok_or_else(|| {
+                    error!(
+                        "Received invalid block {block_id} for bill {bill_id} - no valid bill action returned"
+                    );
+                    Error::Blockchain(
+                        "Received invalid block for bill - no valid bill action returned"
+                        .to_string(),
+                    )
+                })?),
         }).validate()
         {
             error!(
