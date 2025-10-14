@@ -9,7 +9,7 @@ use bcr_ebill_api::{
 use bcr_ebill_api::{CourtConfig, DevModeConfig, PaymentConfig};
 use context::{Context, get_ctx};
 use job::run_jobs;
-use log::{debug, info};
+use log::{debug, info, warn};
 use nostr_sdk::ToBech32;
 use serde::Deserialize;
 use std::thread_local;
@@ -176,8 +176,55 @@ pub async fn initialize_api(
 
         let ctx = get_ctx();
 
+        info!("Connecting to Nostr transport..");
         // before subscription we ensure if we have a connection to the transports
         ctx.notification_service.connect().await;
+
+        // and ensure that the metadata of our personal identity is published
+        if let Ok(full_identity) = ctx.identity_service.get_full_identity().await {
+            match ctx
+                .notification_service
+                .resolve_contact(&full_identity.identity.node_id)
+                .await
+            {
+                Ok(None) => {
+                    if let Err(e) = ctx
+                        .identity_service
+                        .publish_contact(&full_identity.identity, &full_identity.key_pair)
+                        .await
+                    {
+                        warn!("Could not publish identity details to Nostr: {e}")
+                    }
+                }
+                Ok(Some(_)) => (),
+                Err(e) => {
+                    warn!("Could not resolve personal identity details on Nostr: {e}")
+                }
+            }
+        }
+
+        // and ensure that the metadata of our active companies is published
+        if let Ok(companies) = ctx.company_service.get_list_of_companies().await {
+            for c in companies.iter() {
+                if let Ok((company, keys)) =
+                    ctx.company_service.get_company_and_keys_by_id(&c.id).await
+                {
+                    match ctx.notification_service.resolve_contact(&company.id).await {
+                        Ok(None) => {
+                            if let Err(e) =
+                                ctx.company_service.publish_contact(&company, &keys).await
+                            {
+                                warn!("Could not publish company details to Nostr: {e}")
+                            }
+                        }
+                        Ok(Some(_)) => (),
+                        Err(e) => {
+                            warn!("Could not resolve company details on Nostr: {e}")
+                        }
+                    }
+                }
+            }
+        }
 
         // and make sure the configured default mint exists
         ctx.notification_service

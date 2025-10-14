@@ -129,6 +129,9 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         &self,
         id: &NodeId,
     ) -> Result<Vec<CompanyBlockPlaintextWrapper>>;
+
+    /// Publishes this company's contact to the nostr profile
+    async fn publish_contact(&self, company: &Company, keys: &CompanyKeys) -> Result<()>;
 }
 
 /// The company service is responsible for managing the companies
@@ -238,15 +241,8 @@ impl CompanyService {
     }
 
     async fn on_company_contact_change(&self, company: &Company, keys: &CompanyKeys) -> Result<()> {
-        debug!("Company change, publishing our company contact to nostr profile");
-        let relays = get_config().nostr_config.relays.clone();
-        let bcr_data = get_bcr_data(company, keys, relays.clone())?;
-        let contact_data = NostrContactData::new(&company.name, relays, bcr_data);
-        debug!("Publishing company contact data: {contact_data:?}");
-        self.notification_service
-            .publish_contact(&company.id, &contact_data)
-            .await?;
-        Ok(())
+        debug!("Company change");
+        self.publish_contact(company, keys).await
     }
 }
 
@@ -997,6 +993,18 @@ impl CompanyServiceApi for CompanyService {
         let plaintext_chain = chain.get_chain_with_plaintext_block_data(&company_keys)?;
 
         Ok(plaintext_chain)
+    }
+
+    async fn publish_contact(&self, company: &Company, keys: &CompanyKeys) -> Result<()> {
+        debug!("Publishing our company contact to nostr profile");
+        let relays = get_config().nostr_config.relays.clone();
+        let bcr_data = get_bcr_data(company, keys, relays.clone())?;
+        let contact_data = NostrContactData::new(&company.name, relays, bcr_data);
+        debug!("Publishing company contact data: {contact_data:?}");
+        self.notification_service
+            .publish_contact(&company.id, &contact_data)
+            .await?;
+        Ok(())
     }
 }
 
