@@ -375,7 +375,11 @@ impl Validate for BillValidateActionData {
                 self.bill_waiting_for_offer_to_sell()?;
                 // not waiting for req to pay
                 self.bill_waiting_for_req_to_pay()?;
-                // if the op was already rejected, can't reject again - checked above
+                // if the op was already rejected, can't reject again
+                if BillOpCode::RejectToPayRecourse == *self.blockchain.get_latest_block().op_code()
+                {
+                    return Err(ValidationError::RequestAlreadyRejected);
+                }
                 // there has to be a request to recourse that is not expired
                 if let RecourseWaitingForPayment::Yes(payment_info) = self
                     .blockchain
