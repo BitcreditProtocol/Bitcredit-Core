@@ -96,9 +96,9 @@ let config = {
   // nostr_relays: ["ws://localhost:8080"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
-  job_runner_initial_delay_seconds: 1,
+  job_runner_initial_delay_seconds: 5,
   job_runner_check_interval_seconds: 600,
-  transport_initial_subscription_delay_seconds: 2,
+  transport_initial_subscription_delay_seconds: 1,
   // default_mint_url: "http://localhost:4343",
   default_mint_url: "https://wildcat-dev-docker.minibill.tech",
   // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
@@ -129,6 +129,7 @@ async function start(create_identity) {
     console.log("local identity:", identity);
   } catch (err) {
     if (create_identity) {
+      await sleep(2000); // sleep to let Nostr connect before first setup
       console.log("No local identity found - creating anon identity..");
       await identityApi.create({
         t: 1,
@@ -894,3 +895,6 @@ function getDeadlineDate() {
   return nDaysLater.toISOString().split('T')[0]
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}

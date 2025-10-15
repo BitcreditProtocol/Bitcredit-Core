@@ -2,6 +2,7 @@
 
 * Fix a bug where it was possible to reject recourse, even though it was already rejected
 * Fixed an issue where it could happen that identity and company contacts weren't propagated to Nostr, leading to block propagation inconsistencies
+* Fail with an error, if we have to connect to Nostr, but the client is not connected
 
 # 0.4.10
 
