@@ -58,7 +58,7 @@ pub enum SortOrder {
 #[derive(Clone)]
 pub struct NostrClient {
     pub keys: BcrKeys,
-    pub client: Client,
+    client: Client,
     config: NostrConfig,
     connected: Arc<AtomicBool>,
 }
@@ -122,7 +122,7 @@ impl NostrClient {
         false
     }
 
-    // We create the client with a private key so this should never fail.
+    // We create the client with a private key so getting the signer should never fail.
     pub async fn get_signer(&self) -> Arc<dyn NostrSigner> {
         self.client
             .signer()
@@ -132,7 +132,7 @@ impl NostrClient {
 
     /// Subscribe to some nostr events with a filter
     pub async fn subscribe(&self, subscription: Filter) -> Result<()> {
-        self.client
+        self.client()?
             .subscribe(subscription, None)
             .await
             .map_err(|e| {
@@ -146,7 +146,7 @@ impl NostrClient {
     /// from this clients relays.
     pub async fn fetch_metadata(&self, npub: PublicKey) -> Result<Option<Metadata>> {
         let result = self
-            .client
+            .client()?
             .fetch_metadata(npub, self.config.default_timeout.to_owned())
             .await
             .map_err(|e| {
@@ -190,10 +190,13 @@ impl NostrClient {
         relays: Vec<(RelayUrl, Option<RelayMetadata>)>,
     ) -> Result<()> {
         let event = EventBuilder::relay_list(relays);
-        self.client.send_event_builder(event).await.map_err(|e| {
-            error!("Failed to send Nostr relay list: {e}");
-            Error::Network("Failed to send Nostr relay list".to_string())
-        })?;
+        self.client()?
+            .send_event_builder(event)
+            .await
+            .map_err(|e| {
+                error!("Failed to send Nostr relay list: {e}");
+                Error::Network("Failed to send Nostr relay list".to_string())
+            })?;
         Ok(())
     }
 
@@ -207,7 +210,7 @@ impl NostrClient {
         relays: Option<Vec<url::Url>>,
     ) -> Result<Vec<Event>> {
         let events = self
-            .client
+            .client()?
             .fetch_events_from(
                 relays.unwrap_or(self.config.relays.clone()),
                 filter,
@@ -235,10 +238,10 @@ impl NostrClient {
         let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            if let Err(e) = self.client.send_event_builder_to(&relays, event).await {
+            if let Err(e) = self.client()?.send_event_builder_to(&relays, event).await {
                 error!("Error sending Nostr message: {e}")
             };
-        } else if let Err(e) = self.client.send_event_builder(event).await {
+        } else if let Err(e) = self.client()?.send_event_builder(event).await {
             error!("Error sending Nostr message: {e}")
         }
         Ok(())
@@ -254,14 +257,14 @@ impl NostrClient {
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
-                .client
+                .client()?
                 .send_private_msg_to(&relays, public_key, message, None)
                 .await
             {
                 error!("Error sending Nostr message: {e}")
             };
         } else if let Err(e) = self
-            .client
+            .client()?
             .send_private_msg(public_key, message, None)
             .await
         {
@@ -270,9 +273,16 @@ impl NostrClient {
         Ok(())
     }
 
-    #[cfg(test)]
-    async fn is_connected(&self) -> bool {
+    fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    pub fn client(&self) -> Result<&Client> {
+        if self.is_connected() {
+            Ok(&self.client)
+        } else {
+            Err(Error::Network("Nostr client not connected".to_string()))
+        }
     }
 }
 
@@ -321,11 +331,15 @@ impl NotificationJsonTransportApi for NostrClient {
             previous_event,
             root_event,
         )?;
-        let send_event = self.client.sign_event_builder(event).await.map_err(|e| {
-            error!("Failed to sign Nostr event: {e}");
-            Error::Crypto("Failed to sign Nostr event".to_string())
-        })?;
-        self.client.send_event(&send_event).await.map_err(|e| {
+        let send_event = self
+            .client()?
+            .sign_event_builder(event)
+            .await
+            .map_err(|e| {
+                error!("Failed to sign Nostr event: {e}");
+                Error::Crypto("Failed to sign Nostr event".to_string())
+            })?;
+        self.client()?.send_event(&send_event).await.map_err(|e| {
             error!("Failed to send Nostr event: {e}");
             Error::Network("Failed to send Nostr event".to_string())
         })?;
@@ -379,7 +393,7 @@ impl NotificationJsonTransportApi for NostrClient {
     }
 
     async fn publish_metadata(&self, data: &Metadata) -> Result<()> {
-        self.client.set_metadata(data).await.map_err(|e| {
+        self.client()?.set_metadata(data).await.map_err(|e| {
             error!("Failed to send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
@@ -449,6 +463,11 @@ impl NostrConsumer {
         let local_node_ids = clients.keys().cloned().collect::<Vec<NodeId>>();
 
         for (node_id, node_client) in clients.into_iter() {
+            if !node_client.is_connected()
+                && let Err(e) = node_client.connect().await
+            {
+                error!("Failed to connect Nostr client for node {node_id} with: {e}");
+            }
             let current_client = node_client.clone();
             let event_handlers = event_handlers.clone();
             let offset_store = offset_store.clone();
@@ -765,7 +784,7 @@ mod tests {
             .expect("failed to create nostr client");
 
         client.connect().await.expect("failed to connect");
-        assert!(client.is_connected().await, "client should be connected");
+        assert!(client.is_connected(), "client should be connected");
     }
 
     /// When testing with the mock relay we need to be careful. It is always
