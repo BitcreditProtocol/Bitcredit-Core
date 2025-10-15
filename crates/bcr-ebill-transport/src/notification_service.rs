@@ -193,7 +193,8 @@ impl NotificationService {
         );
 
         if let Ok(client) = NostrClient::new(&nostr_config).await {
-            debug!("added nostr client for {}", &nostr_config.get_npub());
+            debug!("adding nostr client for {}", &nostr_config.get_npub());
+            client.connect().await?;
             transports.insert(node_id, Arc::new(client));
         }
         Ok(())
