@@ -824,6 +824,13 @@ impl BillBlockchain {
     ) -> Result<Vec<PastEndorsee>> {
         let mut result: HashMap<NodeId, PastEndorsee> = HashMap::new();
 
+        let first_version_bill = self.get_first_version_bill(bill_keys)?;
+
+        // if the caller is the drawee (payer), there are no previous endorsees, since they are in the first block
+        if current_identity_node_id == &first_version_bill.drawee.node_id {
+            return Ok(vec![]);
+        }
+
         // we ignore recourse blocks, since we're only interested in previous endorsees before
         // recourse
         let holders = self
@@ -882,7 +889,6 @@ impl BillBlockchain {
             return Ok(vec![]);
         }
 
-        let first_version_bill = self.get_first_version_bill(bill_keys)?;
         // If the drawer is not the drawee, the drawer is the first holder, if the drawer is the
         // payee, they are already in the list
         if first_version_bill.drawer.node_id != first_version_bill.drawee.node_id {
@@ -907,6 +913,9 @@ impl BillBlockchain {
 
         // remove ourselves from the list, if we're somehow on it
         result.remove(current_identity_node_id);
+        // remove the drawee from the list, if they're on it (e.g. if they are payer and contingent holder
+        // but since recourse only happens if the payer already rejected to pay/accept, it doesn't make sense to recourse against them
+        result.remove(&first_version_bill.drawee.node_id);
 
         // sort by signing timestamp descending
         let mut list: Vec<PastEndorsee> = result.into_values().collect();
