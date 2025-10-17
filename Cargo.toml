@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.4.11"
+version = "0.4.12"
 edition = "2024"
 license = "MIT"
 
@@ -64,4 +64,5 @@ bcr-ebill-persistence = { path = "./crates/bcr-ebill-persistence" }
 bcr-ebill-transport = { path = "./crates/bcr-ebill-transport" }
 bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", tag = "v0.4.0" }
 surrealdb = { version = "2.3", default-features = false }
+strum = { version = "0.27", features = ["derive"] }
 url = { version = "2.5" }

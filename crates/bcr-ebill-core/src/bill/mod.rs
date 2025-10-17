@@ -8,7 +8,8 @@ use crate::{
     blockchain::{
         Block,
         bill::{
-            BillBlock, BillBlockchain, BillOpCode,
+            BillBlock, BillBlockchain, BillOpCode, OfferToSellWaitingForPayment,
+            RecourseWaitingForPayment,
             block::{BillParticipantBlockData, BillSignatoryBlockData},
         },
     },
@@ -24,7 +25,9 @@ use serde::{Deserialize, Serialize};
 pub mod validation;
 
 pub use bcr_common::core::BillId;
+use strum::{EnumCount, EnumIter};
 
+/// Concrete incoming bill Actions with their data
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BillAction {
     // deadline_ts
@@ -48,6 +51,66 @@ pub enum BillAction {
     RejectPayment,
     RejectBuying,
     RejectPaymentForRecourse,
+}
+
+impl BillAction {
+    pub fn op_code(&self) -> BillOpCode {
+        match self {
+            BillAction::RequestAcceptance(_) => BillOpCode::RequestToAccept,
+            BillAction::Accept => BillOpCode::Accept,
+            BillAction::RequestToPay(_, _) => BillOpCode::RequestToPay,
+            BillAction::OfferToSell(_, _, _, _) => BillOpCode::OfferToSell,
+            BillAction::Sell(_, _, _, _) => BillOpCode::Sell,
+            BillAction::Endorse(_) => BillOpCode::Endorse,
+            BillAction::RequestRecourse(_, _, _) => BillOpCode::RequestRecourse,
+            BillAction::Recourse(_, _, _, _) => BillOpCode::Recourse,
+            BillAction::Mint(_, _, _) => BillOpCode::Mint,
+            BillAction::RejectAcceptance => BillOpCode::RejectToAccept,
+            BillAction::RejectPayment => BillOpCode::RejectToPay,
+            BillAction::RejectBuying => BillOpCode::RejectToBuy,
+            BillAction::RejectPaymentForRecourse => BillOpCode::RejectToPayRecourse,
+        }
+    }
+}
+
+/// Possible Bill Actions a caller can do on a bill
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, EnumCount, EnumIter)]
+pub enum BillCallerBillAction {
+    RequestAcceptance,
+    Accept,
+    RequestToPay,
+    OfferToSell,
+    Sell,
+    Endorse,
+    RequestRecourseForAcceptance,
+    RequestRecourseForPayment,
+    Recourse,
+    Mint,
+    RejectAcceptance,
+    RejectPayment,
+    RejectBuying,
+    RejectPaymentForRecourse,
+}
+
+impl BillCallerBillAction {
+    pub fn op_code(&self) -> BillOpCode {
+        match self {
+            BillCallerBillAction::RequestAcceptance => BillOpCode::RequestToAccept,
+            BillCallerBillAction::Accept => BillOpCode::Accept,
+            BillCallerBillAction::RequestToPay => BillOpCode::RequestToPay,
+            BillCallerBillAction::OfferToSell => BillOpCode::OfferToSell,
+            BillCallerBillAction::Sell => BillOpCode::Sell,
+            BillCallerBillAction::Endorse => BillOpCode::Endorse,
+            BillCallerBillAction::RequestRecourseForAcceptance => BillOpCode::RequestRecourse,
+            BillCallerBillAction::RequestRecourseForPayment => BillOpCode::RequestRecourse,
+            BillCallerBillAction::Recourse => BillOpCode::Recourse,
+            BillCallerBillAction::Mint => BillOpCode::Mint,
+            BillCallerBillAction::RejectAcceptance => BillOpCode::RejectToAccept,
+            BillCallerBillAction::RejectPayment => BillOpCode::RejectToPay,
+            BillCallerBillAction::RejectBuying => BillOpCode::RejectToBuy,
+            BillCallerBillAction::RejectPaymentForRecourse => BillOpCode::RejectToPayRecourse,
+        }
+    }
 }
 
 #[repr(u8)]
@@ -88,8 +151,33 @@ pub struct BillValidateActionData {
     pub bill_keys: BillKeys,
     pub timestamp: u64,
     pub signer_node_id: NodeId,
-    pub bill_action: BillAction,
     pub is_paid: bool,
+    pub mode: BillValidationActionMode,
+}
+
+#[allow(clippy::large_enum_variant)] // not relevant, since this isn't stored/copied around much
+#[derive(Debug, Clone)]
+pub enum BillValidationActionMode {
+    /// Deep validation both does the shallow validation, but also adds validation based on the data
+    /// provided with the given bill action
+    Deep(BillAction),
+    /// Shallow validation only checks whether the given bill action can be executed given the bill state
+    /// It is called with pre-computed values for checks, since the goal is to be able to call it efficiently
+    /// for multiple bill actions
+    Shallow(BillShallowValidationData),
+}
+
+#[derive(Debug, Clone)]
+pub struct BillShallowValidationData {
+    pub bill_action: BillOpCode,
+    pub is_waiting_for_req_to_pay: bool, // waiting state - not calculated from maturity date
+    pub waiting_for_recourse_payment: RecourseWaitingForPayment,
+    pub waiting_for_offer_to_sell: OfferToSellWaitingForPayment,
+    pub is_req_to_pay_expired: bool, // expiration state - calculated from maturity date
+    pub is_req_to_accept_expired: bool,
+    pub past_endorsees: Vec<PastEndorsee>,
+    // has to be set if bill_action is RequestRecourse
+    pub recourse_reason: Option<RecourseReason>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -125,6 +213,7 @@ pub enum RecourseReason {
     Pay(u64, String), // sum and currency
 }
 
+/// The calculated bill for a given caller (=bill participant)
 #[derive(Debug, Clone)]
 pub struct BitcreditBillResult {
     pub id: BillId,
@@ -133,6 +222,7 @@ pub struct BitcreditBillResult {
     pub status: BillStatus,
     pub current_waiting_state: Option<BillCurrentWaitingState>,
     pub history: BillHistory,
+    pub actions: BillCallerActions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,6 +411,13 @@ impl BillHistoryBlock {
             signing_address,
         }
     }
+}
+
+/// The actions the caller can make for a bill
+#[derive(Clone, Debug)]
+pub struct BillCallerActions {
+    /// Actions that concern the bill chain directly - e.g. Accept etc.
+    pub bill_actions: Vec<BillCallerBillAction>,
 }
 
 impl BitcreditBillResult {

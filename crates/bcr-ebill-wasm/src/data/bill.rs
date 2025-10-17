@@ -3,13 +3,14 @@ use bcr_ebill_api::{
     data::{
         NodeId,
         bill::{
-            BillAcceptanceStatus, BillCombinedBitcoinKey, BillCurrentWaitingState, BillData,
-            BillHistory, BillHistoryBlock, BillId, BillMintStatus, BillParticipants,
-            BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
-            BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-            BillWaitingStatePaymentData, BillsFilterRole, BitcreditBillResult, Endorsement,
-            LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
-            PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+            BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
+            BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillId,
+            BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus,
+            BillSellStatus, BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
+            BillWaitingForSellState, BillWaitingStatePaymentData, BillsFilterRole,
+            BitcreditBillResult, Endorsement, LightBitcreditBillResult, LightSignedBy,
+            PastEndorsee, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
+            PastPaymentResult, PastPaymentStatus,
         },
         city::City,
         contact::{
@@ -467,6 +468,7 @@ pub struct BitcreditBillWeb {
     pub data: BillDataWeb,
     pub status: BillStatusWeb,
     pub current_waiting_state: Option<BillCurrentWaitingStateWeb>,
+    pub actions: BillCallerActionsWeb,
 }
 
 impl From<BitcreditBillResult> for BitcreditBillWeb {
@@ -477,6 +479,7 @@ impl From<BitcreditBillResult> for BitcreditBillWeb {
             data: val.data.into(),
             status: val.status.into(),
             current_waiting_state: val.current_waiting_state.map(|cws| cws.into()),
+            actions: val.actions.into(),
         }
     }
 }
@@ -787,6 +790,66 @@ impl From<BillParticipants> for BillParticipantsWeb {
             endorsee: val.endorsee.map(|e| e.into()),
             endorsements_count: val.endorsements_count,
             all_participant_node_ids: val.all_participant_node_ids,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillCallerActionsWeb {
+    pub bill_actions: Vec<BillCallerBillActionWeb>,
+}
+
+impl From<BillCallerActions> for BillCallerActionsWeb {
+    fn from(value: BillCallerActions) -> Self {
+        Self {
+            bill_actions: value.bill_actions.into_iter().map(|ba| ba.into()).collect(),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum BillCallerBillActionWeb {
+    RequestAcceptance,
+    Accept,
+    RequestToPay,
+    OfferToSell,
+    Sell,
+    Endorse,
+    RequestRecourseForAcceptance,
+    RequestRecourseForPayment,
+    Recourse,
+    Mint,
+    RejectAcceptance,
+    RejectPayment,
+    RejectBuying,
+    RejectPaymentForRecourse,
+}
+
+impl From<BillCallerBillAction> for BillCallerBillActionWeb {
+    fn from(value: BillCallerBillAction) -> Self {
+        match value {
+            BillCallerBillAction::RequestAcceptance => BillCallerBillActionWeb::RequestAcceptance,
+            BillCallerBillAction::Accept => BillCallerBillActionWeb::Accept,
+            BillCallerBillAction::RequestToPay => BillCallerBillActionWeb::RequestToPay,
+            BillCallerBillAction::OfferToSell => BillCallerBillActionWeb::OfferToSell,
+            BillCallerBillAction::Sell => BillCallerBillActionWeb::Sell,
+            BillCallerBillAction::Endorse => BillCallerBillActionWeb::Endorse,
+            BillCallerBillAction::RequestRecourseForAcceptance => {
+                BillCallerBillActionWeb::RequestRecourseForAcceptance
+            }
+            BillCallerBillAction::RequestRecourseForPayment => {
+                BillCallerBillActionWeb::RequestRecourseForPayment
+            }
+            BillCallerBillAction::Recourse => BillCallerBillActionWeb::Recourse,
+            BillCallerBillAction::Mint => BillCallerBillActionWeb::Mint,
+            BillCallerBillAction::RejectAcceptance => BillCallerBillActionWeb::RejectAcceptance,
+            BillCallerBillAction::RejectPayment => BillCallerBillActionWeb::RejectPayment,
+            BillCallerBillAction::RejectBuying => BillCallerBillActionWeb::RejectBuying,
+            BillCallerBillAction::RejectPaymentForRecourse => {
+                BillCallerBillActionWeb::RejectPaymentForRecourse
+            }
         }
     }
 }

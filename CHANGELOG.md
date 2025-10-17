@@ -1,3 +1,7 @@
+# 0.4.12
+
+* Added `actions` to `BitcreditBillResult`, with `bill_actions`, that are calculated based on which bill actions the caller is currently allowed to do (breaking DB and API change)
+
 # 0.4.11
 
 * Fix a bug where it was possible to reject recourse, even though it was already rejected

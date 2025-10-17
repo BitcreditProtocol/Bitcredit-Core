@@ -3,11 +3,16 @@ use crate::util;
 use super::service::BillService;
 use super::{Error, Result};
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
-use bcr_ebill_core::bill::{BillMintStatus, BillWaitingStatePaymentData, PaymentState};
+use bcr_ebill_core::bill::{
+    BillCallerActions, BillCallerBillAction, BillMintStatus, BillShallowValidationData,
+    BillValidateActionData, BillValidationActionMode, BillWaitingStatePaymentData, PastEndorsee,
+    PaymentState, RecourseReason,
+};
 use bcr_ebill_core::blockchain::Block;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
+use bcr_ebill_core::date::Date;
 use bcr_ebill_core::identity::IdentityType;
-use bcr_ebill_core::{NodeId, ValidationError};
+use bcr_ebill_core::{NodeId, Validate, ValidationError};
 use bcr_ebill_core::{
     bill::{
         BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillKeys,
@@ -28,6 +33,7 @@ use bcr_ebill_core::{
 };
 use log::{debug, error};
 use std::collections::HashMap;
+use strum::{EnumCount, IntoEnumIterator};
 
 #[derive(Debug, Clone)]
 pub(super) struct BillSigningKeys {
@@ -147,6 +153,8 @@ impl BillService {
         let first_version_bill = chain.get_first_version_bill(bill_keys)?;
         let time_of_drawing = first_version_bill.signing_timestamp;
 
+        let past_endorsees =
+            chain.get_past_endorsees_for_bill(bill_keys, current_identity_node_id)?;
         let bill_participants = chain.get_all_nodes_from_bill(bill_keys)?;
         let bill_history = chain.get_bill_history(bill_keys)?;
         let endorsements = bill_history.get_endorsements();
@@ -167,6 +175,7 @@ impl BillService {
         let mut request_to_pay_timed_out = false;
         let mut time_of_request_to_pay = None;
         let mut payment_deadline_timestamp = None;
+        let mut is_waiting_for_req_to_pay = false;
         if let Some(req_to_pay_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
         {
@@ -203,6 +212,7 @@ impl BillService {
         let mut sold = false;
         let mut time_of_last_offer_to_sell = None;
         let mut buying_deadline_timestamp = None;
+        let mut offer_to_sell_waiting_for_payment_state = OfferToSellWaitingForPayment::No;
         if let Some(last_offer_to_sell_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::OfferToSell)
         {
@@ -238,6 +248,7 @@ impl BillService {
         let mut rejected_request_to_recourse = false;
         let mut recoursed = false;
         let mut recourse_deadline_timestamp = None;
+        let mut recourse_waiting_for_payment_state = RecourseWaitingForPayment::No;
         if let Some(last_req_to_recourse_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::RequestRecourse)
         {
@@ -278,7 +289,7 @@ impl BillService {
             requested_to_accept = true;
             time_of_request_to_accept = Some(req_to_accept_block.timestamp);
 
-            let (is_expired, acceptance_deadline) = chain.is_req_to_accept_block_payment_expired(
+            let (is_expired, acceptance_deadline) = chain.is_req_to_accept_block_expired(
                 req_to_accept_block,
                 bill_keys,
                 current_timestamp,
@@ -293,8 +304,13 @@ impl BillService {
         let last_block_time = last_block.timestamp();
         let current_waiting_state = match last_block.op_code {
             BillOpCode::OfferToSell => {
-                if let OfferToSellWaitingForPayment::Yes(payment_info) = chain
-                    .is_last_offer_to_sell_block_waiting_for_payment(bill_keys, current_timestamp)?
+                offer_to_sell_waiting_for_payment_state = chain
+                    .is_last_offer_to_sell_block_waiting_for_payment(
+                        bill_keys,
+                        current_timestamp,
+                    )?;
+                if let OfferToSellWaitingForPayment::Yes(ref payment_info) =
+                    offer_to_sell_waiting_for_payment_state
                 {
                     // we're waiting, collect data
                     let payment_state = self
@@ -336,7 +352,7 @@ impl BillService {
                         )
                         .await;
 
-                    let address_to_pay = payment_info.payment_address;
+                    let address_to_pay = payment_info.payment_address.clone();
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
@@ -353,7 +369,7 @@ impl BillService {
                         buyer,
                         payment_data: BillWaitingStatePaymentData {
                             time_of_request: last_block.timestamp,
-                            currency: payment_info.currency,
+                            currency: payment_info.currency.clone(),
                             sum: currency::sum_to_string(payment_info.sum),
                             link_to_pay,
                             address_to_pay,
@@ -382,6 +398,7 @@ impl BillService {
                     None
                 } else {
                     // we're waiting, collect data
+                    is_waiting_for_req_to_pay = true;
                     let payment_state = self.store.get_payment_state(&bill.id).await?;
 
                     let mut tx_id = None;
@@ -437,11 +454,13 @@ impl BillService {
                 }
             }
             BillOpCode::RequestRecourse => {
-                if let RecourseWaitingForPayment::Yes(payment_info) = chain
+                recourse_waiting_for_payment_state = chain
                     .is_last_request_to_recourse_block_waiting_for_payment(
                         bill_keys,
                         current_timestamp,
-                    )?
+                    )?;
+                if let RecourseWaitingForPayment::Yes(ref payment_info) =
+                    recourse_waiting_for_payment_state
                 {
                     // we're waiting, collect data
                     let payment_state = self
@@ -504,7 +523,7 @@ impl BillService {
                             recoursee,
                             payment_data: BillWaitingStatePaymentData {
                                 time_of_request: last_block.timestamp,
-                                currency: payment_info.currency,
+                                currency: payment_info.currency.clone(),
                                 sum: currency::sum_to_string(payment_info.sum),
                                 link_to_pay,
                                 address_to_pay,
@@ -590,6 +609,30 @@ impl BillService {
             active_notification: None,
         };
 
+        let bill_caller_actions = BillCallerActions {
+            bill_actions: calculate_possible_bill_actions_for_caller(
+                chain.to_owned(),
+                participants.drawee.node_id.clone(),
+                participants.payee.node_id(),
+                participants
+                    .endorsee
+                    .as_ref()
+                    .map(|e| e.node_id())
+                    .to_owned(),
+                bill_data.maturity_date.clone(),
+                bill_keys.to_owned(),
+                current_timestamp,
+                current_identity_node_id.to_owned(),
+                paid,
+                is_waiting_for_req_to_pay,
+                recourse_waiting_for_payment_state,
+                offer_to_sell_waiting_for_payment_state,
+                request_to_pay_timed_out,
+                request_to_accept_timed_out,
+                past_endorsees,
+            )?,
+        };
+
         Ok(BitcreditBillResult {
             id: bill.id,
             participants,
@@ -597,6 +640,7 @@ impl BillService {
             status,
             current_waiting_state,
             history: bill_history,
+            actions: bill_caller_actions,
         })
     }
 
@@ -865,5 +909,305 @@ impl BillService {
 
         bill.data.active_notification = active_notification;
         Ok(bill)
+    }
+}
+
+/// For all possible bill actions, attempt validation
+/// If it succeeds -> it's a possible action
+/// If it fails -> it's not a possible action
+fn calculate_possible_bill_actions_for_caller(
+    blockchain: BillBlockchain,
+    drawee_node_id: NodeId,
+    payee_node_id: NodeId,
+    endorsee_node_id: Option<NodeId>,
+    maturity_date: Date,
+    bill_keys: BillKeys,
+    timestamp: u64,
+    signer_node_id: NodeId,
+    is_paid: bool,
+    is_waiting_for_req_to_pay: bool,
+    waiting_for_recourse_payment: RecourseWaitingForPayment,
+    waiting_for_offer_to_sell: OfferToSellWaitingForPayment,
+    is_req_to_pay_expired: bool,
+    is_req_to_accept_expired: bool,
+    past_endorsees: Vec<PastEndorsee>,
+) -> Result<Vec<BillCallerBillAction>> {
+    let mut res = Vec::with_capacity(BillCallerBillAction::COUNT);
+    // create data once to re-use
+    let mut data = BillValidateActionData {
+        blockchain,
+        drawee_node_id,
+        payee_node_id,
+        endorsee_node_id,
+        maturity_date,
+        bill_keys,
+        timestamp,
+        signer_node_id,
+        is_paid,
+        mode: BillValidationActionMode::Shallow(BillShallowValidationData {
+            bill_action: BillOpCode::Issue, // temp value - overridden in the loop
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment,
+            waiting_for_offer_to_sell,
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees,
+            recourse_reason: None,
+        }),
+    };
+
+    // iterate all actions, modifying the validation data for each action and validating the possible action
+    for action in BillCallerBillAction::iter() {
+        let recourse_reason: Option<RecourseReason> = match action {
+            BillCallerBillAction::RequestRecourseForPayment => {
+                // These default values are not used
+                Some(RecourseReason::Pay(u64::default(), String::default()))
+            }
+            BillCallerBillAction::RequestRecourseForAcceptance => Some(RecourseReason::Accept),
+            _ => None,
+        };
+        // always true - needed to access the data in the enum
+        if let BillValidationActionMode::Shallow(ref mut validation_data) = data.mode {
+            validation_data.bill_action = action.op_code();
+            validation_data.recourse_reason = recourse_reason;
+        }
+        // if it validates successfully, add the action to the list of possible actions
+        if let Ok(()) = data.validate() {
+            res.push(action.to_owned());
+        }
+    }
+    Ok(res)
+}
+
+#[cfg(test)]
+pub mod tests {
+    use bcr_ebill_core::{
+        blockchain::bill::{
+            BillBlock,
+            block::{BillParticipantBlockData, BillRejectBlockData, BillRequestToAcceptBlockData},
+        },
+        constants::ACCEPT_DEADLINE_SECONDS,
+    };
+
+    use crate::{
+        service::bill_service::test_utils::{bill_keys, get_baseline_bill, get_genesis_chain},
+        tests::tests::{
+            bill_id_test, bill_identified_participant_only_node_id, empty_address, private_key_test,
+        },
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_calculate_possible_bill_actions_for_caller() {
+        let bill = get_baseline_bill(&bill_id_test());
+        let mut chain = get_genesis_chain(None);
+        let drawee = bill.drawee.node_id.clone();
+        let payee = bill.payee.node_id().clone();
+        let endorsee: Option<NodeId> = None;
+        let maturity_date = bill.maturity_date.clone();
+        let bill_keys = bill_keys();
+        let timestamp = 1731593928;
+
+        let is_paid = false;
+        let is_waiting_for_req_to_pay = false;
+        let waiting_for_recourse_payment = RecourseWaitingForPayment::No;
+        let waiting_for_offer_to_sell = OfferToSellWaitingForPayment::No;
+        let is_req_to_pay_expired = false;
+        let is_req_to_accept_expired = false;
+        let past_endorsees: Vec<PastEndorsee> = vec![];
+
+        // initial bill, called by payee
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            maturity_date.clone(),
+            bill_keys.clone(),
+            timestamp,
+            payee.clone(), // caller is payee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // holder can OfferToSell, Endorse, Req to Pay, Req to Accept
+        assert_eq!(res.len(), 4);
+        assert!(res.contains(&BillCallerBillAction::OfferToSell));
+        assert!(res.contains(&BillCallerBillAction::Endorse));
+        assert!(res.contains(&BillCallerBillAction::RequestToPay));
+        assert!(res.contains(&BillCallerBillAction::RequestAcceptance));
+
+        // initial bill, called by drawee
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            maturity_date.clone(),
+            bill_keys.clone(),
+            timestamp,
+            drawee.clone(), // caller is drawee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // drawee can Reject to Accept, Accept
+        assert_eq!(res.len(), 2);
+        assert!(res.contains(&BillCallerBillAction::Accept));
+        assert!(res.contains(&BillCallerBillAction::RejectAcceptance));
+
+        let latest_block = chain.get_latest_block();
+        // add req to accept block
+        let req_to_accept = BillBlock::create_block_for_request_to_accept(
+            bill_id_test(),
+            &latest_block.clone(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(
+                    bill_identified_participant_only_node_id(payee.clone()).into(),
+                ),
+                signatory: None,
+                signing_timestamp: latest_block.timestamp + 1,
+                signing_address: Some(empty_address()),
+                acceptance_deadline_timestamp: latest_block.timestamp
+                    + 1
+                    + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            latest_block.timestamp + 1,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(req_to_accept));
+
+        // req to accept bill, called by payee
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            maturity_date.clone(),
+            bill_keys.clone(),
+            timestamp,
+            payee.clone(), // caller is payee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // holder can OfferToSell, Endorse, Req to Pay
+        assert_eq!(res.len(), 3);
+        assert!(res.contains(&BillCallerBillAction::OfferToSell));
+        assert!(res.contains(&BillCallerBillAction::Endorse));
+        assert!(res.contains(&BillCallerBillAction::RequestToPay));
+
+        // req to accept  bill, called by drawee
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            maturity_date.clone(),
+            bill_keys.clone(),
+            timestamp,
+            drawee.clone(), // caller is drawee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // drawee can Reject to Accept, Accept
+        assert_eq!(res.len(), 2);
+        assert!(res.contains(&BillCallerBillAction::Accept));
+        assert!(res.contains(&BillCallerBillAction::RejectAcceptance));
+
+        let latest_block = chain.get_latest_block();
+        // add reject to accept block
+        let reject_accept = BillBlock::create_block_for_reject_to_accept(
+            bill_id_test(),
+            latest_block,
+            &BillRejectBlockData {
+                rejecter: bill_identified_participant_only_node_id(drawee.clone()).into(),
+                signatory: None,
+                signing_timestamp: latest_block.timestamp + 1,
+                signing_address: empty_address(),
+            },
+            &BcrKeys::new(),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            latest_block.timestamp + 1,
+        )
+        .unwrap();
+        chain.try_add_block(reject_accept);
+
+        // reject to accept bill, called by payee
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            maturity_date.clone(),
+            bill_keys.clone(),
+            timestamp,
+            payee.clone(), // caller is payee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // holder can Request to Recourse for Acceptance
+        assert_eq!(res.len(), 1);
+        assert!(res.contains(&BillCallerBillAction::RequestRecourseForAcceptance));
+
+        // req to accept  bill, called by drawee
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            maturity_date.clone(),
+            bill_keys.clone(),
+            timestamp,
+            drawee.clone(), // caller is drawee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // drawee can't do anything
+        assert_eq!(res.len(), 0);
     }
 }
