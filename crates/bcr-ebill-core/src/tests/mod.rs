@@ -130,6 +130,17 @@ pub mod tests {
         }
     }
 
+    pub fn valid_and_another_bill_identified_participant() -> BillIdentParticipant {
+        BillIdentParticipant {
+            t: ContactType::Person,
+            node_id: node_id_test_and_another(),
+            name: Name::new("John Smith").unwrap(),
+            postal_address: valid_address(),
+            email: None,
+            nostr_relays: vec![],
+        }
+    }
+
     pub fn empty_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
@@ -196,6 +207,11 @@ pub mod tests {
 
     pub fn node_id_test_other() -> NodeId {
         NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
+            .unwrap()
+    }
+
+    pub fn node_id_test_and_another() -> NodeId {
+        NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
             .unwrap()
     }
 
