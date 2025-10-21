@@ -915,6 +915,7 @@ pub struct BillAnonParticipantWeb {
     pub node_id: NodeId,
     #[tsify(type = "string | undefined")]
     pub email: Option<Email>,
+    #[tsify(type = "string[]")]
     pub nostr_relays: Vec<url::Url>,
 }
 
@@ -939,6 +940,7 @@ pub struct BillIdentParticipantWeb {
     pub postal_address: PostalAddressWeb,
     #[tsify(type = "string | undefined")]
     pub email: Option<Email>,
+    #[tsify(type = "string[]")]
     pub nostr_relays: Vec<url::Url>,
 }
 

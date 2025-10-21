@@ -139,6 +139,7 @@ pub struct IdentityWeb {
     pub identification_number: Option<Identification>,
     pub profile_picture_file: Option<FileWeb>,
     pub identity_document_file: Option<FileWeb>,
+    #[tsify(type = "string[]")]
     pub nostr_relays: Vec<url::Url>,
 }
 

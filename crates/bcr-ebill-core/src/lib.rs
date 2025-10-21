@@ -170,8 +170,8 @@ pub enum GeneralSearchFilterItemType {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct File {
     pub name: String,
-    pub hash: String,
-    pub nostr_hash: String,
+    pub hash: String,       // the hash over the unencrypted file
+    pub nostr_hash: String, // the identification hash on Nostr for the encrypted file
 }
 
 #[derive(Debug)]
