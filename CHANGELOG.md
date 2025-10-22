@@ -1,3 +1,7 @@
+# 0.4.11-hotfix
+
+* Fix `restore from seed` where the Nostr client wasn't connected properly
+
 # 0.4.11
 
 * Fix a bug where it was possible to reject recourse, even though it was already rejected

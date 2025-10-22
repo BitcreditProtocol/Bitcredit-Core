@@ -296,6 +296,7 @@ pub async fn create_restore_account_service(
     );
 
     let nostr_client = Arc::new(NostrClient::default(&nostr_config).await?);
+    nostr_client.connect().await?;
     let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         nostr_client.clone(),
         db_context.nostr_contact_store.clone(),
