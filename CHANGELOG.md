@@ -4,6 +4,7 @@
 * Fix an edge case for request to recourse if the payer == holder - they should not have past endorsees and if the payer is a contingent holder, they should not show up in past endorsees
 * Fix TS types for urls
 * Fix `restore from seed` where the Nostr client wasn't connected properly
+* Upgrade `bcr-common` to 0.5.0
 
 # 0.4.11
 
