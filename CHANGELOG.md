@@ -3,6 +3,7 @@
 * Added `actions` to `BitcreditBillResult`, with `bill_actions`, that are calculated based on which bill actions the caller is currently allowed to do (breaking DB and API change)
 * Fix an edge case for request to recourse if the payer == holder - they should not have past endorsees and if the payer is a contingent holder, they should not show up in past endorsees
 * Fix TS types for urls
+* Fix `restore from seed` where the Nostr client wasn't connected properly
 
 # 0.4.11
 
