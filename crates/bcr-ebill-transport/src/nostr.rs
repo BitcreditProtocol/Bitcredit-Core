@@ -132,7 +132,8 @@ impl NostrClient {
 
     /// Subscribe to some nostr events with a filter
     pub async fn subscribe(&self, subscription: Filter) -> Result<()> {
-        self.client()?
+        self.client()
+            .await?
             .subscribe(subscription, None)
             .await
             .map_err(|e| {
@@ -146,7 +147,8 @@ impl NostrClient {
     /// from this clients relays.
     pub async fn fetch_metadata(&self, npub: PublicKey) -> Result<Option<Metadata>> {
         let result = self
-            .client()?
+            .client()
+            .await?
             .fetch_metadata(npub, self.config.default_timeout.to_owned())
             .await
             .map_err(|e| {
@@ -190,7 +192,8 @@ impl NostrClient {
         relays: Vec<(RelayUrl, Option<RelayMetadata>)>,
     ) -> Result<()> {
         let event = EventBuilder::relay_list(relays);
-        self.client()?
+        self.client()
+            .await?
             .send_event_builder(event)
             .await
             .map_err(|e| {
@@ -210,7 +213,8 @@ impl NostrClient {
         relays: Option<Vec<url::Url>>,
     ) -> Result<Vec<Event>> {
         let events = self
-            .client()?
+            .client()
+            .await?
             .fetch_events_from(
                 relays.unwrap_or(self.config.relays.clone()),
                 filter,
@@ -238,10 +242,15 @@ impl NostrClient {
         let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            if let Err(e) = self.client()?.send_event_builder_to(&relays, event).await {
+            if let Err(e) = self
+                .client()
+                .await?
+                .send_event_builder_to(&relays, event)
+                .await
+            {
                 error!("Error sending Nostr message: {e}")
             };
-        } else if let Err(e) = self.client()?.send_event_builder(event).await {
+        } else if let Err(e) = self.client().await?.send_event_builder(event).await {
             error!("Error sending Nostr message: {e}")
         }
         Ok(())
@@ -257,14 +266,16 @@ impl NostrClient {
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
-                .client()?
+                .client()
+                .await?
                 .send_private_msg_to(&relays, public_key, message, None)
                 .await
             {
                 error!("Error sending Nostr message: {e}")
             };
         } else if let Err(e) = self
-            .client()?
+            .client()
+            .await?
             .send_private_msg(public_key, message, None)
             .await
         {
@@ -277,12 +288,11 @@ impl NostrClient {
         self.connected.load(Ordering::Relaxed)
     }
 
-    pub fn client(&self) -> Result<&Client> {
-        if self.is_connected() {
-            Ok(&self.client)
-        } else {
-            Err(Error::Network("Nostr client not connected".to_string()))
+    pub async fn client(&self) -> Result<&Client> {
+        if !self.is_connected() {
+            self.connect().await?;
         }
+        Ok(&self.client)
     }
 }
 
@@ -332,17 +342,22 @@ impl NotificationJsonTransportApi for NostrClient {
             root_event,
         )?;
         let send_event = self
-            .client()?
+            .client()
+            .await?
             .sign_event_builder(event)
             .await
             .map_err(|e| {
                 error!("Failed to sign Nostr event: {e}");
                 Error::Crypto("Failed to sign Nostr event".to_string())
             })?;
-        self.client()?.send_event(&send_event).await.map_err(|e| {
-            error!("Failed to send Nostr event: {e}");
-            Error::Network("Failed to send Nostr event".to_string())
-        })?;
+        self.client()
+            .await?
+            .send_event(&send_event)
+            .await
+            .map_err(|e| {
+                error!("Failed to send Nostr event: {e}");
+                Error::Network("Failed to send Nostr event".to_string())
+            })?;
         Ok(send_event)
     }
 
@@ -393,7 +408,7 @@ impl NotificationJsonTransportApi for NostrClient {
     }
 
     async fn publish_metadata(&self, data: &Metadata) -> Result<()> {
-        self.client()?.set_metadata(data).await.map_err(|e| {
+        self.client().await?.set_metadata(data).await.map_err(|e| {
             error!("Failed to send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
