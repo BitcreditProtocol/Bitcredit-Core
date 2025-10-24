@@ -9,4 +9,5 @@ This is the documentation of the E-Bill API. The API can be used both as a Web A
 * [Releasing new WASM versions](wasm_releasing.md)
 * [Testing](testing.md)
 * [Esplora](esplora.md)
+* [Concepts](concepts.md)
 
