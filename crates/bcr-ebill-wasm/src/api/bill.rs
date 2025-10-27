@@ -26,6 +26,7 @@ use log::error;
 use wasm_bindgen::prelude::*;
 
 use crate::{
+    TSResult,
     api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
@@ -96,273 +97,318 @@ impl Bill {
         Bill
     }
 
-    #[wasm_bindgen(unchecked_return_type = "EndorsementsResponse")]
-    pub async fn endorsements(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let current_timestamp = util::date::now().timestamp() as u64;
-        let identity = get_ctx().identity_service.get_identity().await?;
-        let result = get_ctx()
-            .bill_service
-            .get_endorsements(
-                &bill_id,
-                &identity,
-                &get_current_identity_node_id().await?,
-                current_timestamp,
-            )
-            .await?;
-        let res = serde_wasm_bindgen::to_value(&EndorsementsResponse {
-            endorsements: result.into_iter().map(|e| e.into()).collect(),
-        })?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<EndorsementsResponse>")]
+    pub async fn endorsements(&self, id: &str) -> JsValue {
+        let res: Result<EndorsementsResponse> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let current_timestamp = util::date::now().timestamp() as u64;
+            let identity = get_ctx().identity_service.get_identity().await?;
+            let result = get_ctx()
+                .bill_service
+                .get_endorsements(
+                    &bill_id,
+                    &identity,
+                    &get_current_identity_node_id().await?,
+                    current_timestamp,
+                )
+                .await?;
+            Ok(EndorsementsResponse {
+                endorsements: result.into_iter().map(|e| e.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "PastPaymentsResponse")]
-    pub async fn past_payments(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-        let result = get_ctx()
-            .bill_service
-            .get_past_payments(
-                &bill_id,
-                &caller_public_data,
-                &caller_keys,
-                util::date::now().timestamp() as u64,
-            )
-            .await?;
-        let res = serde_wasm_bindgen::to_value(&PastPaymentsResponse {
-            past_payments: result.into_iter().map(|e| e.into()).collect(),
-        })?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<PastPaymentsResponse>")]
+    pub async fn past_payments(&self, id: &str) -> JsValue {
+        let res: Result<PastPaymentsResponse> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+            let result = get_ctx()
+                .bill_service
+                .get_past_payments(
+                    &bill_id,
+                    &caller_public_data,
+                    &caller_keys,
+                    util::date::now().timestamp() as u64,
+                )
+                .await?;
+            Ok(PastPaymentsResponse {
+                past_payments: result.into_iter().map(|e| e.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "PastEndorseesResponse")]
-    pub async fn past_endorsees(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let result = get_ctx()
-            .bill_service
-            .get_past_endorsees(&bill_id, &get_current_identity_node_id().await?)
-            .await?;
-        let res = serde_wasm_bindgen::to_value(&PastEndorseesResponse {
-            past_endorsees: result.into_iter().map(|e| e.into()).collect(),
-        })?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<PastEndorseesResponse>")]
+    pub async fn past_endorsees(&self, id: &str) -> JsValue {
+        let res: Result<PastEndorseesResponse> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let result = get_ctx()
+                .bill_service
+                .get_past_endorsees(&bill_id, &get_current_identity_node_id().await?)
+                .await?;
+            Ok(PastEndorseesResponse {
+                past_endorsees: result.into_iter().map(|e| e.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "BillCombinedBitcoinKeyWeb")]
-    pub async fn bitcoin_key(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-        let combined_key = get_ctx()
-            .bill_service
-            .get_combined_bitcoin_key_for_bill(&bill_id, &caller_public_data, &caller_keys)
-            .await?;
-        let res = serde_wasm_bindgen::to_value::<BillCombinedBitcoinKeyWeb>(&combined_key.into())?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillCombinedBitcoinKeyWeb>")]
+    pub async fn bitcoin_key(&self, id: &str) -> JsValue {
+        let res: Result<BillCombinedBitcoinKeyWeb> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+            let combined_key = get_ctx()
+                .bill_service
+                .get_combined_bitcoin_key_for_bill(&bill_id, &caller_public_data, &caller_keys)
+                .await?;
+            Ok(combined_key.into())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "BinaryFileResponse")]
-    pub async fn attachment(&self, bill_id: &str, file_name: &str) -> Result<JsValue> {
-        let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
-        let res = serde_wasm_bindgen::to_value(&BinaryFileResponse {
-            data: file_bytes,
-            name: file_name.to_owned(),
-            content_type,
-        })?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BinaryFileResponse>")]
+    pub async fn attachment(&self, bill_id: &str, file_name: &str) -> JsValue {
+        let res: Result<BinaryFileResponse> = async {
+            let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
+            Ok(BinaryFileResponse {
+                data: file_bytes,
+                name: file_name.to_owned(),
+                content_type,
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "Base64FileResponse")]
-    pub async fn attachment_base64(&self, bill_id: &str, file_name: &str) -> Result<JsValue> {
-        let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
-        let res = serde_wasm_bindgen::to_value(&Base64FileResponse {
-            data: STANDARD.encode(&file_bytes),
-            name: file_name.to_owned(),
-            content_type,
-        })?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<Base64FileResponse>")]
+    pub async fn attachment_base64(&self, bill_id: &str, file_name: &str) -> JsValue {
+        let res: Result<Base64FileResponse> = async {
+            let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
+            Ok(Base64FileResponse {
+                data: STANDARD.encode(&file_bytes),
+                name: file_name.to_owned(),
+                content_type,
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "UploadFileResponse")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<UploadFileResponse>")]
     pub async fn upload(
         &self,
         #[wasm_bindgen(unchecked_param_type = "UploadFile")] payload: JsValue,
-    ) -> Result<JsValue> {
-        let upload_file: UploadFile = serde_wasm_bindgen::from_value(payload)?;
-        let upload_file_handler: &dyn UploadFileHandler = &upload_file as &dyn UploadFileHandler;
+    ) -> JsValue {
+        let res: Result<UploadFileResponse> = async {
+            let upload_file: UploadFile = serde_wasm_bindgen::from_value(payload)?;
+            let upload_file_handler: &dyn UploadFileHandler =
+                &upload_file as &dyn UploadFileHandler;
 
-        get_ctx()
-            .file_upload_service
-            .validate_attached_file(upload_file_handler)
-            .await?;
+            get_ctx()
+                .file_upload_service
+                .validate_attached_file(upload_file_handler)
+                .await?;
 
-        let file_upload_response = get_ctx()
-            .file_upload_service
-            .upload_file(upload_file_handler)
-            .await?;
+            let file_upload_response = get_ctx()
+                .file_upload_service
+                .upload_file(upload_file_handler)
+                .await?;
 
-        let res = serde_wasm_bindgen::to_value::<UploadFileResponse>(&file_upload_response.into())?;
-        Ok(res)
+            Ok(file_upload_response.into())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "LightBillsResponse")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<LightBillsResponse>")]
     pub async fn search(
         &self,
         #[wasm_bindgen(unchecked_param_type = "BillsSearchFilterPayload")] payload: JsValue,
-    ) -> Result<JsValue> {
-        let filter_payload: BillsSearchFilterPayload = serde_wasm_bindgen::from_value(payload)?;
-        let filter = filter_payload.filter;
+    ) -> JsValue {
+        let res: Result<LightBillsResponse> = async {
+            let filter_payload: BillsSearchFilterPayload = serde_wasm_bindgen::from_value(payload)?;
+            let filter = filter_payload.filter;
 
-        let (from, to) = match filter.date_range {
-            None => (None, None),
-            Some(date_range) => {
-                let from = Date::new(&date_range.from)?.to_timestamp();
-                // Change the date to the end of the day, so we collect bills during the day as well
-                let to = Date::new(&date_range.to)
-                    .map(|d| d.to_timestamp())
-                    .map(util::date::end_of_day_as_timestamp)?;
-                (Some(from), Some(to))
+            let (from, to) = match filter.date_range {
+                None => (None, None),
+                Some(date_range) => {
+                    let from = Date::new(&date_range.from)?.to_timestamp();
+                    // Change the date to the end of the day, so we collect bills during the day as well
+                    let to = Date::new(&date_range.to)
+                        .map(|d| d.to_timestamp())
+                        .map(util::date::end_of_day_as_timestamp)?;
+                    (Some(from), Some(to))
+                }
+            };
+            let bills = get_ctx()
+                .bill_service
+                .search_bills(
+                    &filter.currency,
+                    &filter.search_term,
+                    from,
+                    to,
+                    &BillsFilterRole::from(filter.role),
+                    &get_current_identity_node_id().await?,
+                )
+                .await?;
+
+            Ok(LightBillsResponse {
+                bills: bills.into_iter().map(|b| b.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<LightBillsResponse>")]
+    pub async fn list_light(&self) -> JsValue {
+        let res: Result<LightBillsResponse> = async {
+            let bills: Vec<LightBitcreditBillResult> = get_ctx()
+                .bill_service
+                .get_bills(&get_current_identity_node_id().await?)
+                .await?
+                .into_iter()
+                .map(|b| b.into())
+                .collect();
+            Ok(LightBillsResponse {
+                bills: bills.into_iter().map(|b| b.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillsResponse>")]
+    pub async fn list(&self) -> JsValue {
+        let res: Result<BillsResponse> = async {
+            let bills = get_ctx()
+                .bill_service
+                .get_bills(&get_current_identity_node_id().await?)
+                .await?;
+            Ok(BillsResponse {
+                bills: bills.into_iter().map(|b| b.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillNumbersToWordsForSum>")]
+    pub async fn numbers_to_words_for_sum(&self, id: &str) -> JsValue {
+        let res: Result<BillNumbersToWordsForSum> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let current_timestamp = util::date::now().timestamp() as u64;
+            let identity = get_ctx().identity_service.get_identity().await?;
+            let bill = get_ctx()
+                .bill_service
+                .get_detail(
+                    &bill_id,
+                    &identity,
+                    &get_current_identity_node_id().await?,
+                    current_timestamp,
+                )
+                .await?;
+            let sum = bill.data.sum;
+            let parsed_sum = currency::parse_sum(&sum)?;
+            let sum_as_words = util::numbers_to_words::encode(&parsed_sum);
+            Ok(BillNumbersToWordsForSum {
+                sum: parsed_sum,
+                sum_as_words,
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BitcreditBillWeb>")]
+    pub async fn detail(&self, id: &str) -> JsValue {
+        let res: Result<BitcreditBillWeb> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let current_timestamp = util::date::now().timestamp() as u64;
+            let identity = get_ctx().identity_service.get_identity().await?;
+            let bill_detail = get_ctx()
+                .bill_service
+                .get_detail(
+                    &bill_id,
+                    &identity,
+                    &get_current_identity_node_id().await?,
+                    current_timestamp,
+                )
+                .await?;
+
+            Ok(bill_detail.into())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn check_payment_for_bill(&self, id: &str) -> JsValue {
+        let res: Result<()> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let identity = get_ctx().identity_service.get_full_identity().await?;
+            if let Err(e) = get_ctx()
+                .bill_service
+                .check_payment_for_bill(&bill_id, &identity.identity)
+                .await
+            {
+                error!("Error while checking bill payment for {id}: {e}");
             }
-        };
-        let bills = get_ctx()
-            .bill_service
-            .search_bills(
-                &filter.currency,
-                &filter.search_term,
-                from,
-                to,
-                &BillsFilterRole::from(filter.role),
-                &get_current_identity_node_id().await?,
-            )
-            .await?;
 
-        let res = serde_wasm_bindgen::to_value(&LightBillsResponse {
-            bills: bills.into_iter().map(|b| b.into()).collect(),
-        })?;
-        Ok(res)
+            if let Err(e) = get_ctx()
+                .bill_service
+                .check_offer_to_sell_payment_for_bill(&bill_id, &identity)
+                .await
+            {
+                error!("Error while checking bill offer to sell payment for {id}: {e}");
+            }
+
+            if let Err(e) = get_ctx()
+                .bill_service
+                .check_recourse_payment_for_bill(&bill_id, &identity)
+                .await
+            {
+                error!("Error while checking bill recourse payment for {id}: {e}");
+            }
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "LightBillsResponse")]
-    pub async fn list_light(&self) -> Result<JsValue> {
-        let bills: Vec<LightBitcreditBillResult> = get_ctx()
-            .bill_service
-            .get_bills(&get_current_identity_node_id().await?)
-            .await?
-            .into_iter()
-            .map(|b| b.into())
-            .collect();
-        let res = serde_wasm_bindgen::to_value(&LightBillsResponse {
-            bills: bills.into_iter().map(|b| b.into()).collect(),
-        })?;
-        Ok(res)
-    }
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn check_payment(&self) -> JsValue {
+        let res: Result<()> = async {
+            if let Err(e) = get_ctx().bill_service.check_bills_payment().await {
+                error!("Error while checking bills payment: {e}");
+            }
 
-    #[wasm_bindgen(unchecked_return_type = "BillsResponse")]
-    pub async fn list(&self) -> Result<JsValue> {
-        let bills = get_ctx()
-            .bill_service
-            .get_bills(&get_current_identity_node_id().await?)
-            .await?;
-        let res = serde_wasm_bindgen::to_value(&BillsResponse {
-            bills: bills.into_iter().map(|b| b.into()).collect(),
-        })?;
-        Ok(res)
-    }
+            if let Err(e) = get_ctx()
+                .bill_service
+                .check_bills_offer_to_sell_payment()
+                .await
+            {
+                error!("Error while checking bills offer to sell payment: {e}");
+            }
 
-    #[wasm_bindgen(unchecked_return_type = "BillNumbersToWordsForSum")]
-    pub async fn numbers_to_words_for_sum(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let current_timestamp = util::date::now().timestamp() as u64;
-        let identity = get_ctx().identity_service.get_identity().await?;
-        let bill = get_ctx()
-            .bill_service
-            .get_detail(
-                &bill_id,
-                &identity,
-                &get_current_identity_node_id().await?,
-                current_timestamp,
-            )
-            .await?;
-        let sum = bill.data.sum;
-        let parsed_sum = currency::parse_sum(&sum)?;
-        let sum_as_words = util::numbers_to_words::encode(&parsed_sum);
-        let res = serde_wasm_bindgen::to_value(&BillNumbersToWordsForSum {
-            sum: parsed_sum,
-            sum_as_words,
-        })?;
-        Ok(res)
-    }
-
-    #[wasm_bindgen(unchecked_return_type = "BitcreditBillWeb")]
-    pub async fn detail(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let current_timestamp = util::date::now().timestamp() as u64;
-        let identity = get_ctx().identity_service.get_identity().await?;
-        let bill_detail = get_ctx()
-            .bill_service
-            .get_detail(
-                &bill_id,
-                &identity,
-                &get_current_identity_node_id().await?,
-                current_timestamp,
-            )
-            .await?;
-
-        let res = serde_wasm_bindgen::to_value::<BitcreditBillWeb>(&bill_detail.into())?;
-        Ok(res)
-    }
-
-    #[wasm_bindgen]
-    pub async fn check_payment_for_bill(&self, id: &str) -> Result<()> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let identity = get_ctx().identity_service.get_full_identity().await?;
-        if let Err(e) = get_ctx()
-            .bill_service
-            .check_payment_for_bill(&bill_id, &identity.identity)
-            .await
-        {
-            error!("Error while checking bill payment for {id}: {e}");
+            if let Err(e) = get_ctx()
+                .bill_service
+                .check_bills_in_recourse_payment()
+                .await
+            {
+                error!("Error while checking bills recourse payment: {e}");
+            }
+            Ok(())
         }
-
-        if let Err(e) = get_ctx()
-            .bill_service
-            .check_offer_to_sell_payment_for_bill(&bill_id, &identity)
-            .await
-        {
-            error!("Error while checking bill offer to sell payment for {id}: {e}");
-        }
-
-        if let Err(e) = get_ctx()
-            .bill_service
-            .check_recourse_payment_for_bill(&bill_id, &identity)
-            .await
-        {
-            error!("Error while checking bill recourse payment for {id}: {e}");
-        }
-        Ok(())
-    }
-
-    #[wasm_bindgen]
-    pub async fn check_payment(&self) -> Result<()> {
-        if let Err(e) = get_ctx().bill_service.check_bills_payment().await {
-            error!("Error while checking bills payment: {e}");
-        }
-
-        if let Err(e) = get_ctx()
-            .bill_service
-            .check_bills_offer_to_sell_payment()
-            .await
-        {
-            error!("Error while checking bills offer to sell payment: {e}");
-        }
-
-        if let Err(e) = get_ctx()
-            .bill_service
-            .check_bills_in_recourse_payment()
-            .await
-        {
-            error!("Error while checking bills recourse payment: {e}");
-        }
-        Ok(())
+        .await;
+        TSResult::res_to_js(res)
     }
 
     async fn issue_bill(
@@ -398,28 +444,34 @@ impl Bill {
         Ok(bill.id)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "BillIdResponse")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillIdResponse>")]
     pub async fn issue(
         &self,
         #[wasm_bindgen(unchecked_param_type = "BitcreditBillPayload")] payload: JsValue,
-    ) -> Result<JsValue> {
-        let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let bill_id = self.issue_bill(bill_payload, timestamp, false).await?;
-        let res = serde_wasm_bindgen::to_value(&BillIdResponse { id: bill_id })?;
-        Ok(res)
+    ) -> JsValue {
+        let res: Result<BillIdResponse> = async {
+            let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let bill_id = self.issue_bill(bill_payload, timestamp, false).await?;
+            Ok(BillIdResponse { id: bill_id })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "BillIdResponse")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillIdResponse>")]
     pub async fn issue_blank(
         &self,
         #[wasm_bindgen(unchecked_param_type = "BitcreditBillPayload")] payload: JsValue,
-    ) -> Result<JsValue> {
-        let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let bill_id = self.issue_bill(bill_payload, timestamp, true).await?;
-        let res = serde_wasm_bindgen::to_value(&BillIdResponse { id: bill_id })?;
-        Ok(res)
+    ) -> JsValue {
+        let res: Result<BillIdResponse> = async {
+            let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let bill_id = self.issue_bill(bill_payload, timestamp, true).await?;
+            Ok(BillIdResponse { id: bill_id })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
     async fn offer_to_sell_bill(
@@ -451,67 +503,75 @@ impl Bill {
         Ok(())
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn offer_to_sell(
         &self,
         #[wasm_bindgen(unchecked_param_type = "OfferToSellBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let offer_to_sell_payload: OfferToSellBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
-        let public_data_buyer = match get_ctx()
-            .contact_service
-            .get_identity_by_node_id(&offer_to_sell_payload.buyer)
-            .await
-        {
-            Ok(Some(buyer)) => buyer,
-            Ok(None) | Err(_) => {
-                return Err(BillServiceError::BuyerNotInContacts.into());
-            }
-        };
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let offer_to_sell_payload: OfferToSellBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let public_data_buyer = match get_ctx()
+                .contact_service
+                .get_identity_by_node_id(&offer_to_sell_payload.buyer)
+                .await
+            {
+                Ok(Some(buyer)) => buyer,
+                Ok(None) | Err(_) => {
+                    return Err(BillServiceError::BuyerNotInContacts.into());
+                }
+            };
 
-        let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let deadline_ts = Date::new(&offer_to_sell_payload.buying_deadline)?.to_timestamp();
-        self.offer_to_sell_bill(
-            offer_to_sell_payload,
-            public_data_buyer,
-            timestamp,
-            sum,
-            deadline_ts,
-        )
-        .await
+            let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let deadline_ts = Date::new(&offer_to_sell_payload.buying_deadline)?.to_timestamp();
+            self.offer_to_sell_bill(
+                offer_to_sell_payload,
+                public_data_buyer,
+                timestamp,
+                sum,
+                deadline_ts,
+            )
+            .await
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
     /// Blank offer to sell - the contact doesn't have to be an anonymous contact
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn offer_to_sell_blank(
         &self,
         #[wasm_bindgen(unchecked_param_type = "OfferToSellBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let offer_to_sell_payload: OfferToSellBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
-        let public_data_buyer: BillAnonParticipant = match get_ctx()
-            .contact_service
-            .get_identity_by_node_id(&offer_to_sell_payload.buyer)
-            .await
-        {
-            Ok(Some(buyer)) => buyer.into(), // turn contact into anonymous participant
-            Ok(None) | Err(_) => {
-                return Err(BillServiceError::BuyerNotInContacts.into());
-            }
-        };
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let offer_to_sell_payload: OfferToSellBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let public_data_buyer: BillAnonParticipant = match get_ctx()
+                .contact_service
+                .get_identity_by_node_id(&offer_to_sell_payload.buyer)
+                .await
+            {
+                Ok(Some(buyer)) => buyer.into(), // turn contact into anonymous participant
+                Ok(None) | Err(_) => {
+                    return Err(BillServiceError::BuyerNotInContacts.into());
+                }
+            };
 
-        let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
-        self.offer_to_sell_bill(
-            offer_to_sell_payload,
-            BillParticipant::Anon(public_data_buyer),
-            timestamp,
-            sum,
-            deadline_ts,
-        )
-        .await
+            let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
+            self.offer_to_sell_bill(
+                offer_to_sell_payload,
+                BillParticipant::Anon(public_data_buyer),
+                timestamp,
+                sum,
+                deadline_ts,
+            )
+            .await
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
     async fn endorse(
@@ -534,429 +594,519 @@ impl Bill {
         Ok(())
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn endorse_bill(
         &self,
         #[wasm_bindgen(unchecked_param_type = "EndorseBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let endorse_bill_payload: EndorseBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
-        let public_data_endorsee = match get_ctx()
-            .contact_service
-            .get_identity_by_node_id(
-                &NodeId::from_str(&endorse_bill_payload.endorsee).map_err(ValidationError::from)?,
-            )
-            .await
-        {
-            Ok(Some(endorsee)) => endorsee,
-            Ok(None) | Err(_) => {
-                return Err(BillServiceError::EndorseeNotInContacts.into());
-            }
-        };
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        self.endorse(endorse_bill_payload, public_data_endorsee, timestamp)
-            .await
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let endorse_bill_payload: EndorseBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let public_data_endorsee = match get_ctx()
+                .contact_service
+                .get_identity_by_node_id(
+                    &NodeId::from_str(&endorse_bill_payload.endorsee)
+                        .map_err(ValidationError::from)?,
+                )
+                .await
+            {
+                Ok(Some(endorsee)) => endorsee,
+                Ok(None) | Err(_) => {
+                    return Err(BillServiceError::EndorseeNotInContacts.into());
+                }
+            };
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            self.endorse(endorse_bill_payload, public_data_endorsee, timestamp)
+                .await
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
     /// Blank endorsement - the contact doesn't have to be an anonymous contact
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn endorse_bill_blank(
         &self,
         #[wasm_bindgen(unchecked_param_type = "EndorseBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let endorse_bill_payload: EndorseBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
-        let public_data_endorsee_blank: BillAnonParticipant = match get_ctx()
-            .contact_service
-            .get_identity_by_node_id(
-                &NodeId::from_str(&endorse_bill_payload.endorsee).map_err(ValidationError::from)?,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let endorse_bill_payload: EndorseBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let public_data_endorsee_blank: BillAnonParticipant = match get_ctx()
+                .contact_service
+                .get_identity_by_node_id(
+                    &NodeId::from_str(&endorse_bill_payload.endorsee)
+                        .map_err(ValidationError::from)?,
+                )
+                .await
+            {
+                Ok(Some(endorsee)) => endorsee.into(), // turn contact into anonymous participant
+                Ok(None) | Err(_) => {
+                    return Err(BillServiceError::EndorseeNotInContacts.into());
+                }
+            };
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            self.endorse(
+                endorse_bill_payload,
+                BillParticipant::Anon(public_data_endorsee_blank),
+                timestamp,
             )
             .await
-        {
-            Ok(Some(endorsee)) => endorsee.into(), // turn contact into anonymous participant
-            Ok(None) | Err(_) => {
-                return Err(BillServiceError::EndorseeNotInContacts.into());
-            }
-        };
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        self.endorse(
-            endorse_bill_payload,
-            BillParticipant::Anon(public_data_endorsee_blank),
-            timestamp,
-        )
-        .await
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn request_to_pay(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RequestToPayBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let request_to_pay_bill_payload: RequestToPayBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let request_to_pay_bill_payload: RequestToPayBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &request_to_pay_bill_payload.bill_id,
-                BillAction::RequestToPay(
-                    request_to_pay_bill_payload.currency.clone(),
-                    parse_deadline_string(&request_to_pay_bill_payload.payment_deadline)?,
-                ),
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &request_to_pay_bill_payload.bill_id,
+                    BillAction::RequestToPay(
+                        request_to_pay_bill_payload.currency.clone(),
+                        parse_deadline_string(&request_to_pay_bill_payload.payment_deadline)?,
+                    ),
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn request_to_accept(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RequestToAcceptBitcreditBillPayload")]
         payload: JsValue,
-    ) -> Result<()> {
-        let request_to_accept_bill_payload: RequestToAcceptBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let request_to_accept_bill_payload: RequestToAcceptBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &request_to_accept_bill_payload.bill_id,
-                BillAction::RequestAcceptance(parse_deadline_string(
-                    &request_to_accept_bill_payload.acceptance_deadline,
-                )?),
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &request_to_accept_bill_payload.bill_id,
+                    BillAction::RequestAcceptance(parse_deadline_string(
+                        &request_to_accept_bill_payload.acceptance_deadline,
+                    )?),
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn accept(
         &self,
         #[wasm_bindgen(unchecked_param_type = "AcceptBitcreditBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let accept_bill_payload: AcceptBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let accept_bill_payload: AcceptBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &accept_bill_payload.bill_id,
-                BillAction::Accept,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &accept_bill_payload.bill_id,
+                    BillAction::Accept,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn request_to_mint(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RequestToMintBitcreditBillPayload")]
         payload: JsValue,
-    ) -> Result<()> {
-        let request_to_mint_bill_payload: RequestToMintBitcreditBillPayload =
-            serde_wasm_bindgen::from_value(payload)?;
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-        get_ctx()
-            .bill_service
-            .request_to_mint(
-                &request_to_mint_bill_payload.bill_id,
-                &NodeId::from_str(&request_to_mint_bill_payload.mint_node)
-                    .map_err(ValidationError::from)?,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let request_to_mint_bill_payload: RequestToMintBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            get_ctx()
+                .bill_service
+                .request_to_mint(
+                    &request_to_mint_bill_payload.bill_id,
+                    &NodeId::from_str(&request_to_mint_bill_payload.mint_node)
+                        .map_err(ValidationError::from)?,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "MintRequestStateResponse")]
-    pub async fn mint_state(&self, id: &str) -> Result<JsValue> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        let result = get_ctx()
-            .bill_service
-            .get_mint_state(&bill_id, &get_current_identity_node_id().await?)
-            .await?;
-        let res = serde_wasm_bindgen::to_value(&MintRequestStateResponse {
-            request_states: result.into_iter().map(|e| e.into()).collect(),
-        })?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<MintRequestStateResponse>")]
+    pub async fn mint_state(&self, id: &str) -> JsValue {
+        let res: Result<MintRequestStateResponse> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let result = get_ctx()
+                .bill_service
+                .get_mint_state(&bill_id, &get_current_identity_node_id().await?)
+                .await?;
+            Ok(MintRequestStateResponse {
+                request_states: result.into_iter().map(|e| e.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
-    pub async fn check_mint_state(&self, id: &str) -> Result<()> {
-        let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-        get_ctx()
-            .bill_service
-            .check_mint_state(&bill_id, &get_current_identity_node_id().await?)
-            .await?;
-        Ok(())
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn check_mint_state(&self, id: &str) -> JsValue {
+        let res: Result<()> = async {
+            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            get_ctx()
+                .bill_service
+                .check_mint_state(&bill_id, &get_current_identity_node_id().await?)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
-    pub async fn cancel_request_to_mint(&self, mint_request_id: &str) -> Result<()> {
-        get_ctx()
-            .bill_service
-            .cancel_request_to_mint(mint_request_id, &get_current_identity_node_id().await?)
-            .await?;
-        Ok(())
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn cancel_request_to_mint(&self, mint_request_id: &str) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx()
+                .bill_service
+                .cancel_request_to_mint(mint_request_id, &get_current_identity_node_id().await?)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
-    pub async fn accept_mint_offer(&self, mint_request_id: &str) -> Result<()> {
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-        get_ctx()
-            .bill_service
-            .accept_mint_offer(
-                mint_request_id,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
-        Ok(())
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn accept_mint_offer(&self, mint_request_id: &str) -> JsValue {
+        let res: Result<()> = async {
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            get_ctx()
+                .bill_service
+                .accept_mint_offer(
+                    mint_request_id,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
-    pub async fn reject_mint_offer(&self, mint_request_id: &str) -> Result<()> {
-        get_ctx()
-            .bill_service
-            .reject_mint_offer(mint_request_id, &get_current_identity_node_id().await?)
-            .await?;
-        Ok(())
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn reject_mint_offer(&self, mint_request_id: &str) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx()
+                .bill_service
+                .reject_mint_offer(mint_request_id, &get_current_identity_node_id().await?)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn reject_to_accept(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RejectActionBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &reject_payload.bill_id,
-                BillAction::RejectAcceptance,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &reject_payload.bill_id,
+                    BillAction::RejectAcceptance,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn reject_to_pay(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RejectActionBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &reject_payload.bill_id,
-                BillAction::RejectPayment,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &reject_payload.bill_id,
+                    BillAction::RejectPayment,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn reject_to_buy(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RejectActionBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &reject_payload.bill_id,
-                BillAction::RejectBuying,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &reject_payload.bill_id,
+                    BillAction::RejectBuying,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn reject_to_pay_recourse(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RejectActionBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-        get_ctx()
-            .bill_service
-            .execute_bill_action(
-                &reject_payload.bill_id,
-                BillAction::RejectPaymentForRecourse,
-                &signer_public_data,
-                &signer_keys,
-                timestamp,
-            )
-            .await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &reject_payload.bill_id,
+                    BillAction::RejectPaymentForRecourse,
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn request_to_recourse_bill_payment(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RequestRecourseForPaymentPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let request_recourse_payload: RequestRecourseForPaymentPayload =
-            serde_wasm_bindgen::from_value(payload)?;
-        let sum = currency::parse_sum(&request_recourse_payload.sum)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let request_recourse_payload: RequestRecourseForPaymentPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let sum = currency::parse_sum(&request_recourse_payload.sum)?;
 
-        request_recourse(
-            RecourseReason::Pay(sum, request_recourse_payload.currency.clone()),
-            &request_recourse_payload.bill_id,
-            &request_recourse_payload.recoursee,
-            parse_deadline_string(&request_recourse_payload.recourse_deadline)?,
-        )
-        .await
+            request_recourse(
+                RecourseReason::Pay(sum, request_recourse_payload.currency.clone()),
+                &request_recourse_payload.bill_id,
+                &request_recourse_payload.recoursee,
+                parse_deadline_string(&request_recourse_payload.recourse_deadline)?,
+            )
+            .await
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn request_to_recourse_bill_acceptance(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RequestRecourseForPaymentPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let request_recourse_payload: RequestRecourseForAcceptancePayload =
-            serde_wasm_bindgen::from_value(payload)?;
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let request_recourse_payload: RequestRecourseForAcceptancePayload =
+                serde_wasm_bindgen::from_value(payload)?;
 
-        request_recourse(
-            RecourseReason::Accept,
-            &request_recourse_payload.bill_id,
-            &request_recourse_payload.recoursee,
-            parse_deadline_string(&request_recourse_payload.recourse_deadline)?,
-        )
-        .await
+            request_recourse(
+                RecourseReason::Accept,
+                &request_recourse_payload.bill_id,
+                &request_recourse_payload.recoursee,
+                parse_deadline_string(&request_recourse_payload.recourse_deadline)?,
+            )
+            .await
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
-    pub async fn clear_bill_cache(&self) -> Result<()> {
-        get_ctx().bill_service.clear_bill_cache().await?;
-        Ok(())
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn clear_bill_cache(&self) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx().bill_service.clear_bill_cache().await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
     /// Given a bill id, resync the chain via block transport
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn sync_bill_chain(
         &self,
         #[wasm_bindgen(unchecked_param_type = "ResyncBillPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let payload: ResyncBillPayload = serde_wasm_bindgen::from_value(payload)?;
-        get_ctx()
-            .notification_service
-            .resync_bill_chain(&payload.bill_id)
-            .await?;
-        Ok(())
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: ResyncBillPayload = serde_wasm_bindgen::from_value(payload)?;
+            get_ctx()
+                .notification_service
+                .resync_bill_chain(&payload.bill_id)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "string[]")]
-    pub async fn dev_mode_get_full_bill_chain(&self, bill_id: &str) -> Result<JsValue> {
-        let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
-        let plaintext_chain = get_ctx()
-            .bill_service
-            .dev_mode_get_full_bill_chain(&parsed_bill_id, &get_current_identity_node_id().await?)
-            .await?;
-        let json_string_chain: Result<Vec<String>> = plaintext_chain
-            .into_iter()
-            .map(|plaintext_block| {
-                plaintext_block
-                    .to_json_text()
-                    .map_err(|e| WasmError::Service(Error::Blockchain(e)))
-            })
-            .collect();
+    #[wasm_bindgen(unchecked_return_type = "TSResult<string[]>")]
+    pub async fn dev_mode_get_full_bill_chain(&self, bill_id: &str) -> JsValue {
+        let res: Result<Vec<String>> = async {
+            let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
+            let plaintext_chain = get_ctx()
+                .bill_service
+                .dev_mode_get_full_bill_chain(
+                    &parsed_bill_id,
+                    &get_current_identity_node_id().await?,
+                )
+                .await?;
+            let json_string_chain: Result<Vec<String>> = plaintext_chain
+                .into_iter()
+                .map(|plaintext_block| {
+                    plaintext_block
+                        .to_json_text()
+                        .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+                })
+                .collect();
 
-        let res = serde_wasm_bindgen::to_value(&json_string_chain?)?;
-        Ok(res)
+            json_string_chain
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn share_bill_with_court(
         &self,
         #[wasm_bindgen(unchecked_param_type = "ShareBillWithCourtPayload")] payload: JsValue,
-    ) -> Result<()> {
-        let payload: ShareBillWithCourtPayload = serde_wasm_bindgen::from_value(payload)?;
-        let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-        get_ctx()
-            .bill_service
-            .share_bill_with_court(
-                &payload.bill_id,
-                &signer_public_data,
-                &signer_keys,
-                &payload.court_node_id,
-            )
-            .await?;
-        Ok(())
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: ShareBillWithCourtPayload = serde_wasm_bindgen::from_value(payload)?;
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            get_ctx()
+                .bill_service
+                .share_bill_with_court(
+                    &payload.bill_id,
+                    &signer_public_data,
+                    &signer_keys,
+                    &payload.court_node_id,
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "BillHistoryResponse")]
-    pub async fn bill_history(&self, bill_id: &str) -> Result<JsValue> {
-        let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
-        let current_timestamp = util::date::now().timestamp() as u64;
-        let identity = get_ctx().identity_service.get_identity().await?;
-        let res: BillHistoryResponse = get_ctx()
-            .bill_service
-            .get_bill_history(
-                &parsed_bill_id,
-                &identity,
-                &get_current_identity_node_id().await?,
-                current_timestamp,
-            )
-            .await?
-            .into();
-        let res = serde_wasm_bindgen::to_value(&res)?;
-        Ok(res)
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillHistoryResponse>")]
+    pub async fn bill_history(&self, bill_id: &str) -> JsValue {
+        let res: Result<BillHistoryResponse> = async {
+            let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
+            let current_timestamp = util::date::now().timestamp() as u64;
+            let identity = get_ctx().identity_service.get_identity().await?;
+            let res: BillHistoryResponse = get_ctx()
+                .bill_service
+                .get_bill_history(
+                    &parsed_bill_id,
+                    &identity,
+                    &get_current_identity_node_id().await?,
+                    current_timestamp,
+                )
+                .await?
+                .into();
+            Ok(res)
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 }
 

@@ -1,3 +1,8 @@
+# 0.4.13
+
+* Document versioning scheme
+* Rework WASM API to return `TSResult<T> =  { Success: T } | { Error: JsErrorData }` without triggering exceptions
+
 # 0.4.12
 
 * Added `actions` to `BitcreditBillResult`, with `bill_actions`, that are calculated based on which bill actions the caller is currently allowed to do (breaking DB and API change)

@@ -146,15 +146,22 @@ enum JsErrorType {
 
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
-struct JsErrorData {
+pub struct JsErrorData {
     error: JsErrorType,
     message: String,
     code: u16,
 }
+
 impl From<WasmError> for JsValue {
     fn from(error: WasmError) -> JsValue {
+        serde_wasm_bindgen::to_value(&JsErrorData::from(error)).expect("can serialize error")
+    }
+}
+
+impl From<WasmError> for JsErrorData {
+    fn from(error: WasmError) -> JsErrorData {
         error!("{error}");
-        let js_error_data = match error {
+        match error {
             WasmError::Service(e) => match e {
                 ServiceError::NoFileForFileUploadId => {
                     err_400(e, JsErrorType::NoFileForFileUploadId)
@@ -178,10 +185,10 @@ impl From<WasmError> for JsValue {
             WasmError::Crypto(e) => err_500(e, JsErrorType::Crypto),
             WasmError::Persistence(e) => err_500(e, JsErrorType::Persistence),
             WasmError::Init(e) => err_500(e, JsErrorType::Init),
-        };
-        serde_wasm_bindgen::to_value(&js_error_data).expect("can serialize error")
+        }
     }
 }
+
 fn notification_service_error_data(e: NotificationServiceError) -> JsErrorData {
     match e {
         NotificationServiceError::Network(e) => err_500(e, JsErrorType::NotificationNetwork),

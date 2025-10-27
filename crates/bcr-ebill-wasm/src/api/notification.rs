@@ -1,5 +1,6 @@
 use super::Result;
 use crate::{
+    TSResult,
     api::{bill::get_signer_public_data_and_keys, identity::get_current_identity_node_id},
     context::get_ctx,
     data::{
@@ -26,22 +27,25 @@ impl Notification {
         Notification
     }
 
-    #[wasm_bindgen(unchecked_return_type = "NotificationStatusWeb[]")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<NotificationStatusWeb[]>")]
     pub async fn active_notifications_for_node_ids(
         &self,
         #[wasm_bindgen(unchecked_param_type = "string[]")] node_ids: JsValue,
-    ) -> Result<JsValue> {
-        let node_ids_parsed: Vec<NodeId> = serde_wasm_bindgen::from_value(node_ids)?;
-        let notification_status = get_ctx()
-            .notification_service
-            .get_active_notification_status_for_node_ids(&node_ids_parsed)
-            .await?;
-        let web: Vec<NotificationStatusWeb> = notification_status
-            .into_iter()
-            .map(|(node_id, active)| NotificationStatusWeb { node_id, active })
-            .collect();
-        let res = serde_wasm_bindgen::to_value(&web)?;
-        Ok(res)
+    ) -> JsValue {
+        let res: Result<Vec<NotificationStatusWeb>> = async {
+            let node_ids_parsed: Vec<NodeId> = serde_wasm_bindgen::from_value(node_ids)?;
+            let notification_status = get_ctx()
+                .notification_service
+                .get_active_notification_status_for_node_ids(&node_ids_parsed)
+                .await?;
+            let web: Vec<NotificationStatusWeb> = notification_status
+                .into_iter()
+                .map(|(node_id, active)| NotificationStatusWeb { node_id, active })
+                .collect();
+            Ok(web)
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
     #[wasm_bindgen]
@@ -64,87 +68,106 @@ impl Notification {
         });
     }
 
-    #[wasm_bindgen(unchecked_return_type = "NotificationWeb[]")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<NotificationWeb[]>")]
     pub async fn list(
         &self,
         #[wasm_bindgen(unchecked_param_type = "NotificationFilters")] filters: JsValue,
-    ) -> Result<JsValue> {
-        let filter = NotificationFilter::from(
-            serde_wasm_bindgen::from_value::<NotificationFilters>(filters)
-                .ok()
-                .unwrap_or_default(),
-        );
+    ) -> JsValue {
+        let res: Result<Vec<NotificationWeb>> = async {
+            let filter = NotificationFilter::from(
+                serde_wasm_bindgen::from_value::<NotificationFilters>(filters)
+                    .ok()
+                    .unwrap_or_default(),
+            );
 
-        let notifications = get_ctx()
-            .notification_service
-            .get_client_notifications(filter)
-            .await?;
+            let notifications = get_ctx()
+                .notification_service
+                .get_client_notifications(filter)
+                .await?;
 
-        let web: Vec<NotificationWeb> = notifications.into_iter().map(|n| n.into()).collect();
-        let res = serde_wasm_bindgen::to_value(&web)?;
-        Ok(res)
-    }
-
-    #[wasm_bindgen]
-    pub async fn mark_as_done(&self, notification_id: &str) -> Result<()> {
-        get_ctx()
-            .notification_service
-            .mark_notification_as_done(notification_id)
-            .await?;
-        Ok(())
-    }
-
-    #[wasm_bindgen]
-    /// Register email notifications for the currently selected identity
-    pub async fn register_email_notifications(&self, relay_url: &str) -> Result<()> {
-        let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-        let parsed_url = url::Url::parse(relay_url)
-            .map_err(|_| Error::Validation(ValidationError::InvalidUrl))?;
-
-        // check if the given relay URL is one of the current selected identity's relays
-        if !caller_public_data
-            .nostr_relays()
-            .iter()
-            .any(|nr| nr == &parsed_url)
-        {
-            return Err(Error::Validation(ValidationError::InvalidRelayUrl).into());
+            let web: Vec<NotificationWeb> = notifications.into_iter().map(|n| n.into()).collect();
+            Ok(web)
         }
-
-        // check if there is an email set
-        let email = caller_public_data
-            .email()
-            .ok_or(Error::Validation(ValidationError::FieldEmpty(Field::Email)))?;
-
-        get_ctx()
-            .notification_service
-            .register_email_notifications(
-                &parsed_url,
-                &email,
-                &caller_public_data.node_id(),
-                &caller_keys,
-            )
-            .await?;
-        Ok(())
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn mark_as_done(&self, notification_id: &str) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx()
+                .notification_service
+                .mark_notification_as_done(notification_id)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    /// Register email notifications for the currently selected identity
+    pub async fn register_email_notifications(&self, relay_url: &str) -> JsValue {
+        let res: Result<()> = async {
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+            let parsed_url = url::Url::parse(relay_url)
+                .map_err(|_| Error::Validation(ValidationError::InvalidUrl))?;
+
+            // check if the given relay URL is one of the current selected identity's relays
+            if !caller_public_data
+                .nostr_relays()
+                .iter()
+                .any(|nr| nr == &parsed_url)
+            {
+                return Err(Error::Validation(ValidationError::InvalidRelayUrl).into());
+            }
+
+            // check if there is an email set
+            let email = caller_public_data
+                .email()
+                .ok_or(Error::Validation(ValidationError::FieldEmpty(Field::Email)))?;
+
+            get_ctx()
+                .notification_service
+                .register_email_notifications(
+                    &parsed_url,
+                    &email,
+                    &caller_public_data.node_id(),
+                    &caller_keys,
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<String>")]
     /// Fetch email notifications preferences link for the currently selected identity
-    pub async fn get_email_notifications_preferences_link(&self) -> Result<String> {
-        let preferences_link = get_ctx()
-            .notification_service
-            .get_email_notifications_preferences_link(&get_current_identity_node_id().await?)
-            .await?;
-        Ok(preferences_link.to_string())
+    pub async fn get_email_notifications_preferences_link(&self) -> JsValue {
+        let res: Result<String> = async {
+            let preferences_link = get_ctx()
+                .notification_service
+                .get_email_notifications_preferences_link(&get_current_identity_node_id().await?)
+                .await?;
+            Ok(preferences_link.to_string())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen]
-    pub async fn trigger_test_msg(&self, payload: JsValue) -> Result<()> {
-        let msg: serde_json::Value = serde_wasm_bindgen::from_value(payload)?;
-        get_ctx()
-            .push_service
-            .send(serde_json::to_value(msg).unwrap())
-            .await;
-        Ok(())
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn trigger_test_msg(&self, payload: JsValue) -> JsValue {
+        let res: Result<()> = async {
+            let msg: serde_json::Value = serde_wasm_bindgen::from_value(payload)?;
+            get_ctx()
+                .push_service
+                .send(serde_json::to_value(msg).unwrap())
+                .await;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
     }
 }
 
