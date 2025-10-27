@@ -45,13 +45,13 @@ Actions that can happen, depending on the role, which are related to payment
 * **Pay** - the bill is currently waiting for a payment by the caller
     * contains the data to make the payment and metadata about the payment (e.g. what it's for - Recourse, Sell, Pay etc.)
         * `type` - e.g. Pay, Recourse, Sell (as an enum wrapper)
-        * `receiver` - e.g. payee, seller, recourser
+        * `receiver` - e.g. payee, seller, recourser, holder
         * `time_of_request` - the timestamp the payment request was made
         * `currency` - the currency to pay in
         * `sum` - the sum to pay
         * `link_to_pay` - a generated link for the payment
         * `address_to_pay` - the BTC address to pay to
-        * `mempool_link_for_address_to_pay` - 
+        * `mempool_link_for_address_to_pay` - the link to a mempool explorer to track the payment
         * `tx_id` - the BTC transaction ID
         * `in_mempool` - if the payment is in the mempool
         * `confirmations` -  the amount of confirmations the payment has
@@ -65,7 +65,7 @@ Actions that can happen, depending on the role, which are related to payment
         * `sum` - the sum to pay
         * `link_to_pay` - a generated link for the payment
         * `address_to_pay` - the BTC address to pay to
-        * `mempool_link_for_address_to_pay` - 
+        * `mempool_link_for_address_to_pay` - the link to a mempool explorer to track the payment
         * `tx_id` - the BTC transaction ID
         * `in_mempool` - if the payment is in the mempool
         * `confirmations` -  the amount of confirmations the payment has
@@ -255,7 +255,7 @@ We simply add together the states and actions of the Payer and Buyer roles.
 
 This is a non-exhaustive set of examples. Mostly for demonstrating specific cases up for discussion with the same format
 
-#### Bill just issued (1 block), Drawer == Payer
+#### Bill just issued (1 block), Drawer == Payee
 
 ##### Role: Holder
 
@@ -295,7 +295,7 @@ This is a non-exhaustive set of examples. Mostly for demonstrating specific case
         * rejected to pay = false
         * request to pay expired = false
 
-#### Bill offered to sell (2 blocks), Drawer == Payer, Buyer != Payer, not rejected, or expired
+#### Bill offered to sell (2 blocks), Drawer == Payee, Buyer != Payer, not rejected, or expired
 
 ##### Role: Holder
 
@@ -363,7 +363,7 @@ This is a non-exhaustive set of examples. Mostly for demonstrating specific case
         * rejected to pay = false
         * request to pay expired = false
 
-#### Bill sold (3 blocks), Drawer == Payer, Buyer != Payer
+#### Bill sold (3 blocks), Drawer == Payee, Buyer != Payer
 
 ##### Role: Holder (=previous Buyer)
 
