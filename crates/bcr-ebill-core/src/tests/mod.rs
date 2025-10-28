@@ -6,13 +6,13 @@ pub mod tests {
     use crate::address::Address;
     use crate::bill::BillId;
     use crate::city::City;
-    use crate::constants::CURRENCY_SAT;
     use crate::contact::BillParticipant;
     use crate::country::Country;
     use crate::date::Date;
     use crate::email::Email;
     use crate::identity::IdentityType;
     use crate::name::Name;
+    use crate::sum::Sum;
     use crate::util::date::now;
     use crate::zip::Zip;
     use crate::{NodeId, Validate};
@@ -183,8 +183,7 @@ pub mod tests {
             drawer: empty_bill_identified_participant(),
             payee: valid_bill_participant(),
             endorsee: None,
-            currency: CURRENCY_SAT.to_string(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             maturity_date: Date::new("2099-11-12").unwrap(),
             issue_date: Date::new("2099-08-12").unwrap(),
             city_of_payment: City::new("Vienna").unwrap(),

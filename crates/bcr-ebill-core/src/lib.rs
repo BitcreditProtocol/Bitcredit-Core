@@ -23,6 +23,7 @@ pub mod mint;
 pub mod name;
 pub mod nostr_contact;
 pub mod notification;
+pub mod sum;
 #[cfg(test)]
 mod tests;
 pub mod util;

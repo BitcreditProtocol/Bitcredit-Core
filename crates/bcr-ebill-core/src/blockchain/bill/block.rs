@@ -14,6 +14,7 @@ use crate::constants::{
 use crate::country::Country;
 use crate::date::Date;
 use crate::name::Name;
+use crate::sum::{Currency, Sum};
 use crate::util::BcrKeys;
 use crate::util::{self, crypto};
 use crate::{
@@ -119,8 +120,7 @@ pub struct BillIssueBlockData {
     pub drawee: BillIdentParticipantBlockData, // drawee always has to be identified
     pub drawer: BillIdentParticipantBlockData, // drawer always has to be identified
     pub payee: BillParticipantBlockData,       // payer can be anon
-    pub currency: String,
-    pub sum: u64,
+    pub sum: Sum,
     pub maturity_date: Date,
     pub issue_date: Date,
     pub country_of_payment: Country,
@@ -142,9 +142,6 @@ impl Validate for BillIssueBlockData {
         self.payee.validate()?;
 
         util::date::validate_timestamp(self.signing_timestamp)?;
-
-        util::currency::validate_currency(&self.currency)?;
-        util::currency::validate_sum(self.sum)?;
 
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
@@ -170,7 +167,6 @@ impl BillIssueBlockData {
             drawee: value.drawee.into(),
             drawer: value.drawer.into(),
             payee: value.payee.into(),
-            currency: value.currency,
             sum: value.sum,
             maturity_date: value.maturity_date,
             issue_date: value.issue_date,
@@ -211,7 +207,7 @@ impl Validate for BillAcceptBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToPayBlockData {
     pub requester: BillParticipantBlockData, // requester is holder and can be anon
-    pub currency: String,
+    pub currency: Currency,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>, // address of the requester
@@ -224,8 +220,6 @@ impl Validate for BillRequestToPayBlockData {
 
         util::date::validate_timestamp(self.signing_timestamp)?;
         util::date::validate_timestamp(self.payment_deadline_timestamp)?;
-
-        util::currency::validate_currency(&self.currency)?;
 
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
@@ -285,8 +279,7 @@ impl Validate for BillRequestToAcceptBlockData {
 pub struct BillMintBlockData {
     pub endorser: BillParticipantBlockData, // bill can be minted by anon
     pub endorsee: BillParticipantBlockData, // mints can be anon
-    pub currency: String,
-    pub sum: u64,
+    pub sum: Sum,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: Option<PostalAddress>, // address of the endorser
@@ -303,9 +296,6 @@ impl Validate for BillMintBlockData {
 
         util::date::validate_timestamp(self.signing_timestamp)?;
 
-        util::currency::validate_currency(&self.currency)?;
-        util::currency::validate_sum(self.sum)?;
-
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
         }
@@ -320,8 +310,7 @@ impl Validate for BillMintBlockData {
 pub struct BillOfferToSellBlockData {
     pub seller: BillParticipantBlockData, // seller is holder and can be anon
     pub buyer: BillParticipantBlockData,  // buyer can be anon
-    pub currency: String,
-    pub sum: u64,
+    pub sum: Sum,
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -340,9 +329,6 @@ impl Validate for BillOfferToSellBlockData {
 
         util::date::validate_timestamp(self.signing_timestamp)?;
         util::date::validate_timestamp(self.buying_deadline_timestamp)?;
-
-        util::currency::validate_currency(&self.currency)?;
-        util::currency::validate_sum(self.sum)?;
 
         if bitcoin::Address::from_str(&self.payment_address).is_err() {
             return Err(ValidationError::InvalidPaymentAddress);
@@ -370,8 +356,7 @@ impl Validate for BillOfferToSellBlockData {
 pub struct BillSellBlockData {
     pub seller: BillParticipantBlockData, // seller is holder and can be anon
     pub buyer: BillParticipantBlockData,  // buyer can be anon
-    pub currency: String,
-    pub sum: u64,
+    pub sum: Sum,
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -388,9 +373,6 @@ impl Validate for BillSellBlockData {
         }
 
         util::date::validate_timestamp(self.signing_timestamp)?;
-
-        util::currency::validate_currency(&self.currency)?;
-        util::currency::validate_sum(self.sum)?;
 
         if bitcoin::Address::from_str(&self.payment_address).is_err() {
             return Err(ValidationError::InvalidPaymentAddress);
@@ -440,8 +422,7 @@ impl Validate for BillEndorseBlockData {
 pub struct BillRequestRecourseBlockData {
     pub recourser: BillParticipantBlockData, // anon can do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
-    pub sum: u64,
-    pub currency: String,
+    pub sum: Sum,
     pub recourse_reason: BillRecourseReasonBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -467,9 +448,6 @@ impl Validate for BillRequestRecourseBlockData {
         util::date::validate_timestamp(self.signing_timestamp)?;
         util::date::validate_timestamp(self.recourse_deadline_timestamp)?;
 
-        util::currency::validate_currency(&self.currency)?;
-        util::currency::validate_sum(self.sum)?;
-
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
         }
@@ -493,8 +471,7 @@ impl Validate for BillRequestRecourseBlockData {
 pub struct BillRecourseBlockData {
     pub recourser: BillParticipantBlockData, // anon can do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
-    pub sum: u64,
-    pub currency: String,
+    pub sum: Sum,
     pub recourse_reason: BillRecourseReasonBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -511,9 +488,6 @@ impl Validate for BillRecourseBlockData {
         }
 
         util::date::validate_timestamp(self.signing_timestamp)?;
-
-        util::currency::validate_currency(&self.currency)?;
-        util::currency::validate_sum(self.sum)?;
 
         if let Some(ref signatory) = self.signatory {
             signatory.validate()?;
@@ -1695,11 +1669,7 @@ impl BillBlock {
                 (
                     data.endorser.node_id(),
                     data.signatory.map(|s| s.node_id),
-                    Some(BillAction::Mint(
-                        data.endorsee.into(),
-                        data.sum,
-                        data.currency,
-                    )),
+                    Some(BillAction::Mint(data.endorsee.into(), data.sum)),
                 )
             }
             RequestToAccept => {
@@ -1743,7 +1713,6 @@ impl BillBlock {
                     Some(BillAction::OfferToSell(
                         data.buyer.into(),
                         data.sum,
-                        data.currency,
                         data.buying_deadline_timestamp,
                     )),
                 )
@@ -1757,7 +1726,6 @@ impl BillBlock {
                     Some(BillAction::Sell(
                         data.buyer.into(),
                         data.sum,
-                        data.currency,
                         data.payment_address,
                     )),
                 )
@@ -1801,9 +1769,7 @@ impl BillBlock {
             RequestRecourse => {
                 let data: BillRequestRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 let reason = match data.recourse_reason {
-                    BillRecourseReasonBlockData::Pay => {
-                        RecourseReason::Pay(data.sum, data.currency.clone())
-                    }
+                    BillRecourseReasonBlockData::Pay => RecourseReason::Pay(data.sum.clone()),
                     BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
                 };
                 data.validate()?;
@@ -1820,9 +1786,7 @@ impl BillBlock {
             Recourse => {
                 let data: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 let reason = match data.recourse_reason {
-                    BillRecourseReasonBlockData::Pay => {
-                        RecourseReason::Pay(data.sum, data.currency.clone())
-                    }
+                    BillRecourseReasonBlockData::Pay => RecourseReason::Pay(data.sum.clone()),
                     BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
                 };
                 data.validate()?;
@@ -1832,7 +1796,6 @@ impl BillBlock {
                     Some(BillAction::Recourse(
                         data.recoursee.into(),
                         data.sum,
-                        data.currency,
                         reason,
                     )),
                 )
@@ -1886,7 +1849,7 @@ pub mod tests {
     use crate::{
         address::Address,
         blockchain::bill::tests::get_baseline_identity,
-        constants::{CURRENCY_SAT, DAY_IN_SECS},
+        constants::DAY_IN_SECS,
         country::Country,
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
@@ -2029,8 +1992,7 @@ pub mod tests {
             &BillMintBlockData {
                 endorser: minter.clone().into(),
                 endorsee: mint.into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
@@ -2118,7 +2080,7 @@ pub mod tests {
             &get_first_block(),
             &BillRequestToPayBlockData {
                 requester: requester.clone().into(),
-                currency: CURRENCY_SAT.to_string(),
+                currency: Currency::sat(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(valid_address()),
@@ -2148,8 +2110,7 @@ pub mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2181,8 +2142,7 @@ pub mod tests {
             &BillSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: buyer.node_id().clone(),
@@ -2328,8 +2288,7 @@ pub mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2365,8 +2324,7 @@ pub mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2460,8 +2418,7 @@ pub mod tests {
             &BillMintBlockData {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
@@ -2480,7 +2437,7 @@ pub mod tests {
         );
         assert!(matches!(
             mint_result.as_ref().unwrap().1,
-            Some(BillAction::Mint(_, _, _))
+            Some(BillAction::Mint(_, _))
         ));
         assert!(mint_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2517,7 +2474,7 @@ pub mod tests {
             &issue_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
-                currency: CURRENCY_SAT.to_string(),
+                currency: Currency::sat(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: Some(signer.postal_address.clone()),
@@ -2574,8 +2531,7 @@ pub mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2596,7 +2552,7 @@ pub mod tests {
         );
         assert!(matches!(
             offer_to_sell_result.as_ref().unwrap().1,
-            Some(BillAction::OfferToSell(_, _, _, _))
+            Some(BillAction::OfferToSell(_, _, _))
         ));
         assert!(offer_to_sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2606,8 +2562,7 @@ pub mod tests {
             &BillSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2627,7 +2582,7 @@ pub mod tests {
         );
         assert!(matches!(
             sell_result.as_ref().unwrap().1,
-            Some(BillAction::Sell(_, _, _, _))
+            Some(BillAction::Sell(_, _, _))
         ));
         assert!(sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2746,8 +2701,7 @@ pub mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2778,8 +2732,7 @@ pub mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -2799,7 +2752,7 @@ pub mod tests {
         );
         assert!(matches!(
             recourse_result.as_ref().unwrap().1,
-            Some(BillAction::Recourse(_, _, _, _))
+            Some(BillAction::Recourse(_, _, _))
         ));
         assert!(recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
     }
@@ -2891,8 +2844,7 @@ pub mod tests {
             &BillMintBlockData {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
@@ -2914,7 +2866,7 @@ pub mod tests {
         );
         assert!(matches!(
             mint_result.as_ref().unwrap().1,
-            Some(BillAction::Mint(_, _, _))
+            Some(BillAction::Mint(_, _))
         ));
         assert!(mint_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2954,7 +2906,7 @@ pub mod tests {
             &issue_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
-                currency: CURRENCY_SAT.to_string(),
+                currency: Currency::sat(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
@@ -3017,8 +2969,7 @@ pub mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -3042,7 +2993,7 @@ pub mod tests {
         );
         assert!(matches!(
             offer_to_sell_result.as_ref().unwrap().1,
-            Some(BillAction::OfferToSell(_, _, _, _))
+            Some(BillAction::OfferToSell(_, _, _))
         ));
         assert!(offer_to_sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -3052,8 +3003,7 @@ pub mod tests {
             &BillSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -3076,7 +3026,7 @@ pub mod tests {
         );
         assert!(matches!(
             sell_result.as_ref().unwrap().1,
-            Some(BillAction::Sell(_, _, _, _))
+            Some(BillAction::Sell(_, _, _))
         ));
         assert!(sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -3207,8 +3157,7 @@ pub mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -3242,8 +3191,7 @@ pub mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -3266,7 +3214,7 @@ pub mod tests {
         );
         assert!(matches!(
             recourse_result.as_ref().unwrap().1,
-            Some(BillAction::Recourse(_, _, _, _))
+            Some(BillAction::Recourse(_, _, _))
         ));
         assert!(recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
     }
@@ -3371,8 +3319,7 @@ pub mod tests {
             drawee: other_valid_bill_identity_block_data(),
             drawer: valid_bill_identity_block_data(),
             payee: valid_bill_participant_block_data(),
-            currency: CURRENCY_SAT.into(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             maturity_date: Date::new("2025-11-12").unwrap(),
             issue_date: Date::new("2025-08-12").unwrap(),
             country_of_payment: Country::FR,
@@ -3388,16 +3335,6 @@ pub mod tests {
     fn test_valid_bill_issue_block_data() {
         let bill = valid_bill_issue_block_data();
         assert_eq!(bill.validate(), Ok(()));
-    }
-
-    #[rstest]
-    #[case::invalid_sum(BillIssueBlockData { sum: 0, ..valid_bill_issue_block_data() }, ValidationError::InvalidSum)]
-    #[case::invalid_currency(BillIssueBlockData { currency: "invalidcurrency".into(), ..valid_bill_issue_block_data() }, ValidationError::InvalidCurrency)]
-    fn test_invalid_bill_issue_block_data(
-        #[case] bill: BillIssueBlockData,
-        #[case] expected: ValidationError,
-    ) {
-        assert_eq!(bill.validate(), Err(expected));
     }
 
     fn valid_req_to_accept_block_data() -> BillRequestToAcceptBlockData {
@@ -3434,7 +3371,7 @@ pub mod tests {
     fn valid_req_to_pay_block_data() -> BillRequestToPayBlockData {
         BillRequestToPayBlockData {
             requester: valid_bill_participant_block_data(),
-            currency: CURRENCY_SAT.into(),
+            currency: Currency::sat(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
@@ -3448,21 +3385,11 @@ pub mod tests {
         assert_eq!(accept.validate(), Ok(()));
     }
 
-    #[rstest]
-    #[case::invalid_currency(BillRequestToPayBlockData { currency: "invalidcurrency".into(), ..valid_req_to_pay_block_data() }, ValidationError::InvalidCurrency)]
-    fn test_invalid_req_to_pay_block_data(
-        #[case] block: BillRequestToPayBlockData,
-        #[case] expected_error: ValidationError,
-    ) {
-        assert_eq!(block.validate(), Err(expected_error));
-    }
-
     fn valid_mint_block_data() -> BillMintBlockData {
         BillMintBlockData {
             endorser: valid_bill_participant_block_data(),
             endorsee: other_valid_bill_participant_block_data(),
-            currency: CURRENCY_SAT.into(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
             signing_address: Some(valid_address()),
@@ -3475,22 +3402,11 @@ pub mod tests {
         assert_eq!(accept.validate(), Ok(()));
     }
 
-    #[rstest]
-    #[case::invalid_currency(BillMintBlockData { currency: "invalidcurrency".into(), ..valid_mint_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_sum(BillMintBlockData { sum: 0, ..valid_mint_block_data() }, ValidationError::InvalidSum)]
-    fn test_invalid_mint_block_data(
-        #[case] block: BillMintBlockData,
-        #[case] expected_error: ValidationError,
-    ) {
-        assert_eq!(block.validate(), Err(expected_error));
-    }
-
     fn valid_offer_to_sell_block_data() -> BillOfferToSellBlockData {
         BillOfferToSellBlockData {
             seller: valid_bill_participant_block_data(),
             buyer: other_valid_bill_participant_block_data(),
-            currency: CURRENCY_SAT.into(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
@@ -3506,8 +3422,6 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_currency(BillOfferToSellBlockData { currency: "invalidcurrency".into(), ..valid_offer_to_sell_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_sum(BillOfferToSellBlockData { sum: 0, ..valid_offer_to_sell_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillOfferToSellBlockData { payment_address: "invalidaddress".into(), ..valid_offer_to_sell_block_data() }, ValidationError::InvalidPaymentAddress)]
     fn test_invalid_offer_to_sell_block_data(
         #[case] block: BillOfferToSellBlockData,
@@ -3520,8 +3434,7 @@ pub mod tests {
         BillSellBlockData {
             seller: valid_bill_participant_block_data(),
             buyer: other_valid_bill_participant_block_data(),
-            currency: CURRENCY_SAT.into(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
@@ -3536,8 +3449,6 @@ pub mod tests {
     }
 
     #[rstest]
-    #[case::invalid_currency(BillSellBlockData { currency: "invalidcurrency".into(), ..valid_sell_block_data() }, ValidationError::InvalidCurrency)]
-    #[case::invalid_sum(BillSellBlockData { sum: 0, ..valid_sell_block_data() }, ValidationError::InvalidSum)]
     #[case::invalid_payment_address(BillSellBlockData { payment_address: "invalidaddress".into(), ..valid_sell_block_data() }, ValidationError::InvalidPaymentAddress)]
     fn test_invalid_sell_block_data(
         #[case] block: BillSellBlockData,
@@ -3566,8 +3477,7 @@ pub mod tests {
         BillRequestRecourseBlockData {
             recourser: valid_bill_participant_block_data(),
             recoursee: other_valid_bill_identity_block_data(),
-            currency: CURRENCY_SAT.into(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
@@ -3582,22 +3492,11 @@ pub mod tests {
         assert_eq!(accept.validate(), Ok(()));
     }
 
-    #[rstest]
-    #[case::invalid_sum(BillRequestRecourseBlockData { sum: 0, ..valid_req_to_recourse_block_data() }, ValidationError::InvalidSum)]
-    #[case::invalid_payment_address(BillRequestRecourseBlockData { currency: "invalidcurrency".into(), ..valid_req_to_recourse_block_data() }, ValidationError::InvalidCurrency)]
-    fn test_invalid_req_to_recourse_block_data(
-        #[case] block: BillRequestRecourseBlockData,
-        #[case] expected_error: ValidationError,
-    ) {
-        assert_eq!(block.validate(), Err(expected_error));
-    }
-
     fn valid_recourse_block_data() -> BillRecourseBlockData {
         BillRecourseBlockData {
             recourser: BillParticipantBlockData::Ident(valid_bill_identity_block_data()),
             recoursee: other_valid_bill_identity_block_data(),
-            currency: CURRENCY_SAT.into(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: 1731593928,
@@ -3609,16 +3508,6 @@ pub mod tests {
     fn test_valid_recourse_block_data() {
         let accept = valid_recourse_block_data();
         assert_eq!(accept.validate(), Ok(()));
-    }
-
-    #[rstest]
-    #[case::invalid_sum(BillRecourseBlockData { sum: 0, ..valid_recourse_block_data() }, ValidationError::InvalidSum)]
-    #[case::invalid_payment_address(BillRecourseBlockData { currency: "invalidcurrency".into(), ..valid_recourse_block_data() }, ValidationError::InvalidCurrency)]
-    fn test_invalid_recourse_block_data(
-        #[case] block: BillRecourseBlockData,
-        #[case] expected_error: ValidationError,
-    ) {
-        assert_eq!(block.validate(), Err(expected_error));
     }
 
     fn valid_reject_block_data() -> BillRejectBlockData {

@@ -14,6 +14,7 @@ use crate::{
     bill::{BillId, BillKeys},
     blockchain::{Result, bill::block::BillParticipantBlockData},
     contact::BillParticipant,
+    sum::Sum,
     util::{self, BcrKeys},
 };
 
@@ -53,8 +54,7 @@ pub enum RecourseWaitingForPayment {
 pub struct SellPaymentInfo {
     pub buyer: BillParticipant,  // buyer can be anone
     pub seller: BillParticipant, // seller can be anone
-    pub sum: u64,
-    pub currency: String,
+    pub sum: Sum,
     pub payment_address: String,
     pub block_id: u64,
     pub buying_deadline_timestamp: u64,
@@ -64,8 +64,7 @@ pub struct SellPaymentInfo {
 pub struct RecoursePaymentInfo {
     pub recourser: BillParticipantBlockData, // recourser can be anon
     pub recoursee: BillIdentParticipantBlockData, // recoursee has to be identified
-    pub sum: u64,
-    pub currency: String,
+    pub sum: Sum,
     pub reason: BillRecourseReasonBlockData,
     pub block_id: u64,
     pub recourse_deadline_timestamp: u64,

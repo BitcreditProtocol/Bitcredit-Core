@@ -17,6 +17,7 @@ use crate::{
     contact::{BillParticipant, ContactType, LightBillParticipant},
     country::Country,
     date::Date,
+    sum::{Currency, Sum},
     util::BcrKeys,
 };
 use secp256k1::{PublicKey, SecretKey};
@@ -34,19 +35,19 @@ pub enum BillAction {
     RequestAcceptance(u64),
     Accept,
     // currency, deadline_ts
-    RequestToPay(String, u64),
-    // buyer, sum, currency, deadline_ts
-    OfferToSell(BillParticipant, u64, String, u64),
+    RequestToPay(Currency, u64),
+    // buyer, sum, deadline_ts
+    OfferToSell(BillParticipant, Sum, u64),
     // buyer, sum, currency, payment_address
-    Sell(BillParticipant, u64, String, String),
+    Sell(BillParticipant, Sum, String),
     // endorsee
     Endorse(BillParticipant),
     // recoursee, recourse reason, deadline_ts
     RequestRecourse(BillIdentParticipant, RecourseReason, u64),
     // recoursee, sum, currency reason/
-    Recourse(BillIdentParticipant, u64, String, RecourseReason),
+    Recourse(BillIdentParticipant, Sum, RecourseReason),
     // mint, sum, currency
-    Mint(BillParticipant, u64, String),
+    Mint(BillParticipant, Sum),
     RejectAcceptance,
     RejectPayment,
     RejectBuying,
@@ -59,12 +60,12 @@ impl BillAction {
             BillAction::RequestAcceptance(_) => BillOpCode::RequestToAccept,
             BillAction::Accept => BillOpCode::Accept,
             BillAction::RequestToPay(_, _) => BillOpCode::RequestToPay,
-            BillAction::OfferToSell(_, _, _, _) => BillOpCode::OfferToSell,
-            BillAction::Sell(_, _, _, _) => BillOpCode::Sell,
+            BillAction::OfferToSell(_, _, _) => BillOpCode::OfferToSell,
+            BillAction::Sell(_, _, _) => BillOpCode::Sell,
             BillAction::Endorse(_) => BillOpCode::Endorse,
             BillAction::RequestRecourse(_, _, _) => BillOpCode::RequestRecourse,
-            BillAction::Recourse(_, _, _, _) => BillOpCode::Recourse,
-            BillAction::Mint(_, _, _) => BillOpCode::Mint,
+            BillAction::Recourse(_, _, _) => BillOpCode::Recourse,
+            BillAction::Mint(_, _) => BillOpCode::Mint,
             BillAction::RejectAcceptance => BillOpCode::RejectToAccept,
             BillAction::RejectPayment => BillOpCode::RejectToPay,
             BillAction::RejectBuying => BillOpCode::RejectToBuy,
@@ -130,8 +131,7 @@ pub struct BillIssueData {
     pub maturity_date: Date,
     pub drawee: NodeId,
     pub payee: NodeId,
-    pub sum: String,
-    pub currency: String,
+    pub sum: Sum,
     pub country_of_payment: Country,
     pub city_of_payment: City,
     pub file_upload_ids: Vec<String>,
@@ -192,8 +192,7 @@ pub struct BitcreditBill {
     pub payee: BillParticipant,
     // The person to whom the Payee or an Endorsee endorses a bill
     pub endorsee: Option<BillParticipant>,
-    pub currency: String,
-    pub sum: u64,
+    pub sum: Sum,
     pub maturity_date: Date,
     pub issue_date: Date,
     pub country_of_payment: Country,
@@ -210,7 +209,7 @@ pub struct BillKeys {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecourseReason {
     Accept,
-    Pay(u64, String), // sum and currency
+    Pay(Sum), // sum
 }
 
 /// The calculated bill for a given caller (=bill participant)
@@ -256,8 +255,7 @@ pub struct BillWaitingForRecourseState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingStatePaymentData {
     pub time_of_request: u64,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub mempool_link_for_address_to_pay: String,
@@ -334,8 +332,7 @@ pub struct BillData {
     pub city_of_issuing: City,
     pub country_of_payment: Country,
     pub city_of_payment: City,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub files: Vec<File>,
     pub active_notification: Option<Notification>,
 }
@@ -535,8 +532,7 @@ pub struct LightBitcreditBillResult {
     pub payee: LightBillParticipant,
     pub endorsee: Option<LightBillParticipant>,
     pub active_notification: Option<Notification>,
-    pub sum: String,
-    pub currency: String,
+    pub sum: Sum,
     pub issue_date: Date,
     pub time_of_drawing: u64,
     pub time_of_maturity: u64,
@@ -553,7 +549,6 @@ impl From<BitcreditBillResult> for LightBitcreditBillResult {
             endorsee: value.participants.endorsee.map(|v| v.into()),
             active_notification: value.data.active_notification,
             sum: value.data.sum,
-            currency: value.data.currency,
             issue_date: value.data.issue_date,
             time_of_drawing: value.data.time_of_drawing,
             time_of_maturity: value.data.time_of_maturity,
@@ -571,7 +566,7 @@ pub struct BillsBalanceOverview {
 
 #[derive(Debug, Clone)]
 pub struct BillsBalance {
-    pub sum: String,
+    pub sum: Sum,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -651,8 +646,7 @@ pub struct PastPaymentDataSell {
     pub time_of_request: u64,
     pub buyer: BillParticipant,
     pub seller: BillParticipant,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub private_descriptor_to_spend: String,
@@ -666,8 +660,7 @@ pub struct PastPaymentDataPayment {
     pub time_of_request: u64,
     pub payer: BillIdentParticipant,
     pub payee: BillParticipant,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub private_descriptor_to_spend: String,
@@ -681,8 +674,7 @@ pub struct PastPaymentDataRecourse {
     pub time_of_request: u64,
     pub recourser: BillParticipant,
     pub recoursee: BillIdentParticipant,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub private_descriptor_to_spend: String,

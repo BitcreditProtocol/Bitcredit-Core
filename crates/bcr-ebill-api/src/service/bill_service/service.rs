@@ -3,7 +3,6 @@ use super::{BillAction, BillServiceApi, Result};
 use crate::blockchain::Blockchain;
 use crate::blockchain::bill::block::BillIdentParticipantBlockData;
 use crate::blockchain::bill::{BillBlockchain, BillOpCode};
-use crate::constants::CURRENCY_SAT;
 use crate::data::{
     NodeId, SecretKey,
     bill::{
@@ -49,7 +48,7 @@ use bcr_ebill_core::email::Email;
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
-use bcr_ebill_core::util::currency;
+use bcr_ebill_core::sum::{Currency, Sum};
 use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
@@ -719,9 +718,10 @@ impl BillService {
 impl BillServiceApi for BillService {
     async fn get_bill_balances(
         &self,
-        _currency: &str,
+        _currency: &Currency,
         current_identity_node_id: &NodeId,
     ) -> Result<BillsBalanceOverview> {
+        // TODO (currency): convert between currencies based on given currency
         validate_node_id_network(current_identity_node_id)?;
         let bills = self.get_bills(current_identity_node_id).await?;
 
@@ -730,12 +730,11 @@ impl BillServiceApi for BillService {
         let mut contingent_sum = 0;
 
         for bill in bills {
-            if let Ok(sum) = currency::parse_sum(&bill.data.sum)
-                && let Some(bill_role) = bill.get_bill_role_for_node_id(current_identity_node_id)
-            {
+            if let Some(bill_role) = bill.get_bill_role_for_node_id(current_identity_node_id) {
+                let sum = bill.data.sum;
                 match bill_role {
-                    BillRole::Payee => payee_sum += sum,
-                    BillRole::Payer => payer_sum += sum,
+                    BillRole::Payee => payee_sum += sum.as_sat(),
+                    BillRole::Payer => payer_sum += sum.as_sat(),
                     BillRole::Contingent => {
                         // if we're in the guarantee chain, but only anonymously, we don't count it
                         let endorsements = bill.participants.endorsements;
@@ -753,7 +752,7 @@ impl BillServiceApi for BillService {
                         if in_guarantee_chain_as_non_anon
                             || &bill.participants.drawer.node_id == current_identity_node_id
                         {
-                            contingent_sum += sum
+                            contingent_sum += sum.as_sat()
                         }
                     }
                 };
@@ -762,20 +761,20 @@ impl BillServiceApi for BillService {
 
         Ok(BillsBalanceOverview {
             payee: BillsBalance {
-                sum: currency::sum_to_string(payee_sum),
+                sum: Sum::new_sat_zero_allowed(payee_sum),
             },
             payer: BillsBalance {
-                sum: currency::sum_to_string(payer_sum),
+                sum: Sum::new_sat_zero_allowed(payer_sum),
             },
             contingent: BillsBalance {
-                sum: currency::sum_to_string(contingent_sum),
+                sum: Sum::new_sat_zero_allowed(contingent_sum),
             },
         })
     }
 
     async fn search_bills(
         &self,
-        _currency: &str,
+        _currency: &Currency,
         search_term: &Option<String>,
         date_range_from: Option<u64>,
         date_range_to: Option<u64>,
@@ -1324,7 +1323,7 @@ impl BillServiceApi for BillService {
                 .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                 &address_to_pay,
-                bill.sum,
+                &bill.sum,
                 &format!("Payment in relation to a bill {}", bill.id.clone()),
             );
             let mempool_link_for_address_to_pay = self
@@ -1347,8 +1346,7 @@ impl BillServiceApi for BillService {
                     time_of_request: req_to_pay.timestamp,
                     payer: bill_parties.drawee.clone().into(),
                     payee: holder.clone().into(),
-                    currency: bill.currency.clone(),
-                    sum: currency::sum_to_string(bill.sum),
+                    sum: bill.sum.clone(),
                     link_to_pay,
                     address_to_pay,
                     private_descriptor_to_spend: descriptor_to_spend.clone(),
@@ -1389,7 +1387,7 @@ impl BillServiceApi for BillService {
             let address_to_pay = past_sell_payment.0.payment_address;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                 &address_to_pay,
-                past_sell_payment.0.sum,
+                &past_sell_payment.0.sum,
                 &format!("Payment in relation to a bill {}", &bill.id),
             );
             let mempool_link_for_address_to_pay = self
@@ -1400,8 +1398,7 @@ impl BillServiceApi for BillService {
                 time_of_request: past_sell_payment.2,
                 buyer: past_sell_payment.0.buyer,
                 seller: past_sell_payment.0.seller,
-                currency: past_sell_payment.0.currency,
-                sum: currency::sum_to_string(past_sell_payment.0.sum),
+                sum: past_sell_payment.0.sum,
                 link_to_pay,
                 address_to_pay,
                 private_descriptor_to_spend: descriptor_to_spend.clone(),
@@ -1424,7 +1421,7 @@ impl BillServiceApi for BillService {
             )?;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                 &address_to_pay,
-                past_sell_payment.0.sum,
+                &past_sell_payment.0.sum,
                 &format!("Payment in relation to a bill {}", &bill.id),
             );
             let mempool_link_for_address_to_pay = self
@@ -1435,8 +1432,7 @@ impl BillServiceApi for BillService {
                 time_of_request: past_sell_payment.2,
                 recoursee: past_sell_payment.0.recoursee.into(),
                 recourser: past_sell_payment.0.recourser.into(),
-                currency: past_sell_payment.0.currency,
-                sum: currency::sum_to_string(past_sell_payment.0.sum),
+                sum: past_sell_payment.0.sum,
                 link_to_pay,
                 address_to_pay,
                 private_descriptor_to_spend: descriptor_to_spend.clone(),
@@ -1518,8 +1514,7 @@ impl BillServiceApi for BillService {
             is_paid,
             mode: BillValidationActionMode::Deep(BillAction::Mint(
                 mint_anon_participant.clone(),
-                bill.sum,
-                bill.currency.clone(),
+                bill.sum.clone(),
             )),
         }
         .validate()?;
@@ -1736,7 +1731,6 @@ impl BillServiceApi for BillService {
         signer_keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<()> {
-        let currency = CURRENCY_SAT.to_string(); // default to sat for now
         let identity = self.identity_store.get().await?;
         debug!("trying to accept offer from request to mint {mint_request_id}");
         validate_node_id_network(&signer_public_data.node_id())?;
@@ -1765,7 +1759,7 @@ impl BillServiceApi for BillService {
                     .await;
                 self.execute_bill_action(
                     &req.bill_id,
-                    BillAction::Mint(mint_anon_participant, offer.discounted_sum, currency),
+                    BillAction::Mint(mint_anon_participant, Sum::new_sat(offer.discounted_sum)?),
                     signer_public_data,
                     signer_keys,
                     timestamp,

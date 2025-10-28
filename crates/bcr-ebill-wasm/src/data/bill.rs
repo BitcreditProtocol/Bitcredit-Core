@@ -47,6 +47,7 @@ pub struct BitcreditBillPayload {
     pub payee: String,
     pub drawee: String,
     pub sum: String,
+    #[allow(unused)]
     pub currency: String,
     pub country_of_payment: String,
     pub city_of_payment: String,
@@ -84,6 +85,7 @@ pub struct OfferToSellBitcreditBillPayload {
     #[tsify(type = "string")]
     pub bill_id: BillId,
     pub sum: String,
+    #[allow(unused)]
     pub currency: String,
     pub buying_deadline: String,
 }
@@ -93,6 +95,7 @@ pub struct OfferToSellBitcreditBillPayload {
 pub struct RequestToPayBitcreditBillPayload {
     #[tsify(type = "string")]
     pub bill_id: BillId,
+    #[allow(unused)]
     pub currency: String,
     pub payment_deadline: String,
 }
@@ -104,6 +107,7 @@ pub struct RequestRecourseForPaymentPayload {
     pub bill_id: BillId,
     #[tsify(type = "string")]
     pub recoursee: NodeId,
+    #[allow(unused)]
     pub currency: String,
     pub sum: String,
     pub recourse_deadline: String,
@@ -257,6 +261,7 @@ pub struct BillsSearchFilter {
     pub search_term: Option<String>,
     pub date_range: Option<DateRange>,
     pub role: BillsFilterRoleWeb,
+    #[allow(unused)]
     pub currency: String,
 }
 
@@ -385,8 +390,8 @@ impl From<PastPaymentDataSell> for PastPaymentDataSellWeb {
             time_of_request: val.time_of_request,
             buyer: val.buyer.into(),
             seller: val.seller.into(),
-            currency: val.currency,
-            sum: val.sum,
+            currency: val.sum.currency().code().to_owned(),
+            sum: val.sum.as_sat_string(),
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             private_descriptor_to_spend: val.private_descriptor_to_spend,
@@ -416,8 +421,8 @@ impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
             time_of_request: val.time_of_request,
             payer: val.payer.into(),
             payee: val.payee.into(),
-            currency: val.currency,
-            sum: val.sum,
+            currency: val.sum.currency().code().to_owned(),
+            sum: val.sum.as_sat_string(),
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             private_descriptor_to_spend: val.private_descriptor_to_spend,
@@ -448,8 +453,8 @@ impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
             time_of_request: val.time_of_request,
             recourser: val.recourser.into(),
             recoursee: val.recoursee.into(),
-            currency: val.currency,
-            sum: val.sum,
+            currency: val.sum.currency().code().to_owned(),
+            sum: val.sum.as_sat_string(),
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             private_descriptor_to_spend: val.private_descriptor_to_spend,
@@ -525,8 +530,8 @@ impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
     fn from(val: BillWaitingStatePaymentData) -> Self {
         BillWaitingStatePaymentDataWeb {
             time_of_request: val.time_of_request,
-            currency: val.currency,
-            sum: val.sum,
+            currency: val.sum.currency().code().to_owned(),
+            sum: val.sum.as_sat_string(),
             link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
@@ -761,8 +766,8 @@ impl From<BillData> for BillDataWeb {
             city_of_issuing: val.city_of_issuing,
             country_of_payment: val.country_of_payment,
             city_of_payment: val.city_of_payment,
-            currency: val.currency,
-            sum: val.sum,
+            currency: val.sum.currency().code().to_owned(),
+            sum: val.sum.as_sat_string(),
             files: val.files.into_iter().map(|f| f.into()).collect(),
             active_notification: val.active_notification.map(|an| an.into()),
         }
@@ -882,8 +887,8 @@ impl From<LightBitcreditBillResult> for LightBitcreditBillWeb {
             payee: val.payee.into(),
             endorsee: val.endorsee.map(|e| e.into()),
             active_notification: val.active_notification.map(|n| n.into()),
-            sum: val.sum,
-            currency: val.currency,
+            currency: val.sum.currency().code().to_owned(),
+            sum: val.sum.as_sat_string(),
             issue_date: val.issue_date,
             time_of_drawing: val.time_of_drawing,
             time_of_maturity: val.time_of_maturity,

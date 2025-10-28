@@ -21,6 +21,7 @@ use bcr_ebill_core::contact::{
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::name::Name;
+use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
 use serde::{Deserialize, Serialize};
@@ -444,8 +445,7 @@ impl From<&BillCurrentWaitingState> for BillCurrentWaitingStateDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingStatePaymentDataDb {
     pub time_of_request: u64,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub mempool_link_for_address_to_pay: String,
@@ -459,7 +459,6 @@ impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
     fn from(value: BillWaitingStatePaymentDataDb) -> Self {
         Self {
             time_of_request: value.time_of_request,
-            currency: value.currency,
             sum: value.sum,
             link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
@@ -476,7 +475,6 @@ impl From<&BillWaitingStatePaymentData> for BillWaitingStatePaymentDataDb {
     fn from(value: &BillWaitingStatePaymentData) -> Self {
         Self {
             time_of_request: value.time_of_request,
-            currency: value.currency.clone(),
             sum: value.sum.clone(),
             link_to_pay: value.link_to_pay.clone(),
             address_to_pay: value.address_to_pay.clone(),
@@ -787,8 +785,7 @@ pub struct BillDataDb {
     pub city_of_issuing: City,
     pub country_of_payment: Country,
     pub city_of_payment: City,
-    pub currency: String,
-    pub sum: String,
+    pub sum: Sum,
     pub files: Vec<FileDb>,
 }
 
@@ -803,7 +800,6 @@ impl From<BillDataDb> for BillData {
             city_of_issuing: value.city_of_issuing,
             country_of_payment: value.country_of_payment,
             city_of_payment: value.city_of_payment,
-            currency: value.currency,
             sum: value.sum,
             files: value.files.iter().map(|f| f.to_owned().into()).collect(),
             active_notification: None,
@@ -822,7 +818,6 @@ impl From<&BillData> for BillDataDb {
             city_of_issuing: value.city_of_issuing.clone(),
             country_of_payment: value.country_of_payment.clone(),
             city_of_payment: value.city_of_payment.clone(),
-            currency: value.currency.clone(),
             sum: value.sum.clone(),
             files: value.files.iter().map(|f| f.clone().into()).collect(),
         }
@@ -1333,11 +1328,12 @@ pub mod tests {
             },
         },
         constants::{
-            ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+            ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::BillParticipant,
         date::Date,
+        sum::{Currency, Sum},
     };
     use chrono::Months;
     use surrealdb::{Surreal, engine::any::Any};
@@ -1410,7 +1406,7 @@ pub mod tests {
                         requester: BillParticipantBlockData::Ident(
                             bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
-                        currency: CURRENCY_SAT.to_string(),
+                        currency: Currency::sat(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
@@ -1625,7 +1621,7 @@ pub mod tests {
                         requester: BillParticipantBlockData::Ident(
                             bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
-                        currency: CURRENCY_SAT.to_string(),
+                        currency: Currency::sat(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: Some(empty_address()),
@@ -1699,8 +1695,7 @@ pub mod tests {
                     ))
                     .into(),
                 ),
-                currency: CURRENCY_SAT.to_string(),
-                sum: 15000,
+                sum: Sum::new_sat(15000).expect("sat works"),
                 payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                 signatory: None,
                 signing_timestamp: now,
@@ -1739,8 +1734,7 @@ pub mod tests {
                             ))
                             .into(),
                         ),
-                        currency: CURRENCY_SAT.to_string(),
-                        sum: 15000,
+                        sum: Sum::new_sat(15000).expect("sat works"),
                         payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                         signatory: None,
                         signing_timestamp: now,
@@ -1798,8 +1792,7 @@ pub mod tests {
                     ))
                     .into(),
                 ),
-                currency: CURRENCY_SAT.to_string(),
-                sum: 15000,
+                sum: Sum::new_sat(15000).expect("sat works"),
                 payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
@@ -1928,7 +1921,7 @@ pub mod tests {
                 requester: BillParticipantBlockData::Ident(
                     bill_identified_participant_only_node_id(node_id_test()).into(),
                 ),
-                currency: "SATS".to_string(),
+                currency: Currency::sat(),
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(empty_address()),
@@ -1973,8 +1966,7 @@ pub mod tests {
                     bitcoin::Network::Testnet,
                 ))
                 .into(),
-                currency: CURRENCY_SAT.to_string(),
-                sum: 15000,
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: now,
@@ -2013,8 +2005,7 @@ pub mod tests {
                         ))
                         .into(),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
-                        currency: CURRENCY_SAT.to_string(),
-                        sum: 15000,
+                        sum: Sum::new_sat(15000).expect("sat works"),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -2069,9 +2060,8 @@ pub mod tests {
                     bitcoin::Network::Testnet,
                 ))
                 .into(),
-                currency: CURRENCY_SAT.to_string(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
-                sum: 15000,
+                sum: Sum::new_sat(15000).expect("sat works"),
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),

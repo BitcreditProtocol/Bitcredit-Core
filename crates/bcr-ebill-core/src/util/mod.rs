@@ -1,6 +1,5 @@
 pub mod borsh;
 pub mod crypto;
-pub mod currency;
 pub mod date;
 
 pub use crypto::BcrKeys;

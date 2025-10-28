@@ -10,11 +10,11 @@ pub mod tests {
     use async_trait::async_trait;
     use bcr_ebill_core::address::Address;
     use bcr_ebill_core::city::City;
-    use bcr_ebill_core::constants::CURRENCY_SAT;
     use bcr_ebill_core::country::Country;
     use bcr_ebill_core::date::Date;
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::name::Name;
+    use bcr_ebill_core::sum::Sum;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
@@ -581,8 +581,7 @@ pub mod tests {
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
-            currency: CURRENCY_SAT.to_string(),
-            sum: 5000,
+            sum: Sum::new_sat(5000).expect("sat works"),
             maturity_date: Date::new("2099-11-12").unwrap(),
             issue_date: Date::new("2099-08-12").unwrap(),
             city_of_payment: City::new("Vienna").unwrap(),

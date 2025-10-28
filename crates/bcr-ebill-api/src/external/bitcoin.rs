@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     PublicKey, ServiceTraitBounds,
     bill::{InMempoolData, PaidData, PaymentState},
-    util,
+    sum::Sum,
 };
 use bitcoin::{Network, secp256k1::Scalar};
 use log::debug;
@@ -66,7 +66,7 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
         holder_public_key: &PublicKey,
     ) -> Result<String>;
 
-    fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String;
+    fn generate_link_to_pay(&self, address: &str, sum: &Sum, message: &str) -> String;
 
     fn get_combined_private_descriptor(
         &self,
@@ -204,8 +204,8 @@ impl BitcoinClientApi for BitcoinClient {
         Ok(bitcoin::Address::p2wpkh(&pub_key_bill, get_config().bitcoin_network()).to_string())
     }
 
-    fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String {
-        let btc_sum = util::currency::sat_to_btc(sum);
+    fn generate_link_to_pay(&self, address: &str, sum: &Sum, message: &str) -> String {
+        let btc_sum = sum.as_btc_string();
         let link = format!("bitcoin:{address}?amount={btc_sum}&message={message}");
         link
     }

@@ -327,7 +327,6 @@ mod tests {
 mod test_utils {
 
     use async_trait::async_trait;
-    use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         address::Address,
@@ -348,6 +347,7 @@ mod test_utils {
         name::Name,
         nostr_contact::NostrPublicKey,
         notification::{ActionType, Notification, NotificationType},
+        sum::Sum,
         util::BcrKeys,
     };
     use bcr_ebill_persistence::{
@@ -680,8 +680,7 @@ mod test_utils {
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
-            currency: CURRENCY_SAT.to_string(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             maturity_date: Date::new("2099-11-12").unwrap(),
             issue_date: Date::new("2099-08-12").unwrap(),
             city_of_payment: City::new("Vienna").unwrap(),

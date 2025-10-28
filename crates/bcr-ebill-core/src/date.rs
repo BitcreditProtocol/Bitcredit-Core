@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn test_name() {
+    fn test_date() {
         let n = Date::new("2025-01-15").expect("works");
         let n_owned = Date::new(String::from("2025-01-15")).expect("works");
         assert_eq!(n, n_owned);

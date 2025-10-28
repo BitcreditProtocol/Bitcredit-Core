@@ -51,7 +51,7 @@ impl BillService {
             .get_address_to_pay(&bill_keys.public_key, &holder_public_key.pub_key())?;
         match self
             .bitcoin_client
-            .check_payment_for_address(&address_to_pay, bill.sum)
+            .check_payment_for_address(&address_to_pay, bill.sum.as_sat())
             .await
         {
             Ok(payment_state) => {
@@ -133,7 +133,7 @@ impl BillService {
             // check if paid
             if let Ok(payment_state) = self
                 .bitcoin_client
-                .check_payment_for_address(&payment_address, payment_info.sum)
+                .check_payment_for_address(&payment_address, payment_info.sum.as_sat())
                 .await
             {
                 let should_update = match self
@@ -185,7 +185,7 @@ impl BillService {
                         };
                         let reason = match payment_info.reason {
                             BillRecourseReasonBlockData::Pay => {
-                                RecourseReason::Pay(payment_info.sum, payment_info.currency.clone())
+                                RecourseReason::Pay(payment_info.sum.clone())
                             }
                             BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
                         };
@@ -199,8 +199,7 @@ impl BillService {
                                         &contacts,
                                     )
                                     .await,
-                                    payment_info.sum,
-                                    payment_info.currency,
+                                    payment_info.sum.clone(),
                                     reason,
                                 ),
                                 &signer_identity,
@@ -224,7 +223,7 @@ impl BillService {
                     {
                         let reason = match payment_info.reason {
                             BillRecourseReasonBlockData::Pay => {
-                                RecourseReason::Pay(payment_info.sum, payment_info.currency.clone())
+                                RecourseReason::Pay(payment_info.sum.clone())
                             }
                             BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
                         };
@@ -238,8 +237,7 @@ impl BillService {
                                         &contacts,
                                     )
                                     .await,
-                                    payment_info.sum,
-                                    payment_info.currency,
+                                    payment_info.sum.clone(),
                                     reason,
                                 ),
                                 // signer identity (company)
@@ -274,7 +272,7 @@ impl BillService {
             // check if paid
             if let Ok(payment_state) = self
                 .bitcoin_client
-                .check_payment_for_address(&payment_info.payment_address, payment_info.sum)
+                .check_payment_for_address(&payment_info.payment_address, payment_info.sum.as_sat())
                 .await
             {
                 let should_update = match self
@@ -335,8 +333,7 @@ impl BillService {
                                     &contacts,
                                 )
                                 .await,
-                                payment_info.sum,
-                                payment_info.currency,
+                                payment_info.sum.clone(),
                                 payment_info.payment_address,
                             ),
                             &signer_identity,
@@ -368,8 +365,7 @@ impl BillService {
                                         &contacts
                                     )
                                     .await,
-                                    payment_info.sum,
-                                    payment_info.currency,
+                                    payment_info.sum.clone(),
                                     payment_info.payment_address),
                                     // signer identity (company)
                                     &BillParticipant::Ident(BillIdentParticipant::from(seller_company.0.clone())),

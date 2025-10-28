@@ -53,28 +53,28 @@ impl BillService {
             BillAction::RequestRecourse(recoursee, recourse_reason, _) => {
                 let action_type = match recourse_reason {
                     RecourseReason::Accept => ActionType::AcceptBill,
-                    RecourseReason::Pay(_, _) => ActionType::PayBill,
+                    RecourseReason::Pay(_) => ActionType::PayBill,
                 };
                 self.notification_service
                     .send_recourse_action_event(&chain_event, action_type, recoursee)
                     .await?;
             }
-            BillAction::Recourse(recoursee, _, _, _) => {
+            BillAction::Recourse(recoursee, _, _) => {
                 self.notification_service
                     .send_bill_recourse_paid_event(&chain_event, recoursee)
                     .await?;
             }
-            BillAction::Mint(_, _, _) => {
+            BillAction::Mint(_, _) => {
                 self.notification_service
                     .send_bill_is_endorsed_event(&chain_event)
                     .await?;
             }
-            BillAction::OfferToSell(buyer, _, _, _) => {
+            BillAction::OfferToSell(buyer, _, _) => {
                 self.notification_service
                     .send_offer_to_sell_event(&chain_event, buyer)
                     .await?;
             }
-            BillAction::Sell(buyer, _, _, _) => {
+            BillAction::Sell(buyer, _, _) => {
                 self.notification_service
                     .send_bill_is_sold_event(&chain_event, buyer)
                     .await?;

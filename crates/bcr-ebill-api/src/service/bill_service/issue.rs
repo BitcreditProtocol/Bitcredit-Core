@@ -55,7 +55,7 @@ impl BillService {
         validate_node_id_network(&data.drawee)?;
         validate_node_id_network(&data.payee)?;
         validate_node_id_network(&data.drawer_public_data.node_id())?;
-        let (sum, bill_type) = validate_bill_issue(&data)?;
+        let bill_type = validate_bill_issue(&data)?;
 
         let drawer = match data.drawer_public_data {
             BillParticipant::Ident(ref drawer_data) => drawer_data,
@@ -182,8 +182,7 @@ impl BillService {
             id: bill_id.clone(),
             country_of_issuing: data.country_of_issuing,
             city_of_issuing: data.city_of_issuing,
-            currency: data.currency,
-            sum,
+            sum: data.sum,
             maturity_date: data.maturity_date,
             issue_date: data.issue_date,
             country_of_payment: data.country_of_payment,

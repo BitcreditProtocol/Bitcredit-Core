@@ -9,6 +9,7 @@ use bcr_ebill_core::{
     contact::{BillIdentParticipant, BillParticipant},
     email::Email,
     notification::{ActionType, Notification},
+    sum::Sum,
 };
 use bcr_ebill_core::{ServiceTraitBounds, company::Company, util::BcrKeys};
 use bcr_ebill_persistence::notification::NotificationFilter;
@@ -105,7 +106,7 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         &self,
         sender_node_id: &NodeId,
         bill_id: &BillId,
-        sum: Option<u64>,
+        sum: Option<Sum>,
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
         holder: &NodeId,

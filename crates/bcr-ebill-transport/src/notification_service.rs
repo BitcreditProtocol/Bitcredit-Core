@@ -25,6 +25,7 @@ use bcr_ebill_core::country::Country;
 use bcr_ebill_core::email::Email;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::nostr_contact::TrustLevel;
+use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::ContactStoreApi;
 use bcr_ebill_persistence::nostr::{
@@ -820,7 +821,7 @@ impl NotificationServiceApi for NotificationService {
             event_type: BillEventType::BillMintingRequested,
             bill_id: bill.id.clone(),
             action_type: Some(ActionType::CheckBill),
-            sum: Some(bill.sum),
+            sum: Some(bill.sum.clone()),
         });
         if let Some(node) = self.get_node_transport(sender_node_id).await {
             node.send_private_event(mint, event.clone().try_into()?)
@@ -861,7 +862,7 @@ impl NotificationServiceApi for NotificationService {
         &self,
         sender_node_id: &NodeId,
         bill_id: &BillId,
-        sum: Option<u64>,
+        sum: Option<Sum>,
         timed_out_action: ActionType,
         recipients: Vec<BillParticipant>,
         holder: &NodeId,
@@ -1184,7 +1185,6 @@ impl NotificationServiceApi for NotificationService {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
@@ -1198,6 +1198,7 @@ mod tests {
         ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
     };
     use bcr_ebill_core::contact::Contact;
+    use bcr_ebill_core::sum::Currency;
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use mockall::predicate::eq;
     use std::sync::Arc;
@@ -1302,8 +1303,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: 100,
-                currency: "USD".to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
@@ -1462,8 +1462,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: 100,
-                currency: "USD".to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
@@ -1584,7 +1583,7 @@ mod tests {
             .send_request_to_action_timed_out_event(
                 &node_id_test(),
                 &bill_id_test(),
-                Some(100),
+                Some(Sum::new_sat(100).expect("sat works")),
                 ActionType::PayBill,
                 recipients.clone(),
                 &node_id_test(),
@@ -1598,7 +1597,7 @@ mod tests {
             .send_request_to_action_timed_out_event(
                 &node_id_test(),
                 &bill_id_test(),
-                Some(100),
+                Some(Sum::new_sat(100).expect("sat works")),
                 ActionType::AcceptBill,
                 recipients.clone(),
                 &node_id_test(),
@@ -1656,7 +1655,7 @@ mod tests {
             .send_request_to_action_timed_out_event(
                 &node_id_test(),
                 &bill_id_test(),
-                Some(100),
+                Some(Sum::new_sat(100).expect("sat works")),
                 ActionType::CheckBill,
                 recipients.clone(),
                 &node_id_test(),
@@ -1713,8 +1712,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: 100,
-                currency: "USD".to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
@@ -1852,8 +1850,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: 100,
-                currency: "USD".to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
@@ -2292,7 +2289,7 @@ mod tests {
             chain.get_latest_block(),
             &BillRequestToPayBlockData {
                 requester: BillParticipantBlockData::Ident(payee.clone().into()),
-                currency: "USD".to_string(),
+                currency: Currency::sat(),
                 signatory: None,
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
@@ -2428,8 +2425,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: 100,
-                currency: "USD".to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
@@ -2494,8 +2490,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: 100,
-                currency: "USD".to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
                 payment_address: "Address".to_string(),
                 signing_timestamp: timestamp,
@@ -2560,8 +2555,7 @@ mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(payee.clone()).into(),
                 recoursee: recoursee.clone().into(),
-                sum: 100,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(100).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: timestamp,

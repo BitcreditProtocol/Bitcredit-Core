@@ -1,6 +1,6 @@
 use super::Result;
 use bcr_ebill_api::{
-    data::GeneralSearchFilterItemType,
+    data::{GeneralSearchFilterItemType, sum::Currency},
     service::Error,
     util::{VALID_CURRENCIES, ValidationError, file::detect_content_type_for_bytes},
 };
@@ -92,22 +92,23 @@ impl General {
             if !VALID_CURRENCIES.contains(&currency) {
                 return Err(Error::Validation(ValidationError::InvalidCurrency).into());
             }
+            let parsed_currency = Currency::sat();
             let result = get_ctx()
                 .bill_service
-                .get_bill_balances(currency, &get_current_identity_node_id().await?)
+                .get_bill_balances(&parsed_currency, &get_current_identity_node_id().await?)
                 .await?;
 
             Ok(OverviewResponse {
                 currency: currency.to_owned(),
                 balances: OverviewBalanceResponse {
                     payee: BalanceResponse {
-                        sum: result.payee.sum,
+                        sum: result.payee.sum.as_sat_string(),
                     },
                     payer: BalanceResponse {
-                        sum: result.payer.sum,
+                        sum: result.payer.sum.as_sat_string(),
                     },
                     contingent: BalanceResponse {
-                        sum: result.contingent.sum,
+                        sum: result.contingent.sum.as_sat_string(),
                     },
                 },
             })
@@ -135,7 +136,7 @@ impl General {
                 .search_service
                 .search(
                     &search_filter.filter.search_term,
-                    &search_filter.filter.currency,
+                    &Currency::sat(),
                     &filters,
                     &get_current_identity_node_id().await?,
                 )
