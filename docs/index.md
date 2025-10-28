@@ -10,4 +10,5 @@ This is the documentation of the E-Bill API. The API can be used both as a Web A
 * [Testing](testing.md)
 * [Esplora](esplora.md)
 * [Concepts](concepts.md)
+* [Versioning](versioning.md)
 

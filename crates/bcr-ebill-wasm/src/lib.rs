@@ -12,12 +12,15 @@ use job::run_jobs;
 use log::{debug, info, warn};
 use nostr_sdk::ToBech32;
 use serde::Deserialize;
+use serde::Serialize;
 use std::thread_local;
 use std::time::Duration;
 use std::{cell::RefCell, str::FromStr};
 use tokio_with_wasm::alias as tokio;
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
+
+use crate::error::{JsErrorData, WasmError};
 
 pub mod api;
 mod context;
@@ -45,6 +48,37 @@ pub struct Config {
 }
 
 pub type Result<T> = std::result::Result<T, error::WasmError>;
+
+/// Result type for the TypeScript API
+/// export type TSResult<T> = { Success: T } | { Error: JsErrorData };
+/// To check if it's an error, just check `TSResult.Error` if it's not set, it's a `TSResult.Success`
+/// even if `TSResult.Success` has `undefined` as a value.
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum TSResult<T> {
+    Success(T),
+    Error(JsErrorData),
+}
+
+impl<T> TSResult<T>
+where
+    T: Serialize,
+{
+    pub fn err(e: WasmError) -> Self {
+        TSResult::Error(JsErrorData::from(e))
+    }
+
+    pub fn to_js(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self).expect("can serialize TSResult")
+    }
+
+    pub fn res_to_js(res: Result<T>) -> JsValue {
+        match res {
+            Ok(v) => Self::Success(v).to_js(),
+            Err(e) => Self::err(e).to_js(),
+        }
+    }
+}
 
 thread_local! {
     static CONTEXT: RefCell<Option<&'static Context>> = const { RefCell::new(None) } ;
