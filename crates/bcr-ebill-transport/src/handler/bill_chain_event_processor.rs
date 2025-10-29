@@ -7,6 +7,7 @@ use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
 use bcr_ebill_core::bill::{BillId, BillKeys};
 use bcr_ebill_core::bill::{BillValidateActionData, BillValidationActionMode};
+use bcr_ebill_core::block_id::BlockId;
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
@@ -205,7 +206,10 @@ impl BillChainEventProcessor {
                 Ok(added) => Ok(added),
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
-                    if blocks.len() == 1 && chain.get_latest_block().id + 1 < block.id {
+                    if blocks.len() == 1
+                        && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
+                            < block.id
+                    {
                         info!(
                             "Received invalid block {} for bill {bill_id} - missing blocks - try to resync",
                             block.id
@@ -824,7 +828,7 @@ mod tests {
     fn as_event_payload(id: &BillId, block: &BillBlock) -> EventEnvelope {
         Event::new_bill(BillBlockEvent {
             bill_id: id.clone(),
-            block_height: block.id as usize,
+            block_height: block.id.inner() as usize,
             block: block.clone(),
         })
         .try_into()

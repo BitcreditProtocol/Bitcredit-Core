@@ -138,6 +138,7 @@ enum JsErrorType {
     CallerMustBeSignatory,
     InvalidBase58,
     InvalidSignature,
+    InvalidHash,
     InvalidUrl,
     InvalidIdentityProofStatus,
     Json,
@@ -357,6 +358,7 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
         ValidationError::InvalidBase58 => err_400(e, JsErrorType::InvalidBase58),
         ValidationError::InvalidSignature => err_400(e, JsErrorType::InvalidSignature),
+        ValidationError::InvalidHash => err_400(e, JsErrorType::InvalidHash),
         ValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
         ValidationError::InvalidBillAction => err_400(e, JsErrorType::InvalidBillAction),
         ValidationError::InvalidIdentityProofStatus(_) => {

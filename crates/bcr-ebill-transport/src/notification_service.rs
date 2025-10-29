@@ -23,6 +23,7 @@ use bcr_ebill_core::company::Company;
 use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::email::Email;
+use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::nostr_contact::TrustLevel;
 use bcr_ebill_core::sum::Sum;
@@ -280,7 +281,7 @@ impl NotificationService {
 
     async fn find_root_and_previous_event(
         &self,
-        previous_hash: &str,
+        previous_hash: &Sha256Hash,
         chain_id: &str,
         chain_type: BlockchainType,
     ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
@@ -334,7 +335,7 @@ impl NotificationService {
                     &previous_event,
                     &block_event.data.bill_id.to_string(),
                     BlockchainType::Bill,
-                    block_event.data.block.id as usize,
+                    block_event.data.block.id.inner() as usize,
                     &block_event.data.block.hash,
                 )
                 .await?;
@@ -361,7 +362,7 @@ impl NotificationService {
         chain_id: &str,
         chain_type: BlockchainType,
         block_height: usize,
-        block_hash: &str,
+        block_hash: &Sha256Hash,
     ) -> Result<()> {
         self.chain_event_store
             .add_chain_event(NostrChainEvent {
@@ -503,7 +504,7 @@ impl NotificationServiceApi for NotificationService {
                     &previous_event,
                     &event.data.node_id.to_string(),
                     BlockchainType::Identity,
-                    event.data.block.id as usize,
+                    event.data.block.id.inner() as usize,
                     &event.data.block.hash,
                 )
                 .await?;
@@ -552,7 +553,7 @@ impl NotificationServiceApi for NotificationService {
                     &previous_event,
                     &event.data.node_id.to_string(),
                     BlockchainType::Company,
-                    event.data.block.id as usize,
+                    event.data.block.id.inner() as usize,
                     &event.data.block.hash,
                 )
                 .await?;
@@ -1791,7 +1792,7 @@ mod tests {
             .returning(|_, _| Ok(()));
 
         let event_store = setup_event_store_expectations(
-            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            &chain.get_latest_block().previous_hash.to_owned(),
             &bill.id,
         );
 
@@ -1945,7 +1946,7 @@ mod tests {
             .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()));
 
         let mock_event_store = setup_event_store_expectations(
-            chain.get_latest_block().previous_hash.to_owned().as_str(),
+            &chain.get_latest_block().previous_hash.to_owned(),
             &bill.id,
         );
 
@@ -2001,7 +2002,7 @@ mod tests {
     }
 
     fn setup_event_store_expectations(
-        previous_hash: &str,
+        previous_hash: &Sha256Hash,
         bill_id: &BillId,
     ) -> MockNostrChainEventStore {
         let mut mock_event_store = MockNostrChainEventStore::new();
@@ -2076,7 +2077,7 @@ mod tests {
                 .returning(|_, _, _, _, _, _, _| Ok(get_test_nostr_event()))
                 .once();
             mock_event_store = setup_event_store_expectations(
-                chain.get_latest_block().previous_hash.to_owned().as_str(),
+                &chain.get_latest_block().previous_hash.to_owned(),
                 &bill.id,
             );
         } else {

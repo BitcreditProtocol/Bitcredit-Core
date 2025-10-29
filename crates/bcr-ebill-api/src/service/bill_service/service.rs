@@ -45,6 +45,7 @@ use bcr_ebill_core::contact::{
     BillAnonParticipant, BillParticipant, Contact, LightBillParticipant,
 };
 use bcr_ebill_core::email::Email;
+use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
@@ -1007,7 +1008,7 @@ impl BillServiceApi for BillService {
                 .download(nostr_relay, &file.nostr_hash)
                 .await?;
             let decrypted = util::crypto::decrypt_ecies(&file_bytes, bill_private_key)?;
-            let file_hash = util::sha256_hash(&decrypted);
+            let file_hash = Sha256Hash::from_bytes(&decrypted);
             if file_hash != file.hash {
                 error!(
                     "Hash for bill file {} did not match uploaded file",

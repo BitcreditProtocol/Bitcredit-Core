@@ -33,7 +33,7 @@ impl IdentityChainEvent {
     pub fn generate_blockchain_message(&self) -> Option<Event<IdentityBlockEvent>> {
         Some(Event::new_identity_chain(IdentityBlockEvent {
             node_id: self.identity.node_id.clone(),
-            block_height: self.block.id as usize,
+            block_height: self.block.id.inner() as usize,
             block: self.block.clone(),
         }))
     }

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
+    block_id::BlockId,
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
 };
 use serde::{Deserialize, Serialize};
@@ -156,7 +157,7 @@ pub struct IdentityProofDb {
     pub timestamp: u64,
     pub status: IdentityProofStatusDb,
     pub status_last_checked_timestamp: u64,
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub archived: bool,
 }
 
@@ -247,7 +248,7 @@ mod tests {
             timestamp: 1731593928,
             status: IdentityProofStatus::Success,
             status_last_checked_timestamp: 1731593929,
-            block_id: 2,
+            block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
         };
 
         // add it

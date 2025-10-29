@@ -2,6 +2,9 @@ use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::block_id::BlockId;
+use crate::hash::Sha256Hash;
+use crate::signature::SchnorrSignature;
 use crate::util::crypto;
 use crate::{ValidationError, util};
 use borsh::{BorshSerialize, to_vec};
@@ -12,8 +15,6 @@ use std::string::FromUtf8Error;
 pub mod bill;
 pub mod company;
 pub mod identity;
-
-const FIRST_BLOCK_ID: u64 = 1;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -113,29 +114,29 @@ pub trait Block {
     type OpCode: PartialEq + Clone + BorshSerialize;
     type BlockDataToHash: BorshSerialize;
 
-    fn id(&self) -> u64;
+    fn id(&self) -> BlockId;
     fn timestamp(&self) -> u64;
     fn op_code(&self) -> &Self::OpCode;
-    fn plaintext_hash(&self) -> &str;
-    fn hash(&self) -> &str;
-    fn previous_hash(&self) -> &str;
+    fn plaintext_hash(&self) -> &Sha256Hash;
+    fn hash(&self) -> &Sha256Hash;
+    fn previous_hash(&self) -> &Sha256Hash;
     fn data(&self) -> &str;
-    fn signature(&self) -> &str;
+    fn signature(&self) -> &SchnorrSignature;
     fn public_key(&self) -> &PublicKey;
     fn validate(&self) -> bool;
     fn get_block_data_to_hash(&self) -> Self::BlockDataToHash;
     fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool;
 
     /// Calculates the plaintext hash over the unencrypted data of the block
-    fn calculate_plaintext_hash<T: BorshSerialize>(block_data: &T) -> Result<String> {
+    fn calculate_plaintext_hash<T: BorshSerialize>(block_data: &T) -> Result<Sha256Hash> {
         let serialized = to_vec(&block_data)?;
-        Ok(util::sha256_hash(&serialized))
+        Ok(Sha256Hash::from_bytes(&serialized))
     }
 
     /// Calculates the hash over the data to hash for this block
-    fn calculate_hash(block_data_to_hash: Self::BlockDataToHash) -> Result<String> {
+    fn calculate_hash(block_data_to_hash: Self::BlockDataToHash) -> Result<Sha256Hash> {
         let serialized = to_vec(&block_data_to_hash)?;
-        Ok(util::sha256_hash(&serialized))
+        Ok(Sha256Hash::from_bytes(&serialized))
     }
 
     /// Validates that the block's hash is correct
@@ -145,7 +146,7 @@ pub trait Block {
                 error!("Error calculating hash: {e}");
                 false
             }
-            Ok(calculated_hash) => self.hash() == calculated_hash,
+            Ok(calculated_hash) => self.hash() == &calculated_hash,
         }
     }
 
@@ -172,7 +173,7 @@ pub trait Block {
                 previous_block.timestamp()
             );
             return false;
-        } else if self.id() != previous_block.id() + 1 {
+        } else if !self.id().validate_with_previous(&previous_block.id()) {
             warn!(
                 "block with id: {} is not the next block after the previous block: {}",
                 self.id(),
@@ -257,12 +258,11 @@ pub trait Blockchain {
         let mut blocks_to_add = vec![];
 
         // if it's not the same id, and the local chain is shorter
-        if !(local_chain_last_id.eq(&other_chain_last_id)
-            || local_chain_last_id > other_chain_last_id)
+        if let Some(difference_in_id) =
+            local_chain_last_id.difference_to_smaller(&other_chain_last_id)
         {
-            let difference_in_id = other_chain_last_id - local_chain_last_id;
             for block_id in 1..difference_in_id + 1 {
-                let block = other_chain.get_block_by_id(local_chain_last_id + block_id);
+                let block = other_chain.get_block_by_id(&local_chain_last_id.add(block_id));
                 let try_add_block = self.try_add_block(block.clone());
                 if try_add_block && self.is_chain_valid() {
                     blocks_to_add.push(block);
@@ -294,10 +294,10 @@ pub trait Blockchain {
 
     /// Gets the block with the given block number, or the first one, if the given one doesn't
     /// exist
-    fn get_block_by_id(&self, id: u64) -> Self::Block {
+    fn get_block_by_id(&self, id: &BlockId) -> Self::Block {
         self.blocks()
             .iter()
-            .find(|b| b.id() == id)
+            .find(|b| b.id() == *id)
             .cloned()
             .unwrap_or_else(|| self.get_first_block().clone())
     }

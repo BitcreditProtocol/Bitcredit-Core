@@ -20,6 +20,7 @@ use std::sync::Arc;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::BillKeys,
+    block_id::BlockId,
     blockchain::{
         Blockchain, BlockchainType,
         bill::BillOpCode,
@@ -295,7 +296,10 @@ impl CompanyChainEventProcessor {
                 }
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
-                    if blocks.len() == 1 && chain.get_latest_block().id + 1 < block.id {
+                    if blocks.len() == 1
+                        && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
+                            < block.id
+                    {
                         info!(
                             "Received invalid block {} for company {company_id} - missing blocks - try to resync",
                             block.id
@@ -531,6 +535,7 @@ pub mod tests {
             },
         },
         company::{Company, CompanyKeys},
+        hash::Sha256Hash,
         identity_proof::IdentityProofStamp,
         name::Name,
         util::BcrKeys,
@@ -1013,7 +1018,7 @@ pub mod tests {
     fn as_event_payload(id: &NodeId, block: &CompanyBlock) -> EventEnvelope {
         Event::new_company_chain(CompanyBlockEvent {
             node_id: id.clone(),
-            block_height: block.id as usize,
+            block_height: block.id.inner() as usize,
             block: block.clone(),
         })
         .try_into()
@@ -1374,7 +1379,7 @@ pub mod tests {
     ) -> CompanyBlock {
         CompanyBlock::create_block_for_create(
             node_id,
-            "genesis hash".to_string(),
+            Sha256Hash::new("genesis hash"),
             &company.into(),
             &BcrKeys::new(),
             keys,

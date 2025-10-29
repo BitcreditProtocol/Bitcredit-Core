@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     NodeId,
+    block_id::BlockId,
     blockchain::{
         Block,
         bill::{
@@ -384,7 +385,7 @@ impl BillHistory {
 
 #[derive(Clone, Debug)]
 pub struct BillHistoryBlock {
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<LightBillParticipant>,
     pub signed: LightSignedBy,

@@ -6,6 +6,7 @@ use bcr_ebill_api::service::notification_service::{
 };
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
+    hash::Sha256Hash,
     util::{BcrKeys, date::now},
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;
@@ -130,12 +131,12 @@ pub enum BlockData {
 impl BlockData {
     pub fn get_block_height(&self) -> u64 {
         match self {
-            BlockData::Bill(block) => block.id,
-            BlockData::Identity(block) => block.id,
-            BlockData::Company(block) => block.id,
+            BlockData::Bill(block) => block.id.inner(),
+            BlockData::Identity(block) => block.id.inner(),
+            BlockData::Company(block) => block.id.inner(),
         }
     }
-    pub fn get_block_hash(&self) -> String {
+    pub fn get_block_hash(&self) -> Sha256Hash {
         match self {
             BlockData::Bill(block) => block.hash.clone(),
             BlockData::Identity(block) => block.hash.clone(),

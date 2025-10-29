@@ -8,6 +8,7 @@ use thiserror::Error;
 
 pub mod address;
 pub mod bill;
+pub mod block_id;
 pub mod blockchain;
 pub mod city;
 pub mod company;
@@ -16,6 +17,7 @@ pub mod contact;
 pub mod country;
 pub mod date;
 pub mod email;
+pub mod hash;
 pub mod identification;
 pub mod identity;
 pub mod identity_proof;
@@ -23,6 +25,7 @@ pub mod mint;
 pub mod name;
 pub mod nostr_contact;
 pub mod notification;
+pub mod signature;
 pub mod sum;
 #[cfg(test)]
 mod tests;
@@ -32,7 +35,7 @@ pub mod zip;
 pub use bcr_common::core::NodeId;
 pub use bitcoin::secp256k1::{PublicKey, SecretKey};
 
-use crate::{address::Address, city::City, country::Country, zip::Zip};
+use crate::{address::Address, city::City, country::Country, hash::Sha256Hash, zip::Zip};
 
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
 /// multi-threaded (e.g. web) environment without issues.
@@ -171,7 +174,7 @@ pub enum GeneralSearchFilterItemType {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct File {
     pub name: String,
-    pub hash: String,       // the hash over the unencrypted file
+    pub hash: Sha256Hash,   // the hash over the unencrypted file
     pub nostr_hash: String, // the identification hash on Nostr for the encrypted file
 }
 
@@ -507,6 +510,10 @@ pub enum ValidationError {
     /// error returned if the string is not a valid signature
     #[error("Invalid signature")]
     InvalidSignature,
+
+    /// error returned if the string is not a valid hash
+    #[error("Invalid hash")]
+    InvalidHash,
 
     /// error returned if the string is not a valid url
     #[error("Invalid url")]

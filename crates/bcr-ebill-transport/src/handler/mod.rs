@@ -331,6 +331,7 @@ mod test_utils {
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         address::Address,
         bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult, PaymentState},
+        block_id::BlockId,
         blockchain::{
             bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
             company::{CompanyBlock, CompanyBlockchain},
@@ -455,24 +456,24 @@ mod test_utils {
             async fn set_offer_to_sell_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
                 payment_state: &PaymentState,
             ) -> Result<()>;
             async fn get_offer_to_sell_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
             ) -> Result<Option<PaymentState>>;
             async fn set_recourse_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
                 payment_state: &PaymentState,
             ) -> Result<()>;
             async fn get_recourse_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
             ) -> Result<Option<PaymentState>>;
             async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
@@ -618,7 +619,7 @@ mod test_utils {
               chain_id: &str,
               chain_type: bcr_ebill_core::blockchain::BlockchainType,
           ) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
-          async fn find_by_block_hash(&self, hash: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn find_by_block_hash(&self, hash: &bcr_ebill_core::hash::Sha256Hash) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
           async fn add_chain_event(&self, event: bcr_ebill_persistence::nostr::NostrChainEvent) -> Result<()>;
           async fn by_event_id(&self, event_id: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
         }

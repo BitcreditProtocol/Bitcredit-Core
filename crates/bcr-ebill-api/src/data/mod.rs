@@ -1,11 +1,13 @@
 pub use bcr_ebill_core::address;
 pub use bcr_ebill_core::bill;
+pub use bcr_ebill_core::block_id;
 pub use bcr_ebill_core::city;
 pub use bcr_ebill_core::company;
 pub use bcr_ebill_core::contact;
 pub use bcr_ebill_core::country;
 pub use bcr_ebill_core::date;
 pub use bcr_ebill_core::email;
+pub use bcr_ebill_core::hash;
 pub use bcr_ebill_core::identification;
 pub use bcr_ebill_core::identity;
 pub use bcr_ebill_core::identity_proof;
@@ -13,6 +15,7 @@ pub use bcr_ebill_core::mint;
 pub use bcr_ebill_core::name;
 pub use bcr_ebill_core::nostr_contact;
 pub use bcr_ebill_core::notification;
+pub use bcr_ebill_core::signature;
 pub use bcr_ebill_core::sum;
 pub use bcr_ebill_core::zip;
 

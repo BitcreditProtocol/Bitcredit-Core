@@ -297,6 +297,21 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_serialization() {
+        let json = "{\"country\":\"\"}";
+        let deserialized = serde_json::from_str::<TestCountry>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = Country::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("AT")).expect("works");
+        let res = Country::try_from_slice(&borsh);
+        assert!(res.is_ok());
+    }
+
+    #[test]
     fn test_validate_countries() {
         assert!(Country::is_valid_country("at"));
         assert!(Country::is_valid_country("At"));

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys, BitcreditBillResult, PaymentState},
+    block_id::BlockId,
     blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
 };
 
@@ -52,27 +53,27 @@ pub trait BillStoreApi: ServiceTraitBounds {
     async fn set_offer_to_sell_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
         payment_state: &PaymentState,
     ) -> Result<()>;
     /// Get offer to sell payment state for given bill
     async fn get_offer_to_sell_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
     ) -> Result<Option<PaymentState>>;
     /// Set recourse payment state for given bill
     async fn set_recourse_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
         payment_state: &PaymentState,
     ) -> Result<()>;
     /// Get recourse payment state for given bill
     async fn get_recourse_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
     ) -> Result<Option<PaymentState>>;
     /// Gets all bills with a RequestToPay block, which are not paid already
     async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;

@@ -6,14 +6,17 @@ use super::BillOpCode::{
 };
 
 use crate::bill::{BillAction, BillHistoryBlock, BillId, LightSignedBy, RecourseReason};
-use crate::blockchain::{Block, FIRST_BLOCK_ID};
+use crate::block_id::BlockId;
+use crate::blockchain::Block;
 use crate::city::City;
 use crate::constants::{
     ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
 };
 use crate::country::Country;
 use crate::date::Date;
+use crate::hash::Sha256Hash;
 use crate::name::Name;
+use crate::signature::SchnorrSignature;
 use crate::sum::{Currency, Sum};
 use crate::util::BcrKeys;
 use crate::util::{self, crypto};
@@ -39,10 +42,10 @@ use std::str::FromStr;
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BillBlock {
     pub bill_id: BillId,
-    pub id: u64,
-    pub plaintext_hash: String,
-    pub hash: String,
-    pub previous_hash: String,
+    pub id: BlockId,
+    pub plaintext_hash: Sha256Hash,
+    pub hash: Sha256Hash,
+    pub previous_hash: Sha256Hash,
     pub timestamp: u64,
     pub data: String,
     #[borsh(
@@ -50,16 +53,16 @@ pub struct BillBlock {
         deserialize_with = "crate::util::borsh::deserialize_pubkey"
     )]
     pub public_key: PublicKey,
-    pub signature: String,
+    pub signature: SchnorrSignature,
     pub op_code: BillOpCode,
 }
 
 #[derive(BorshSerialize)]
 pub struct BillBlockDataToHash {
     pub bill_id: BillId,
-    id: u64,
-    plaintext_hash: String,
-    previous_hash: String,
+    id: BlockId,
+    plaintext_hash: Sha256Hash,
+    previous_hash: Sha256Hash,
     data: String,
     timestamp: u64,
     public_key: String,
@@ -702,7 +705,7 @@ impl Block for BillBlock {
     type OpCode = BillOpCode;
     type BlockDataToHash = BillBlockDataToHash;
 
-    fn id(&self) -> u64 {
+    fn id(&self) -> BlockId {
         self.id
     }
 
@@ -714,15 +717,15 @@ impl Block for BillBlock {
         &self.op_code
     }
 
-    fn plaintext_hash(&self) -> &str {
+    fn plaintext_hash(&self) -> &Sha256Hash {
         &self.plaintext_hash
     }
 
-    fn hash(&self) -> &str {
+    fn hash(&self) -> &Sha256Hash {
         &self.hash
     }
 
-    fn previous_hash(&self) -> &str {
+    fn previous_hash(&self) -> &Sha256Hash {
         &self.previous_hash
     }
 
@@ -730,7 +733,7 @@ impl Block for BillBlock {
         &self.data
     }
 
-    fn signature(&self) -> &str {
+    fn signature(&self) -> &SchnorrSignature {
         &self.signature
     }
 
@@ -748,7 +751,9 @@ impl Block for BillBlock {
             Ok(decoded_wrapper) => match from_slice::<BillBlockData>(&decoded_wrapper) {
                 Ok(data_wrapper) => match util::base58_decode(&data_wrapper.data) {
                     Ok(decoded) => match util::crypto::decrypt_ecies(&decoded, private_key) {
-                        Ok(decrypted) => self.plaintext_hash() == util::sha256_hash(&decrypted),
+                        Ok(decrypted) => {
+                            self.plaintext_hash() == &Sha256Hash::from_bytes(&decrypted)
+                        }
                         Err(e) => {
                             error!(
                                 "Decrypt Error while validating plaintext hash for id {}: {e}",
@@ -813,15 +818,15 @@ impl BillBlock {
     /// signer, and the company key if it exists and the bill key
     pub fn new(
         bill_id: BillId,
-        id: u64,
-        previous_hash: String,
+        id: BlockId,
+        previous_hash: Sha256Hash,
         data: String,
         op_code: BillOpCode,
         identity_keys: &BcrKeys,
         company_keys: Option<&BcrKeys>,
         bill_keys: &BcrKeys,
         timestamp: u64,
-        plaintext_hash: String,
+        plaintext_hash: Sha256Hash,
     ) -> Result<Self> {
         // The order here is important: identity -> company -> bill
         let mut keys: Vec<secp256k1::SecretKey> = vec![];
@@ -860,7 +865,7 @@ impl BillBlock {
 
     pub fn create_block_for_issue(
         bill_id: BillId,
-        genesis_hash: String,
+        genesis_hash: Sha256Hash,
         bill: &BillIssueBlockData,
         drawer_keys: &BcrKeys,
         drawer_company_keys: Option<&BcrKeys>,
@@ -896,7 +901,7 @@ impl BillBlock {
 
         Self::new(
             bill_id,
-            FIRST_BLOCK_ID,
+            BlockId::first(),
             genesis_hash,
             serialized_and_hashed_data,
             BillOpCode::Issue,
@@ -1248,7 +1253,7 @@ impl BillBlock {
 
         let new_block = Self::new(
             bill_id,
-            previous_block.id + 1,
+            BlockId::next_from_previous_block_id(&previous_block.id),
             previous_block.hash.clone(),
             serialized_and_hashed_data,
             op_code,
@@ -1876,7 +1881,7 @@ pub mod tests {
 
         BillBlock::create_block_for_issue(
             bill_id_test(),
-            String::from("prevhash"),
+            Sha256Hash::new("prevhash"),
             &BillIssueBlockData::from(bill, None, 1731593928),
             &get_baseline_identity().key_pair,
             None,
@@ -1892,7 +1897,7 @@ pub mod tests {
         let bill_keys = BcrKeys::new();
         let block = BillBlock::create_block_for_issue(
             bill_id_test(),
-            String::from("genesis"),
+            Sha256Hash::new("genesis"),
             &BillIssueBlockData::from(bill, None, 1731593928),
             &BcrKeys::new(),
             None,
@@ -1908,15 +1913,15 @@ pub mod tests {
     fn signature_can_be_verified() {
         let block = BillBlock::new(
             bill_id_test(),
-            1,
-            String::from("prevhash"),
+            BlockId::first(),
+            Sha256Hash::new("prevhash"),
             String::from("some_data"),
             BillOpCode::Issue,
             &BcrKeys::new(),
             None,
             &BcrKeys::new(),
             1731593928,
-            String::from("some plaintext hash"),
+            Sha256Hash::new("some plaintext hash"),
         )
         .unwrap();
         assert!(block.verify());
@@ -1937,7 +1942,7 @@ pub mod tests {
 
         let block = BillBlock::create_block_for_issue(
             bill_id_test(),
-            String::from("prevhash"),
+            Sha256Hash::new("prevhash"),
             &BillIssueBlockData::from(bill, None, 1731593928),
             &BcrKeys::new(),
             None,
@@ -2367,7 +2372,7 @@ pub mod tests {
 
         let issue_block = BillBlock::create_block_for_issue(
             bill_id_test(),
-            String::from("genesis"),
+            Sha256Hash::new("genesis"),
             &BillIssueBlockData::from(bill, None, 1731593928),
             &identity_keys,
             None,
@@ -2782,7 +2787,7 @@ pub mod tests {
 
         let issue_block = BillBlock::create_block_for_issue(
             bill_id_test(),
-            String::from("genesis"),
+            Sha256Hash::new("genesis"),
             &BillIssueBlockData::from(
                 bill,
                 Some(BillSignatoryBlockData {
@@ -3237,7 +3242,7 @@ pub mod tests {
 
         let block = BillBlock::create_block_for_issue(
             bill_id_test(),
-            String::from("genesis"),
+            Sha256Hash::new("genesis"),
             &BillIssueBlockData::from(
                 bill,
                 Some(BillSignatoryBlockData {

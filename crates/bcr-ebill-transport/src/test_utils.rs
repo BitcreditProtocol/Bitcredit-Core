@@ -13,6 +13,7 @@ use bcr_ebill_core::city::City;
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::email::Email;
+use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::sum::Sum;
@@ -486,7 +487,7 @@ mockall::mock! {
         async fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> bcr_ebill_persistence::Result<Vec<NostrChainEvent>>;
         async fn find_latest_block_events(&self, chain_id: &str, chain_type: BlockchainType) -> bcr_ebill_persistence::Result<Vec<NostrChainEvent>>;
         async fn find_root_event(&self,chain_id: &str, chain_type: BlockchainType) -> bcr_ebill_persistence::Result<Option<NostrChainEvent>>;
-        async fn find_by_block_hash(&self, hash: &str) -> bcr_ebill_persistence::Result<Option<NostrChainEvent>>;
+        async fn find_by_block_hash(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<Option<NostrChainEvent>>;
         async fn add_chain_event(&self, event: NostrChainEvent) -> bcr_ebill_persistence::Result<()>;
         async fn by_event_id(&self, event_id: &str) -> bcr_ebill_persistence::Result<Option<NostrChainEvent>>;
     }
