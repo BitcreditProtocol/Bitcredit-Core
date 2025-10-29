@@ -650,7 +650,8 @@ pub async fn handle_direct_message<T: NostrSigner>(
         let sender_npub = sender.to_bech32();
         let sender_pub_key = sender.to_hex();
         debug!(
-            "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}"
+            "Processing event: {} {} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}",
+            envelope.event_type, envelope.version
         );
         handle_event(envelope, client_id, event_handlers, event).await?;
     }

@@ -5,6 +5,7 @@ use bcr_ebill_core::{
     company::CompanyKeys,
     util::BcrKeys,
 };
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 /// A chain invite sent to new chain participants via private Nostr DM.
@@ -13,6 +14,29 @@ pub struct ChainInvite {
     pub chain_id: String,
     pub chain_type: BlockchainType,
     pub keys: ChainKeys,
+}
+
+impl borsh::BorshSerialize for ChainInvite {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        borsh::BorshSerialize::serialize(&self.chain_id, writer)?;
+        borsh::BorshSerialize::serialize(&self.chain_type, writer)?;
+        borsh::BorshSerialize::serialize(&self.keys, writer)?;
+        Ok(())
+    }
+}
+
+impl borsh::BorshDeserialize for ChainInvite {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let chain_id: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        let chain_type: BlockchainType = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        let keys: ChainKeys = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        
+        Ok(Self {
+            chain_id,
+            chain_type,
+            keys,
+        })
+    }
 }
 
 impl ChainInvite {
@@ -56,8 +80,35 @@ pub struct ChainKeys {
     pub public_key: PublicKey,
 }
 
+impl borsh::BorshSerialize for ChainKeys {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let private_bytes = self.private_key.secret_bytes();
+        let public_bytes = self.public_key.serialize();
+        borsh::BorshSerialize::serialize(&private_bytes.to_vec(), writer)?;
+        borsh::BorshSerialize::serialize(&public_bytes.to_vec(), writer)?;
+        Ok(())
+    }
+}
+
+impl borsh::BorshDeserialize for ChainKeys {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let private_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        let public_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        
+        let private_key = SecretKey::from_slice(&private_bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let public_key = PublicKey::from_slice(&public_bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        
+        Ok(Self {
+            private_key,
+            public_key,
+        })
+    }
+}
+
 /// The encrypted BCR bill payload contained in a public block Nostr event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockEvent {
     pub bill_id: BillId,
     pub block_height: usize,
@@ -65,7 +116,7 @@ pub struct BillBlockEvent {
 }
 
 /// The encrypted BCR identity payload contained in a public block Nostr event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct IdentityBlockEvent {
     pub node_id: NodeId,
     pub block_height: usize,
@@ -73,7 +124,7 @@ pub struct IdentityBlockEvent {
 }
 ///
 /// The encrypted BCR company payload contained in a public block Nostr event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct CompanyBlockEvent {
     pub node_id: NodeId,
     pub block_height: usize,

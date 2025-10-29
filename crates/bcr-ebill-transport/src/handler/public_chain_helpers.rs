@@ -96,15 +96,16 @@ pub fn decrypt_block(
     if let Ok(Some(payload)) = unwrap_public_chain_event(Box::new(event.clone())) {
         if (payload.id == chain_id) && (payload.chain_type == chain_type) {
             let decrypted = decrypt_public_chain_event(&payload.payload, keys)?;
+            let bytes: Vec<u8> = serde_json::from_value(decrypted.data)?;
             let data = match chain_type {
                 BlockchainType::Bill => {
-                    BlockData::Bill(serde_json::from_value::<BillBlockEvent>(decrypted.data)?.block)
+                    BlockData::Bill(borsh::from_slice::<BillBlockEvent>(&bytes)?.block)
                 }
                 BlockchainType::Identity => BlockData::Identity(
-                    serde_json::from_value::<IdentityBlockEvent>(decrypted.data)?.block,
+                    borsh::from_slice::<IdentityBlockEvent>(&bytes)?.block,
                 ),
                 BlockchainType::Company => BlockData::Company(
-                    serde_json::from_value::<CompanyBlockEvent>(decrypted.data)?.block,
+                    borsh::from_slice::<CompanyBlockEvent>(&bytes)?.block,
                 ),
             };
             Ok(data)

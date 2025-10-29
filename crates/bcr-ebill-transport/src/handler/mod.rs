@@ -217,7 +217,7 @@ mod tests {
 
     use bcr_ebill_api::service::notification_service::event::Event;
     use bcr_ebill_core::notification::BillEventType;
-    use serde::{Deserialize, Serialize, de::DeserializeOwned};
+    use borsh::{BorshDeserialize, BorshSerialize};
     use tokio::sync::Mutex;
 
     use crate::handler::test_utils::get_test_nostr_event;
@@ -262,22 +262,22 @@ mod tests {
         assert_eq!(event.data, received.data, "handled payload was not correct");
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
     struct TestEventPayload {
         pub event_type: BillEventType,
         pub foo: String,
         pub bar: u32,
     }
 
-    struct TestEventHandler<T: Serialize + DeserializeOwned> {
+    struct TestEventHandler<T: BorshSerialize + BorshDeserialize> {
         pub called: Mutex<bool>,
         pub received_event: Mutex<Option<Event<T>>>,
         pub accepted_event: Option<EventType>,
     }
 
-    impl<T: Serialize + DeserializeOwned + Send + Sync> ServiceTraitBounds for TestEventHandler<T> {}
+    impl<T: BorshSerialize + BorshDeserialize + Send + Sync> ServiceTraitBounds for TestEventHandler<T> {}
 
-    impl<T: Serialize + DeserializeOwned> TestEventHandler<T> {
+    impl<T: BorshSerialize + BorshDeserialize> TestEventHandler<T> {
         pub fn new(accepted_event: Option<EventType>) -> Self {
             Self {
                 called: Mutex::new(false),

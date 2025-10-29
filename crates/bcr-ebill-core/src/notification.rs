@@ -69,6 +69,7 @@ impl Display for NotificationType {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(borsh_derive::BorshSerialize, borsh_derive::BorshDeserialize)]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum ActionType {
     BuyBill,
@@ -84,6 +85,7 @@ pub enum ActionType {
 /// exceptions here. As soon as we have other event topics, we can
 /// add new types here and remove the clippy exceptions.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(borsh_derive::BorshSerialize, borsh_derive::BorshDeserialize)]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum BillEventType {
     BillSigned,

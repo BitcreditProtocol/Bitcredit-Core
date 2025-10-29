@@ -65,6 +65,12 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Message(format!("Failed to serialize/unserialize borsh message: {e}"))
+    }
+}
+
 impl From<crypto::Error> for Error {
     fn from(e: crypto::Error) -> Self {
         Error::Crypto(format!("Failed crypto operation: {e}"))
