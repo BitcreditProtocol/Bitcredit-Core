@@ -35,6 +35,9 @@ pub enum Error {
     #[error("Notification error: {0}")]
     Notification(#[from] notification_service::Error),
 
+    #[error("Protocol error: {0}")]
+    Protocol(#[from] bcr_ebill_core::protocol::ProtocolError),
+
     #[error("io error {0}")]
     Io(#[from] std::io::Error),
 

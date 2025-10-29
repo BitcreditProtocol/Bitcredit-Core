@@ -1,4 +1,4 @@
-use bcr_ebill_core::{
+use crate::{
     NodeId,
     blockchain::{
         Blockchain,

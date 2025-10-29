@@ -76,8 +76,17 @@ pub enum Error {
     JSON(String),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(borsh_derive::BorshSerialize, borsh_derive::BorshDeserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    borsh_derive::BorshSerialize,
+    borsh_derive::BorshDeserialize,
+)]
 pub enum BlockchainType {
     #[serde(rename = "bill")]
     Bill,

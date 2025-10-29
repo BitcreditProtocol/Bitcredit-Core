@@ -6,10 +6,33 @@ mod identity_events;
 
 use std::fmt::Display;
 
-use crate::service::notification_service::{Error, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, ProtocolError>;
+
+#[derive(Debug, Error)]
+pub enum ProtocolError {
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    #[error("Deserialization error: {0}")]
+    Deserialization(String),
+}
+
+impl From<serde_json::Error> for ProtocolError {
+    fn from(e: serde_json::Error) -> Self {
+        ProtocolError::Serialization(format!("JSON error: {e}"))
+    }
+}
+
+impl From<std::io::Error> for ProtocolError {
+    fn from(e: std::io::Error) -> Self {
+        ProtocolError::Serialization(format!("IO error: {e}"))
+    }
+}
 
 pub use bill_events::{BillChainEvent, BillChainEventPayload};
 pub use blockchain_event::{
@@ -128,7 +151,7 @@ pub struct EventEnvelope {
 }
 
 impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
-    type Error = Error;
+    type Error = ProtocolError;
 
     fn try_from(event: Event<T>) -> Result<Self> {
         let serialized = borsh::to_vec(&event.data)?;
@@ -165,7 +188,7 @@ impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
 /// ```
 ///
 impl<T: BorshDeserialize + BorshSerialize> TryFrom<EventEnvelope> for Event<T> {
-    type Error = Error;
+    type Error = ProtocolError;
     fn try_from(envelope: EventEnvelope) -> Result<Self> {
         let bytes: Vec<u8> = serde_json::from_value(envelope.data)?;
         let data: T = borsh::from_slice(&bytes)?;

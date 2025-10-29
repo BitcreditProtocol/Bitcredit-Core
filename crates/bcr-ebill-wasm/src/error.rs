@@ -231,6 +231,7 @@ fn bill_service_error_data(e: BillServiceError) -> JsErrorData {
         BillServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
         BillServiceError::Cryptography(e) => err_500(e, JsErrorType::Crypto),
         BillServiceError::Notification(e) => notification_service_error_data(e),
+        BillServiceError::Protocol(e) => err_500(e, JsErrorType::Serialization),
     }
 }
 

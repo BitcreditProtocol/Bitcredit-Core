@@ -38,7 +38,7 @@ use crate::chain_keys::ChainKeyServiceApi;
 use crate::handler::NotificationHandlerApi;
 
 use super::nostr::NostrClient;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
@@ -61,7 +61,16 @@ pub const NOSTR_NPUB1: &str = "npub1c504lwrnmrt7atmnxxlf54rw3pxjhjv3455h3flnham3
 #[allow(dead_code)]
 pub const NOSTR_NPUB2: &str = "npub1zax8v4hasewaxducdn89clqwmv4dp84r6vgpls5j5xg6f7xda3fqh2sg75";
 
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct TestEventPayload {
     pub event_type: BillEventType,
     pub foo: String,
@@ -121,7 +130,10 @@ pub fn init_test_cfg() {
     }
 }
 
-impl<T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync> ServiceTraitBounds for TestEventHandler<T> {}
+impl<T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync> ServiceTraitBounds
+    for TestEventHandler<T>
+{
+}
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]

@@ -101,12 +101,12 @@ pub fn decrypt_block(
                 BlockchainType::Bill => {
                     BlockData::Bill(borsh::from_slice::<BillBlockEvent>(&bytes)?.block)
                 }
-                BlockchainType::Identity => BlockData::Identity(
-                    borsh::from_slice::<IdentityBlockEvent>(&bytes)?.block,
-                ),
-                BlockchainType::Company => BlockData::Company(
-                    borsh::from_slice::<CompanyBlockEvent>(&bytes)?.block,
-                ),
+                BlockchainType::Identity => {
+                    BlockData::Identity(borsh::from_slice::<IdentityBlockEvent>(&bytes)?.block)
+                }
+                BlockchainType::Company => {
+                    BlockData::Company(borsh::from_slice::<CompanyBlockEvent>(&bytes)?.block)
+                }
             };
             Ok(data)
         } else {

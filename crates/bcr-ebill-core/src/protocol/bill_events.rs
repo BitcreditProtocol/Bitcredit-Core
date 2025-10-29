@@ -1,4 +1,4 @@
-use bcr_ebill_core::{
+use crate::{
     NodeId,
     bill::{BillId, BillKeys, BitcreditBill},
     blockchain::{
@@ -13,10 +13,8 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::service::notification_service::{Error, Result};
-
 use super::{
-    Event, EventType,
+    Event, EventType, ProtocolError, Result,
     blockchain_event::{BillBlockEvent, ChainInvite},
 };
 
@@ -43,7 +41,7 @@ impl BillChainEvent {
             .get_all_nodes_with_added_block_height(bill_keys)
             .map_err(|e| {
                 error!("Failed to get participants from blockchain: {e}");
-                Error::Blockchain(
+                ProtocolError::Deserialization(
                     "Failed to get participants from blockchain when creating a new chain event"
                         .to_string(),
                 )

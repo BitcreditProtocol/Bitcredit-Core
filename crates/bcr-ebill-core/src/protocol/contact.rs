@@ -1,4 +1,4 @@
-use bcr_ebill_core::NodeId;
+use crate::NodeId;
 use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
 
@@ -26,10 +26,10 @@ impl borsh::BorshDeserialize for ContactShareEvent {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let node_id: NodeId = borsh::BorshDeserialize::deserialize_reader(reader)?;
         let private_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        
+
         let private_key = SecretKey::from_slice(&private_bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        
+
         Ok(Self {
             node_id,
             private_key,

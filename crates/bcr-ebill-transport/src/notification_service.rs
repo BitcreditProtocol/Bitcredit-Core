@@ -1221,7 +1221,8 @@ mod tests {
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
         let valid_event_type = event.event_type == EventType::Bill;
-        let event: Result<Event<BillChainEventPayload>> = event.clone().try_into();
+        let event: bcr_ebill_core::protocol::Result<Event<BillChainEventPayload>> =
+            event.clone().try_into();
         if let Ok(event) = event {
             valid_event_type && event.data.event_type == bill_event_type
         } else {
@@ -1786,7 +1787,7 @@ mod tests {
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> = e.clone().try_into();
                 r.is_ok()
             })
             .returning(|_, _| Ok(()));
@@ -1937,7 +1938,7 @@ mod tests {
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> = e.clone().try_into();
                 r.is_ok()
             })
             .returning(|_, _| Ok(()));
@@ -1956,7 +1957,7 @@ mod tests {
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> = e.clone().try_into();
                 r.is_err()
             })
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
@@ -2054,7 +2055,9 @@ mod tests {
                 .withf(move |r, e| {
                     let part = clone2.clone();
                     let valid_node_id = r.node_id() == part.0.node_id;
-                    let event_result: Result<Event<BillChainEventPayload>> = e.clone().try_into();
+                    let event_result: bcr_ebill_core::protocol::Result<
+                        Event<BillChainEventPayload>,
+                    > = e.clone().try_into();
                     if let Ok(event) = event_result {
                         let valid_event_type = event.data.event_type == part.1;
                         valid_node_id && valid_event_type && event.data.action_type == part.2
@@ -2066,7 +2069,8 @@ mod tests {
 
             mock.expect_send_private_event()
                 .withf(move |_, e| {
-                    let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                    let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
+                        e.clone().try_into();
                     r.is_ok()
                 })
                 .returning(|_, _| Ok(()));

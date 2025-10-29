@@ -275,7 +275,10 @@ mod tests {
         pub accepted_event: Option<EventType>,
     }
 
-    impl<T: BorshSerialize + BorshDeserialize + Send + Sync> ServiceTraitBounds for TestEventHandler<T> {}
+    impl<T: BorshSerialize + BorshDeserialize + Send + Sync> ServiceTraitBounds
+        for TestEventHandler<T>
+    {
+    }
 
     impl<T: BorshSerialize + BorshDeserialize> TestEventHandler<T> {
         pub fn new(accepted_event: Option<EventType>) -> Self {

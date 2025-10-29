@@ -1,4 +1,4 @@
-use bcr_ebill_core::{
+use crate::{
     NodeId, PublicKey, SecretKey,
     bill::{BillId, BillKeys},
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
@@ -30,7 +30,7 @@ impl borsh::BorshDeserialize for ChainInvite {
         let chain_id: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
         let chain_type: BlockchainType = borsh::BorshDeserialize::deserialize_reader(reader)?;
         let keys: ChainKeys = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        
+
         Ok(Self {
             chain_id,
             chain_type,
@@ -94,12 +94,12 @@ impl borsh::BorshDeserialize for ChainKeys {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let private_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
         let public_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        
+
         let private_key = SecretKey::from_slice(&private_bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let public_key = PublicKey::from_slice(&public_bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        
+
         Ok(Self {
             private_key,
             public_key,
