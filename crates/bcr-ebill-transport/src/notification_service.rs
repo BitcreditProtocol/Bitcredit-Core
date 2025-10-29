@@ -930,16 +930,6 @@ impl NotificationServiceApi for NotificationService {
         Ok(())
     }
 
-    async fn send_new_quote_event(&self, _bill: &BitcreditBill) -> Result<()> {
-        // @TODO: How do we know the quoting participants
-        Ok(())
-    }
-
-    async fn send_quote_is_approved_event(&self, _bill: &BitcreditBill) -> Result<()> {
-        // @TODO: How do we address a mint ???
-        Ok(())
-    }
-
     async fn get_client_notifications(
         &self,
         filter: NotificationFilter,

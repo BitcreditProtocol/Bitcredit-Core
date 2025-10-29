@@ -140,14 +140,6 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         bill: &BitcreditBill,
     ) -> Result<()>;
 
-    /// Sent when: A new quote is created, Sent by: Mint
-    /// Receiver: Holder, Action: Check quote page
-    async fn send_new_quote_event(&self, quote: &BitcreditBill) -> Result<()>;
-
-    /// Sent when: A quote is approved by: Previous Holder
-    /// Receiver: Mint (new holder), Action: CheckBill
-    async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> Result<()>;
-
     /// Returns filtered client notifications
     async fn get_client_notifications(
         &self,
