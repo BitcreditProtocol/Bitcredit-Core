@@ -20,13 +20,11 @@ use bcr_ebill_core::{
     company::CompanyKeys,
     contact::{BillParticipant, ContactType},
     identity::IdentityWithAll,
+    protocol::{CompanyChainEvent, IdentityChainEvent},
     util::BcrKeys,
 };
 
-use crate::{
-    data::validate_node_id_network,
-    service::notification_service::event::{CompanyChainEvent, IdentityChainEvent},
-};
+use crate::data::validate_node_id_network;
 
 use super::{BillAction, Result, error::Error, service::BillService};
 

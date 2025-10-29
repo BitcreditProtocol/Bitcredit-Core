@@ -471,9 +471,6 @@ impl BillChainEventProcessor {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_api::service::notification_service::event::{
-        BillBlockEvent, Event, EventEnvelope,
-    };
     use bcr_ebill_core::{
         NodeId,
         blockchain::bill::block::{
@@ -482,6 +479,7 @@ mod tests {
         },
         constants::ACCEPT_DEADLINE_SECONDS,
         contact::BillIdentParticipant,
+        protocol::{BillBlockEvent, Event, EventEnvelope},
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};

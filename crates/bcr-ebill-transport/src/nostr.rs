@@ -23,13 +23,12 @@ use bcr_ebill_api::{
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
-            Error, NostrConfig, NostrContactData, Result, event::EventEnvelope,
-            transport::NotificationJsonTransportApi,
+            Error, NostrConfig, NostrContactData, Result, transport::NotificationJsonTransportApi,
         },
     },
     util::BcrKeys,
 };
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{ServiceTraitBounds, protocol::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
 
 use tokio::task::JoinSet;
@@ -764,13 +763,13 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use bcr_ebill_api::service::notification_service::event::{Event, EventType};
     use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
     use bcr_ebill_api::util::BcrKeys;
     use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;
+    use bcr_ebill_core::protocol::{Event, EventType};
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
     use tokio::time;

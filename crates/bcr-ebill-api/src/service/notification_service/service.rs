@@ -1,7 +1,4 @@
-use super::{
-    NostrContactData, Result,
-    event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
-};
+use super::{NostrContactData, Result};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId,
@@ -11,7 +8,12 @@ use bcr_ebill_core::{
     notification::{ActionType, Notification},
     sum::Sum,
 };
-use bcr_ebill_core::{ServiceTraitBounds, company::Company, util::BcrKeys};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    company::Company,
+    protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
+    util::BcrKeys,
+};
 use bcr_ebill_persistence::notification::NotificationFilter;
 use std::collections::HashMap;
 

@@ -7,13 +7,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_api::{
-    Block,
-    service::notification_service::{
-        event::{ChainInvite, Event},
-        transport::NotificationJsonTransportApi,
-    },
-    util::BcrKeys,
+    Block, service::notification_service::transport::NotificationJsonTransportApi, util::BcrKeys,
 };
+use bcr_ebill_core::protocol::{ChainInvite, Event};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 
@@ -521,9 +517,7 @@ impl ServiceTraitBounds for CompanyChainEventProcessor {}
 pub mod tests {
     use std::sync::Arc;
 
-    use bcr_ebill_api::service::notification_service::event::{
-        CompanyBlockEvent, Event, EventEnvelope,
-    };
+    use bcr_ebill_core::protocol::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
         NodeId,
         blockchain::{

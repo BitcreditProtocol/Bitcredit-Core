@@ -4,13 +4,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_api::{
-    Block,
-    service::notification_service::{
-        event::{ChainInvite, Event},
-        transport::NotificationJsonTransportApi,
-    },
-    util::BcrKeys,
+    Block, service::notification_service::transport::NotificationJsonTransportApi, util::BcrKeys,
 };
+use bcr_ebill_core::protocol::{ChainInvite, Event};
 use log::{debug, error, info, warn};
 use secp256k1::SecretKey;
 use std::{str::FromStr, sync::Arc};
@@ -423,9 +419,7 @@ impl ServiceTraitBounds for IdentityChainEventProcessor {}
 pub mod tests {
     use std::sync::Arc;
 
-    use bcr_ebill_api::service::notification_service::event::{
-        Event, EventEnvelope, IdentityBlockEvent,
-    };
+    use bcr_ebill_core::protocol::{Event, EventEnvelope, IdentityBlockEvent};
     use bcr_ebill_core::{
         NodeId,
         blockchain::{

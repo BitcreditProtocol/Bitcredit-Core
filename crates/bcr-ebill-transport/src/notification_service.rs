@@ -9,10 +9,6 @@ use crate::handler::{
 use crate::nostr::NostrClient;
 use async_trait::async_trait;
 use bcr_ebill_api::external::email::EmailClientApi;
-use bcr_ebill_api::service::notification_service::event::{
-    BillChainEvent, BillChainEventPayload, CompanyChainEvent, ContactShareEvent, Event,
-    EventEnvelope, IdentityChainEvent,
-};
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::service::notification_service::{NostrConfig, NostrContactData};
 use bcr_ebill_core::address::Address;
@@ -26,6 +22,10 @@ use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::nostr_contact::TrustLevel;
+use bcr_ebill_core::protocol::{
+    BillChainEvent, BillChainEventPayload, CompanyChainEvent, ContactShareEvent, Event,
+    EventEnvelope, IdentityChainEvent,
+};
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::ContactStoreApi;
@@ -1186,7 +1186,6 @@ impl NotificationServiceApi for NotificationService {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
@@ -1199,6 +1198,7 @@ mod tests {
         ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
     };
     use bcr_ebill_core::contact::Contact;
+    use bcr_ebill_core::protocol::{ChainInvite, EventType};
     use bcr_ebill_core::sum::Currency;
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use mockall::predicate::eq;

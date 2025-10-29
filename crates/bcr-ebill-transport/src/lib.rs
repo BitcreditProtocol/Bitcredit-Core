@@ -7,13 +7,12 @@ use bcr_ebill_api::{
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
-            NostrConfig, NotificationServiceApi, event::EventType,
-            transport::NotificationJsonTransportApi,
+            NostrConfig, NotificationServiceApi, transport::NotificationJsonTransportApi,
         },
     },
     util::BcrKeys,
 };
-use bcr_ebill_core::NodeId;
+use bcr_ebill_core::{NodeId, protocol::EventType};
 use bcr_ebill_persistence::{company::CompanyStoreApi, identity::IdentityStoreApi};
 use chain_keys::ChainKeyServiceApi;
 use handler::{

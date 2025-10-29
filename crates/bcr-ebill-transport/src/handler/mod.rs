@@ -1,11 +1,12 @@
 use crate::{Result, handler::public_chain_helpers::EventContainer};
 use async_trait::async_trait;
-use bcr_ebill_api::{service::notification_service::event::EventEnvelope, util::BcrKeys};
+use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
     blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
+    protocol::EventEnvelope,
 };
 use log::trace;
 #[cfg(test)]
@@ -60,7 +61,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// the event.
     async fn handle_event(
         &self,
-        event: bcr_ebill_api::service::notification_service::event::EventEnvelope,
+        event: bcr_ebill_core::protocol::EventEnvelope,
         node_id: &NodeId,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()>;
@@ -215,8 +216,8 @@ impl NotificationHandlerApi for LoggingEventHandler {
 mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_api::service::notification_service::event::Event;
     use bcr_ebill_core::notification::BillEventType;
+    use bcr_ebill_core::protocol::Event;
     use borsh::{BorshDeserialize, BorshSerialize};
     use tokio::sync::Mutex;
 

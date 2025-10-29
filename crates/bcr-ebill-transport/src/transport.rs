@@ -1,13 +1,14 @@
 use bcr_ebill_core::{
     blockchain::BlockchainType,
     constants::BCR_NOSTR_CHAIN_PREFIX,
+    protocol::EventEnvelope,
     util::{
         BcrKeys, base58_decode, base58_encode,
         crypto::{decrypt_ecies, encrypt_ecies},
     },
 };
 
-use bcr_ebill_api::service::notification_service::{Error, Result, event::EventEnvelope};
+use bcr_ebill_api::service::notification_service::{Error, Result};
 
 use log::{error, info};
 

@@ -130,13 +130,11 @@ impl RestoreAccountApi for RestoreAccountService {
 #[cfg(test)]
 mod tests {
 
-    use bcr_ebill_api::{
-        Blockchain,
-        service::notification_service::event::{Event, EventEnvelope, IdentityBlockEvent},
-    };
+    use bcr_ebill_api::Blockchain;
     use bcr_ebill_core::{
         blockchain::identity::{IdentityBlockchain, IdentityCreateBlockData},
         identity::Identity,
+        protocol::{Event, EventEnvelope, IdentityBlockEvent},
     };
     use mockall::predicate::{always, eq};
 

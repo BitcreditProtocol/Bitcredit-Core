@@ -1,12 +1,10 @@
 use std::{cmp::Reverse, sync::Arc};
 
-use bcr_ebill_api::service::notification_service::{
-    event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
-    transport::NotificationJsonTransportApi,
-};
+use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     hash::Sha256Hash,
+    protocol::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
     util::{BcrKeys, date::now},
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;

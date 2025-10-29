@@ -2,7 +2,6 @@ use crate::{external, util};
 use bcr_ebill_core::{name::Name, util::crypto};
 
 pub mod chain_keys;
-pub mod event;
 pub mod restore;
 mod service;
 pub mod transport;
@@ -82,6 +81,13 @@ impl From<crypto::Error> for Error {
 impl From<util::Error> for Error {
     fn from(e: util::Error) -> Self {
         Error::Crypto(format!("Failed base58 operation: {e}"))
+    }
+}
+
+// Convert ProtocolError to notification_service Error
+impl From<bcr_ebill_core::protocol::ProtocolError> for Error {
+    fn from(e: bcr_ebill_core::protocol::ProtocolError) -> Self {
+        Error::Message(e.to_string())
     }
 }
 

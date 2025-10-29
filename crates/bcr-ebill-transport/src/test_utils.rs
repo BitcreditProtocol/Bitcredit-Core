@@ -1,7 +1,6 @@
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::notification_service::NostrConfig;
-use bcr_ebill_api::service::notification_service::event::{EventEnvelope, EventType};
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
@@ -16,6 +15,7 @@ use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::name::Name;
+use bcr_ebill_core::protocol::{EventEnvelope, EventType};
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::{
     NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
@@ -42,7 +42,8 @@ use serde::Serialize;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use bcr_ebill_api::service::notification_service::{NostrContactData, Result, event::Event};
+use bcr_ebill_api::service::notification_service::{NostrContactData, Result};
+use bcr_ebill_core::protocol::Event;
 
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 
