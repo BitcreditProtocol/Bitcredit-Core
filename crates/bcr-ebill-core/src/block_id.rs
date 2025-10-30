@@ -1,8 +1,22 @@
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
+#[derive(
+    Copy,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+    PartialOrd,
+    Ord,
+    Hash,
+)]
 #[serde(transparent)]
 pub struct BlockId(u64);
 
@@ -47,19 +61,6 @@ impl BlockId {
     }
 }
 
-impl borsh::BorshSerialize for BlockId {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&self.0, writer)
-    }
-}
-
-impl borsh::BorshDeserialize for BlockId {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let block_id: u64 = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        Ok(BlockId(block_id))
-    }
-}
-
 impl Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -73,14 +74,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     #[derive(
-        Debug,
-        Clone,
-        Eq,
-        PartialEq,
-        borsh_derive::BorshSerialize,
-        borsh_derive::BorshDeserialize,
-        Serialize,
-        Deserialize,
+        Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
     )]
     pub struct TestBlockId {
         pub block_id: BlockId,
@@ -104,6 +98,14 @@ mod tests {
         let borsh_de_test = TestBlockId::try_from_slice(&borsh_test).unwrap();
         assert_eq!(test, borsh_de_test);
         assert_eq!(block_id, borsh_de_test.block_id);
+    }
+
+    #[test]
+    fn borsh_test_ok() {
+        // test that borsh serializes BlockId(u64) just as u64
+        let bytes = 5u64.to_le_bytes().to_vec();
+        let res = BlockId::try_from_slice(&bytes).expect("works");
+        assert_eq!(res, BlockId(5));
     }
 
     #[test]

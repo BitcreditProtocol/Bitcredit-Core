@@ -153,7 +153,7 @@ fn canonicalize_code(code: &str) -> Result<[u8; 3], ValidationError> {
 }
 
 fn validate_decimals(d: u8) -> Result<u8, ValidationError> {
-    // we currently don't support other crypto currencies
+    // we don't support other crypto currencies
     if d > 5 {
         Err(ValidationError::InvalidCurrency)
     } else {
@@ -363,6 +363,7 @@ mod tests {
         assert_eq!(res, c);
         assert_eq!(res.code(), "EUR");
     }
+
     #[test]
     fn borsh_accepts_lowercase_bytes_and_canonicalizes() {
         let mut bytes = Vec::new();
