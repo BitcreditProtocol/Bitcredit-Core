@@ -7,7 +7,9 @@ use crate::{
     nostr::{NostrChainEvent, NostrChainEventStoreApi},
 };
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType, hash::Sha256Hash};
+use bcr_ebill_core::{
+    ServiceTraitBounds, blockchain::BlockchainType, hash::Sha256Hash, timestamp::Timestamp,
+};
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
 
@@ -172,9 +174,9 @@ pub struct NostrChainEventDb {
     /// The hash of the block contained in this event.
     pub block_hash: Sha256Hash,
     /// The timestamp when we received the event.
-    pub received: u64,
+    pub received: Timestamp,
     /// The timestamp of the event.
-    pub time: u64,
+    pub time: Timestamp,
     /// The event as we received it via nostr.
     pub payload: Event,
     /// We consider this event as part of the valid chain
@@ -221,7 +223,7 @@ impl From<NostrChainEventDb> for NostrChainEvent {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::util::{BcrKeys, date::now};
+    use bcr_ebill_core::{timestamp::Timestamp, util::BcrKeys};
     use nostr::event::EventBuilder;
 
     use super::*;
@@ -464,8 +466,8 @@ mod tests {
             chain_type: BlockchainType::Bill,
             block_height,
             block_hash: block_hash.to_owned(),
-            received: now().timestamp() as u64,
-            time: now().timestamp() as u64,
+            received: Timestamp::now(),
+            time: Timestamp::now(),
             payload: get_test_event(),
             valid: true,
         }

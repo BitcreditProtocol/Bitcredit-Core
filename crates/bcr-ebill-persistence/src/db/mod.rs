@@ -5,8 +5,9 @@ use crate::constants::{
 };
 use bcr_ebill_core::{
     File, OptionalPostalAddress, PostalAddress, address::Address, bill::BillId, city::City,
-    country::Country, hash::Sha256Hash, zip::Zip,
+    country::Country, hash::Sha256Hash, name::Name, zip::Zip,
 };
+use nostr::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use surrealdb::{
@@ -87,9 +88,9 @@ pub async fn get_memory_db(namespace: &str, database: &str) -> Result<Surreal<An
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDb {
-    pub name: String,
+    pub name: Name,
     pub hash: Sha256Hash,
-    pub nostr_hash: String,
+    pub nostr_hash: Sha256HexHash,
 }
 
 impl From<FileDb> for File {
@@ -117,7 +118,7 @@ impl From<&File> for FileDb {
         Self {
             name: value.name.clone(),
             hash: value.hash.clone(),
-            nostr_hash: value.nostr_hash.clone(),
+            nostr_hash: value.nostr_hash,
         }
     }
 }

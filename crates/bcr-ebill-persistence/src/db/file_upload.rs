@@ -6,8 +6,9 @@ use super::{
 use crate::constants::{DB_FILE_UPLOAD_ID, DB_TABLE};
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{ServiceTraitBounds, name::Name};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub struct FileUploadStore {
     db: SurrealWrapper,
@@ -29,8 +30,8 @@ impl FileUploadStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDb {
-    pub file_upload_id: String,
-    pub file_name: String,
+    pub file_upload_id: Uuid,
+    pub file_name: Name,
     pub file_bytes: String,
 }
 
@@ -39,15 +40,15 @@ impl ServiceTraitBounds for FileUploadStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileUploadStoreApi for FileUploadStore {
-    async fn create_temp_upload_folder(&self, _file_upload_id: &str) -> Result<()> {
+    async fn create_temp_upload_folder(&self, _file_upload_id: &Uuid) -> Result<()> {
         // NOOP for wasm32
         Ok(())
     }
 
-    async fn remove_temp_upload_folder(&self, file_upload_id: &str) -> Result<()> {
+    async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TEMP_FILES_TABLE)?;
-        bindings.add(DB_FILE_UPLOAD_ID, file_upload_id.to_owned())?;
+        bindings.add(DB_FILE_UPLOAD_ID, file_upload_id.to_string())?;
         let _: Vec<FileDb> = self
             .db
             .query(
@@ -60,8 +61,8 @@ impl FileUploadStoreApi for FileUploadStore {
 
     async fn write_temp_upload_file(
         &self,
-        file_upload_id: &str,
-        file_name: &str,
+        file_upload_id: &Uuid,
+        file_name: &Name,
         file_bytes: &[u8],
     ) -> Result<()> {
         let entity = FileDb {
@@ -73,22 +74,22 @@ impl FileUploadStoreApi for FileUploadStore {
             .db
             .create(
                 Self::TEMP_FILES_TABLE,
-                Some(file_upload_id.to_owned()),
+                Some(file_upload_id.to_string()),
                 entity,
             )
             .await?;
         Ok(())
     }
 
-    async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)> {
+    async fn read_temp_upload_file(&self, file_upload_id: &Uuid) -> Result<(Name, Vec<u8>)> {
         let result: Option<FileDb> = self
             .db
-            .select_one(Self::TEMP_FILES_TABLE, file_upload_id.to_owned())
+            .select_one(Self::TEMP_FILES_TABLE, file_upload_id.to_string())
             .await?;
         match result {
             None => Err(Error::NoSuchEntity(
                 "file".to_string(),
-                file_upload_id.to_owned(),
+                file_upload_id.to_string(),
             )),
             Some(f) => Ok((
                 f.file_name,
@@ -102,22 +103,25 @@ impl FileUploadStoreApi for FileUploadStore {
 
 #[cfg(test)]
 pub mod tests {
+    use bcr_ebill_core::util::get_uuid_v4;
+
     use super::*;
     use crate::db::get_memory_db;
 
     #[tokio::test]
     async fn test_temp_file() {
         let temp_store = get_temp_store().await;
+        let some_id = get_uuid_v4();
         temp_store
-            .write_temp_upload_file("some_id", "file_name.jpg", &[])
+            .write_temp_upload_file(&some_id, &Name::new("file_name.jpg").unwrap(), &[])
             .await
             .unwrap();
         let temp_file = temp_store
-            .read_temp_upload_file("some_id")
+            .read_temp_upload_file(&some_id)
             .await
             .unwrap()
             .clone();
-        assert_eq!(temp_file.0, String::from("file_name.jpg"));
+        assert_eq!(temp_file.0, Name::new("file_name.jpg").unwrap());
     }
 
     async fn get_temp_store() -> FileUploadStore {

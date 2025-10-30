@@ -369,7 +369,7 @@ impl CompanyChainEventProcessor {
                         && payload.operation == BillOpCode::Issue
                     {
                         info!("Adding detected company bill {}", payload.bill_id);
-                        let bill_keys = BcrKeys::from_private_key_string(&bill_key)?;
+                        let bill_keys = BcrKeys::from_private_key(&bill_key)?;
                         let invite = ChainInvite::bill(
                             payload.bill_id.to_string(),
                             BillKeys {
@@ -532,6 +532,7 @@ pub mod tests {
         hash::Sha256Hash,
         identity_proof::IdentityProofStamp,
         name::Name,
+        timestamp::Timestamp,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -1029,7 +1030,7 @@ pub mod tests {
         create_public_chain_event(
             &node_id.to_string(),
             data,
-            1000,
+            Timestamp::new(1000).unwrap(),
             BlockchainType::Company,
             keys.clone(),
             previous,
@@ -1377,7 +1378,7 @@ pub mod tests {
             &company.into(),
             &BcrKeys::new(),
             keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .expect("could not create block")
     }
@@ -1395,7 +1396,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            1731594928,
+            Timestamp::new(1731594928).unwrap(),
         )
         .expect("could not create block")
     }
@@ -1414,7 +1415,7 @@ pub mod tests {
             keys,
             company_keys,
             &data.signatory.pub_key(),
-            1731594928,
+            Timestamp::new(1731594928).unwrap(),
         )
         .expect("could not create block")
     }
@@ -1432,7 +1433,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            1731594928,
+            Timestamp::new(1731594928).unwrap(),
         )
         .expect("could not create block")
     }
@@ -1450,7 +1451,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            1731594928,
+            Timestamp::new(1731594928).unwrap(),
         )
         .expect("could not create block")
     }

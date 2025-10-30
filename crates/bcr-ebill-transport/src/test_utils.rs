@@ -4,6 +4,7 @@ use bcr_ebill_api::service::notification_service::NostrConfig;
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
+use bcr_ebill_core::BitcoinAddress;
 use bcr_ebill_core::address::Address;
 use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
 use bcr_ebill_core::blockchain::bill::BillBlockchain;
@@ -17,6 +18,7 @@ use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::protocol::{EventEnvelope, EventType};
 use bcr_ebill_core::sum::Sum;
+use bcr_ebill_core::timestamp::Timestamp;
 use bcr_ebill_core::{
     NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
     bill::BillId,
@@ -52,6 +54,7 @@ use secp256k1::{PublicKey, SecretKey};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 #[allow(dead_code)]
 pub const NOSTR_KEY1: &str = "nsec1gr9hfpprzn0hs5xymm0h547f6nt9x2270cy9chyzq3leprnzr2csprwlds";
@@ -218,11 +221,11 @@ pub fn get_test_bitcredit_bill(
 pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
     let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
     BillBlockchain::new(
-        &BillIssueBlockData::from(bill, None, 1731593928),
+        &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
         get_baseline_identity().key_pair,
         None,
         BcrKeys::from_private_key(&private_key_test()).unwrap(),
-        1731593928,
+        Timestamp::new(1731593928).unwrap(),
     )
     .unwrap()
 }
@@ -321,6 +324,10 @@ pub fn empty_optional_address() -> OptionalPostalAddress {
     }
 }
 
+pub fn valid_payment_address_testnet() -> BitcoinAddress {
+    BitcoinAddress::from_str("tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0").unwrap()
+}
+
 // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
 pub fn bill_id_test() -> BillId {
     BillId::new(
@@ -392,7 +399,7 @@ mockall::mock! {
             &self,
             id: &str,
             blockchain: bcr_ebill_core::blockchain::BlockchainType,
-            block_time: u64,
+            block_time: Timestamp,
             keys: BcrKeys,
             event: EventEnvelope,
             previous_event: Option<nostr::event::Event>,
@@ -528,7 +535,7 @@ mockall::mock! {
 
     #[async_trait]
     impl NostrEventOffsetStoreApi for NostrEventOffsetStore {
-        async fn current_offset(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<u64>;
+        async fn current_offset(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Timestamp>;
         async fn is_processed(&self, event_id: &str) -> bcr_ebill_persistence::Result<bool>;
         async fn add_event(&self, data: bcr_ebill_persistence::NostrEventOffset) -> bcr_ebill_persistence::Result<()>;
     }
@@ -554,9 +561,9 @@ mockall::mock! {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
         ignore_avatar_file_upload_id: bool,
-        proof_document_file_upload_id: Option<String>,
+        proof_document_file_upload_id: Option<Uuid>,
         ignore_proof_document_file_upload_id: bool,
     ) -> bcr_ebill_api::service::Result<()>;
     async fn add_contact(
@@ -570,8 +577,8 @@ mockall::mock! {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
-        proof_document_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
+        proof_document_file_upload_id: Option<Uuid>,
     ) -> bcr_ebill_api::service::Result<Contact>;
     async fn deanonymize_contact(
         &self,
@@ -584,8 +591,8 @@ mockall::mock! {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
-        proof_document_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
+        proof_document_file_upload_id: Option<Uuid>,
     ) -> bcr_ebill_api::service::Result<Contact>;
     async fn is_known_npub(&self, npub: &bcr_ebill_core::nostr_contact::NostrPublicKey) -> bcr_ebill_api::service::Result<bool>;
     async fn get_nostr_npubs(&self) -> bcr_ebill_api::service::Result<Vec<bcr_ebill_core::nostr_contact::NostrPublicKey>>;
@@ -594,7 +601,7 @@ mockall::mock! {
         &self,
         contact: Contact,
         id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> bcr_ebill_api::service::Result<Vec<u8>>;
     }

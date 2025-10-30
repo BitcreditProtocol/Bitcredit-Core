@@ -13,9 +13,9 @@ pub mod tests {
     use crate::identity::IdentityType;
     use crate::name::Name;
     use crate::sum::Sum;
-    use crate::util::date::now;
+    use crate::timestamp::Timestamp;
     use crate::zip::Zip;
-    use crate::{NodeId, Validate};
+    use crate::{BitcoinAddress, NodeId, Validate};
     use crate::{
         OptionalPostalAddress, PostalAddress,
         bill::{BillKeys, BitcreditBill},
@@ -243,9 +243,13 @@ pub mod tests {
     pub const TEST_NODE_ID_SECP_AS_NPUB_HEX: &str =
         "205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef";
 
-    pub const VALID_PAYMENT_ADDRESS_TESTNET: &str = "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0";
+    pub fn valid_payment_address_testnet() -> BitcoinAddress {
+        BitcoinAddress::from_str("tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0").unwrap()
+    }
 
-    pub const OTHER_VALID_PAYMENT_ADDRESS_TESTNET: &str = "msAPAcTqHqosWu3gaVwATTupxdHSY2wyQn";
+    pub fn other_valid_payment_address_testnet() -> BitcoinAddress {
+        BitcoinAddress::from_str("msAPAcTqHqosWu3gaVwATTupxdHSY2wyQn").unwrap()
+    }
 
     #[derive(
         Debug,
@@ -455,7 +459,7 @@ pub mod tests {
         assert_eq!(parsed, borsh_de_test.bill_id);
     }
 
-    pub fn safe_deadline_ts(min_deadline: u64) -> u64 {
-        now().timestamp() as u64 + 2 * min_deadline
+    pub fn safe_deadline_ts(min_deadline: u64) -> Timestamp {
+        Timestamp::now() + 2 * min_deadline
     }
 }

@@ -3,7 +3,7 @@ use std::{fmt::Display, str::FromStr};
 use chrono::{NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{ValidationError, util::date::DateTimeUtc};
+use crate::{DateTimeUtc, ValidationError, timestamp::Timestamp};
 
 pub const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
 
@@ -26,20 +26,26 @@ impl Date {
         &self.0
     }
 
-    pub fn to_timestamp(&self) -> u64 {
+    pub fn to_timestamp(&self) -> Timestamp {
         let naive_date_time = NaiveDate::parse_from_str(&self.0, DEFAULT_DATE_FORMAT)
             .expect("has the right format")
             .and_hms_opt(0, 0, 0)
             .expect("can set time");
         let date_utc = Utc.from_utc_datetime(&naive_date_time);
 
-        date_utc.timestamp() as u64
+        Timestamp::new(date_utc.timestamp() as u64).expect("checked")
     }
 }
 
 impl From<DateTimeUtc> for Date {
     fn from(value: DateTimeUtc) -> Self {
         Date(value.format(DEFAULT_DATE_FORMAT).to_string())
+    }
+}
+
+impl From<Timestamp> for Date {
+    fn from(value: Timestamp) -> Self {
+        Date(value.to_datetime().format(DEFAULT_DATE_FORMAT).to_string())
     }
 }
 
@@ -158,10 +164,8 @@ mod tests {
     #[test]
     fn test_date_string_to_timestamp_with_default_format() {
         let date_str = "2025-01-15";
-        let expected_timestamp = Utc
-            .with_ymd_and_hms(2025, 1, 15, 0, 0, 0)
-            .unwrap()
-            .timestamp() as u64;
+        let expected_timestamp: Timestamp =
+            Utc.with_ymd_and_hms(2025, 1, 15, 0, 0, 0).unwrap().into();
         assert_eq!(
             Date::new(date_str).unwrap().to_timestamp(),
             expected_timestamp

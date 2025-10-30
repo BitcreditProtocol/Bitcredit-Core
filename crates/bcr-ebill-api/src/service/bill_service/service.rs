@@ -50,12 +50,14 @@ use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::sum::{Currency, Sum};
+use bcr_ebill_core::timestamp::Timestamp;
 use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// The bill service is responsible for all bill-related logic and for syncing them with the
 /// network
@@ -124,7 +126,7 @@ impl BillService {
         bill_keys: &BillKeys,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<()> {
         let calculated_bill = self
             .calculate_full_bill(
@@ -225,7 +227,7 @@ impl BillService {
         }
     }
 
-    async fn check_bill_timeouts(&self, bill_id: &BillId, now: u64) -> Result<()> {
+    async fn check_bill_timeouts(&self, bill_id: &BillId, now: Timestamp) -> Result<()> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
         let contacts = self.contact_store.get_map().await?;
@@ -527,8 +529,8 @@ impl BillService {
                                 .add_offer(
                                     &mint_request.mint_request_id,
                                     &keyset_id.to_string(),
-                                    expiration_date.timestamp() as u64,
-                                    discounted.to_sat(),
+                                    Timestamp::from(expiration_date),
+                                    discounted.into(),
                                 )
                                 .await?;
                         }
@@ -539,7 +541,7 @@ impl BillService {
                             .update_request(
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Denied {
-                                    timestamp: tstamp.timestamp() as u64,
+                                    timestamp: Timestamp::from(tstamp),
                                 },
                             )
                             .await?;
@@ -550,7 +552,7 @@ impl BillService {
                             .update_request(
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Expired {
-                                    timestamp: tstamp.timestamp() as u64,
+                                    timestamp: Timestamp::from(tstamp),
                                 },
                             )
                             .await?;
@@ -561,7 +563,7 @@ impl BillService {
                             .update_request(
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Cancelled {
-                                    timestamp: tstamp.timestamp() as u64,
+                                    timestamp: Timestamp::from(tstamp),
                                 },
                             )
                             .await?;
@@ -572,7 +574,7 @@ impl BillService {
                             .update_request(
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Rejected {
-                                    timestamp: tstamp.timestamp() as u64,
+                                    timestamp: Timestamp::from(tstamp),
                                 },
                             )
                             .await?;
@@ -598,7 +600,7 @@ impl BillService {
 
     async fn get_req_to_mint_for_node_id(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<MintRequest> {
         match self.mint_store.get_request(mint_request_id).await {
@@ -623,7 +625,7 @@ impl BillService {
 
     async fn reject_mint_offers_except_accepted_one_for_bill(
         &self,
-        accepted_mint_request_id: &str,
+        accepted_mint_request_id: &Uuid,
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
@@ -633,7 +635,7 @@ impl BillService {
             .await?;
         for req in requests {
             // don't reject the accepted one and only reject offered ones
-            if req.mint_request_id != accepted_mint_request_id
+            if &req.mint_request_id != accepted_mint_request_id
                 && matches!(req.status, MintRequestStatus::Offered)
                 && let Err(e) = self
                     .mint_client
@@ -708,7 +710,10 @@ impl BillService {
                     UploadFileType::Document,
                 )
                 .await?;
-            result.push(file_storage::to_url(relay_url, &uploaded_file.nostr_hash)?);
+            result.push(file_storage::to_url(
+                relay_url,
+                &uploaded_file.nostr_hash.to_string(),
+            )?);
         }
         Ok(result)
     }
@@ -777,8 +782,8 @@ impl BillServiceApi for BillService {
         &self,
         _currency: &Currency,
         search_term: &Option<String>,
-        date_range_from: Option<u64>,
-        date_range_to: Option<u64>,
+        date_range_from: Option<Timestamp>,
+        date_range_to: Option<Timestamp>,
         role: &BillsFilterRole,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<LightBitcreditBillResult>> {
@@ -852,7 +857,7 @@ impl BillServiceApi for BillService {
         validate_node_id_network(current_identity_node_id)?;
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
-        let current_timestamp = util::date::now().timestamp() as u64;
+        let current_timestamp = Timestamp::now();
 
         // fetch contacts to get current contact data for participants
         let contacts = self.contact_store.get_map().await?;
@@ -956,7 +961,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult> {
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(current_identity_node_id)?;
@@ -1032,7 +1037,7 @@ impl BillServiceApi for BillService {
         bill_action: BillAction,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<BillBlockchain> {
         debug!(
             "Executing bill action {:?} for bill {bill_id}",
@@ -1226,7 +1231,7 @@ impl BillServiceApi for BillService {
         Ok(())
     }
 
-    async fn check_bills_timeouts(&self, now: u64) -> Result<()> {
+    async fn check_bills_timeouts(&self, now: Timestamp) -> Result<()> {
         let op_codes = HashSet::from([
             BillOpCode::RequestToPay,
             BillOpCode::OfferToSell,
@@ -1236,7 +1241,7 @@ impl BillServiceApi for BillService {
 
         let bill_ids_to_check = self
             .store
-            .get_bill_ids_with_op_codes_since(op_codes, 0)
+            .get_bill_ids_with_op_codes_since(op_codes, Timestamp::zero())
             .await?;
 
         for bill_id in bill_ids_to_check {
@@ -1284,7 +1289,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Vec<PastPaymentResult>> {
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(&caller_public_data.node_id())?;
@@ -1451,7 +1456,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<Vec<Endorsement>> {
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(current_identity_node_id)?;
@@ -1478,7 +1483,7 @@ impl BillServiceApi for BillService {
         mint_node_id: &NodeId,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(&signer_public_data.node_id())?;
@@ -1653,7 +1658,7 @@ impl BillServiceApi for BillService {
 
     async fn cancel_request_to_mint(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to cancel request to mint {mint_request_id}");
@@ -1673,7 +1678,7 @@ impl BillServiceApi for BillService {
                 .update_request(
                     mint_request_id,
                     &MintRequestStatus::Cancelled {
-                        timestamp: util::date::now().timestamp() as u64,
+                        timestamp: Timestamp::now(),
                     },
                 )
                 .await?;
@@ -1727,10 +1732,10 @@ impl BillServiceApi for BillService {
 
     async fn accept_mint_offer(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         let identity = self.identity_store.get().await?;
         debug!("trying to accept offer from request to mint {mint_request_id}");
@@ -1760,7 +1765,7 @@ impl BillServiceApi for BillService {
                     .await;
                 self.execute_bill_action(
                     &req.bill_id,
-                    BillAction::Mint(mint_anon_participant, Sum::new_sat(offer.discounted_sum)?),
+                    BillAction::Mint(mint_anon_participant, offer.discounted_sum),
                     signer_public_data,
                     signer_keys,
                     timestamp,
@@ -1797,7 +1802,7 @@ impl BillServiceApi for BillService {
 
     async fn reject_mint_offer(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to reject offer from request to mint {mint_request_id}");
@@ -1818,7 +1823,7 @@ impl BillServiceApi for BillService {
                 .update_request(
                     mint_request_id,
                     &MintRequestStatus::Rejected {
-                        timestamp: util::date::now().timestamp() as u64,
+                        timestamp: Timestamp::now(),
                     },
                 )
                 .await?;
@@ -1940,7 +1945,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BillHistory> {
         let detail = self
             .get_detail(

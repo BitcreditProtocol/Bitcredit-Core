@@ -5,7 +5,8 @@ use secp256k1::{SECP256K1, SecretKey};
 use url::Url;
 
 use crate::{
-    NodeId, ValidationError, block_id::BlockId, hash::Sha256Hash, signature::SchnorrSignature, util,
+    NodeId, ValidationError, block_id::BlockId, hash::Sha256Hash, signature::SchnorrSignature,
+    timestamp::Timestamp, util,
 };
 
 #[derive(Debug, Clone)]
@@ -41,9 +42,9 @@ pub struct IdentityProof {
     pub node_id: NodeId,
     pub stamp: IdentityProofStamp,
     pub url: Url,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub status: IdentityProofStatus,
-    pub status_last_checked_timestamp: u64,
+    pub status_last_checked_timestamp: Timestamp,
     pub block_id: BlockId,
 }
 

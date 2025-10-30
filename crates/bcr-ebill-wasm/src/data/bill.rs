@@ -1,7 +1,7 @@
 use bcr_ebill_api::{
     BillOpCode,
     data::{
-        NodeId,
+        BitcoinAddress, NodeId,
         bill::{
             BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
             BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillId,
@@ -22,6 +22,7 @@ use bcr_ebill_api::{
         date::Date,
         email::Email,
         name::Name,
+        timestamp::Timestamp,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -192,7 +193,8 @@ impl From<BillsFilterRoleWeb> for BillsFilterRole {
 pub struct PastEndorseeWeb {
     pub pay_to_the_order_of: LightBillIdentParticipantWeb,
     pub signed: LightSignedByWeb,
-    pub signing_timestamp: u64,
+    #[tsify(type = "number")]
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddressWeb>,
 }
 
@@ -228,7 +230,8 @@ impl From<LightSignedBy> for LightSignedByWeb {
 pub struct EndorsementWeb {
     pub pay_to_the_order_of: LightBillParticipantWeb,
     pub signed: LightSignedByWeb,
-    pub signing_timestamp: u64,
+    #[tsify(type = "number")]
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddressWeb>,
 }
 
@@ -294,7 +297,8 @@ pub struct BillHistoryBlockWeb {
     pub block_type: BillOpCodeWeb,
     pub pay_to_the_order_of: Option<LightBillParticipantWeb>,
     pub signed: LightSignedByWeb,
-    pub signing_timestamp: u64,
+    #[tsify(type = "number")]
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddressWeb>,
 }
 
@@ -364,9 +368,9 @@ pub enum PastPaymentStatusWeb {
 impl From<PastPaymentStatus> for PastPaymentStatusWeb {
     fn from(val: PastPaymentStatus) -> Self {
         match val {
-            PastPaymentStatus::Paid(ts) => PastPaymentStatusWeb::Paid(ts),
-            PastPaymentStatus::Rejected(ts) => PastPaymentStatusWeb::Rejected(ts),
-            PastPaymentStatus::Expired(ts) => PastPaymentStatusWeb::Expired(ts),
+            PastPaymentStatus::Paid(ts) => PastPaymentStatusWeb::Paid(ts.inner()),
+            PastPaymentStatus::Rejected(ts) => PastPaymentStatusWeb::Rejected(ts.inner()),
+            PastPaymentStatus::Expired(ts) => PastPaymentStatusWeb::Expired(ts.inner()),
         }
     }
 }
@@ -374,13 +378,15 @@ impl From<PastPaymentStatus> for PastPaymentStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataSellWeb {
-    pub time_of_request: u64,
+    #[tsify(type = "number")]
+    pub time_of_request: Timestamp,
     pub buyer: BillParticipantWeb,
     pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    #[tsify(type = "string")]
+    pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
@@ -406,13 +412,15 @@ impl From<PastPaymentDataSell> for PastPaymentDataSellWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataPaymentWeb {
-    pub time_of_request: u64,
+    #[tsify(type = "number")]
+    pub time_of_request: Timestamp,
     pub payer: BillIdentParticipantWeb,
     pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    #[tsify(type = "string")]
+    pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
@@ -437,13 +445,15 @@ impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct PastPaymentDataRecourseWeb {
-    pub time_of_request: u64,
+    #[tsify(type = "number")]
+    pub time_of_request: Timestamp,
     pub recourser: BillParticipantWeb,
     pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    #[tsify(type = "string")]
+    pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatusWeb,
@@ -516,16 +526,19 @@ impl From<BillCurrentWaitingState> for BillCurrentWaitingStateWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingStatePaymentDataWeb {
-    pub time_of_request: u64,
+    #[tsify(type = "number")]
+    pub time_of_request: Timestamp,
     pub currency: String,
     pub sum: String,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    #[tsify(type = "string")]
+    pub address_to_pay: BitcoinAddress,
     pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
-    pub payment_deadline: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub payment_deadline: Option<Timestamp>,
 }
 
 impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
@@ -608,7 +621,8 @@ pub struct BillStatusWeb {
     pub mint: BillMintStatusWeb,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
-    pub last_block_time: u64,
+    #[tsify(type = "number")]
+    pub last_block_time: Timestamp,
 }
 
 impl From<BillStatus> for BillStatusWeb {
@@ -629,12 +643,14 @@ impl From<BillStatus> for BillStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillAcceptanceStatusWeb {
-    pub time_of_request_to_accept: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub time_of_request_to_accept: Option<Timestamp>,
     pub requested_to_accept: bool,
     pub accepted: bool,
     pub request_to_accept_timed_out: bool,
     pub rejected_to_accept: bool,
-    pub acceptance_deadline_timestamp: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub acceptance_deadline_timestamp: Option<Timestamp>,
 }
 
 impl From<BillAcceptanceStatus> for BillAcceptanceStatusWeb {
@@ -653,12 +669,14 @@ impl From<BillAcceptanceStatus> for BillAcceptanceStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillPaymentStatusWeb {
-    pub time_of_request_to_pay: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub time_of_request_to_pay: Option<Timestamp>,
     pub requested_to_pay: bool,
     pub paid: bool,
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
-    pub payment_deadline_timestamp: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub payment_deadline_timestamp: Option<Timestamp>,
 }
 impl From<BillPaymentStatus> for BillPaymentStatusWeb {
     fn from(val: BillPaymentStatus) -> Self {
@@ -676,12 +694,14 @@ impl From<BillPaymentStatus> for BillPaymentStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillSellStatusWeb {
-    pub time_of_last_offer_to_sell: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub time_of_last_offer_to_sell: Option<Timestamp>,
     pub sold: bool,
     pub offered_to_sell: bool,
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
-    pub buying_deadline_timestamp: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub buying_deadline_timestamp: Option<Timestamp>,
 }
 impl From<BillSellStatus> for BillSellStatusWeb {
     fn from(val: BillSellStatus) -> Self {
@@ -699,12 +719,14 @@ impl From<BillSellStatus> for BillSellStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillRecourseStatusWeb {
-    pub time_of_last_request_to_recourse: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub time_of_last_request_to_recourse: Option<Timestamp>,
     pub recoursed: bool,
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
-    pub recourse_deadline_timestamp: Option<u64>,
+    #[tsify(type = "number | undefined")]
+    pub recourse_deadline_timestamp: Option<Timestamp>,
 }
 
 impl From<BillRecourseStatus> for BillRecourseStatusWeb {
@@ -737,10 +759,12 @@ impl From<BillMintStatus> for BillMintStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillDataWeb {
-    pub time_of_drawing: u64,
+    #[tsify(type = "number")]
+    pub time_of_drawing: Timestamp,
     #[tsify(type = "string")]
     pub issue_date: Date,
-    pub time_of_maturity: u64,
+    #[tsify(type = "number")]
+    pub time_of_maturity: Timestamp,
     #[tsify(type = "string")]
     pub maturity_date: Date,
     #[tsify(type = "string")]
@@ -875,9 +899,12 @@ pub struct LightBitcreditBillWeb {
     pub currency: String,
     #[tsify(type = "string")]
     pub issue_date: Date,
-    pub time_of_drawing: u64,
-    pub time_of_maturity: u64,
-    pub last_block_time: u64,
+    #[tsify(type = "number")]
+    pub time_of_drawing: Timestamp,
+    #[tsify(type = "number")]
+    pub time_of_maturity: Timestamp,
+    #[tsify(type = "number")]
+    pub last_block_time: Timestamp,
 }
 
 impl From<LightBitcreditBillResult> for LightBitcreditBillWeb {

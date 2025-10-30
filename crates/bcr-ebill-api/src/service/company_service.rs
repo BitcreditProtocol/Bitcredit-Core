@@ -39,6 +39,7 @@ use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::name::Name;
+use bcr_ebill_core::timestamp::Timestamp;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
 use bcr_ebill_core::{
@@ -48,6 +49,7 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -76,9 +78,9 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         email: Email,
         registration_number: Option<Identification>,
         registration_date: Option<Date>,
-        proof_of_registration_file_upload_id: Option<String>,
-        logo_file_upload_id: Option<String>,
-        timestamp: u64,
+        proof_of_registration_file_upload_id: Option<Uuid>,
+        logo_file_upload_id: Option<Uuid>,
+        timestamp: Timestamp,
     ) -> Result<Company>;
 
     /// Changes the given company fields for the given company, if they are set
@@ -92,11 +94,11 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         city_of_registration: Option<City>,
         registration_number: Option<Identification>,
         registration_date: Option<Date>,
-        logo_file_upload_id: Option<String>,
+        logo_file_upload_id: Option<Uuid>,
         ignore_logo_file_upload_id: bool,
-        proof_of_registration_file_upload_id: Option<String>,
+        proof_of_registration_file_upload_id: Option<Uuid>,
         ignore_proof_of_registration_file_upload_id: bool,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()>;
 
     /// Adds another signatory to the given company
@@ -104,7 +106,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         &self,
         id: &NodeId,
         signatory_node_id: NodeId,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()>;
 
     /// Removes a signatory from the given company
@@ -112,7 +114,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         &self,
         id: &NodeId,
         signatory_node_id: NodeId,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()>;
 
     /// opens and decrypts the attached file from the given company
@@ -120,7 +122,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         &self,
         company: Company,
         id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
 
@@ -178,7 +180,7 @@ impl CompanyService {
 
     async fn process_upload_file(
         &self,
-        upload_id: &Option<String>,
+        upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
         relay_url: &url::Url,
@@ -207,7 +209,7 @@ impl CompanyService {
 
     async fn encrypt_and_upload_file(
         &self,
-        file_name: &str,
+        file_name: &Name,
         file_bytes: &[u8],
         id: &NodeId,
         public_key: &PublicKey,
@@ -220,7 +222,7 @@ impl CompanyService {
         Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
-            nostr_hash: nostr_hash.to_string(),
+            nostr_hash,
         })
     }
 
@@ -375,9 +377,9 @@ impl CompanyServiceApi for CompanyService {
         email: Email,
         registration_number: Option<Identification>,
         registration_date: Option<Date>,
-        proof_of_registration_file_upload_id: Option<String>,
-        logo_file_upload_id: Option<String>,
-        timestamp: u64,
+        proof_of_registration_file_upload_id: Option<Uuid>,
+        logo_file_upload_id: Option<Uuid>,
+        timestamp: Timestamp,
     ) -> Result<Company> {
         debug!("creating company");
         let keys = BcrKeys::new();
@@ -458,7 +460,7 @@ impl CompanyServiceApi for CompanyService {
             &previous_block,
             &IdentityCreateCompanyBlockData {
                 company_id: id.clone(),
-                company_key: company_keys.get_private_key_string(),
+                company_key: company_keys.private_key,
                 block_hash: create_company_block.hash.clone(),
             },
             &full_identity.key_pair,
@@ -522,11 +524,11 @@ impl CompanyServiceApi for CompanyService {
         city_of_registration: Option<City>,
         registration_number: Option<Identification>,
         registration_date: Option<Date>,
-        logo_file_upload_id: Option<String>,
+        logo_file_upload_id: Option<Uuid>,
         ignore_logo_file_upload_id: bool,
-        proof_of_registration_file_upload_id: Option<String>,
+        proof_of_registration_file_upload_id: Option<Uuid>,
         ignore_proof_of_registration_file_upload_id: bool,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         debug!("editing company with id: {id}");
         validate_node_id_network(id)?;
@@ -717,7 +719,7 @@ impl CompanyServiceApi for CompanyService {
         &self,
         id: &NodeId,
         signatory_node_id: NodeId,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         debug!(
             "adding signatory {} to company with id: {id}",
@@ -819,7 +821,7 @@ impl CompanyServiceApi for CompanyService {
         &self,
         id: &NodeId,
         signatory_node_id: NodeId,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         debug!(
             "removing signatory {} from company with id: {id}",
@@ -923,7 +925,7 @@ impl CompanyServiceApi for CompanyService {
         &self,
         company: Company,
         id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for company with id: {id}",);
@@ -933,13 +935,13 @@ impl CompanyServiceApi for CompanyService {
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
             if let Some(logo_file) = company.logo_file
-                && logo_file.name == file_name
+                && &logo_file.name == file_name
             {
                 file = Some(logo_file);
             }
 
             if let Some(proof_of_registration_file) = company.proof_of_registration_file
-                && proof_of_registration_file.name == file_name
+                && &proof_of_registration_file.name == file_name
             {
                 file = Some(proof_of_registration_file);
             }
@@ -1029,9 +1031,11 @@ pub mod tests {
             MockNostrContactStore, empty_address, empty_identity, empty_optional_address,
             node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
         },
+        util::get_uuid_v4,
     };
     use bcr_ebill_core::country::Country;
     use mockall::predicate::eq;
+    use nostr::hashes::sha256::Hash as Sha256HexHash;
     use std::{collections::HashMap, str::FromStr};
     use util::BcrKeys;
 
@@ -1123,7 +1127,7 @@ pub mod tests {
             &CompanyCreateBlockData::from(company),
             &BcrKeys::new(),
             &company_keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }
@@ -1332,7 +1336,12 @@ pub mod tests {
         });
         file_upload_store
             .expect_read_temp_upload_file()
-            .returning(|_| Ok(("some_file".to_string(), "hello_world".as_bytes().to_vec())));
+            .returning(|_| {
+                Ok((
+                    Name::new("some_file").unwrap(),
+                    "hello_world".as_bytes().to_vec(),
+                ))
+            });
         file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
@@ -1340,12 +1349,14 @@ pub mod tests {
             .expect_get_latest_block()
             .returning(|| {
                 let identity = empty_identity();
-                Ok(
-                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                        .unwrap()
-                        .get_latest_block()
-                        .clone(),
+                Ok(IdentityBlockchain::new(
+                    &identity.into(),
+                    &BcrKeys::new(),
+                    Timestamp::new(1731593928).unwrap(),
                 )
+                .unwrap()
+                .get_latest_block()
+                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -1396,9 +1407,9 @@ pub mod tests {
                 Email::new("company@example.com").unwrap(),
                 Some(Identification::new("some_number").unwrap()),
                 Some(Date::new("2012-01-01").unwrap()),
-                Some("some_file_id".to_string()),
-                Some("some_other_file_id".to_string()),
-                1731593928,
+                Some(get_uuid_v4()),
+                Some(get_uuid_v4()),
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1410,11 +1421,11 @@ pub mod tests {
                 .as_ref()
                 .unwrap()
                 .name,
-            "some_file".to_string()
+            Name::new("some_file").unwrap()
         );
         assert_eq!(
             res.as_ref().unwrap().logo_file.as_ref().unwrap().name,
-            "some_file".to_string()
+            Name::new("some_file").unwrap()
         );
     }
 
@@ -1466,7 +1477,7 @@ pub mod tests {
                 Some(Date::new("2012-01-01").unwrap()),
                 None,
                 None,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -1535,7 +1546,12 @@ pub mod tests {
         });
         file_upload_store
             .expect_read_temp_upload_file()
-            .returning(|_| Ok(("some_file".to_string(), "hello_world".as_bytes().to_vec())));
+            .returning(|_| {
+                Ok((
+                    Name::new("some_file").unwrap(),
+                    "hello_world".as_bytes().to_vec(),
+                ))
+            });
         file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
@@ -1560,11 +1576,11 @@ pub mod tests {
                 None,
                 None,
                 None,
-                Some("some_file_id".to_string()),
+                Some(get_uuid_v4()),
                 false,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1609,7 +1625,7 @@ pub mod tests {
                 true,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -1666,7 +1682,7 @@ pub mod tests {
                 true,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -1735,7 +1751,7 @@ pub mod tests {
                 true,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -1799,12 +1815,14 @@ pub mod tests {
             .expect_get_latest_block()
             .returning(|| {
                 let identity = empty_identity();
-                Ok(
-                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                        .unwrap()
-                        .get_latest_block()
-                        .clone(),
+                Ok(IdentityBlockchain::new(
+                    &identity.into(),
+                    &BcrKeys::new(),
+                    Timestamp::new(1731593928).unwrap(),
                 )
+                .unwrap()
+                .get_latest_block()
+                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -1826,7 +1844,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .add_signatory(&node_id_test(), signatory_node_id, 1731593928)
+            .add_signatory(
+                &node_id_test(),
+                signatory_node_id,
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_ok());
     }
@@ -1874,7 +1896,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .add_signatory(&node_id_test(), signatory_node_id, 1731593928)
+            .add_signatory(
+                &node_id_test(),
+                signatory_node_id,
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -1915,7 +1941,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .add_signatory(&node_id_test(), node_id_test_other(), 1731593928)
+            .add_signatory(
+                &node_id_test(),
+                node_id_test_other(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -1953,7 +1983,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .add_signatory(&node_id_test(), node_id_test_other(), 1731593928)
+            .add_signatory(
+                &node_id_test(),
+                node_id_test_other(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2005,7 +2039,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .add_signatory(&node_id_test(), node_id_test(), 1731593928)
+            .add_signatory(
+                &node_id_test(),
+                node_id_test(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2060,7 +2098,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .add_signatory(&node_id_test(), node_id_test(), 1731593928)
+            .add_signatory(
+                &node_id_test(),
+                node_id_test(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2106,12 +2148,14 @@ pub mod tests {
             .expect_get_latest_block()
             .returning(|| {
                 let identity = empty_identity();
-                Ok(
-                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                        .unwrap()
-                        .get_latest_block()
-                        .clone(),
+                Ok(IdentityBlockchain::new(
+                    &identity.into(),
+                    &BcrKeys::new(),
+                    Timestamp::new(1731593928).unwrap(),
                 )
+                .unwrap()
+                .get_latest_block()
+                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -2142,7 +2186,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test_other(), 1731593928)
+            .remove_signatory(
+                &node_id_test(),
+                node_id_test_other(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_ok());
     }
@@ -2180,7 +2228,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test_other(), 1731593928)
+            .remove_signatory(
+                &node_id_test(),
+                node_id_test_other(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2248,12 +2300,14 @@ pub mod tests {
             .expect_get_latest_block()
             .returning(move || {
                 let identity = empty_identity();
-                Ok(
-                    IdentityBlockchain::new(&identity.into(), &keys_clone2, 1731593928)
-                        .unwrap()
-                        .get_latest_block()
-                        .clone(),
+                Ok(IdentityBlockchain::new(
+                    &identity.into(),
+                    &keys_clone2,
+                    Timestamp::new(1731593928).unwrap(),
                 )
+                .unwrap()
+                .get_latest_block()
+                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -2278,7 +2332,7 @@ pub mod tests {
             .remove_signatory(
                 &node_id_test(),
                 NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2326,7 +2380,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test_other2(), 1731593928)
+            .remove_signatory(
+                &node_id_test(),
+                node_id_test_other2(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2371,7 +2429,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test(), 1731593928)
+            .remove_signatory(
+                &node_id_test(),
+                node_id_test(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2423,7 +2485,11 @@ pub mod tests {
             notification,
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test(), 1731593928)
+            .remove_signatory(
+                &node_id_test(),
+                node_id_test(),
+                Timestamp::new(1731593928).unwrap(),
+            )
             .await;
         assert!(res.is_err());
     }
@@ -2431,7 +2497,7 @@ pub mod tests {
     #[tokio::test]
     async fn save_encrypt_open_decrypt_compare_hashes() {
         let company_id = node_id_test();
-        let file_name = "file_00000000-0000-0000-0000-000000000000.pdf";
+        let file_name = Name::new("file_00000000-0000-0000-0000-000000000000.pdf").unwrap();
         let file_bytes = String::from("hello world").as_bytes().to_vec();
 
         let expected_encrypted =
@@ -2477,7 +2543,7 @@ pub mod tests {
 
         let file = service
             .encrypt_and_upload_file(
-                file_name,
+                &file_name,
                 &file_bytes,
                 &company_id,
                 &node_id_test().pub_key(),
@@ -2490,17 +2556,20 @@ pub mod tests {
             Sha256Hash::from_str("DULfJyE3WQqNxy3ymuhAChyNR3yufT88pmqvAazKFMG4")
                 .expect("valid hash")
         );
-        assert_eq!(file.name, String::from(file_name));
+        assert_eq!(file.name, file_name);
 
         let mut company = get_baseline_company_data().1.0;
         company.proof_of_registration_file = Some(File {
             name: file_name.to_owned(),
             hash: file.hash.clone(),
-            nostr_hash: "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa".into(),
+            nostr_hash: Sha256HexHash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap(),
         });
 
         let decrypted = service
-            .open_and_decrypt_file(company, &company_id, file_name, &private_key_test())
+            .open_and_decrypt_file(company, &company_id, &file_name, &private_key_test())
             .await
             .unwrap();
         assert_eq!(std::str::from_utf8(&decrypted).unwrap(), "hello world");
@@ -2539,7 +2608,7 @@ pub mod tests {
         assert!(
             service
                 .encrypt_and_upload_file(
-                    "file_name",
+                    &Name::new("file_name").unwrap(),
                     &[],
                     &node_id_test(),
                     &node_id_test().pub_key(),
@@ -2585,7 +2654,7 @@ pub mod tests {
                 .open_and_decrypt_file(
                     get_baseline_company_data().1.0,
                     &node_id_test(),
-                    "test",
+                    &Name::new("test").unwrap(),
                     &private_key_test()
                 )
                 .await
@@ -2699,7 +2768,7 @@ pub mod tests {
                     true,
                     None,
                     true,
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await
                 .is_err()
@@ -2709,14 +2778,18 @@ pub mod tests {
                 .add_signatory(
                     &mainnet_node_id.clone(),
                     mainnet_node_id.clone(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await
                 .is_err()
         );
         assert!(
             service
-                .remove_signatory(&mainnet_node_id.clone(), mainnet_node_id, 1731593928)
+                .remove_signatory(
+                    &mainnet_node_id.clone(),
+                    mainnet_node_id,
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .await
                 .is_err()
         );

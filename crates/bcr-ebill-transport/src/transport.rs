@@ -2,6 +2,7 @@ use bcr_ebill_core::{
     blockchain::BlockchainType,
     constants::BCR_NOSTR_CHAIN_PREFIX,
     protocol::EventEnvelope,
+    timestamp::Timestamp,
     util::{
         BcrKeys, base58_decode, base58_encode,
         crypto::{decrypt_ecies, encrypt_ecies},
@@ -19,7 +20,6 @@ use nostr::{
     key::PublicKey,
     nips::{nip10::Marker, nip59::UnwrappedGift, nip73::ExternalContentId},
     signer::NostrSigner,
-    types::Timestamp,
 };
 
 // A bit abitrary. This is to protect our client from beeing overwhelmed by spam. The downside is
@@ -29,7 +29,7 @@ const CHAIN_EVENT_LIMIT: usize = 10000;
 pub async fn unwrap_direct_message<T: NostrSigner>(
     event: Box<Event>,
     signer: &T,
-) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+) -> Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> {
     match event.kind {
         Kind::EncryptedDirectMessage => unwrap_nip04_envelope(event, signer).await,
         Kind::GiftWrap => unwrap_nip17_envelope(event, signer).await,
@@ -47,8 +47,8 @@ pub async fn unwrap_direct_message<T: NostrSigner>(
 async fn unwrap_nip04_envelope<T: NostrSigner>(
     event: Box<Event>,
     signer: &T,
-) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
-    let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
+) -> Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> {
+    let mut result: Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> = None;
     if event.kind == Kind::EncryptedDirectMessage {
         match signer.nip04_decrypt(&event.pubkey, &event.content).await {
             Ok(decrypted) => {
@@ -72,8 +72,8 @@ async fn unwrap_nip04_envelope<T: NostrSigner>(
 async fn unwrap_nip17_envelope<T: NostrSigner>(
     event: Box<Event>,
     signer: &T,
-) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
-    let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
+) -> Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> {
+    let mut result: Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> = None;
     if event.kind == Kind::GiftWrap {
         result = match UnwrappedGift::from_gift_wrap(signer, &event).await {
             Ok(UnwrappedGift { rumor, sender }) => {
@@ -202,7 +202,7 @@ pub async fn create_nip04_event<T: NostrSigner>(
 pub fn create_public_chain_event(
     id: &str,
     event: EventEnvelope,
-    block_time: u64,
+    block_time: Timestamp,
     blockchain: BlockchainType,
     keys: BcrKeys,
     previous_event: Option<Event>,
@@ -214,7 +214,7 @@ pub fn create_public_chain_event(
             .tag(bcr_nostr_tag(id, blockchain)),
         None => EventBuilder::text_note(payload).tag(bcr_nostr_tag(id, blockchain)),
     };
-    let event = event.custom_created_at(nostr::Timestamp::from(block_time));
+    let event = event.custom_created_at(block_time.into());
     Ok(event)
 }
 

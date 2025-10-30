@@ -5,6 +5,7 @@ use bcr_ebill_core::{
     blockchain::BlockchainType,
     hash::Sha256Hash,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+    timestamp::Timestamp,
 };
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ pub trait NostrEventOffsetStoreApi: ServiceTraitBounds {
     /// older than the current offset just because they were not processed
     /// or the faked timestamp on the GiftWrap event was higher than the
     /// current offset.
-    async fn current_offset(&self, node_id: &NodeId) -> Result<u64>;
+    async fn current_offset(&self, node_id: &NodeId) -> Result<Timestamp>;
 
     /// Returns whether the given event id has been processed already. This
     /// will return true if we never tried to process the event independent
@@ -40,7 +41,7 @@ pub struct NostrEventOffset {
     pub event_id: String,
     /// The timestamp of the inner GiftWrap event. The highest timestamp
     /// of all events will be used when we restart the relay subscription.
-    pub time: u64,
+    pub time: Timestamp,
     /// Whether the event has been processed successfully on our side
     pub success: bool,
     /// The node id for which this event was processed
@@ -156,9 +157,9 @@ pub struct NostrChainEvent {
     /// The hash of the block contained in this event.
     pub block_hash: Sha256Hash,
     /// The timestamp when we received the event.
-    pub received: u64,
+    pub received: Timestamp,
     /// The timestamp of the event.
-    pub time: u64,
+    pub time: Timestamp,
     /// The event as we received it via nostr.
     pub payload: Event,
     /// We consider this event as part of the valid chain

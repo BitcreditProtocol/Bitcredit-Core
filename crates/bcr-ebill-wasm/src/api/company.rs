@@ -12,9 +12,9 @@ use bcr_ebill_api::{
     util::{
         ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
-        validate_file_upload_id,
     },
 };
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -34,7 +34,7 @@ use crate::{
     error::WasmError,
 };
 
-async fn get_file(id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
+async fn get_file(id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
     let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
     let company = get_ctx()
         .company_service
@@ -70,10 +70,11 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BinaryFileResponse>")]
     pub async fn file(&self, id: &str, file_name: &str) -> JsValue {
         let res: Result<BinaryFileResponse> = async {
-            let (file_bytes, content_type) = get_file(id, file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_file(id, &name).await?;
             Ok(BinaryFileResponse {
                 data: file_bytes,
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -84,11 +85,12 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "TSResult<Base64FileResponse>")]
     pub async fn file_base64(&self, id: &str, file_name: &str) -> JsValue {
         let res: Result<Base64FileResponse> = async {
-            let (file_bytes, content_type) = get_file(id, file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_file(id, &name).await?;
 
             Ok(Base64FileResponse {
                 data: STANDARD.encode(&file_bytes),
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -178,13 +180,6 @@ impl Company {
             let company_payload: CreateCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
-            validate_file_upload_id(company_payload.logo_file_upload_id.as_deref())?;
-            validate_file_upload_id(
-                company_payload
-                    .proof_of_registration_file_upload_id
-                    .as_deref(),
-            )?;
-
             let created_company = get_ctx()
                 .company_service
                 .create_company(
@@ -210,8 +205,18 @@ impl Company {
                         .registration_date
                         .map(|d| Date::new(&d))
                         .transpose()?,
-                    company_payload.proof_of_registration_file_upload_id,
-                    company_payload.logo_file_upload_id,
+                    company_payload
+                        .proof_of_registration_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
+                    company_payload
+                        .logo_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     timestamp,
                 )
                 .await?;
@@ -234,12 +239,6 @@ impl Company {
                 has_field(&payload, "proof_of_registration_file_upload_id");
 
             let company_payload: EditCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
-            validate_file_upload_id(company_payload.logo_file_upload_id.as_deref())?;
-            validate_file_upload_id(
-                company_payload
-                    .proof_of_registration_file_upload_id
-                    .as_deref(),
-            )?;
 
             if company_payload.name.is_none()
                 && company_payload.email.is_none()
@@ -275,9 +274,19 @@ impl Company {
                         .registration_date
                         .map(|d| Date::new(&d))
                         .transpose()?,
-                    company_payload.logo_file_upload_id,
+                    company_payload
+                        .logo_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     !has_logo_file_upload_id,
-                    company_payload.proof_of_registration_file_upload_id,
+                    company_payload
+                        .proof_of_registration_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     !has_proof_of_registration_file_upload_id,
                     timestamp,
                 )

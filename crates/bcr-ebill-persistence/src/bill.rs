@@ -7,6 +7,7 @@ use bcr_ebill_core::{
     bill::{BillId, BillKeys, BitcreditBillResult, PaymentState},
     block_id::BlockId,
     blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
+    timestamp::Timestamp,
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -86,7 +87,7 @@ pub trait BillStoreApi: ServiceTraitBounds {
     async fn get_bill_ids_with_op_codes_since(
         &self,
         op_code: HashSet<BillOpCode>,
-        since: u64,
+        since: Timestamp,
     ) -> Result<Vec<BillId>>;
 }
 

@@ -21,6 +21,7 @@ use bcr_ebill_core::{
     contact::{BillParticipant, ContactType},
     identity::IdentityWithAll,
     protocol::{CompanyChainEvent, IdentityChainEvent},
+    timestamp::Timestamp,
     util::BcrKeys,
 };
 
@@ -38,7 +39,7 @@ impl BillService {
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
         identity: &IdentityWithAll,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         let bill_id = bill.id.clone();
         let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity)?;
@@ -450,7 +451,7 @@ impl BillService {
         block: &BillBlock,
         identity: &IdentityWithAll,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
         bill_keys: Option<BillKeys>,
     ) -> Result<()> {
         match signer_public_data {
@@ -504,7 +505,7 @@ impl BillService {
         bill_id: &BillId,
         block: &BillBlock,
         identity: &IdentityWithAll,
-        timestamp: u64,
+        timestamp: Timestamp,
         bill_keys: Option<BillKeys>,
     ) -> Result<()> {
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
@@ -515,7 +516,7 @@ impl BillService {
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
                 operation: block.op_code.clone(),
-                bill_key: bill_keys.map(|k| k.private_key.display_secret().to_string()),
+                bill_key: bill_keys.map(|k| k.private_key),
             },
             &identity.key_pair,
             timestamp,
@@ -537,7 +538,7 @@ impl BillService {
         bill_id: &BillId,
         block: &BillBlock,
         identity: &IdentityWithAll,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_sign_company_bill(
@@ -570,7 +571,7 @@ impl BillService {
         block: &BillBlock,
         signatory_identity: &IdentityWithAll,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
         bill_keys: Option<BillKeys>,
     ) -> Result<()> {
         let previous_block = self
@@ -585,7 +586,7 @@ impl BillService {
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
                 operation: block.op_code.clone(),
-                bill_key: bill_keys.map(|k| k.private_key.display_secret().to_string()),
+                bill_key: bill_keys.map(|k| k.private_key),
             },
             &signatory_identity.key_pair,
             company_keys,

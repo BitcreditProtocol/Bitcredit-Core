@@ -16,6 +16,7 @@ use bcr_ebill_core::{
     },
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     hash::Sha256Hash,
+    name::Name,
     protocol::BillChainEvent,
     util::BcrKeys,
 };
@@ -24,7 +25,7 @@ use log::{debug, error, info};
 impl BillService {
     pub(super) async fn encrypt_and_save_uploaded_file(
         &self,
-        file_name: &str,
+        file_name: &Name,
         file_bytes: &[u8],
         bill_id: &BillId,
         public_key: &PublicKey,
@@ -44,7 +45,7 @@ impl BillService {
         Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
-            nostr_hash: nostr_hash.to_string(),
+            nostr_hash,
         })
     }
 

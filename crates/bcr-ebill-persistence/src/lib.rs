@@ -99,6 +99,9 @@ pub enum Error {
     #[error("parse bytes to string error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
 
+    #[error("uuid error: {0}")]
+    Uuid(#[from] uuid::Error),
+
     #[error("No seed phrase available")]
     NoSeedPhrase,
 
@@ -108,6 +111,10 @@ pub enum Error {
     /// errors that stem from validation in core
     #[error("Validation Error: {0}")]
     Validation(#[from] bcr_ebill_core::ValidationError),
+
+    /// Errors stemming base58 decoding
+    #[error("Decode base58 error: {0}")]
+    Base58(#[from] util::Error),
 }
 
 impl From<surrealdb::Error> for Error {

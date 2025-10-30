@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::ServiceTraitBounds;
 use nostr::hashes::{
     Hash,
-    sha256::{self, Hash as Sha256Hash},
+    sha256::{self, Hash as Sha256HexHash},
 };
 use reqwest::Url;
 use serde::Deserialize;
@@ -38,9 +38,9 @@ use mockall::automock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait FileStorageClientApi: ServiceTraitBounds {
     /// Upload the given bytes, checking and returning the nostr_hash
-    async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256Hash>;
+    async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256HexHash>;
     /// Download the bytes with the given nostr_hash and compare if the hash matches the file
-    async fn download(&self, relay_url: &url::Url, nostr_hash: &str) -> Result<Vec<u8>>;
+    async fn download(&self, relay_url: &url::Url, nostr_hash: &Sha256HexHash) -> Result<Vec<u8>>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,7 +81,7 @@ pub fn to_url(relay_url: &url::Url, to_join: &str) -> Result<Url> {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileStorageClientApi for FileStorageClient {
-    async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256Hash> {
+    async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256HexHash> {
         // Calculate hash to compare with the hash we get back
         let mut hash_engine = sha256::HashEngine::default();
         if hash_engine.write_all(&bytes).is_err() {
@@ -108,11 +108,11 @@ impl FileStorageClientApi for FileStorageClient {
         Ok(nostr_hash)
     }
 
-    async fn download(&self, relay_url: &url::Url, nostr_hash: &str) -> Result<Vec<u8>> {
+    async fn download(&self, relay_url: &url::Url, nostr_hash: &Sha256HexHash) -> Result<Vec<u8>> {
         // Make download request
         let resp: Vec<u8> = self
             .cl
-            .get(to_url(relay_url, nostr_hash)?)
+            .get(to_url(relay_url, &nostr_hash.to_string())?)
             .send()
             .await?
             .bytes()
@@ -127,7 +127,7 @@ impl FileStorageClientApi for FileStorageClient {
 
         // Check hash
         let hash = sha256::Hash::from_engine(hash_engine);
-        if hash.to_string() != nostr_hash {
+        if &hash != nostr_hash {
             return Err(Error::InvalidHash.into());
         }
 
@@ -137,5 +137,5 @@ impl FileStorageClientApi for FileStorageClient {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlobDescriptorReply {
-    sha256: Sha256Hash,
+    sha256: Sha256HexHash,
 }

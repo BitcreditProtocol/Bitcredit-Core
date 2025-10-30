@@ -3,6 +3,7 @@ use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     block_id::BlockId,
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
+    timestamp::Timestamp,
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -106,7 +107,7 @@ impl IdentityProofStoreApi for SurrealIdentityProofStore {
         &self,
         id: &str,
         status: &IdentityProofStatus,
-        status_last_checked_timestamp: u64,
+        status_last_checked_timestamp: Timestamp,
     ) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::IDENTITY_PROOF_TABLE)?;
@@ -116,7 +117,7 @@ impl IdentityProofStoreApi for SurrealIdentityProofStore {
         bindings.add(DB_STATUS, db_status)?;
         bindings.add(
             DB_STATUS_LAST_CHECKED_TIMESTAMP,
-            status_last_checked_timestamp,
+            status_last_checked_timestamp.inner(),
         )?;
 
         self.db
@@ -130,11 +131,11 @@ impl IdentityProofStoreApi for SurrealIdentityProofStore {
 
     async fn get_with_status_last_checked_timestamp_before(
         &self,
-        before_timestamp: u64,
+        before_timestamp: Timestamp,
     ) -> Result<Vec<IdentityProof>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::IDENTITY_PROOF_TABLE)?;
-        bindings.add(DB_STATUS_LAST_CHECKED_TIMESTAMP, before_timestamp)?;
+        bindings.add(DB_STATUS_LAST_CHECKED_TIMESTAMP, before_timestamp.inner())?;
 
         let result: Vec<IdentityProofDb> = self
             .db
@@ -154,9 +155,9 @@ pub struct IdentityProofDb {
     pub node_id: NodeId,
     pub stamp: IdentityProofStamp,
     pub url: Url,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub status: IdentityProofStatusDb,
-    pub status_last_checked_timestamp: u64,
+    pub status_last_checked_timestamp: Timestamp,
     pub block_id: BlockId,
     pub archived: bool,
 }
@@ -245,9 +246,9 @@ mod tests {
             stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test())
                 .expect("valid stamp"),
             url: Url::parse("https://bit.cr/").expect("valid url"),
-            timestamp: 1731593928,
+            timestamp: Timestamp::new(1731593928).unwrap(),
             status: IdentityProofStatus::Success,
-            status_last_checked_timestamp: 1731593929,
+            status_last_checked_timestamp: Timestamp::new(1731593929).unwrap(),
             block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
         };
 
@@ -266,7 +267,11 @@ mod tests {
 
         // update status
         store
-            .update_status_by_id(&id, &IdentityProofStatus::NotFound, 1731593930)
+            .update_status_by_id(
+                &id,
+                &IdentityProofStatus::NotFound,
+                Timestamp::new(1731593930).unwrap(),
+            )
             .await
             .expect("updating works");
         let gotten_edited = store.get_by_id(&id).await.expect("can execute get");
@@ -280,7 +285,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .status_last_checked_timestamp,
-            1731593930
+            Timestamp::new(1731593930).unwrap()
         );
 
         // get list

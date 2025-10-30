@@ -20,6 +20,8 @@ use bcr_ebill_core::{
     },
     hash::Sha256Hash,
     signature::SchnorrSignature,
+    timestamp::Timestamp,
+    util::{base58_decode, base58_encode},
 };
 use serde::{Deserialize, Serialize};
 
@@ -88,7 +90,7 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
 
         match result.first() {
             None => Err(Error::NoCompanyBlock),
-            Some(block) => Ok(block.to_owned().into()),
+            Some(block) => block.to_owned().try_into(),
         }
     }
 
@@ -180,8 +182,8 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
                 e
             })?;
 
-        let blocks: Vec<CompanyBlock> = result.into_iter().map(|b| b.into()).collect();
-        let chain = CompanyBlockchain::new_from_blocks(blocks)?;
+        let blocks: Result<Vec<CompanyBlock>> = result.into_iter().map(|b| b.try_into()).collect();
+        let chain = CompanyBlockchain::new_from_blocks(blocks?)?;
 
         Ok(chain)
     }
@@ -195,28 +197,30 @@ pub struct CompanyBlockDb {
     pub hash: Sha256Hash,
     pub previous_hash: Sha256Hash,
     pub signature: SchnorrSignature,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub public_key: PublicKey,
     pub signatory_node_id: NodeId,
     pub data: String,
     pub op_code: CompanyOpCode,
 }
 
-impl From<CompanyBlockDb> for CompanyBlock {
-    fn from(value: CompanyBlockDb) -> Self {
-        Self {
+impl TryFrom<CompanyBlockDb> for CompanyBlock {
+    type Error = Error;
+
+    fn try_from(value: CompanyBlockDb) -> Result<Self> {
+        Ok(Self {
             company_id: value.company_id,
             id: value.block_id,
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: value.data,
+            data: base58_decode(&value.data)?,
             public_key: value.public_key,
             signatory_node_id: value.signatory_node_id,
             previous_hash: value.previous_hash,
             signature: value.signature,
             op_code: value.op_code,
-        }
+        })
     }
 }
 
@@ -232,7 +236,7 @@ impl From<&CompanyBlock> for CompanyBlockDb {
             timestamp: value.timestamp,
             public_key: value.public_key,
             signatory_node_id: value.signatory_node_id.clone(),
-            data: value.data.clone(),
+            data: base58_encode(&value.data.clone()),
             op_code: value.op_code.clone(),
         }
     }
@@ -297,7 +301,7 @@ mod tests {
             .into(),
             &BcrKeys::new(),
             &get_company_keys(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         store.add_block(&node_id_test(), &block).await.unwrap();
@@ -321,7 +325,7 @@ mod tests {
             },
             &BcrKeys::new(),
             &get_company_keys(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         store.add_block(&node_id_test(), &block2).await.unwrap();
@@ -353,7 +357,7 @@ mod tests {
             .into(),
             &BcrKeys::new(),
             &get_company_keys(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         store.add_block(&node_id_test(), &block).await.unwrap();

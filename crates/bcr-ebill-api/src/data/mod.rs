@@ -17,8 +17,10 @@ pub use bcr_ebill_core::nostr_contact;
 pub use bcr_ebill_core::notification;
 pub use bcr_ebill_core::signature;
 pub use bcr_ebill_core::sum;
+pub use bcr_ebill_core::timestamp;
 pub use bcr_ebill_core::zip;
 
+pub use bcr_ebill_core::BitcoinAddress;
 pub use bcr_ebill_core::File;
 pub use bcr_ebill_core::GeneralSearchFilterItemType;
 pub use bcr_ebill_core::GeneralSearchResult;

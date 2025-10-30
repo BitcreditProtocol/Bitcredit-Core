@@ -20,14 +20,15 @@ use bcr_ebill_api::data::identification::Identification;
 use bcr_ebill_api::data::name::Name;
 use bcr_ebill_api::data::{NodeId, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_api::service;
+use bcr_ebill_api::util::ValidationError;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
-use bcr_ebill_api::util::{ValidationError, validate_file_upload_id};
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct Contact;
 
-async fn get_file(node_id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
+async fn get_file(node_id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
     let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
     let contact = get_ctx()
         .contact_service
@@ -61,10 +62,11 @@ impl Contact {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BinaryFileResponse>")]
     pub async fn file(&self, node_id: &str, file_name: &str) -> JsValue {
         let res: Result<BinaryFileResponse> = async {
-            let (file_bytes, content_type) = get_file(node_id, file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_file(node_id, &name).await?;
             Ok(BinaryFileResponse {
                 data: file_bytes,
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -75,11 +77,12 @@ impl Contact {
     #[wasm_bindgen(unchecked_return_type = "TSResult<Base64FileResponse>")]
     pub async fn file_base64(&self, node_id: &str, file_name: &str) -> JsValue {
         let res: Result<Base64FileResponse> = async {
-            let (file_bytes, content_type) = get_file(node_id, file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_file(node_id, &name).await?;
 
             Ok(Base64FileResponse {
                 data: STANDARD.encode(&file_bytes),
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -210,8 +213,18 @@ impl Contact {
                         .identification_number
                         .map(Identification::new)
                         .transpose()?,
-                    contact_payload.avatar_file_upload_id,
-                    contact_payload.proof_document_file_upload_id,
+                    contact_payload
+                        .avatar_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
+                    contact_payload
+                        .proof_document_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                 )
                 .await?;
             Ok(contact.into())
@@ -256,8 +269,18 @@ impl Contact {
                         .identification_number
                         .map(Identification::new)
                         .transpose()?,
-                    contact_payload.avatar_file_upload_id,
-                    contact_payload.proof_document_file_upload_id,
+                    contact_payload
+                        .avatar_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
+                    contact_payload
+                        .proof_document_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                 )
                 .await?;
             Ok(contact.into())
@@ -278,8 +301,6 @@ impl Contact {
                 has_field(&payload, "proof_document_file_upload_id");
 
             let contact_payload: EditContactPayload = serde_wasm_bindgen::from_value(payload)?;
-            validate_file_upload_id(contact_payload.avatar_file_upload_id.as_deref())?;
-            validate_file_upload_id(contact_payload.proof_document_file_upload_id.as_deref())?;
             get_ctx()
                 .contact_service
                 .update_contact(
@@ -306,9 +327,19 @@ impl Contact {
                         .identification_number
                         .map(Identification::new)
                         .transpose()?,
-                    contact_payload.avatar_file_upload_id,
+                    contact_payload
+                        .avatar_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     !has_avatar_file_upload_id,
-                    contact_payload.proof_document_file_upload_id,
+                    contact_payload
+                        .proof_document_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     !has_proof_document_file_upload_id,
                 )
                 .await?;

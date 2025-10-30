@@ -6,9 +6,11 @@ use crate::data::UploadFileResult;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::{persistence, util};
 use async_trait::async_trait;
+use bcr_ebill_core::name::Name;
 use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
 use log::{debug, error};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -23,7 +25,7 @@ pub trait FileUploadServiceApi: ServiceTraitBounds {
     ) -> Result<UploadFileResult>;
 
     /// returns a temp upload file
-    async fn get_temp_file(&self, file_upload_id: &str) -> Result<Option<(String, Vec<u8>)>>;
+    async fn get_temp_file(&self, file_upload_id: &Uuid) -> Result<Option<(Name, Vec<u8>)>>;
 }
 
 #[derive(Clone)]
@@ -89,18 +91,18 @@ impl FileUploadServiceApi for FileUploadService {
         file: &dyn util::file::UploadFileHandler,
     ) -> Result<UploadFileResult> {
         // create a new random id
-        let file_upload_id = util::get_uuid_v4().to_string();
+        let file_upload_id = util::get_uuid_v4();
         // create a folder to store the files
         self.file_upload_store
             .create_temp_upload_folder(&file_upload_id)
             .await?;
         // sanitize and randomize file name and write file into the temporary folder
-        let file_name = util::file::generate_unique_filename(
+        let file_name = Name::new(util::file::generate_unique_filename(
             &util::file::sanitize_filename(&file.name().ok_or(Error::Validation(
                 ValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS),
             ))?),
             file.extension(),
-        );
+        ))?;
         let read_file = file.get_contents().await.map_err(persistence::Error::Io)?;
         self.file_upload_store
             .write_temp_upload_file(&file_upload_id, &file_name, &read_file)
@@ -108,7 +110,7 @@ impl FileUploadServiceApi for FileUploadService {
         Ok(UploadFileResult { file_upload_id })
     }
 
-    async fn get_temp_file(&self, file_upload_id: &str) -> Result<Option<(String, Vec<u8>)>> {
+    async fn get_temp_file(&self, file_upload_id: &Uuid) -> Result<Option<(Name, Vec<u8>)>> {
         debug!("getting temp file for file_upload_id: {file_upload_id}",);
         let file = self
             .file_upload_store
@@ -123,7 +125,7 @@ impl FileUploadServiceApi for FileUploadService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::tests::MockFileUploadStoreApiMock;
+    use crate::{tests::tests::MockFileUploadStoreApiMock, util::get_uuid_v4};
     use std::sync::Arc;
     use util::file::MockUploadFileHandler;
 
@@ -152,10 +154,7 @@ mod tests {
 
         let res = service.upload_file(&file).await;
         assert!(res.is_ok());
-        assert_eq!(
-            res.unwrap().file_upload_id,
-            "00000000-0000-0000-0000-000000000000".to_owned()
-        );
+        assert_eq!(res.unwrap().file_upload_id, get_uuid_v4(),);
     }
 
     #[tokio::test]
@@ -365,16 +364,22 @@ mod tests {
     #[tokio::test]
     async fn get_temp_file_baseline() {
         let mut storage = MockFileUploadStoreApiMock::new();
-        storage
-            .expect_read_temp_upload_file()
-            .returning(|_| Ok(("some_file".to_string(), "hello_world".as_bytes().to_vec())));
+        storage.expect_read_temp_upload_file().returning(|_| {
+            Ok((
+                Name::new("some_file").unwrap(),
+                "hello_world".as_bytes().to_vec(),
+            ))
+        });
         let service = get_service(storage);
 
-        let res = service.get_temp_file("1234").await;
+        let res = service.get_temp_file(&get_uuid_v4()).await;
         assert!(res.is_ok());
         assert_eq!(
             res.unwrap(),
-            Some(("some_file".to_string(), "hello_world".as_bytes().to_vec()))
+            Some((
+                Name::new("some_file").unwrap(),
+                "hello_world".as_bytes().to_vec()
+            ))
         );
     }
 
@@ -386,7 +391,7 @@ mod tests {
             .returning(|_| Err(persistence::Error::Io(std::io::Error::other("test error"))));
         let service = get_service(storage);
 
-        let res = service.get_temp_file("1234").await;
+        let res = service.get_temp_file(&get_uuid_v4()).await;
         assert!(res.is_err());
     }
 }

@@ -11,7 +11,7 @@ use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::protocol::BillBlockEvent;
 use bcr_ebill_core::protocol::Event;
 use bcr_ebill_core::protocol::EventEnvelope;
-use bcr_ebill_core::util::date::now;
+use bcr_ebill_core::timestamp::Timestamp;
 use bcr_ebill_persistence::NostrChainEventStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use bcr_ebill_persistence::nostr::NostrChainEvent;
@@ -112,8 +112,8 @@ impl BillChainEventHandler {
                 chain_type: BlockchainType::Bill,
                 block_height,
                 block_hash: block_hash.to_owned(),
-                received: now().timestamp() as u64,
-                time: event.created_at.as_u64(),
+                received: Timestamp::now(),
+                time: event.created_at.into(),
                 payload: *event.clone(),
                 valid,
             })
@@ -334,11 +334,11 @@ mod tests {
     fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
         BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             get_baseline_identity().key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }

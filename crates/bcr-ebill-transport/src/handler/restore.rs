@@ -12,7 +12,7 @@ use bcr_ebill_core::{
     blockchain::{BlockchainType, identity::IdentityBlock},
 };
 use log::{error, info};
-use nostr::{filter::Filter, types::Timestamp};
+use nostr::filter::Filter;
 
 use crate::handler::DirectMessageEventProcessorApi;
 
@@ -60,7 +60,7 @@ impl RestoreAccountService {
     async fn process_private_events(&self) -> Result<()> {
         let events = self
             .nostr
-            .resolve_private_events(Filter::new().since(Timestamp::zero()))
+            .resolve_private_events(Filter::new().since(nostr::types::Timestamp::zero()))
             .await?;
         info!("found private {} dms for primary account", events.len());
         for event in events {
@@ -135,6 +135,7 @@ mod tests {
         blockchain::identity::{IdentityBlockchain, IdentityCreateBlockData},
         identity::Identity,
         protocol::{Event, EventEnvelope, IdentityBlockEvent},
+        timestamp::Timestamp,
     };
     use mockall::predicate::{always, eq};
 
@@ -271,7 +272,7 @@ mod tests {
         create_public_chain_event(
             &node_id_test().to_string(),
             generate_test_block(height),
-            1000,
+            Timestamp::new(1000).unwrap(),
             BlockchainType::Identity,
             keys.clone(),
             previous,
@@ -301,7 +302,7 @@ mod tests {
         IdentityBlockchain::new(
             &IdentityCreateBlockData::from(identity.to_owned()),
             keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }

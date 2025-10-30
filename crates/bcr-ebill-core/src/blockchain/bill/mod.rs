@@ -10,7 +10,7 @@ use block::{BillIdentParticipantBlockData, BillRecourseReasonBlockData};
 pub use chain::BillBlockchain;
 
 use crate::{
-    PublicKey, SecretKey,
+    BitcoinAddress, PublicKey, SecretKey,
     bill::{BillId, BillKeys},
     block_id::BlockId,
     blockchain::{Result, bill::block::BillParticipantBlockData},
@@ -18,6 +18,7 @@ use crate::{
     hash::Sha256Hash,
     signature::SchnorrSignature,
     sum::Sum,
+    timestamp::Timestamp,
     util::{self, BcrKeys},
 };
 
@@ -58,9 +59,9 @@ pub struct SellPaymentInfo {
     pub buyer: BillParticipant,  // buyer can be anone
     pub seller: BillParticipant, // seller can be anone
     pub sum: Sum,
-    pub payment_address: String,
+    pub payment_address: BitcoinAddress,
     pub block_id: BlockId,
-    pub buying_deadline_timestamp: u64,
+    pub buying_deadline_timestamp: Timestamp,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,7 +71,7 @@ pub struct RecoursePaymentInfo {
     pub sum: Sum,
     pub reason: BillRecourseReasonBlockData,
     pub block_id: BlockId,
-    pub recourse_deadline_timestamp: u64,
+    pub recourse_deadline_timestamp: Timestamp,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
@@ -185,11 +186,11 @@ pub mod tests {
         let identity = get_baseline_identity();
 
         let result = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
 
         assert!(result.is_ok());
@@ -209,11 +210,11 @@ pub mod tests {
         let drawee_node_id = bill.drawee.node_id.clone();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let last_block = chain.get_latest_block();

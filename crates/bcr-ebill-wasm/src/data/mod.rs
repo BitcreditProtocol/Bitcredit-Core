@@ -4,18 +4,20 @@ use bcr_ebill_api::{
     data::{
         File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
         PostalAddress, UploadFileResult, address::Address, city::City, country::Country,
-        date::Date, hash::Sha256Hash, zip::Zip,
+        date::Date, hash::Sha256Hash, name::Name, timestamp::Timestamp, zip::Zip,
     },
     util::{
-        self, ValidationError,
+        ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
     },
 };
 use bill::LightBitcreditBillWeb;
 use company::CompanyWeb;
 use contact::ContactWeb;
+use nostr_sdk::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 pub mod bill;
@@ -276,10 +278,12 @@ impl From<NotificationFilters> for NotificationFilter {
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct FileWeb {
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     #[tsify(type = "string")]
     pub hash: Sha256Hash,
-    pub nostr_hash: String,
+    #[tsify(type = "string")]
+    pub nostr_hash: Sha256HexHash,
 }
 
 impl From<FileWeb> for File {
@@ -306,7 +310,8 @@ impl From<File> for FileWeb {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct BinaryFileResponse {
     pub data: Vec<u8>,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     pub content_type: String,
 }
 
@@ -314,7 +319,8 @@ pub struct BinaryFileResponse {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Base64FileResponse {
     pub data: String,
-    pub name: String,
+    #[tsify(type = "string")]
+    pub name: Name,
     pub content_type: String,
 }
 
@@ -351,7 +357,8 @@ impl UploadFileHandler for UploadFile {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct UploadFileResponse {
-    pub file_upload_id: String,
+    #[tsify(type = "string")]
+    pub file_upload_id: Uuid,
 }
 
 impl From<UploadFileResult> for UploadFileResponse {
@@ -367,8 +374,7 @@ pub fn has_field(js_value: &JsValue, field: &str) -> bool {
 }
 
 /// Parses the given date of format YYYY-mm-dd to a UTC end-of-day timestamp
-pub fn parse_deadline_string(deadline_date: &str) -> Result<u64, ValidationError> {
-    let ts = util::date::end_of_day_as_timestamp(Date::new(deadline_date)?.to_timestamp());
-    util::date::validate_timestamp(ts)?;
+pub fn parse_deadline_string(deadline_date: &str) -> Result<Timestamp, ValidationError> {
+    let ts = Date::new(deadline_date)?.to_timestamp().end_of_day();
     Ok(ts)
 }

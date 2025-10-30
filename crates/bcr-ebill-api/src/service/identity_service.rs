@@ -27,11 +27,13 @@ use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::name::Name;
+use bcr_ebill_core::timestamp::Timestamp;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError, protocol::IdentityChainEvent};
 use log::{debug, error, info};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -46,11 +48,11 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         country_of_birth: Option<Country>,
         city_of_birth: Option<City>,
         identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<String>,
+        profile_picture_file_upload_id: Option<Uuid>,
         ignore_profile_picture_file_upload_id: bool,
-        identity_document_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<Uuid>,
         ignore_identity_document_file_upload_id: bool,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
     async fn get_full_identity(&self) -> Result<IdentityWithAll>;
@@ -69,9 +71,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         country_of_birth: Option<Country>,
         city_of_birth: Option<City>,
         identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<String>,
-        identity_document_file_upload_id: Option<String>,
-        timestamp: u64,
+        profile_picture_file_upload_id: Option<Uuid>,
+        identity_document_file_upload_id: Option<Uuid>,
+        timestamp: Timestamp,
     ) -> Result<()>;
     /// Deanonymizes an anon identity
     async fn deanonymize_identity(
@@ -84,9 +86,9 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         country_of_birth: Option<Country>,
         city_of_birth: Option<City>,
         identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<String>,
-        identity_document_file_upload_id: Option<String>,
-        timestamp: u64,
+        profile_picture_file_upload_id: Option<Uuid>,
+        identity_document_file_upload_id: Option<Uuid>,
+        timestamp: Timestamp,
     ) -> Result<()>;
     async fn get_seedphrase(&self) -> Result<String>;
     /// Recovers the private keys in the identity from a seed phrase
@@ -97,7 +99,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         &self,
         identity: Identity,
         id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
 
@@ -152,7 +154,7 @@ impl IdentityService {
 
     async fn process_upload_file(
         &self,
-        upload_id: &Option<String>,
+        upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
         relay_url: &url::Url,
@@ -181,7 +183,7 @@ impl IdentityService {
 
     async fn encrypt_and_save_uploaded_file(
         &self,
-        file_name: &str,
+        file_name: &Name,
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
@@ -194,7 +196,7 @@ impl IdentityService {
         Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
-            nostr_hash: nostr_hash.to_string(),
+            nostr_hash,
         })
     }
 
@@ -250,11 +252,11 @@ impl IdentityServiceApi for IdentityService {
         country_of_birth: Option<Country>,
         city_of_birth: Option<City>,
         identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<String>,
+        profile_picture_file_upload_id: Option<Uuid>,
         ignore_profile_picture_file_upload_id: bool,
-        identity_document_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<Uuid>,
         ignore_identity_document_file_upload_id: bool,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         debug!("updating identity");
         let mut identity = self.store.get().await?;
@@ -267,12 +269,7 @@ impl IdentityServiceApi for IdentityService {
 
         let keys = self.store.get_key_pair().await?;
 
-        validate_update_identity(
-            identity.t.clone(),
-            &postal_address,
-            &profile_picture_file_upload_id,
-            &identity_document_file_upload_id,
-        )?;
+        validate_update_identity(identity.t.clone(), &postal_address)?;
 
         if let Some(ref name_to_set) = name
             && &identity.name != name_to_set
@@ -433,20 +430,14 @@ impl IdentityServiceApi for IdentityService {
         country_of_birth: Option<Country>,
         city_of_birth: Option<City>,
         identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<String>,
-        identity_document_file_upload_id: Option<String>,
-        timestamp: u64,
+        profile_picture_file_upload_id: Option<Uuid>,
+        identity_document_file_upload_id: Option<Uuid>,
+        timestamp: Timestamp,
     ) -> Result<()> {
         debug!("creating identity");
         let keys = self.store.get_or_create_key_pair().await?;
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
-        validate_create_identity(
-            t.clone(),
-            &email,
-            &postal_address,
-            &profile_picture_file_upload_id,
-            &identity_document_file_upload_id,
-        )?;
+        validate_create_identity(t.clone(), &email, &postal_address)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
 
         let identity = match t {
@@ -533,9 +524,9 @@ impl IdentityServiceApi for IdentityService {
         country_of_birth: Option<Country>,
         city_of_birth: Option<City>,
         identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<String>,
-        identity_document_file_upload_id: Option<String>,
-        timestamp: u64,
+        profile_picture_file_upload_id: Option<Uuid>,
+        identity_document_file_upload_id: Option<Uuid>,
+        timestamp: Timestamp,
     ) -> Result<()> {
         debug!("deanonymizing identity");
         let existing_identity = self.store.get().await?;
@@ -556,13 +547,7 @@ impl IdentityServiceApi for IdentityService {
             ));
         }
 
-        validate_create_identity(
-            t.clone(),
-            &email,
-            &postal_address,
-            &profile_picture_file_upload_id,
-            &identity_document_file_upload_id,
-        )?;
+        validate_create_identity(t.clone(), &email, &postal_address)?;
 
         // TODO(multi-relay): don't default to first
         let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
@@ -647,7 +632,7 @@ impl IdentityServiceApi for IdentityService {
         &self,
         identity: Identity,
         id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         validate_node_id_network(id)?;
@@ -658,13 +643,13 @@ impl IdentityServiceApi for IdentityService {
             let mut file = None;
 
             if let Some(profile_picture_file) = identity.profile_picture_file
-                && profile_picture_file.name == file_name
+                && &profile_picture_file.name == file_name
             {
                 file = Some(profile_picture_file);
             }
 
             if let Some(identity_document_file) = identity.identity_document_file
-                && identity_document_file.name == file_name
+                && &identity_document_file.name == file_name
             {
                 file = Some(identity_document_file);
             }
@@ -841,7 +826,7 @@ mod tests {
                 None,
                 None,
                 None,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -886,7 +871,7 @@ mod tests {
                 None,
                 None,
                 None,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -914,12 +899,14 @@ mod tests {
         chain_storage.expect_add_block().returning(|_| Ok(()));
         chain_storage.expect_get_latest_block().returning(|| {
             let identity = empty_identity();
-            Ok(
-                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                    .unwrap()
-                    .get_latest_block()
-                    .clone(),
+            Ok(IdentityBlockchain::new(
+                &identity.into(),
+                &BcrKeys::new(),
+                Timestamp::new(1731593928).unwrap(),
             )
+            .unwrap()
+            .get_latest_block()
+            .clone())
         });
         let mut notification = MockNotificationServiceApi::new();
         notification
@@ -945,7 +932,7 @@ mod tests {
                 None,
                 None,
                 None,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -987,7 +974,7 @@ mod tests {
                 None,
                 None,
                 None,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -1032,7 +1019,7 @@ mod tests {
                 None,
                 None,
                 None,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -1058,12 +1045,14 @@ mod tests {
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_get_latest_block().returning(|| {
             let identity = empty_identity();
-            Ok(
-                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                    .unwrap()
-                    .get_latest_block()
-                    .clone(),
+            Ok(IdentityBlockchain::new(
+                &identity.into(),
+                &BcrKeys::new(),
+                Timestamp::new(1731593928).unwrap(),
             )
+            .unwrap()
+            .get_latest_block()
+            .clone())
         });
         chain_storage.expect_add_block().returning(|_| Ok(()));
         let mut notification = MockNotificationServiceApi::new();
@@ -1091,7 +1080,7 @@ mod tests {
                 true,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -1125,7 +1114,7 @@ mod tests {
                 true,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 
@@ -1150,12 +1139,14 @@ mod tests {
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_get_latest_block().returning(|| {
             let identity = empty_identity();
-            Ok(
-                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                    .unwrap()
-                    .get_latest_block()
-                    .clone(),
+            Ok(IdentityBlockchain::new(
+                &identity.into(),
+                &BcrKeys::new(),
+                Timestamp::new(1731593928).unwrap(),
             )
+            .unwrap()
+            .get_latest_block()
+            .clone())
         });
         chain_storage
             .expect_add_block()
@@ -1178,7 +1169,7 @@ mod tests {
                 true,
                 None,
                 true,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
 

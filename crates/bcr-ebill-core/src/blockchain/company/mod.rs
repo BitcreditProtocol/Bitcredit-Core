@@ -4,7 +4,7 @@ use super::{Block, Blockchain};
 use crate::NodeId;
 use crate::bill::BillId;
 use crate::block_id::BlockId;
-use crate::blockchain::{Error, borsh_to_json_string};
+use crate::blockchain::{Error, borsh_to_json_value};
 use crate::city::City;
 use crate::country::Country;
 use crate::date::Date;
@@ -14,6 +14,7 @@ use crate::identification::Identification;
 use crate::identity_proof::IdentityProofStamp;
 use crate::name::Name;
 use crate::signature::SchnorrSignature;
+use crate::timestamp::Timestamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{
     File, OptionalPostalAddress, PostalAddress,
@@ -22,7 +23,7 @@ use crate::{
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -41,9 +42,13 @@ pub struct CompanyBlockDataToHash {
     id: BlockId,
     plaintext_hash: Sha256Hash,
     previous_hash: Sha256Hash,
-    data: String,
-    timestamp: u64,
-    public_key: String,
+    data: Vec<u8>,
+    timestamp: Timestamp,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
+    public_key: PublicKey,
     signatory_node_id: NodeId,
     op_code: CompanyOpCode,
 }
@@ -60,7 +65,8 @@ pub enum SignatoryType {
 ///   pub key (e.g. for CreateCompany the creator's and AddSignatory the signatory's)
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct CompanyBlockData {
-    data: String,
+    data: Vec<u8>,
+    // The encrypted, base58 encoded SecretKey
     key: Option<String>,
 }
 
@@ -70,8 +76,8 @@ pub struct CompanyBlock {
     pub id: BlockId,
     pub plaintext_hash: Sha256Hash,
     pub hash: Sha256Hash,
-    pub timestamp: u64,
-    pub data: String,
+    pub timestamp: Timestamp,
+    pub data: Vec<u8>,
     #[borsh(
         serialize_with = "crate::util::borsh::serialize_pubkey",
         deserialize_with = "crate::util::borsh::deserialize_pubkey"
@@ -92,29 +98,38 @@ pub struct CompanyBlockPlaintextWrapper {
 impl CompanyBlockPlaintextWrapper {
     /// This is only used for dev mode
     pub fn to_json_text(&self) -> Result<String> {
-        let mut block = self.block.clone();
-        let block_data_string: String = match self.block.op_code() {
+        let mut serialized =
+            serde_json::to_value(&self.block).map_err(|e| Error::JSON(e.to_string()))?;
+
+        let block_data: serde_json::Value = match self.block.op_code() {
             CompanyOpCode::Create => {
-                borsh_to_json_string::<CompanyCreateBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<CompanyCreateBlockData>(&self.plaintext_data_bytes)?
             }
             CompanyOpCode::Update => {
-                borsh_to_json_string::<CompanyUpdateBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<CompanyUpdateBlockData>(&self.plaintext_data_bytes)?
             }
             CompanyOpCode::AddSignatory => {
-                borsh_to_json_string::<CompanyAddSignatoryBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<CompanyAddSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
             CompanyOpCode::RemoveSignatory => {
-                borsh_to_json_string::<CompanyRemoveSignatoryBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<CompanyRemoveSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
             CompanyOpCode::SignCompanyBill => {
-                borsh_to_json_string::<CompanySignCompanyBillBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<CompanySignCompanyBillBlockData>(&self.plaintext_data_bytes)?
             }
             CompanyOpCode::IdentityProof => {
-                borsh_to_json_string::<CompanyIdentityProofBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<CompanyIdentityProofBlockData>(&self.plaintext_data_bytes)?
             }
         };
-        block.data = block_data_string;
-        serde_json::to_string(&block).map_err(|e| Error::JSON(e.to_string()))
+
+        if let Some(obj) = serialized.as_object_mut() {
+            obj.insert("data".to_string(), block_data);
+        } else {
+            return Err(Error::JSON(
+                "Block didn't serialize to JSON object".to_string(),
+            ));
+        }
+        serde_json::to_string(&serialized).map_err(|e| Error::JSON(e.to_string()))
     }
 }
 
@@ -172,7 +187,11 @@ pub struct CompanySignCompanyBillBlockData {
     pub block_id: BlockId,
     pub block_hash: Sha256Hash,
     pub operation: BillOpCode,
-    pub bill_key: Option<String>,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_optional_privkey",
+        deserialize_with = "crate::util::borsh::deserialize_optional_privkey"
+    )]
+    pub bill_key: Option<SecretKey>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -214,7 +233,7 @@ impl Block for CompanyBlock {
         self.id
     }
 
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> Timestamp {
         self.timestamp
     }
 
@@ -234,7 +253,7 @@ impl Block for CompanyBlock {
         &self.previous_hash
     }
 
-    fn data(&self) -> &str {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
@@ -252,40 +271,22 @@ impl Block for CompanyBlock {
 
     /// We validate the plaintext hash against the plaintext data from the CompanyBlockData wrapper
     fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool {
-        match util::base58_decode(&self.data) {
-            Ok(decoded_wrapper) => match from_slice::<CompanyBlockData>(&decoded_wrapper) {
-                Ok(data_wrapper) => match util::base58_decode(&data_wrapper.data) {
-                    Ok(decoded) => match util::crypto::decrypt_ecies(&decoded, private_key) {
-                        Ok(decrypted) => {
-                            self.plaintext_hash() == &Sha256Hash::from_bytes(&decrypted)
-                        }
-                        Err(e) => {
-                            error!(
-                                "Decrypt Error while validating plaintext hash for id {}: {e}",
-                                self.id()
-                            );
-                            false
-                        }
-                    },
+        match from_slice::<CompanyBlockData>(self.data()) {
+            Ok(data_wrapper) => {
+                match util::crypto::decrypt_ecies(&data_wrapper.data, private_key) {
+                    Ok(decrypted) => self.plaintext_hash() == &Sha256Hash::from_bytes(&decrypted),
                     Err(e) => {
                         error!(
-                            "Decode Error while validating plaintext hash for id {}: {e}",
+                            "Decrypt Error while validating plaintext hash for id {}: {e}",
                             self.id()
                         );
                         false
                     }
-                },
-                Err(e) => {
-                    error!(
-                        "Wrapper Deserialize Error while validating plaintext hash for id {}: {e}",
-                        self.id()
-                    );
-                    false
                 }
-            },
+            }
             Err(e) => {
                 error!(
-                    "Wrapper Decode Error while validating plaintext hash for id {}: {e}",
+                    "Wrapper Deserialize Error while validating plaintext hash for id {}: {e}",
                     self.id()
                 );
                 false
@@ -301,7 +302,7 @@ impl Block for CompanyBlock {
             previous_hash: self.previous_hash().to_owned(),
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
-            public_key: self.public_key().to_string(),
+            public_key: self.public_key().to_owned(),
             signatory_node_id: self.signatory_node_id.clone(),
             op_code: self.op_code().to_owned(),
         }
@@ -315,11 +316,11 @@ impl CompanyBlock {
         company_id: NodeId,
         id: BlockId,
         previous_hash: Sha256Hash,
-        data: String,
+        data: Vec<u8>,
         op_code: CompanyOpCode,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
         plaintext_hash: Sha256Hash,
     ) -> Result<Self> {
         // The order here is important: identity -> company
@@ -336,7 +337,7 @@ impl CompanyBlock {
             previous_hash: previous_hash.clone(),
             data: data.clone(),
             timestamp,
-            public_key: aggregated_public_key.to_string(),
+            public_key: aggregated_public_key.to_owned(),
             signatory_node_id: signatory_node_id.clone(),
             op_code: op_code.clone(),
         })?;
@@ -363,15 +364,15 @@ impl CompanyBlock {
         company: &CompanyCreateBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let company_bytes = to_vec(company)?;
         let plaintext_hash = Self::calculate_plaintext_hash(company)?;
         // encrypt data using company pub key
-        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
+        let encrypted_data = util::crypto::encrypt_ecies(
             &company_bytes,
             &BcrKeys::try_from(company_keys)?.pub_key(),
-        )?);
+        )?;
 
         let key_bytes = to_vec(&company_keys.get_private_key_string())?;
         // encrypt company keys using creator's identity pub key
@@ -384,13 +385,13 @@ impl CompanyBlock {
             data: encrypted_data,
             key: Some(encrypted_key),
         };
-        let serialized_and_hashed_data = util::base58_encode(&to_vec(&data)?);
+        let serialized_data = to_vec(&data)?;
 
         Self::new(
             company_id.to_owned(),
             BlockId::first(),
             genesis_hash,
-            serialized_and_hashed_data,
+            serialized_data,
             CompanyOpCode::Create,
             identity_keys,
             company_keys,
@@ -405,7 +406,7 @@ impl CompanyBlock {
         data: &CompanyUpdateBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -426,7 +427,7 @@ impl CompanyBlock {
         data: &CompanySignCompanyBillBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -448,7 +449,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         signatory_public_key: &PublicKey, // the signatory's public key
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -469,7 +470,7 @@ impl CompanyBlock {
         data: &CompanyRemoveSignatoryBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -490,7 +491,7 @@ impl CompanyBlock {
         data: &CompanyIdentityProofBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -521,11 +522,9 @@ impl CompanyBlock {
     }
 
     fn get_decrypted_block_bytes(&self, company_keys: &CompanyKeys) -> Result<Vec<u8>> {
-        let bytes = util::base58_decode(&self.data)?;
-        let block_data: CompanyBlockData = from_slice(&bytes)?;
-        let decoded_data_bytes = util::base58_decode(&block_data.data)?;
+        let block_data: CompanyBlockData = from_slice(&self.data)?;
         let decrypted_bytes =
-            util::crypto::decrypt_ecies(&decoded_data_bytes, &company_keys.private_key)?;
+            util::crypto::decrypt_ecies(&block_data.data, &company_keys.private_key)?;
         Ok(decrypted_bytes)
     }
 
@@ -536,16 +535,14 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         public_key_for_keys: Option<&PublicKey>,
-        timestamp: u64,
+        timestamp: Timestamp,
         op_code: CompanyOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
         let plaintext_hash = Self::calculate_plaintext_hash(data)?;
         // encrypt data using the company pub key
-        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
-            &bytes,
-            &BcrKeys::try_from(company_keys)?.pub_key(),
-        )?);
+        let encrypted_data =
+            util::crypto::encrypt_ecies(&bytes, &BcrKeys::try_from(company_keys)?.pub_key())?;
 
         let mut key = None;
 
@@ -565,13 +562,13 @@ impl CompanyBlock {
             data: encrypted_data,
             key,
         };
-        let serialized_and_hashed_data = util::base58_encode(&to_vec(&data)?);
+        let serialized_data = to_vec(&data)?;
 
         let new_block = Self::new(
             company_id,
             BlockId::next_from_previous_block_id(&previous_block.id),
             previous_block.hash.clone(),
-            serialized_and_hashed_data,
+            serialized_data,
             op_code,
             identity_keys,
             company_keys,
@@ -609,7 +606,7 @@ impl CompanyBlockchain {
         company: &CompanyCreateBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let genesis_hash = Sha256Hash::from_bytes(company.id.to_string().as_bytes());
 
@@ -730,7 +727,7 @@ mod tests {
             &CompanyCreateBlockData::from(company),
             &BcrKeys::new(),
             &company_keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
@@ -747,7 +744,7 @@ mod tests {
             &CompanyCreateBlockData::from(company),
             &BcrKeys::new(),
             &company_keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
@@ -762,7 +759,7 @@ mod tests {
             &CompanyCreateBlockData::from(company),
             &identity_keys,
             &company_keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
@@ -784,7 +781,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            1731593929,
+            Timestamp::new(1731593929).unwrap(),
         );
         assert!(update_block.is_ok());
         chain.try_add_block(update_block.unwrap());
@@ -797,11 +794,11 @@ mod tests {
                 block_id: BlockId::first(),
                 block_hash: Sha256Hash::new("some hash"),
                 operation: BillOpCode::Issue,
-                bill_key: Some(private_key_test().display_secret().to_string()),
+                bill_key: Some(private_key_test()),
             },
             &identity_keys,
             &company_keys,
-            1731593930,
+            Timestamp::new(1731593930).unwrap(),
         );
         assert!(bill_block.is_ok());
         chain.try_add_block(bill_block.unwrap());
@@ -816,7 +813,7 @@ mod tests {
             &identity_keys,
             &company_keys,
             &node_id_test().pub_key(),
-            1731593931,
+            Timestamp::new(1731593931).unwrap(),
         );
         assert!(add_signatory_block.is_ok());
         chain.try_add_block(add_signatory_block.unwrap());
@@ -829,7 +826,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            1731593932,
+            Timestamp::new(1731593932).unwrap(),
         );
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());

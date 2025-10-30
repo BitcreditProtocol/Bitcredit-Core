@@ -161,7 +161,7 @@ mod tests {
 
     use super::*;
     use bcr_ebill_core::protocol::BillBlockEvent;
-    use bcr_ebill_core::{blockchain::Blockchain, util::crypto::BcrKeys};
+    use bcr_ebill_core::{blockchain::Blockchain, timestamp::Timestamp, util::crypto::BcrKeys};
     use mockall::predicate::{always, eq};
 
     #[test]
@@ -430,7 +430,7 @@ mod tests {
         create_public_chain_event(
             &bill_id_test().to_string(),
             generate_test_block(height),
-            1000,
+            Timestamp::new(1000).unwrap(),
             BlockchainType::Bill,
             keys.clone(),
             previous,

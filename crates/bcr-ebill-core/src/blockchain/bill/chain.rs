@@ -14,13 +14,14 @@ use crate::bill::{
     BillHistory, BillHistoryBlock, BillKeys, LightSignedBy, PastEndorsee, PastPaymentStatus,
 };
 use crate::blockchain::bill::block::BillRejectToBuyBlockData;
-use crate::blockchain::{Block, Blockchain, Error, borsh_to_json_string};
+use crate::blockchain::{Block, Blockchain, Error, borsh_to_json_value};
 use crate::contact::{
     BillParticipant, ContactType, LightBillIdentParticipant, LightBillParticipant,
 };
 use crate::date::Date;
 use crate::hash::Sha256Hash;
-use crate::util::{self, BcrKeys};
+use crate::timestamp::Timestamp;
+use crate::util::BcrKeys;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -98,53 +99,62 @@ impl BillBlockPlaintextWrapper {
 
     /// This is only used for dev mode
     pub fn to_json_text(&self) -> Result<String> {
-        let mut block = self.block.clone();
-        let block_data_string: String = match self.block.op_code() {
+        let mut serialized =
+            serde_json::to_value(&self.block).map_err(|e| Error::JSON(e.to_string()))?;
+        let block_data: serde_json::Value = match self.block.op_code() {
             BillOpCode::Issue => {
-                borsh_to_json_string::<BillIssueBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillIssueBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::Accept => {
-                borsh_to_json_string::<BillAcceptBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillAcceptBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::Endorse => {
-                borsh_to_json_string::<BillEndorseBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillEndorseBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RequestToAccept => {
-                borsh_to_json_string::<BillRequestToAcceptBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRequestToAcceptBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RequestToPay => {
-                borsh_to_json_string::<BillRequestToPayBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRequestToPayBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::OfferToSell => {
-                borsh_to_json_string::<BillOfferToSellBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillOfferToSellBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::Sell => {
-                borsh_to_json_string::<BillSellBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillSellBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::Mint => {
-                borsh_to_json_string::<BillMintBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillMintBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RejectToAccept => {
-                borsh_to_json_string::<BillRejectBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRejectBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RejectToPay => {
-                borsh_to_json_string::<BillRejectBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRejectBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RejectToBuy => {
-                borsh_to_json_string::<BillRejectToBuyBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRejectToBuyBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RejectToPayRecourse => {
-                borsh_to_json_string::<BillRejectBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRejectBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::RequestRecourse => {
-                borsh_to_json_string::<BillRequestRecourseBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRequestRecourseBlockData>(&self.plaintext_data_bytes)?
             }
             BillOpCode::Recourse => {
-                borsh_to_json_string::<BillRecourseBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<BillRecourseBlockData>(&self.plaintext_data_bytes)?
             }
         };
-        block.data = block_data_string;
-        serde_json::to_string(&block).map_err(|e| Error::JSON(e.to_string()))
+
+        if let Some(obj) = serialized.as_object_mut() {
+            obj.insert("data".to_string(), block_data);
+        } else {
+            return Err(Error::JSON(
+                "Block didn't serialize to JSON object".to_string(),
+            ));
+        }
+
+        serde_json::to_string(&serialized).map_err(|e| Error::JSON(e.to_string()))
     }
 }
 
@@ -299,7 +309,7 @@ impl BillBlockchain {
         drawer_key_pair: BcrKeys,
         drawer_company_key_pair: Option<BcrKeys>,
         bill_keys: BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let genesis_hash = Sha256Hash::from_bytes(bill.id.to_string().as_bytes());
 
@@ -346,8 +356,8 @@ impl BillBlockchain {
         &self,
         bill_keys: &BillKeys,
         node_id: &NodeId,
-        timestamp: u64,
-    ) -> Result<Vec<(SellPaymentInfo, PastPaymentStatus, u64)>> {
+        timestamp: Timestamp,
+    ) -> Result<Vec<(SellPaymentInfo, PastPaymentStatus, Timestamp)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut sell_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -433,10 +443,9 @@ impl BillBlockchain {
                 },
                 None => {
                     // check if deadline expired, if not, ignore, otherwise add as expired
-                    if util::date::check_if_deadline_has_passed(
-                        block_data_decrypted.buying_deadline_timestamp,
-                        timestamp,
-                    ) {
+                    if timestamp
+                        .has_deadline_passed(&block_data_decrypted.buying_deadline_timestamp)
+                    {
                         result.push((
                             payment_info,
                             PastPaymentStatus::Expired(
@@ -457,8 +466,8 @@ impl BillBlockchain {
         &self,
         bill_keys: &BillKeys,
         node_id: &NodeId,
-        timestamp: u64,
-    ) -> Result<Vec<(RecoursePaymentInfo, PastPaymentStatus, u64)>> {
+        timestamp: Timestamp,
+    ) -> Result<Vec<(RecoursePaymentInfo, PastPaymentStatus, Timestamp)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut recourse_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -544,10 +553,9 @@ impl BillBlockchain {
                 },
                 None => {
                     // check if deadline expired, if not, ignore, otherwise add as expired
-                    if util::date::check_if_deadline_has_passed(
-                        block_data_decrypted.recourse_deadline_timestamp,
-                        timestamp,
-                    ) {
+                    if timestamp
+                        .has_deadline_passed(&block_data_decrypted.recourse_deadline_timestamp)
+                    {
                         result.push((
                             payment_info,
                             PastPaymentStatus::Expired(
@@ -609,9 +617,9 @@ impl BillBlockchain {
         &self,
         req_to_pay: &BillBlock,
         bill_keys: &BillKeys,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
         bill_maturity_date: Option<&Date>,
-    ) -> Result<(bool, u64)> {
+    ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillRequestToPayBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
 
@@ -622,7 +630,7 @@ impl BillBlockchain {
             deadline
         };
 
-        if util::date::check_if_deadline_has_passed(deadline_base, current_timestamp) {
+        if current_timestamp.has_deadline_passed(&deadline_base) {
             return Ok((true, deadline));
         }
         Ok((false, deadline))
@@ -634,12 +642,12 @@ impl BillBlockchain {
         &self,
         req_to_pay: &BillBlock,
         bill_keys: &BillKeys,
-        current_timestamp: u64,
-    ) -> Result<(bool, u64)> {
+        current_timestamp: Timestamp,
+    ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillRequestToAcceptBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
         let deadline = block_data_decrypted.acceptance_deadline_timestamp;
-        if util::date::check_if_deadline_has_passed(deadline, current_timestamp) {
+        if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
         Ok((false, deadline))
@@ -651,12 +659,12 @@ impl BillBlockchain {
         &self,
         req_to_pay: &BillBlock,
         bill_keys: &BillKeys,
-        current_timestamp: u64,
-    ) -> Result<(bool, u64)> {
+        current_timestamp: Timestamp,
+    ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillOfferToSellBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
         let deadline = block_data_decrypted.buying_deadline_timestamp;
-        if util::date::check_if_deadline_has_passed(deadline, current_timestamp) {
+        if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
         Ok((false, deadline))
@@ -668,12 +676,12 @@ impl BillBlockchain {
         &self,
         req_to_pay: &BillBlock,
         bill_keys: &BillKeys,
-        current_timestamp: u64,
-    ) -> Result<(bool, u64)> {
+        current_timestamp: Timestamp,
+    ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillRequestRecourseBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
         let deadline = block_data_decrypted.recourse_deadline_timestamp;
-        if util::date::check_if_deadline_has_passed(deadline, current_timestamp) {
+        if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
         Ok((false, deadline))
@@ -684,7 +692,7 @@ impl BillBlockchain {
     pub fn is_last_request_to_recourse_block_waiting_for_payment(
         &self,
         bill_keys: &BillKeys,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<RecourseWaitingForPayment> {
         let last_block = self.get_latest_block();
         if let Some(last_version_block) =
@@ -696,10 +704,9 @@ impl BillBlockchain {
                     last_version_block.get_decrypted_block(bill_keys)?;
 
                 // if the deadline is up, we're not waiting for payment anymore
-                if util::date::check_if_deadline_has_passed(
-                    block_data_decrypted.recourse_deadline_timestamp,
-                    current_timestamp,
-                ) {
+                if current_timestamp
+                    .has_deadline_passed(&block_data_decrypted.recourse_deadline_timestamp)
+                {
                     return Ok(RecourseWaitingForPayment::No);
                 }
 
@@ -724,7 +731,7 @@ impl BillBlockchain {
     pub fn is_last_offer_to_sell_block_waiting_for_payment(
         &self,
         bill_keys: &BillKeys,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<OfferToSellWaitingForPayment> {
         let last_block = self.get_latest_block();
         if let Some(last_version_block_offer_to_sell) =
@@ -735,10 +742,9 @@ impl BillBlockchain {
                 let block_data_decrypted: BillOfferToSellBlockData =
                     last_version_block_offer_to_sell.get_decrypted_block(bill_keys)?;
                 // if the deadline is up, we're not waiting for payment anymore
-                if util::date::check_if_deadline_has_passed(
-                    block_data_decrypted.buying_deadline_timestamp,
-                    current_timestamp,
-                ) {
+                if current_timestamp
+                    .has_deadline_passed(&block_data_decrypted.buying_deadline_timestamp)
+                {
                     return Ok(OfferToSellWaitingForPayment::No);
                 }
 
@@ -1058,9 +1064,9 @@ mod tests {
         contact::BillIdentParticipant,
         sum::Sum,
         tests::tests::{
-            VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
-            bill_participant_only_node_id, empty_bitcredit_bill, get_bill_keys, private_key_test,
-            valid_address,
+            bill_id_test, bill_identified_participant_only_node_id, bill_participant_only_node_id,
+            empty_bitcredit_bill, get_bill_keys, private_key_test, valid_address,
+            valid_payment_address_testnet,
         },
     };
 
@@ -1079,16 +1085,16 @@ mod tests {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: "1234".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: 1731593928,
+                signing_timestamp: Timestamp::new(1731593928).unwrap(),
                 signing_address: Some(valid_address()),
-                buying_deadline_timestamp: 1731593928 + 2 * DAY_IN_SECS,
+                buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().key_pair,
             None,
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }
@@ -1099,11 +1105,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
 
@@ -1116,11 +1122,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         assert!(chain.try_add_block(get_offer_to_sell_block(
@@ -1137,11 +1143,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let node_id_last_endorsee =
@@ -1153,7 +1159,10 @@ mod tests {
         ),));
 
         let keys = get_bill_keys();
-        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(&keys, 1751293728); // deadline
+        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(
+            &keys,
+            Timestamp::new(1751293728).unwrap(),
+        ); // deadline
         // passed
         assert!(result.is_ok());
         assert_eq!(result.as_ref().unwrap(), &OfferToSellWaitingForPayment::No);
@@ -1165,11 +1174,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let node_id_last_endorsee =
@@ -1181,7 +1190,10 @@ mod tests {
         ),));
 
         let keys = get_bill_keys();
-        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(&keys, 1731593928);
+        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(
+            &keys,
+            Timestamp::new(1731593928).unwrap(),
+        );
 
         assert!(result.is_ok());
         if let OfferToSellWaitingForPayment::Yes(info) = result.unwrap() {
@@ -1204,11 +1216,11 @@ mod tests {
         ));
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let node_id_last_endorsee =
@@ -1242,11 +1254,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let chain2 = chain.clone();
@@ -1269,11 +1281,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let mut chain2 = chain.clone();
@@ -1301,11 +1313,11 @@ mod tests {
         let bill_keys = get_bill_keys();
         let identity = get_baseline_identity();
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             identity.key_pair.clone(),
             None,
             BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         let signer = bill_identified_participant_only_node_id(NodeId::new(
@@ -1344,15 +1356,15 @@ mod tests {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
                 sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: 1731593929,
+                signing_timestamp: Timestamp::new(1731593929).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
             },
             &identity.key_pair,
             None,
             &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
-            1731593929,
+            Timestamp::new(1731593929).unwrap(),
         )
         .unwrap();
         assert!(chain.try_add_block(sell.clone()));
@@ -1378,13 +1390,13 @@ mod tests {
                 endorser: BillParticipant::Ident(other_party.clone()).into(),
                 endorsee: BillParticipant::Ident(signer.clone()).into(),
                 signatory: None,
-                signing_timestamp: 1731593930,
+                signing_timestamp: Timestamp::new(1731593930).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
             },
             &identity.key_pair,
             None,
             &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
-            1731593930,
+            Timestamp::new(1731593930).unwrap(),
         )
         .unwrap();
         assert!(chain.try_add_block(endorse.clone()));
@@ -1411,13 +1423,13 @@ mod tests {
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
-                signing_timestamp: 1731593931,
+                signing_timestamp: Timestamp::new(1731593931).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
             },
             &identity.key_pair,
             None,
             &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
-            1731593931,
+            Timestamp::new(1731593931).unwrap(),
         )
         .unwrap();
         assert!(chain.try_add_block(mint.clone()));
@@ -1445,13 +1457,13 @@ mod tests {
                 sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
-                signing_timestamp: 1731593932,
+                signing_timestamp: Timestamp::new(1731593932).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
             },
             &identity.key_pair,
             None,
             &BcrKeys::from_private_key(&bill_keys.private_key).unwrap(),
-            1731593932,
+            Timestamp::new(1731593932).unwrap(),
         )
         .unwrap();
         assert!(chain.try_add_block(recourse.clone()));

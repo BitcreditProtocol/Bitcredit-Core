@@ -3,7 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::protocol::{Event, EventEnvelope, IdentityBlockEvent};
-use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType, util::date::now};
+use bcr_ebill_core::timestamp::Timestamp;
+use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType};
 use bcr_ebill_persistence::identity::IdentityStoreApi;
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, trace, warn};
@@ -102,8 +103,8 @@ impl IdentityChainEventHandler {
                 chain_type: BlockchainType::Identity,
                 block_height,
                 block_hash: block_hash.to_owned(),
-                received: now().timestamp() as u64,
-                time: event.created_at.as_u64(),
+                received: Timestamp::now(),
+                time: event.created_at.into(),
                 payload: *event.clone(),
                 valid,
             })
@@ -215,7 +216,7 @@ mod tests {
             chain.get_latest_block(),
             &data,
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .expect("could not create block");
 

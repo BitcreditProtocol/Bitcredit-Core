@@ -2,6 +2,7 @@ use bcr_ebill_api::data::{
     NodeId,
     block_id::BlockId,
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
+    timestamp::Timestamp,
 };
 use serde::Serialize;
 use tsify::Tsify;
@@ -18,9 +19,11 @@ pub struct IdentityProofWeb {
     pub stamp: IdentityProofStamp,
     #[tsify(type = "string")]
     pub url: Url,
-    pub timestamp: u64,
+    #[tsify(type = "number")]
+    pub timestamp: Timestamp,
     pub status: IdentityProofStatusWeb,
-    pub status_last_checked_timestamp: u64,
+    #[tsify(type = "number")]
+    pub status_last_checked_timestamp: Timestamp,
     #[tsify(type = "number")]
     pub block_id: BlockId,
 }
