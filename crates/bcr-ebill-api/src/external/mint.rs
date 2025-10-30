@@ -461,8 +461,8 @@ fn map_shared_bill(
         bill_id: bill_to_share.bill_id,
         data: bill_to_share.data,
         file_urls: bill_to_share.file_urls,
-        hash: bill_to_share.hash,
-        signature: bill_to_share.signature,
+        hash: bill_to_share.hash.to_string(),
+        signature: bill_to_share.signature.to_string(),
         receiver: bill_to_share.receiver.into(),
     }
 }

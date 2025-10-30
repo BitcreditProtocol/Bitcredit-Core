@@ -18,6 +18,7 @@ use std::{str::FromStr, sync::Arc};
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::BillKeys,
+    block_id::BlockId,
     blockchain::{
         Blockchain, BlockchainType,
         bill::BillOpCode,
@@ -225,7 +226,10 @@ impl IdentityChainEventProcessor {
                 }
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
-                    if blocks.len() == 1 && chain.get_latest_block().id + 1 < block.id {
+                    if blocks.len() == 1
+                        && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
+                            < block.id
+                    {
                         info!(
                             "Received invalid block {} for identity {node_id} - missing blocks - try to resync",
                             block.id
@@ -430,6 +434,7 @@ pub mod tests {
                 IdentityBlock, IdentityBlockchain, IdentityProofBlockData, IdentityUpdateBlockData,
             },
         },
+        hash::Sha256Hash,
         identity::Identity,
         identity_proof::IdentityProofStamp,
         name::Name,
@@ -786,7 +791,7 @@ pub mod tests {
     fn as_event_payload(id: &NodeId, block: &IdentityBlock) -> EventEnvelope {
         Event::new_identity_chain(IdentityBlockEvent {
             node_id: id.clone(),
-            block_height: block.id as usize,
+            block_height: block.id.inner() as usize,
             block: block.clone(),
         })
         .try_into()
@@ -891,7 +896,7 @@ pub mod tests {
 
     pub fn get_identity_create_block(identity: Identity, keys: &BcrKeys) -> IdentityBlock {
         IdentityBlock::create_block_for_create(
-            "genesis hash".to_string(),
+            Sha256Hash::new("genesis hash"),
             &identity.into(),
             keys,
             1731593928,

@@ -12,6 +12,7 @@ use bcr_ebill_core::bill::{
     BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
     BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy, PaidData, PaymentState,
 };
+use bcr_ebill_core::block_id::BlockId;
 use bcr_ebill_core::city::City;
 use bcr_ebill_core::contact::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
@@ -222,7 +223,7 @@ impl BillStoreApi for SurrealBillStore {
     async fn set_offer_to_sell_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
         payment_state: &PaymentState,
     ) -> Result<()> {
         let entity = OfferToSellBillPaidDb {
@@ -244,7 +245,7 @@ impl BillStoreApi for SurrealBillStore {
     async fn get_offer_to_sell_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
     ) -> Result<Option<PaymentState>> {
         let result: Option<OfferToSellBillPaidDb> = self
             .db
@@ -256,7 +257,7 @@ impl BillStoreApi for SurrealBillStore {
     async fn set_recourse_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
         payment_state: &PaymentState,
     ) -> Result<()> {
         let entity = RecourseBillPaidDb {
@@ -278,7 +279,7 @@ impl BillStoreApi for SurrealBillStore {
     async fn get_recourse_payment_state(
         &self,
         id: &BillId,
-        block_id: u64,
+        block_id: BlockId,
     ) -> Result<Option<PaymentState>> {
         let result: Option<RecourseBillPaidDb> = self
             .db
@@ -911,7 +912,7 @@ impl From<BillCallerActions> for BillCallerActionsDb {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BillHistoryBlockDb {
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<BillParticipantDb>,
     pub signed: LightSignedByDb,
@@ -1170,14 +1171,14 @@ pub struct BillPaidDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfferToSellBillPaidDb {
     pub bill_id: BillId,
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub payment_state: PaymentStateDb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecourseBillPaidDb {
     pub bill_id: BillId,
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub payment_state: PaymentStateDb,
 }
 
@@ -1319,6 +1320,7 @@ pub mod tests {
     use bcr_ebill_core::{
         NodeId,
         bill::{BillId, BillKeys, PaidData, PaymentState},
+        block_id::BlockId,
         blockchain::bill::{
             BillBlock, BillOpCode,
             block::{
@@ -1333,6 +1335,7 @@ pub mod tests {
         },
         contact::BillParticipant,
         date::Date,
+        hash::Sha256Hash,
         sum::{Currency, Sum},
     };
     use chrono::Months;
@@ -1374,7 +1377,7 @@ pub mod tests {
 
         BillBlock::create_block_for_issue(
             id.to_owned(),
-            String::from("prevhash"),
+            Sha256Hash::new("prevhash"),
             &BillIssueBlockData::from(bill, None, 1731593928),
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
@@ -1533,7 +1536,7 @@ pub mod tests {
         let res = store
             .set_offer_to_sell_payment_state(
                 &bill_id_test(),
-                1,
+                BlockId::first(),
                 &PaymentState::PaidConfirmed(PaidData {
                     block_time: 1731593928,
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
@@ -1547,14 +1550,17 @@ pub mod tests {
         assert!(res.is_ok());
 
         let payment_state = store
-            .get_offer_to_sell_payment_state(&bill_id_test(), 1)
+            .get_offer_to_sell_payment_state(&bill_id_test(), BlockId::first())
             .await
             .expect("succeeds")
             .expect("is there");
         assert!(matches!(payment_state, PaymentState::PaidConfirmed(..)));
 
         let payment_state_different_block = store
-            .get_offer_to_sell_payment_state(&bill_id_test(), 2)
+            .get_offer_to_sell_payment_state(
+                &bill_id_test(),
+                BlockId::next_from_previous_block_id(&BlockId::first()),
+            )
             .await
             .expect("succeeds");
         assert!(payment_state_different_block.is_none());
@@ -1566,7 +1572,7 @@ pub mod tests {
         let res = store
             .set_recourse_payment_state(
                 &bill_id_test(),
-                1,
+                BlockId::first(),
                 &PaymentState::PaidConfirmed(PaidData {
                     block_time: 1731593928,
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
@@ -1580,14 +1586,17 @@ pub mod tests {
         assert!(res.is_ok());
 
         let payment_state = store
-            .get_recourse_payment_state(&bill_id_test(), 1)
+            .get_recourse_payment_state(&bill_id_test(), BlockId::first())
             .await
             .expect("succeeds")
             .expect("is there");
         assert!(matches!(payment_state, PaymentState::PaidConfirmed(..)));
 
         let payment_state_different_block = store
-            .get_recourse_payment_state(&bill_id_test(), 2)
+            .get_recourse_payment_state(
+                &bill_id_test(),
+                BlockId::next_from_previous_block_id(&BlockId::first()),
+            )
             .await
             .expect("succeeds");
         assert!(payment_state_different_block.is_none());

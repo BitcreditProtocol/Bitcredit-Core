@@ -4,8 +4,6 @@ pub mod date;
 
 pub use crypto::BcrKeys;
 
-use bitcoin::hashes::Hash;
-use bitcoin::hashes::sha256;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -26,11 +24,6 @@ pub fn is_blank(value: &Option<String>) -> bool {
 
 pub fn get_uuid_v4() -> Uuid {
     Uuid::new_v4()
-}
-
-pub fn sha256_hash(bytes: &[u8]) -> String {
-    let hash = sha256::Hash::hash(bytes).to_byte_array();
-    base58_encode(hash.as_slice())
 }
 
 #[derive(Debug, Error)]

@@ -7,7 +7,7 @@ use crate::{Field, ValidationError};
 const MAX_IDENTIFICATION_LEN: usize = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct Identification(String);
 
 impl Identification {
@@ -41,6 +41,20 @@ impl FromStr for Identification {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Identification::new(s)
+    }
+}
+
+impl TryFrom<String> for Identification {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<Identification> for String {
+    fn from(value: Identification) -> Self {
+        value.0
     }
 }
 
@@ -101,7 +115,22 @@ mod tests {
     }
 
     #[test]
-    fn test_name() {
+    fn test_invalid_serialization() {
+        let json = "{\"identification\":\"\"}";
+        let deserialized = serde_json::from_str::<TestIdentification>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = Identification::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("12345")).expect("works");
+        let res = Identification::try_from_slice(&borsh);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_identification() {
         let n = Identification::new("51234").expect("works");
         let n_owned = Identification::new(String::from("51234")).expect("works");
         assert_eq!(n, n_owned);

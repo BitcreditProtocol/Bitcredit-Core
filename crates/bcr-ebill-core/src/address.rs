@@ -7,7 +7,7 @@ use crate::{Field, ValidationError};
 const MAX_ADDRESS_LEN: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct Address(String);
 
 impl Address {
@@ -41,6 +41,20 @@ impl FromStr for Address {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Address::new(s)
+    }
+}
+
+impl TryFrom<String> for Address {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<Address> for String {
+    fn from(value: Address) -> Self {
+        value.0
     }
 }
 
@@ -97,6 +111,21 @@ mod tests {
         let borsh_de_test = TestAddress::try_from_slice(&borsh_test).unwrap();
         assert_eq!(test, borsh_de_test);
         assert_eq!(address, borsh_de_test.address);
+    }
+
+    #[test]
+    fn test_invalid_serialization() {
+        let json = "{\"address\":\"\"}";
+        let deserialized = serde_json::from_str::<TestAddress>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = Address::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("Praterstrasse 1")).expect("works");
+        let res = Address::try_from_slice(&borsh);
+        assert!(res.is_ok());
     }
 
     #[test]

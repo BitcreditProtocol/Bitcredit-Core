@@ -7,7 +7,7 @@ use crate::{Field, ValidationError};
 const MAX_NAME_LEN: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct Name(String);
 
 impl Name {
@@ -41,6 +41,20 @@ impl FromStr for Name {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Name::new(s)
+    }
+}
+
+impl TryFrom<String> for Name {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<Name> for String {
+    fn from(value: Name) -> Self {
+        value.0
     }
 }
 
@@ -95,6 +109,21 @@ mod tests {
         let borsh_de_test = TestName::try_from_slice(&borsh_test).unwrap();
         assert_eq!(test, borsh_de_test);
         assert_eq!(name, borsh_de_test.name);
+    }
+
+    #[test]
+    fn test_invalid_serialization() {
+        let json = "{\"name\":\"\"}";
+        let deserialized = serde_json::from_str::<TestName>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = Name::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("Minka")).expect("works");
+        let res = Name::try_from_slice(&borsh);
+        assert!(res.is_ok());
     }
 
     #[test]

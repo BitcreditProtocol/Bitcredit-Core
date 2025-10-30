@@ -7,7 +7,7 @@ use crate::{Field, ValidationError};
 const MAX_ZIP_LEN: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct Zip(String);
 
 impl Zip {
@@ -41,6 +41,20 @@ impl FromStr for Zip {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Zip::new(s)
+    }
+}
+
+impl TryFrom<String> for Zip {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<Zip> for String {
+    fn from(value: Zip) -> Self {
+        value.0
     }
 }
 
@@ -98,7 +112,22 @@ mod tests {
     }
 
     #[test]
-    fn test_name() {
+    fn test_invalid_serialization() {
+        let json = "{\"zip\":\"\"}";
+        let deserialized = serde_json::from_str::<TestZip>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = Zip::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("1020")).expect("works");
+        let res = Zip::try_from_slice(&borsh);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_zip() {
         let n = Zip::new("1020").expect("works");
         let n_owned = Zip::new(String::from("1020")).expect("works");
         assert_eq!(n, n_owned);

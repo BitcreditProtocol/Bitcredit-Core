@@ -385,7 +385,10 @@ impl IdentityProofServiceApi for IdentityProofService {
 
 #[cfg(test)]
 pub mod tests {
-    use bcr_ebill_core::blockchain::{Blockchain, identity::IdentityBlockchain};
+    use bcr_ebill_core::{
+        block_id::BlockId,
+        blockchain::{Blockchain, identity::IdentityBlockchain},
+    };
 
     use crate::{
         external::identity_proof::MockIdentityProofApi,
@@ -557,7 +560,7 @@ pub mod tests {
                 timestamp: 1731593928,
                 status: IdentityProofStatus::Success,
                 status_last_checked_timestamp: 1731593929,
-                block_id: 2,
+                block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
         let service = get_service(ctx);
@@ -577,7 +580,7 @@ pub mod tests {
                 timestamp: 1731593928,
                 status: IdentityProofStatus::Success,
                 status_last_checked_timestamp: 1731593929,
-                block_id: 2,
+                block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
         let service = get_service(ctx);
@@ -607,7 +610,7 @@ pub mod tests {
                 timestamp: 1731593928,
                 status: IdentityProofStatus::Success,
                 status_last_checked_timestamp: 1731593929,
-                block_id: 2,
+                block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
         ctx.store
@@ -645,7 +648,7 @@ pub mod tests {
                 timestamp: 1731593928,
                 status: IdentityProofStatus::Success,
                 status_last_checked_timestamp: 1731593929,
-                block_id: 2,
+                block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
         let service = get_service(ctx);

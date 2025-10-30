@@ -7,7 +7,7 @@ use crate::{Field, ValidationError};
 const MAX_CITY_LEN: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct City(String);
 
 impl City {
@@ -41,6 +41,20 @@ impl FromStr for City {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         City::new(s)
+    }
+}
+
+impl TryFrom<String> for City {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<City> for String {
+    fn from(value: City) -> Self {
+        value.0
     }
 }
 
@@ -98,7 +112,22 @@ mod tests {
     }
 
     #[test]
-    fn test_name() {
+    fn test_invalid_serialization() {
+        let json = "{\"city\":\"\"}";
+        let deserialized = serde_json::from_str::<TestCity>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = City::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("Vienna")).expect("works");
+        let res = City::try_from_slice(&borsh);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_city() {
         let n = City::new("Wien").expect("works");
         let n_owned = City::new(String::from("Wien")).expect("works");
         assert_eq!(n, n_owned);

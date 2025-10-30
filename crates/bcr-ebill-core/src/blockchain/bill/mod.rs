@@ -12,8 +12,11 @@ pub use chain::BillBlockchain;
 use crate::{
     PublicKey, SecretKey,
     bill::{BillId, BillKeys},
+    block_id::BlockId,
     blockchain::{Result, bill::block::BillParticipantBlockData},
     contact::BillParticipant,
+    hash::Sha256Hash,
+    signature::SchnorrSignature,
     sum::Sum,
     util::{self, BcrKeys},
 };
@@ -56,7 +59,7 @@ pub struct SellPaymentInfo {
     pub seller: BillParticipant, // seller can be anone
     pub sum: Sum,
     pub payment_address: String,
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub buying_deadline_timestamp: u64,
 }
 
@@ -66,7 +69,7 @@ pub struct RecoursePaymentInfo {
     pub recoursee: BillIdentParticipantBlockData, // recoursee has to be identified
     pub sum: Sum,
     pub reason: BillRecourseReasonBlockData,
-    pub block_id: u64,
+    pub block_id: BlockId,
     pub recourse_deadline_timestamp: u64,
 }
 
@@ -83,9 +86,9 @@ pub struct BillToShareWithExternalParty {
     /// The file urls of bill files, encrypted with the receiver's key, uploaded to Nostr
     pub file_urls: Vec<url::Url>,
     /// The hash over the unencrypted data
-    pub hash: String,
+    pub hash: Sha256Hash,
     /// The signature over the hash by the sharer of the bill
-    pub signature: String,
+    pub signature: SchnorrSignature,
     #[borsh(
         serialize_with = "crate::util::borsh::serialize_pubkey",
         deserialize_with = "crate::util::borsh::deserialize_pubkey"
@@ -122,7 +125,7 @@ pub fn create_bill_to_share_with_external_party(
     let encrypted = util::crypto::encrypt_ecies(&serialized, external_party_pub_key)?;
     let encoded = util::base58_encode(&encrypted);
 
-    let hash = util::sha256_hash(&serialized);
+    let hash = Sha256Hash::from_bytes(&serialized);
     let signature = util::crypto::signature(&hash, &sharer_keys.get_private_key())?;
 
     let result = BillToShareWithExternalParty {
@@ -145,6 +148,7 @@ pub mod tests {
         blockchain::Blockchain,
         city::City,
         country::Country,
+        hash::Sha256Hash,
         identity::IdentityWithAll,
         name::Name,
         tests::tests::{empty_bitcredit_bill, empty_identity, node_id_test, private_key_test},
@@ -258,7 +262,7 @@ pub mod tests {
         let decrypted =
             util::crypto::decrypt_ecies(&decoded, &external_party_keys.get_private_key()).unwrap();
         // receiver can check that hash matches the data
-        assert_eq!(hash, util::sha256_hash(&decrypted));
+        assert_eq!(hash, Sha256Hash::from_bytes(&decrypted));
         let deserialized: Vec<BillBlockPlaintextWrapper> = borsh::from_slice(&decrypted).unwrap();
         let decrypted_method = unwrapped
             .get_unencrypted_data(&external_party_keys.get_private_key())
@@ -272,7 +276,7 @@ pub mod tests {
         for block_wrapper in deserialized.iter() {
             assert_eq!(
                 block_wrapper.block.plaintext_hash,
-                util::sha256_hash(&block_wrapper.plaintext_data_bytes)
+                Sha256Hash::from_bytes(&block_wrapper.plaintext_data_bytes)
             )
         }
         // receiver can check that chain is valid

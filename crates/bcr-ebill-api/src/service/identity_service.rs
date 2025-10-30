@@ -23,6 +23,7 @@ use bcr_ebill_core::city::City;
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::email::Email;
+use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
 use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
@@ -187,7 +188,7 @@ impl IdentityService {
         public_key: &PublicKey,
         relay_url: &url::Url,
     ) -> Result<File> {
-        let file_hash = util::sha256_hash(file_bytes);
+        let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
@@ -675,7 +676,7 @@ impl IdentityServiceApi for IdentityService {
                     .download(nostr_relay, &file.nostr_hash)
                     .await?;
                 let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
-                let file_hash = util::sha256_hash(&decrypted);
+                let file_hash = Sha256Hash::from_bytes(&decrypted);
                 if file_hash != file.hash {
                     error!("Hash for identity file {file_name} did not match uploaded file");
                     return Err(super::Error::NotFound);

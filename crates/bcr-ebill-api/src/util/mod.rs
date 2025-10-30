@@ -25,8 +25,6 @@ pub fn get_uuid_v4() -> Uuid {
     uuid!("00000000-0000-0000-0000-000000000000")
 }
 
-pub use bcr_ebill_core::util::sha256_hash;
-
 pub fn update_optional_field<T: Clone + PartialEq>(
     field_to_update: &mut Option<T>,
     field: &Option<T>,

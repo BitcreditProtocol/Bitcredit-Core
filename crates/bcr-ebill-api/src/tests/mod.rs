@@ -9,10 +9,12 @@ pub mod tests {
     };
     use async_trait::async_trait;
     use bcr_ebill_core::address::Address;
+    use bcr_ebill_core::block_id::BlockId;
     use bcr_ebill_core::city::City;
     use bcr_ebill_core::country::Country;
     use bcr_ebill_core::date::Date;
     use bcr_ebill_core::email::Email;
+    use bcr_ebill_core::hash::Sha256Hash;
     use bcr_ebill_core::name::Name;
     use bcr_ebill_core::sum::Sum;
     use bcr_ebill_core::{
@@ -179,24 +181,24 @@ pub mod tests {
             async fn set_offer_to_sell_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
                 payment_state: &PaymentState,
             ) -> Result<()>;
             async fn get_offer_to_sell_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
             ) -> Result<Option<PaymentState>>;
             async fn set_recourse_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
                 payment_state: &PaymentState,
             ) -> Result<()>;
             async fn get_recourse_payment_state(
                 &self,
                 id: &BillId,
-                block_id: u64,
+                block_id: BlockId,
             ) -> Result<Option<PaymentState>>;
             async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<BillId>>;
             async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<BillId>>;
@@ -337,7 +339,7 @@ pub mod tests {
             async fn find_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
             async fn find_latest_block_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<Vec<NostrChainEvent>>;
             async fn find_root_event(&self,chain_id: &str, chain_type: BlockchainType) -> Result<Option<NostrChainEvent>>;
-            async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>>;
+            async fn find_by_block_hash(&self, hash: &Sha256Hash) -> Result<Option<NostrChainEvent>>;
             async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
             async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;
         }

@@ -5,7 +5,7 @@ use crate::constants::{
 };
 use bcr_ebill_core::{
     File, OptionalPostalAddress, PostalAddress, address::Address, bill::BillId, city::City,
-    country::Country, zip::Zip,
+    country::Country, hash::Sha256Hash, zip::Zip,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
@@ -88,7 +88,7 @@ pub async fn get_memory_db(namespace: &str, database: &str) -> Result<Surreal<An
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDb {
     pub name: String,
-    pub hash: String,
+    pub hash: Sha256Hash,
     pub nostr_hash: String,
 }
 

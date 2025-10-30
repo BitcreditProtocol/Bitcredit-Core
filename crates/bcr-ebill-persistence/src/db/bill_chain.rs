@@ -13,10 +13,13 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     PublicKey, ServiceTraitBounds,
     bill::BillId,
+    block_id::BlockId,
     blockchain::{
         Block,
         bill::{BillBlock, BillBlockchain, BillOpCode},
     },
+    hash::Sha256Hash,
+    signature::SchnorrSignature,
 };
 use serde::{Deserialize, Serialize};
 
@@ -92,7 +95,7 @@ impl BillChainStoreApi for SurrealBillChainStore {
         match self.get_latest_block(id).await {
             Err(Error::NoBillBlock) => {
                 // if there is no latest block, ensure it's a valid first block
-                if block.id == 1 && block.verify() && block.validate_hash() {
+                if block.id.is_first() && block.verify() && block.validate_hash() {
                     // Atomically ensure it's the first block
                     let query = format!(
                         r#"
@@ -175,11 +178,11 @@ impl BillChainStoreApi for SurrealBillChainStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillBlockDb {
     pub bill_id: BillId,
-    pub block_id: u64,
-    pub plaintext_hash: String,
-    pub hash: String,
-    pub previous_hash: String,
-    pub signature: String,
+    pub block_id: BlockId,
+    pub plaintext_hash: Sha256Hash,
+    pub hash: Sha256Hash,
+    pub previous_hash: Sha256Hash,
+    pub signature: SchnorrSignature,
     pub timestamp: u64,
     pub public_key: PublicKey,
     pub data: String,
@@ -254,7 +257,7 @@ mod tests {
         store.add_block(&bill_id_test(), &block).await.unwrap();
         let last_block = store.get_latest_block(&bill_id_test()).await;
         assert!(last_block.is_ok());
-        assert_eq!(last_block.as_ref().unwrap().id, 1);
+        assert_eq!(last_block.as_ref().unwrap().id.inner(), 1);
 
         let block2 = BillBlock::create_block_for_accept(
             bill_id_test(),
@@ -279,7 +282,7 @@ mod tests {
         store.add_block(&bill_id_test(), &block2).await.unwrap();
         let last_block = store.get_latest_block(&bill_id_test()).await;
         assert!(last_block.is_ok());
-        assert_eq!(last_block.as_ref().unwrap().id, 2);
+        assert_eq!(last_block.as_ref().unwrap().id.inner(), 2);
         let chain = store.get_chain(&bill_id_test()).await.unwrap();
         assert_eq!(chain.blocks().len(), 2);
     }

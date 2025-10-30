@@ -16,6 +16,7 @@ use bcr_ebill_core::{
         bill::{BillBlockchain, block::BillIssueBlockData},
     },
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+    hash::Sha256Hash,
     util::BcrKeys,
 };
 use log::{debug, error, info};
@@ -36,7 +37,7 @@ impl BillService {
                 upload_file_type.max_file_size(),
             )));
         }
-        let file_hash = util::sha256_hash(file_bytes);
+        let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");

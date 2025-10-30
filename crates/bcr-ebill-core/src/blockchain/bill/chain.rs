@@ -19,6 +19,7 @@ use crate::contact::{
     BillParticipant, ContactType, LightBillIdentParticipant, LightBillParticipant,
 };
 use crate::date::Date;
+use crate::hash::Sha256Hash;
 use crate::util::{self, BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -300,7 +301,7 @@ impl BillBlockchain {
         bill_keys: BcrKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        let genesis_hash = util::base58_encode(bill.id.to_string().as_bytes());
+        let genesis_hash = Sha256Hash::from_bytes(bill.id.to_string().as_bytes());
 
         let first_block = BillBlock::create_block_for_issue(
             bill.id.clone(),
@@ -1023,7 +1024,7 @@ impl BillBlockchain {
                 BillOpCode::Recourse => block.get_decrypted_block_bytes(bill_keys)?,
             };
 
-            if block.plaintext_hash != util::sha256_hash(&plaintext_data_bytes) {
+            if block.plaintext_hash != Sha256Hash::from_bytes(&plaintext_data_bytes) {
                 return Err(Error::BlockInvalid);
             }
 
@@ -1288,7 +1289,7 @@ mod tests {
 
         assert!(!result.is_empty());
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, 2);
+        assert_eq!(result[0].id.inner(), 2);
     }
 
     #[test]

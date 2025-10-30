@@ -1,10 +1,12 @@
 use std::{fmt, str::FromStr};
 
 use log::warn;
-use secp256k1::{SECP256K1, SecretKey, schnorr::Signature};
+use secp256k1::{SECP256K1, SecretKey};
 use url::Url;
 
-use crate::{NodeId, ValidationError, util};
+use crate::{
+    NodeId, ValidationError, block_id::BlockId, hash::Sha256Hash, signature::SchnorrSignature, util,
+};
 
 #[derive(Debug, Clone)]
 pub enum IdentityProofStatus {
@@ -42,20 +44,23 @@ pub struct IdentityProof {
     pub timestamp: u64,
     pub status: IdentityProofStatus,
     pub status_last_checked_timestamp: u64,
-    pub block_id: u64,
+    pub block_id: BlockId,
 }
 
 impl IdentityProof {
     pub fn id(&self) -> String {
         // The id is the base58 sha256 hash of the node_id:url:timestamp triple
-        util::sha256_hash(format!("{}:{}:{}", &self.node_id, &self.url, self.timestamp).as_bytes())
+        Sha256Hash::from_bytes(
+            format!("{}:{}:{}", &self.node_id, &self.url, self.timestamp).as_bytes(),
+        )
+        .to_string()
     }
 }
 
 /// This is the string users are supposed to post on their social media to prove their identity
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdentityProofStamp {
-    inner: Signature,
+    inner: SchnorrSignature,
 }
 
 impl IdentityProofStamp {
@@ -66,11 +71,11 @@ impl IdentityProofStamp {
             return Err(ValidationError::InvalidNodeId);
         }
         // hash the node id
-        let hash = util::sha256_hash(node_id.to_string().as_bytes());
+        let hash = Sha256Hash::from_bytes(node_id.to_string().as_bytes());
         // sign it
         let signature = util::crypto::signature(&hash, private_key)
             .map_err(|_| ValidationError::InvalidSignature)?;
-        IdentityProofStamp::from_str(&signature)
+        Ok(IdentityProofStamp::from(signature))
     }
 
     /// Checks if the identity proof signature string is within the given body of text
@@ -80,8 +85,8 @@ impl IdentityProofStamp {
     }
 
     pub fn verify_against_node_id(&self, node_id: &NodeId) -> bool {
-        let hash = util::sha256_hash(node_id.to_string().as_bytes());
-        match util::crypto::verify(&hash, &self.to_string(), &node_id.pub_key()) {
+        let hash = Sha256Hash::from_bytes(node_id.to_string().as_bytes());
+        match util::crypto::verify(&hash, &self.inner, &node_id.pub_key()) {
             Ok(verified) => verified,
             Err(e) => {
                 warn!(
@@ -95,12 +100,12 @@ impl IdentityProofStamp {
 
 impl fmt::Display for IdentityProofStamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", util::base58_encode(&self.inner.serialize()))
+        self.inner.fmt(f)
     }
 }
 
-impl From<Signature> for IdentityProofStamp {
-    fn from(value: Signature) -> Self {
+impl From<SchnorrSignature> for IdentityProofStamp {
+    fn from(value: SchnorrSignature) -> Self {
         Self { inner: value }
     }
 }
@@ -109,10 +114,7 @@ impl FromStr for IdentityProofStamp {
     type Err = ValidationError;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(Self {
-            inner: Signature::from_slice(
-                &util::base58_decode(s).map_err(|_| ValidationError::InvalidBase58)?,
-            )
-            .map_err(|_| ValidationError::InvalidSignature)?,
+            inner: SchnorrSignature::from_str(s)?,
         })
     }
 }

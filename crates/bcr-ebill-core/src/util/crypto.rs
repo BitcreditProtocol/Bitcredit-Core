@@ -1,15 +1,15 @@
 use std::str::FromStr;
 
-use crate::{bill::BillKeys, blockchain::BlockchainType, company::CompanyKeys};
+use crate::{
+    bill::BillKeys, blockchain::BlockchainType, company::CompanyKeys, hash::Sha256Hash,
+    signature::SchnorrSignature,
+};
 
-use super::{base58_decode, base58_encode};
 use bip39::Mnemonic;
 use bitcoin::{
     Network,
     hashes::{Hash, HashEngine, Hmac, HmacEngine, sha256, sha512},
-    secp256k1::{
-        self, Keypair, Message, PublicKey, SECP256K1, Scalar, SecretKey, rand, schnorr::Signature,
-    },
+    secp256k1::{self, Keypair, Message, PublicKey, SECP256K1, Scalar, SecretKey, rand},
 };
 use thiserror::Error;
 
@@ -248,7 +248,7 @@ pub fn get_aggregated_public_key(private_keys: &[SecretKey]) -> Result<PublicKey
 /// signature for the same keys
 /// Public keys can be aggregated regardless of order
 /// Returns the aggregated signature
-pub fn aggregated_signature(hash: &str, keys: &[SecretKey]) -> Result<String> {
+pub fn aggregated_signature(hash: &Sha256Hash, keys: &[SecretKey]) -> Result<SchnorrSignature> {
     if keys.len() < 2 {
         return Err(Error::TooFewKeys);
     }
@@ -265,25 +265,29 @@ pub fn aggregated_signature(hash: &str, keys: &[SecretKey]) -> Result<String> {
     }
 
     let aggregated_key_pair = Keypair::from_secret_key(SECP256K1, &aggregated_key);
-    let msg = Message::from_digest_slice(&base58_decode(hash)?)?;
+    let msg = Message::from_digest_slice(&hash.decode())?;
     let signature = SECP256K1.sign_schnorr(&msg, &aggregated_key_pair);
 
-    Ok(base58_encode(&signature.serialize()))
+    Ok(SchnorrSignature::from(signature))
 }
 
 // -------------------- Signatures --------------------------
 
-pub fn signature(hash: &str, private_key: &SecretKey) -> Result<String> {
+pub fn signature(hash: &Sha256Hash, private_key: &SecretKey) -> Result<SchnorrSignature> {
     let key_pair = load_keypair(private_key)?;
-    let msg = Message::from_digest_slice(&base58_decode(hash)?)?;
+    let msg = Message::from_digest_slice(&hash.decode())?;
     let signature = SECP256K1.sign_schnorr(&msg, &key_pair);
-    Ok(base58_encode(&signature.serialize()))
+    Ok(SchnorrSignature::from(signature))
 }
 
-pub fn verify(hash: &str, signature: &str, public_key: &PublicKey) -> Result<bool> {
+pub fn verify(
+    hash: &Sha256Hash,
+    signature: &SchnorrSignature,
+    public_key: &PublicKey,
+) -> Result<bool> {
     let (pub_key, _) = public_key.x_only_public_key();
-    let msg = Message::from_digest_slice(&base58_decode(hash)?)?;
-    let decoded_signature = Signature::from_slice(&base58_decode(signature)?)?;
+    let msg = Message::from_digest_slice(&hash.decode())?;
+    let decoded_signature = signature.as_sig();
     Ok(SECP256K1
         .verify_schnorr(&decoded_signature, &msg, &pub_key)
         .is_ok())
@@ -355,7 +359,6 @@ mod tests {
     use nostr::nips::nip19::ToBech32;
 
     use super::*;
-    use crate::util;
 
     fn priv_key() -> SecretKey {
         SecretKey::from_str("926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3")
@@ -465,7 +468,7 @@ mod tests {
     #[test]
     fn test_sign_verify() {
         let keypair = BcrKeys::new();
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let signature = signature(&hash, &keypair.get_private_key()).unwrap();
         assert!(verify(&hash, &signature, &keypair.pub_key()).is_ok());
         assert!(verify(&hash, &signature, &keypair.pub_key()).unwrap());
@@ -474,9 +477,9 @@ mod tests {
     #[test]
     fn test_sign_verify_invalid() {
         let keypair = BcrKeys::new();
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let signature = signature(&hash, &keypair.get_private_key()).unwrap();
-        let hash2 = util::sha256_hash("Hello, Changed Changed Changed World".as_bytes());
+        let hash2 = Sha256Hash::from_bytes("Hello, Changed Changed Changed World".as_bytes());
         assert!(verify(&hash, &signature, &keypair.pub_key()).is_ok());
         assert!(verify(&hash, &signature, &keypair.pub_key()).is_ok());
         // it fails for a different hash
@@ -493,7 +496,7 @@ mod tests {
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
         let keys: Vec<SecretKey> = vec![keypair1.get_private_key(), keypair2.get_private_key()];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
 
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
@@ -504,7 +507,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify_aggregated_order_dependence() {
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
 
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
@@ -538,12 +541,12 @@ mod tests {
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
         let keys: Vec<SecretKey> = vec![keypair1.get_private_key(), keypair2.get_private_key()];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
 
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
 
-        let changed_hash = util::sha256_hash("Hello Hello, World".as_bytes());
+        let changed_hash = Sha256Hash::from_bytes("Hello Hello, World".as_bytes());
         assert!(verify(&changed_hash, &signature, &public_key).is_ok());
         assert!(!verify(&changed_hash, &signature, &public_key).unwrap());
     }
@@ -553,7 +556,7 @@ mod tests {
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
         let keys: Vec<SecretKey> = vec![keypair1.get_private_key(), keypair2.get_private_key()];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let signature = aggregated_signature(&hash, &keys).unwrap();
         assert!(verify(&hash, &signature, &keypair2.pub_key()).is_ok());
         assert!(!verify(&hash, &signature, &keypair2.pub_key()).unwrap());
@@ -569,7 +572,7 @@ mod tests {
             keypair2.get_private_key(),
             keypair3.get_private_key(),
         ];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
         assert!(verify(&hash, &signature, &public_key).is_ok());
@@ -586,7 +589,7 @@ mod tests {
             keypair2.get_private_key(),
             keypair3.get_private_key(),
         ];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
 
@@ -608,7 +611,7 @@ mod tests {
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
         let keys: Vec<SecretKey> = vec![keypair1.get_private_key(), keypair2.get_private_key()];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
 
@@ -629,7 +632,7 @@ mod tests {
         let keypair1 = BcrKeys::new();
         let keypair2 = BcrKeys::new();
         let keys: Vec<SecretKey> = vec![keypair1.get_private_key(), keypair2.get_private_key()];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
 
@@ -649,7 +652,7 @@ mod tests {
         let keypair2 = BcrKeys::new();
         let keypair3 = BcrKeys::new();
         let keys: Vec<SecretKey> = vec![keypair1.get_private_key(), keypair2.get_private_key()];
-        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let hash = Sha256Hash::from_bytes("Hello, World".as_bytes());
         let public_key = get_aggregated_public_key(&keys).unwrap();
         let signature = aggregated_signature(&hash, &keys).unwrap();
 

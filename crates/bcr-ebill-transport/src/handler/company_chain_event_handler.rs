@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_ebill_api::service::notification_service::event::CompanyBlockEvent;
+use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType, util::date::now};
 use bcr_ebill_persistence::{
     NostrChainEventStoreApi, company::CompanyStoreApi, nostr::NostrChainEvent,
@@ -84,7 +85,7 @@ impl CompanyChainEventHandler {
         &self,
         event: Box<nostr::Event>,
         block_height: usize,
-        block_hash: &str,
+        block_hash: &Sha256Hash,
         chain_id: &str,
         valid: bool,
     ) -> Result<()> {
@@ -101,7 +102,7 @@ impl CompanyChainEventHandler {
                 chain_id: chain_id.to_string(),
                 chain_type: BlockchainType::Company,
                 block_height,
-                block_hash: block_hash.to_string(),
+                block_hash: block_hash.to_owned(),
                 received: now().timestamp() as u64,
                 time: event.created_at.as_u64(),
                 payload: *event.clone(),

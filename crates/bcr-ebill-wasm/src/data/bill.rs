@@ -12,6 +12,7 @@ use bcr_ebill_api::{
             PastEndorsee, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
             PastPaymentResult, PastPaymentStatus,
         },
+        block_id::BlockId,
         city::City,
         contact::{
             BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
@@ -288,7 +289,8 @@ impl From<BillHistory> for BillHistoryResponse {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct BillHistoryBlockWeb {
-    pub block_id: u64,
+    #[tsify(type = "number")]
+    pub block_id: BlockId,
     pub block_type: BillOpCodeWeb,
     pub pay_to_the_order_of: Option<LightBillParticipantWeb>,
     pub signed: LightSignedByWeb,

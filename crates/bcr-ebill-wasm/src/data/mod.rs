@@ -4,7 +4,7 @@ use bcr_ebill_api::{
     data::{
         File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
         PostalAddress, UploadFileResult, address::Address, city::City, country::Country,
-        date::Date, zip::Zip,
+        date::Date, hash::Sha256Hash, zip::Zip,
     },
     util::{
         self, ValidationError,
@@ -277,7 +277,8 @@ impl From<NotificationFilters> for NotificationFilter {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct FileWeb {
     pub name: String,
-    pub hash: String,
+    #[tsify(type = "string")]
+    pub hash: Sha256Hash,
     pub nostr_hash: String,
 }
 

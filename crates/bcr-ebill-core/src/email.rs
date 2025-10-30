@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Field, ValidationError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct Email(String);
 
 impl Email {
@@ -38,6 +38,20 @@ impl FromStr for Email {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Email::new(s)
+    }
+}
+
+impl TryFrom<String> for Email {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<Email> for String {
+    fn from(value: Email) -> Self {
+        value.0
     }
 }
 
@@ -97,7 +111,22 @@ mod tests {
     }
 
     #[test]
-    fn test_name() {
+    fn test_invalid_serialization() {
+        let json = "{\"email\":\"\"}";
+        let deserialized = serde_json::from_str::<TestEmail>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("")).expect("works");
+        let res = Email::try_from_slice(&borsh);
+        assert!(res.is_err());
+
+        let borsh = borsh::to_vec(&String::from("test@example.com")).expect("works");
+        let res = Email::try_from_slice(&borsh);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_email() {
         let n = Email::new("test@example.com").expect("works");
         let n_owned = Email::new(String::from("test@example.com")).expect("works");
         assert_eq!(n, n_owned);

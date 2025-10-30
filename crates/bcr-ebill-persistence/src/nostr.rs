@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     blockchain::BlockchainType,
+    hash::Sha256Hash,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
 };
 use nostr::event::Event;
@@ -128,7 +129,7 @@ pub trait NostrChainEventStoreApi: ServiceTraitBounds {
     ) -> Result<Option<NostrChainEvent>>;
 
     /// Finds a message with a specific block hash as extracted from the chain payload.
-    async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>>;
+    async fn find_by_block_hash(&self, hash: &Sha256Hash) -> Result<Option<NostrChainEvent>>;
 
     /// Adds a new chain event to the store.
     async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
@@ -154,7 +155,7 @@ pub struct NostrChainEvent {
     /// The block height of the block contained in this event.
     pub block_height: usize,
     /// The hash of the block contained in this event.
-    pub block_hash: String,
+    pub block_hash: Sha256Hash,
     /// The timestamp when we received the event.
     pub received: u64,
     /// The timestamp of the event.

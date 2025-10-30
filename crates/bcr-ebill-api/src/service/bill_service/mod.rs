@@ -273,8 +273,9 @@ pub mod tests {
             BillRecourseStatus, BillSellStatus, BillWaitingForPaymentState,
             BillWaitingStatePaymentData, PastPaymentStatus, RecourseReason,
         },
+        block_id::BlockId,
         blockchain::{
-            Blockchain,
+            Block, Blockchain,
             bill::{
                 BillBlock, BillOpCode,
                 block::{
@@ -293,6 +294,7 @@ pub mod tests {
         contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
         country::Country,
         date::Date,
+        hash::Sha256Hash,
         mint::{MintOffer, MintRequest, MintRequestStatus},
         name::Name,
         notification::ActionType,
@@ -829,7 +831,7 @@ pub mod tests {
                     &bill_id_test(),
                     &File {
                         name: "some_file".into(),
-                        hash: "".into(),
+                        hash: Sha256Hash::new("some hash"),
                         nostr_hash: "".into()
                     },
                     &private_key_test(),
@@ -2532,18 +2534,19 @@ pub mod tests {
         let mut bill = get_baseline_bill(&bill_id_test());
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let mut chain = get_genesis_chain(Some(bill.clone()));
+        let latest_block = chain.get_latest_block().clone();
         chain.blocks_mut().push(
             BillBlock::new(
                 bill_id_test(),
-                123456,
-                "prevhash".to_string(),
+                BlockId::next_from_previous_block_id(&latest_block.id()),
+                Sha256Hash::new("prevhash"),
                 "data".to_string(),
                 BillOpCode::Accept,
                 &keys,
                 None,
                 &BcrKeys::from_private_key(&private_key_test()).unwrap(),
                 1731593928,
-                "plain text hash".to_string(),
+                Sha256Hash::new("plain text hash"),
             )
             .unwrap(),
         );

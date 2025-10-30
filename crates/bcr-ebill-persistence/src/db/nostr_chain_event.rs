@@ -7,7 +7,7 @@ use crate::{
     nostr::{NostrChainEvent, NostrChainEventStoreApi},
 };
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType};
+use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType, hash::Sha256Hash};
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
 
@@ -95,7 +95,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
     }
 
     /// Finds a message with a specific block hash as extracted from the chain payload.
-    async fn find_by_block_hash(&self, hash: &str) -> Result<Option<NostrChainEvent>> {
+    async fn find_by_block_hash(&self, hash: &Sha256Hash) -> Result<Option<NostrChainEvent>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(BLOCK_HASH, hash.to_owned())?;
@@ -170,7 +170,7 @@ pub struct NostrChainEventDb {
     /// The block height of the block contained in this event.
     pub block_height: usize,
     /// The hash of the block contained in this event.
-    pub block_hash: String,
+    pub block_hash: Sha256Hash,
     /// The timestamp when we received the event.
     pub received: u64,
     /// The timestamp of the event.
@@ -245,7 +245,7 @@ mod tests {
     async fn test_event_by_hash() {
         let store = get_store("event_by_hash").await;
         let root = get_root_event();
-        let child = get_child_event("child_id", 2, "child_hash", &root, None);
+        let child = get_child_event("child_id", 2, &Sha256Hash::new("child_hash"), &root, None);
         store
             .add_chain_event(root)
             .await
@@ -255,7 +255,7 @@ mod tests {
             .await
             .expect("child event creation failed");
         let by_hash = store
-            .find_by_block_hash("child_hash")
+            .find_by_block_hash(&Sha256Hash::new("child_hash"))
             .await
             .expect("could not find by hash");
         assert!(
@@ -269,7 +269,7 @@ mod tests {
     async fn test_find_root_event() {
         let store = get_store("find_root_event").await;
         let root = get_root_event();
-        let child = get_child_event("child_id", 2, "child_hash", &root, None);
+        let child = get_child_event("child_id", 2, &Sha256Hash::new("child_hash"), &root, None);
         store
             .add_chain_event(root)
             .await
@@ -295,9 +295,27 @@ mod tests {
     async fn test_find_latest_block_events() {
         let store = get_store("find_latest_block_events").await;
         let root = get_root_event();
-        let child = get_child_event("child_event", 2, "child_hash", &root, None);
-        let target1 = get_child_event("child_event_a", 3, "child_hash_a", &root, Some(&child));
-        let target2 = get_child_event("child_event_b", 3, "child_hash_b", &root, Some(&child));
+        let child = get_child_event(
+            "child_event",
+            2,
+            &Sha256Hash::new("child_hash"),
+            &root,
+            None,
+        );
+        let target1 = get_child_event(
+            "child_event_a",
+            3,
+            &Sha256Hash::new("child_hash_a"),
+            &root,
+            Some(&child),
+        );
+        let target2 = get_child_event(
+            "child_event_b",
+            3,
+            &Sha256Hash::new("child_hash_b"),
+            &root,
+            Some(&child),
+        );
         store
             .add_chain_event(root)
             .await
@@ -334,10 +352,34 @@ mod tests {
     async fn test_find_all_events() {
         let store = get_store("find_all_events").await;
         let root = get_root_event();
-        let child = get_child_event("child_event", 2, "child_hash", &root, None);
-        let target1 = get_child_event("child_event_a", 3, "child_hash_a", &root, Some(&child));
-        let target2 = get_child_event("child_event_b", 3, "child_hash_b", &root, Some(&child));
-        let mut invalid = get_child_event("child_event_c", 3, "child_hash_c", &root, Some(&child));
+        let child = get_child_event(
+            "child_event",
+            2,
+            &Sha256Hash::new("child_hash"),
+            &root,
+            None,
+        );
+        let target1 = get_child_event(
+            "child_event_a",
+            3,
+            &Sha256Hash::new("child_hash_a"),
+            &root,
+            Some(&child),
+        );
+        let target2 = get_child_event(
+            "child_event_b",
+            3,
+            &Sha256Hash::new("child_hash_b"),
+            &root,
+            Some(&child),
+        );
+        let mut invalid = get_child_event(
+            "child_event_c",
+            3,
+            &Sha256Hash::new("child_hash_c"),
+            &root,
+            Some(&child),
+        );
         invalid.valid = false;
 
         store
@@ -381,13 +423,19 @@ mod tests {
     }
 
     fn get_root_event() -> NostrChainEvent {
-        get_test_chain_event("root_event_id", "root_event_id", None, 1, "root_hash")
+        get_test_chain_event(
+            "root_event_id",
+            "root_event_id",
+            None,
+            1,
+            &Sha256Hash::new("root_hash"),
+        )
     }
 
     fn get_child_event(
         id: &str,
         height: usize,
-        hash: &str,
+        hash: &Sha256Hash,
         root: &NostrChainEvent,
         parent: Option<&NostrChainEvent>,
     ) -> NostrChainEvent {
@@ -405,7 +453,7 @@ mod tests {
         root_id: &str,
         reply_id: Option<String>,
         block_height: usize,
-        block_hash: &str,
+        block_hash: &Sha256Hash,
     ) -> NostrChainEvent {
         NostrChainEvent {
             event_id: event_id.to_string(),

@@ -8,7 +8,7 @@ use crate::{ValidationError, util::date::DateTimeUtc};
 pub const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct Date(String);
 
 impl Date {
@@ -54,6 +54,20 @@ impl FromStr for Date {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Date::new(s)
+    }
+}
+
+impl TryFrom<String> for Date {
+    type Error = ValidationError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<Date> for String {
+    fn from(value: Date) -> Self {
+        value.0
     }
 }
 
@@ -124,6 +138,21 @@ mod tests {
             Date::new("01.03.2025"),
             Err(ValidationError::InvalidDate)
         ));
+    }
+
+    #[test]
+    fn test_invalid_serialization() {
+        let json = "{\"date\":\"invalid\"}";
+        let deserialized = serde_json::from_str::<TestDate>(json);
+        assert!(deserialized.is_err());
+
+        let borsh = borsh::to_vec(&String::from("2025-01-15")).expect("works");
+        let res = Date::try_from_slice(&borsh);
+        assert!(res.is_ok());
+
+        let borsh = borsh::to_vec(&String::from("invalid")).expect("works");
+        let res = Date::try_from_slice(&borsh);
+        assert!(res.is_err());
     }
 
     #[test]
