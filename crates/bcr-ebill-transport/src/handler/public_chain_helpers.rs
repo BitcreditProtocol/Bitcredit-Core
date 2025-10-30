@@ -1,6 +1,8 @@
 use std::{cmp::Reverse, sync::Arc};
 
-use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::{
+    service::notification_service::transport::NotificationJsonTransportApi, util::base58_decode,
+};
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     hash::Sha256Hash,
@@ -94,7 +96,7 @@ pub fn decrypt_block(
     if let Ok(Some(payload)) = unwrap_public_chain_event(Box::new(event.clone())) {
         if (payload.id == chain_id) && (payload.chain_type == chain_type) {
             let decrypted = decrypt_public_chain_event(&payload.payload, keys)?;
-            let bytes: Vec<u8> = serde_json::from_value(decrypted.data)?;
+            let bytes: Vec<u8> = base58_decode(&decrypted.data)?;
             let data = match chain_type {
                 BlockchainType::Bill => {
                     BlockData::Bill(borsh::from_slice::<BillBlockEvent>(&bytes)?.block)

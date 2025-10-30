@@ -8,7 +8,6 @@ use std::fmt::Display;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, ProtocolError>;
@@ -41,6 +40,8 @@ pub use blockchain_event::{
 pub use company_events::CompanyChainEvent;
 pub use contact::ContactShareEvent;
 pub use identity_events::IdentityChainEvent;
+
+use crate::util::{base58_decode, base58_encode};
 
 /// The global event type that is used for all events.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -147,18 +148,18 @@ fn get_version(_event_type: &EventType) -> String {
 pub struct EventEnvelope {
     pub event_type: EventType,
     pub version: String,
-    pub data: Value,
+    pub data: String,
 }
 
 impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
     type Error = ProtocolError;
 
     fn try_from(event: Event<T>) -> Result<Self> {
-        let serialized = borsh::to_vec(&event.data)?;
+        let serialized = base58_encode(&borsh::to_vec(&event.data)?);
         Ok(Self {
             event_type: event.event_type,
             version: event.version,
-            data: serde_json::to_value(serialized)?,
+            data: serialized,
         })
     }
 }
@@ -190,7 +191,8 @@ impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
 impl<T: BorshDeserialize + BorshSerialize> TryFrom<EventEnvelope> for Event<T> {
     type Error = ProtocolError;
     fn try_from(envelope: EventEnvelope) -> Result<Self> {
-        let bytes: Vec<u8> = serde_json::from_value(envelope.data)?;
+        let bytes: Vec<u8> = base58_decode(&envelope.data)
+            .map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
         let data: T = borsh::from_slice(&bytes)?;
         Ok(Self {
             event_type: envelope.event_type,

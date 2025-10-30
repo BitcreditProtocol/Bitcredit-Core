@@ -9,34 +9,11 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 /// A chain invite sent to new chain participants via private Nostr DM.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ChainInvite {
     pub chain_id: String,
     pub chain_type: BlockchainType,
     pub keys: ChainKeys,
-}
-
-impl borsh::BorshSerialize for ChainInvite {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&self.chain_id, writer)?;
-        borsh::BorshSerialize::serialize(&self.chain_type, writer)?;
-        borsh::BorshSerialize::serialize(&self.keys, writer)?;
-        Ok(())
-    }
-}
-
-impl borsh::BorshDeserialize for ChainInvite {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let chain_id: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        let chain_type: BlockchainType = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        let keys: ChainKeys = borsh::BorshDeserialize::deserialize_reader(reader)?;
-
-        Ok(Self {
-            chain_id,
-            chain_type,
-            keys,
-        })
-    }
 }
 
 impl ChainInvite {

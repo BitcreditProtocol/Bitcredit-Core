@@ -2785,7 +2785,7 @@ mod tests {
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
-            data: serde_json::Value::Null,
+            data: "".to_owned(),
         })
         .unwrap();
         let queued_message = NostrQueuedMessage {
@@ -2917,7 +2917,7 @@ mod tests {
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
-            data: serde_json::Value::Null,
+            data: "".to_owned(),
         })
         .unwrap();
 
@@ -2993,14 +2993,14 @@ mod tests {
         let payload1 = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
-            data: serde_json::Value::Null,
+            data: "".to_owned(),
         })
         .unwrap();
 
         let payload2 = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
-            data: serde_json::Value::Null,
+            data: "".to_owned(),
         })
         .unwrap();
 
@@ -3157,7 +3157,7 @@ mod tests {
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
-            data: serde_json::Value::Null,
+            data: "".to_owned(),
         })
         .unwrap();
 
@@ -3235,7 +3235,7 @@ mod tests {
         let payload = serde_json::to_value(EventEnvelope {
             version: "1.0".to_string(),
             event_type: EventType::Bill,
-            data: serde_json::Value::Null,
+            data: "".to_owned(),
         })
         .unwrap();
 

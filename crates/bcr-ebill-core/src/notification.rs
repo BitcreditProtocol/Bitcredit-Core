@@ -3,6 +3,7 @@ use crate::{
     bill::BillId,
     util::date::{DateTimeUtc, now},
 };
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{self, Display};
@@ -68,16 +69,7 @@ impl Display for NotificationType {
     }
 }
 
-#[derive(
-    Serialize,
-    Deserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    borsh_derive::BorshSerialize,
-    borsh_derive::BorshDeserialize,
-)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum ActionType {
     BuyBill,
@@ -93,15 +85,7 @@ pub enum ActionType {
 /// exceptions here. As soon as we have other event topics, we can
 /// add new types here and remove the clippy exceptions.
 #[derive(
-    Serialize,
-    Deserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Default,
-    borsh_derive::BorshSerialize,
-    borsh_derive::BorshDeserialize,
+    Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, BorshSerialize, BorshDeserialize,
 )]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum BillEventType {

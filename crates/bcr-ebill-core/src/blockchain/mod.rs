@@ -7,7 +7,7 @@ use crate::hash::Sha256Hash;
 use crate::signature::SchnorrSignature;
 use crate::util::crypto;
 use crate::{ValidationError, util};
-use borsh::{BorshSerialize, to_vec};
+use borsh::{BorshDeserialize, BorshSerialize, to_vec};
 use log::{error, warn};
 use std::fmt::Display;
 use std::string::FromUtf8Error;
@@ -77,15 +77,7 @@ pub enum Error {
 }
 
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    borsh_derive::BorshSerialize,
-    borsh_derive::BorshDeserialize,
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
 pub enum BlockchainType {
     #[serde(rename = "bill")]
