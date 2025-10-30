@@ -2,6 +2,7 @@
 
 * Document versioning scheme
 * Rework WASM API to return `TSResult<T> =  { Success: T } | { Error: JsErrorData }` without triggering exceptions
+* Rework `sum` and `currency` into a coherent `Sum` type that's ready for multi-currency and exchange rates (breaking DB change)
 
 # 0.4.12
 

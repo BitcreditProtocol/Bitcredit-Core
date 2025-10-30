@@ -187,7 +187,7 @@ fn event_description(event_type: &BillEventType) -> String {
 mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_core::{PublicKey, bill::BillId, notification::ActionType};
+    use bcr_ebill_core::{PublicKey, bill::BillId, notification::ActionType, sum::Sum};
     use mockall::predicate::{always, eq};
 
     use crate::handler::{
@@ -237,7 +237,7 @@ mod tests {
             BillChainEventPayload {
                 bill_id: bill_id_test(),
                 event_type: BillEventType::BillBlock,
-                sum: Some(0),
+                sum: Some(Sum::new_sat(100).expect("sat works")),
                 action_type: Some(ActionType::CheckBill),
             },
         );
@@ -330,7 +330,7 @@ mod tests {
             BillChainEventPayload {
                 bill_id: bill_id_test(),
                 event_type: BillEventType::BillSigned,
-                sum: Some(0),
+                sum: Some(Sum::new_sat(500).expect("sat works")),
                 action_type: Some(ActionType::CheckBill),
             },
         );

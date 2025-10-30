@@ -407,7 +407,6 @@ impl BillBlockchain {
                 buyer: block_data_decrypted.buyer.into(),
                 seller: block_data_decrypted.seller.into(),
                 sum: block_data_decrypted.sum,
-                currency: block_data_decrypted.currency,
                 payment_address: block_data_decrypted.payment_address,
                 block_id: offer_to_sell_block.id(),
                 buying_deadline_timestamp: block_data_decrypted.buying_deadline_timestamp,
@@ -519,7 +518,6 @@ impl BillBlockchain {
                 recoursee: block_data_decrypted.recoursee,
                 recourser: block_data_decrypted.recourser,
                 sum: block_data_decrypted.sum,
-                currency: block_data_decrypted.currency,
                 reason: block_data_decrypted.recourse_reason,
                 block_id: request_to_recourse_block.id(),
                 recourse_deadline_timestamp: block_data_decrypted.recourse_deadline_timestamp,
@@ -709,7 +707,6 @@ impl BillBlockchain {
                         recoursee: block_data_decrypted.recoursee,
                         recourser: block_data_decrypted.recourser,
                         sum: block_data_decrypted.sum,
-                        currency: block_data_decrypted.currency,
                         reason: block_data_decrypted.recourse_reason,
                         block_id: last_version_block.id(),
                         recourse_deadline_timestamp: block_data_decrypted
@@ -749,7 +746,6 @@ impl BillBlockchain {
                         buyer: block_data_decrypted.buyer.into(),
                         seller: block_data_decrypted.seller.into(),
                         sum: block_data_decrypted.sum,
-                        currency: block_data_decrypted.currency,
                         payment_address: block_data_decrypted.payment_address,
                         block_id: last_version_block_offer_to_sell.id(),
                         buying_deadline_timestamp: block_data_decrypted.buying_deadline_timestamp,
@@ -1057,8 +1053,9 @@ mod tests {
             block::{BillOfferToSellBlockData, BillRecourseReasonBlockData},
             tests::get_baseline_identity,
         },
-        constants::{CURRENCY_SAT, DAY_IN_SECS},
+        constants::DAY_IN_SECS,
         contact::BillIdentParticipant,
+        sum::Sum,
         tests::tests::{
             VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_identified_participant_only_node_id,
             bill_participant_only_node_id, empty_bitcredit_bill, get_bill_keys, private_key_test,
@@ -1080,8 +1077,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: "1234".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -1188,7 +1184,7 @@ mod tests {
 
         assert!(result.is_ok());
         if let OfferToSellWaitingForPayment::Yes(info) = result.unwrap() {
-            assert_eq!(info.sum, 5000);
+            assert_eq!(info.sum, Sum::new_sat(5000).expect("sat works"));
             assert_eq!(info.buyer.node_id(), node_id_last_endorsee);
         } else {
             panic!("wrong result");
@@ -1299,7 +1295,7 @@ mod tests {
     fn test_get_serialized_chain_with_plaintext() {
         let bill = empty_bitcredit_bill();
         let bill_maturity_date = bill.maturity_date.clone();
-        let bill_sum = bill.sum;
+        let bill_sum = bill.sum.clone();
         let bill_id = bill.id.clone();
         let bill_keys = get_bill_keys();
         let identity = get_baseline_identity();
@@ -1346,8 +1342,7 @@ mod tests {
             &BillSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
                 signatory: None,
                 signing_timestamp: 1731593929,
@@ -1413,8 +1408,7 @@ mod tests {
             &BillMintBlockData {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
-                sum: 5000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
                 signing_timestamp: 1731593931,
                 signing_address: Some(signer.postal_address.clone()),
@@ -1447,8 +1441,7 @@ mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(other_party.clone()).into(),
                 recoursee: signer.clone().into(),
-                sum: 15000,
-                currency: CURRENCY_SAT.to_string(),
+                sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: 1731593932,

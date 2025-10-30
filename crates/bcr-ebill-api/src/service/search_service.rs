@@ -6,6 +6,7 @@ use super::{
 use crate::data::{GeneralSearchFilterItemType, bill::BillsFilterRole};
 use crate::data::{GeneralSearchResult, validate_node_id_network};
 use async_trait::async_trait;
+use bcr_ebill_core::sum::Currency;
 use log::debug;
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ pub trait SearchServiceApi: ServiceTraitBounds {
     async fn search(
         &self,
         search_term: &str,
-        currency: &str,
+        currency: &Currency,
         item_types: &[GeneralSearchFilterItemType],
         current_identity_node_id: &NodeId,
     ) -> Result<GeneralSearchResult>;
@@ -54,7 +55,7 @@ impl SearchServiceApi for SearchService {
     async fn search(
         &self,
         search_term: &str,
-        currency: &str,
+        currency: &Currency,
         item_types: &[GeneralSearchFilterItemType],
         current_identity_node_id: &NodeId,
     ) -> Result<GeneralSearchResult> {

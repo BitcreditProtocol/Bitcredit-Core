@@ -12,6 +12,7 @@ use bcr_ebill_core::blockchain::Block;
 use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::identity::IdentityType;
+use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::{NodeId, Validate, ValidationError};
 use bcr_ebill_core::{
     bill::{
@@ -29,7 +30,7 @@ use bcr_ebill_core::{
     },
     contact::ContactType,
     identity::{Identity, IdentityWithAll},
-    util::{BcrKeys, currency},
+    util::BcrKeys,
 };
 use log::{debug, error};
 use std::collections::HashMap;
@@ -91,7 +92,6 @@ impl BillService {
             drawer: drawer_contact,
             payee: payee_contact,
             endorsee: endorsee_contact,
-            currency: bill_first_version.currency,
             sum: bill_first_version.sum,
             maturity_date: bill_first_version.maturity_date,
             issue_date: bill_first_version.issue_date,
@@ -356,7 +356,7 @@ impl BillService {
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
-                        payment_info.sum,
+                        &payment_info.sum,
                         &format!("Payment in relation to a bill {}", &bill.id),
                     );
 
@@ -369,8 +369,7 @@ impl BillService {
                         buyer,
                         payment_data: BillWaitingStatePaymentData {
                             time_of_request: last_block.timestamp,
-                            currency: payment_info.currency.clone(),
-                            sum: currency::sum_to_string(payment_info.sum),
+                            sum: payment_info.sum.clone(),
                             link_to_pay,
                             address_to_pay,
                             mempool_link_for_address_to_pay,
@@ -425,7 +424,7 @@ impl BillService {
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
-                        bill.sum,
+                        &bill.sum,
                         &format!("Payment in relation to a bill {}", bill.id.clone()),
                     );
 
@@ -439,8 +438,7 @@ impl BillService {
                             payee: holder.clone(),
                             payment_data: BillWaitingStatePaymentData {
                                 time_of_request: last_block.timestamp,
-                                currency: bill.currency.clone(),
-                                sum: currency::sum_to_string(bill.sum),
+                                sum: bill.sum.clone(),
                                 link_to_pay,
                                 address_to_pay,
                                 mempool_link_for_address_to_pay,
@@ -509,7 +507,7 @@ impl BillService {
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
-                        payment_info.sum,
+                        &payment_info.sum,
                         &format!("Payment in relation to a bill {}", &bill.id),
                     );
 
@@ -523,8 +521,7 @@ impl BillService {
                             recoursee,
                             payment_data: BillWaitingStatePaymentData {
                                 time_of_request: last_block.timestamp,
-                                currency: payment_info.currency.clone(),
-                                sum: currency::sum_to_string(payment_info.sum),
+                                sum: payment_info.sum.clone(),
                                 link_to_pay,
                                 address_to_pay,
                                 mempool_link_for_address_to_pay,
@@ -603,8 +600,7 @@ impl BillService {
             city_of_issuing: bill.city_of_issuing,
             country_of_payment: bill.country_of_payment,
             city_of_payment: bill.city_of_payment,
-            currency: bill.currency,
-            sum: currency::sum_to_string(bill.sum),
+            sum: bill.sum.clone(),
             files: bill.files,
             active_notification: None,
         };
@@ -960,8 +956,8 @@ fn calculate_possible_bill_actions_for_caller(
     for action in BillCallerBillAction::iter() {
         let recourse_reason: Option<RecourseReason> = match action {
             BillCallerBillAction::RequestRecourseForPayment => {
-                // These default values are not used
-                Some(RecourseReason::Pay(u64::default(), String::default()))
+                // This default values is not used
+                Some(RecourseReason::Pay(Sum::new_sat(1).expect("is valid sum")))
             }
             BillCallerBillAction::RequestRecourseForAcceptance => Some(RecourseReason::Accept),
             _ => None,

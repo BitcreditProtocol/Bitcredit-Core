@@ -138,14 +138,12 @@ impl BillService {
                 recourse_deadline_timestamp,
             ) => {
                 validate_node_id_network(&recoursee.node_id)?;
-                let (sum, currency, reason) = match *recourse_reason {
-                    RecourseReason::Accept => (
-                        bill.sum,
-                        bill.currency.clone(),
-                        BillRecourseReasonBlockData::Accept,
-                    ),
-                    RecourseReason::Pay(sum, ref currency) => {
-                        (sum, currency.to_owned(), BillRecourseReasonBlockData::Pay)
+                let (sum, reason) = match *recourse_reason {
+                    RecourseReason::Accept => {
+                        (bill.sum.clone(), BillRecourseReasonBlockData::Accept)
+                    }
+                    RecourseReason::Pay(ref sum) => {
+                        (sum.to_owned(), BillRecourseReasonBlockData::Pay)
                     }
                 };
                 let block_data = BillRequestRecourseBlockData {
@@ -157,7 +155,6 @@ impl BillService {
                     },
                     recoursee: recoursee.clone().into(),
                     sum,
-                    currency: currency.to_owned(),
                     recourse_reason: reason,
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
@@ -176,11 +173,11 @@ impl BillService {
                 )?
             }
             // can be anon to recourse
-            BillAction::Recourse(recoursee, sum, currency, recourse_reason) => {
+            BillAction::Recourse(recoursee, sum, recourse_reason) => {
                 validate_node_id_network(&recoursee.node_id)?;
                 let reason = match *recourse_reason {
                     RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
-                    RecourseReason::Pay(_, _) => BillRecourseReasonBlockData::Pay,
+                    RecourseReason::Pay(_) => BillRecourseReasonBlockData::Pay,
                 };
                 let block_data = BillRecourseBlockData {
                     recourser: if holder_is_anon {
@@ -190,8 +187,7 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     recoursee: recoursee.clone().into(),
-                    sum: *sum,
-                    currency: currency.to_owned(),
+                    sum: sum.clone(),
                     recourse_reason: reason,
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
@@ -209,7 +205,7 @@ impl BillService {
                 )?
             }
             // can be anon to mint
-            BillAction::Mint(mint, sum, currency) => {
+            BillAction::Mint(mint, sum) => {
                 validate_node_id_network(&mint.node_id())?;
                 let block_data = BillMintBlockData {
                     endorser: if holder_is_anon {
@@ -219,8 +215,7 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     endorsee: mint.clone().into(),
-                    currency: currency.to_owned(),
-                    sum: *sum,
+                    sum: sum.clone(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
@@ -237,7 +232,7 @@ impl BillService {
                 )?
             }
             // can be anon to offer to sell
-            BillAction::OfferToSell(buyer, sum, currency, buying_deadline_timestamp) => {
+            BillAction::OfferToSell(buyer, sum, buying_deadline_timestamp) => {
                 validate_node_id_network(&buyer.node_id())?;
                 let address_to_pay = self.bitcoin_client.get_address_to_pay(
                     &bill_keys.public_key,
@@ -251,8 +246,7 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     buyer: buyer.clone().into(),
-                    currency: currency.to_owned(),
-                    sum: *sum,
+                    sum: sum.clone(),
                     payment_address: address_to_pay,
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
@@ -271,7 +265,7 @@ impl BillService {
                 )?
             }
             // can be anon to sell
-            BillAction::Sell(buyer, sum, currency, payment_address) => {
+            BillAction::Sell(buyer, sum, payment_address) => {
                 validate_node_id_network(&buyer.node_id())?;
                 let block_data = BillSellBlockData {
                     seller: if holder_is_anon {
@@ -281,8 +275,7 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     buyer: buyer.clone().into(),
-                    currency: currency.to_owned(),
-                    sum: *sum,
+                    sum: sum.clone(),
                     payment_address: payment_address.to_owned(),
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,

@@ -16,9 +16,7 @@ use crate::{
 
 use super::{BillAction, BillIssueData, BillType, BillValidateActionData, RecourseReason};
 
-pub fn validate_bill_issue(data: &BillIssueData) -> Result<(u64, BillType), ValidationError> {
-    let sum = util::currency::parse_sum(&data.sum).map_err(|_| ValidationError::InvalidSum)?;
-
+pub fn validate_bill_issue(data: &BillIssueData) -> Result<BillType, ValidationError> {
     for file_upload_id in &data.file_upload_ids {
         util::validate_file_upload_id(Some(file_upload_id))?;
     }
@@ -50,7 +48,7 @@ pub fn validate_bill_issue(data: &BillIssueData) -> Result<(u64, BillType), Vali
     if data.drawee == data.payee {
         return Err(ValidationError::DraweeCantBePayee);
     }
-    Ok((sum, bill_type))
+    Ok(bill_type)
 }
 
 impl Validate for BillValidateActionData {
@@ -193,7 +191,7 @@ impl Validate for BillValidateActionData {
                             }
                         }
                     }
-                    Some(RecourseReason::Pay(_, _)) => {
+                    Some(RecourseReason::Pay(_)) => {
                         if let Some(req_to_pay) = self
                             .blockchain
                             .get_last_version_block_with_op_code(BillOpCode::RequestToPay)
@@ -247,14 +245,12 @@ impl Validate for BillValidateActionData {
                 {
                     // only check action data for deep validation
                     if let BillValidationActionMode::Deep(ref bill_action) = self.mode {
-                        if let BillAction::Recourse(recoursee, sum, currency, reason) = bill_action
-                        {
+                        if let BillAction::Recourse(recoursee, sum, reason) = bill_action {
                             let recourse_reason = match reason {
-                                RecourseReason::Pay(_, _) => BillRecourseReasonBlockData::Pay,
+                                RecourseReason::Pay(_) => BillRecourseReasonBlockData::Pay,
                                 RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
                             };
                             if payment_info.sum != *sum
-                                || payment_info.currency != *currency
                                 || payment_info.recoursee.node_id != recoursee.node_id
                                 || payment_info.recourser.node_id() != self.signer_node_id
                                 || payment_info.reason != recourse_reason
@@ -309,10 +305,8 @@ impl Validate for BillValidateActionData {
                 {
                     // only check action data for deep validation
                     if let BillValidationActionMode::Deep(ref bill_action) = self.mode {
-                        if let BillAction::Sell(buyer, sum, currency, payment_address) = bill_action
-                        {
+                        if let BillAction::Sell(buyer, sum, payment_address) = bill_action {
                             if payment_info.sum != *sum
-                                || payment_info.currency != *currency
                                 || payment_info.payment_address != *payment_address
                                 || payment_info.buyer.node_id() != buyer.node_id()
                                 || payment_info.seller.node_id() != self.signer_node_id
@@ -676,11 +670,12 @@ mod tests {
         },
         city::City,
         constants::{
-            ACCEPT_DEADLINE_SECONDS, CURRENCY_SAT, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+            ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
         },
         contact::{BillIdentParticipant, BillParticipant},
         country::Country,
+        sum::{Currency, Sum},
         tests::tests::{
             OTHER_VALID_PAYMENT_ADDRESS_TESTNET, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
             node_id_test, node_id_test_and_another, node_id_test_other, private_key_test,
@@ -703,8 +698,7 @@ mod tests {
             maturity_date: Date::new("2025-11-12").unwrap(),
             drawee: node_id_test(),
             payee: node_id_test_other(),
-            sum: "500".into(),
-            currency: CURRENCY_SAT.into(),
+            sum: Sum::new_sat(500).expect("sat works"),
             country_of_payment: Country::FR,
             city_of_payment: City::new("Paris").unwrap(),
             file_upload_ids: vec![],
@@ -718,11 +712,10 @@ mod tests {
     #[test]
     fn test_valid_bill_issue_data() {
         let result = validate_bill_issue(&valid_bill_issue_data());
-        assert_eq!(result, Ok((500, BillType::PromissoryNote)));
+        assert_eq!(result, Ok(BillType::PromissoryNote));
     }
 
     #[rstest]
-    #[case::invalid_sum( BillIssueData { sum: "invalidsum".into(), ..valid_bill_issue_data() }, ValidationError::InvalidSum)]
     #[case::invalid_file_id( BillIssueData { file_upload_ids: vec!["".into()], ..valid_bill_issue_data() }, ValidationError::InvalidFileUploadId)]
     #[case::maturity_date_before_now( BillIssueData { maturity_date: Date::new("2004-01-12").unwrap(), ..valid_bill_issue_data() }, ValidationError::MaturityDateInThePast)]
     #[case::issue_date_after_maturity_date( BillIssueData { issue_date: Date::new("2028-01-12").unwrap(), ..valid_bill_issue_data() }, ValidationError::IssueDateAfterMaturityDate)]
@@ -829,7 +822,7 @@ mod tests {
             chain.get_latest_block(),
             &BillRequestToPayBlockData {
                 requester: valid_bill_participant().into(),
-                currency: CURRENCY_SAT.into(),
+                currency: Currency::sat(),
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(valid_address()),
@@ -854,8 +847,7 @@ mod tests {
             &BillOfferToSellBlockData {
                 buyer: valid_bill_participant().into(),
                 seller: valid_other_bill_participant().into(),
-                sum: 500,
-                currency: CURRENCY_SAT.into(),
+                sum: Sum::new_sat(500).expect("sat works"),
                 payment_address: VALID_PAYMENT_ADDRESS_TESTNET.into(),
                 signatory: None,
                 signing_timestamp: ts,
@@ -881,8 +873,7 @@ mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(valid_bill_identified_participant()).into(),
                 recoursee: valid_other_bill_identified_participant().into(),
-                sum: 500,
-                currency: CURRENCY_SAT.into(),
+                sum: Sum::new_sat(500).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: ts,
@@ -908,8 +899,7 @@ mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(valid_other_bill_identified_participant()).into(),
                 recoursee: valid_bill_identified_participant().into(),
-                sum: 500,
-                currency: CURRENCY_SAT.into(),
+                sum: Sum::new_sat(500).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: ts,
@@ -1019,8 +1009,7 @@ mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(valid_bill_identified_participant()).into(),
                 recoursee: valid_other_bill_identified_participant().into(),
-                sum: 500,
-                currency: CURRENCY_SAT.into(),
+                sum: Sum::new_sat(500).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1,
@@ -1121,9 +1110,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::req_to_pay(BillValidateActionData { signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: Date::new("2022-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
+    #[case::req_to_pay(BillValidateActionData { signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: Date::new("2022-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
     fn test_validate_bill_req_to_pay_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1132,16 +1121,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
-    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
-    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
-    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
-    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
-    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
-    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::req_to_pay_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::req_to_pay_already_req_to_payed(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(CURRENCY_SAT.into(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
+    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
+    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
+    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
+    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
+    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
+    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
+    #[case::req_to_pay_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::req_to_pay_already_req_to_payed(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     fn test_validate_bill_req_to_pay_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1177,8 +1166,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::req_to_recourse_rejected(BillValidateActionData { signer_node_id: node_id_test_and_another(), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_reject_pay_block(add_req_to_pay_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant())))) }, Ok(()))]
-    #[case::req_to_recourse_expired(BillValidateActionData { signer_node_id: node_id_test_and_another(), timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 3), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant()))) }, Ok(()))]
+    #[case::req_to_recourse_rejected(BillValidateActionData { signer_node_id: node_id_test_and_another(), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(500).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_reject_pay_block(add_req_to_pay_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant())))) }, Ok(()))]
+    #[case::req_to_recourse_expired(BillValidateActionData { signer_node_id: node_id_test_and_another(), timestamp: now().timestamp() as u64 + (RECOURSE_DEADLINE_SECONDS * 3), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(500).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant()))) }, Ok(()))]
     fn test_validate_bill_req_to_recourse_payment_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1187,15 +1176,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
-    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
-    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
-    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::req_to_recourse_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::req_to_recourse_not_past_endorsee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::RecourseeNotPastHolder))]
-    #[case::req_to_recourse_paid(BillValidateActionData { is_paid: true, endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillAlreadyPaid))]
-    #[case::req_to_recourse_not_req_to_pay(BillValidateActionData { signer_node_id: node_id_test_and_another(), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::BillWasNotRequestedToPay))]
-    #[case::req_to_recourse_not_expired_or_rejected(BillValidateActionData { signer_node_id: node_id_test_and_another(), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(500, CURRENCY_SAT.into()), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant()))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
+    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
+    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
+    #[case::req_to_recourse_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::req_to_recourse_not_past_endorsee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::RecourseeNotPastHolder))]
+    #[case::req_to_recourse_paid(BillValidateActionData { is_paid: true, endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_other_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant())) }, Err(ValidationError::BillAlreadyPaid))]
+    #[case::req_to_recourse_not_req_to_pay(BillValidateActionData { signer_node_id: node_id_test_and_another(), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::BillWasNotRequestedToPay))]
+    #[case::req_to_recourse_not_expired_or_rejected(BillValidateActionData { signer_node_id: node_id_test_and_another(), endorsee_node_id: Some(node_id_test_and_another()), mode: BillValidationActionMode::Deep(BillAction::RequestRecourse(valid_bill_identified_participant(), RecourseReason::Pay(Sum::new_sat(5000).expect("sat works")), safe_deadline_ts(RECOURSE_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_and_another_bill_identified_participant(), valid_bill_identified_participant()))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     fn test_validate_bill_req_to_recourse_payment_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1204,7 +1193,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::recourse(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
+    #[case::recourse(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), Sum::new_sat(500).expect("sat works"), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Ok(()))]
     fn test_validate_bill_recourse_payment_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1213,15 +1202,13 @@ mod tests {
     }
 
     #[rstest]
-    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
-    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
-    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
-    #[case::recourse_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::recourse_not_in_recourse(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::BillIsNotRequestedToRecourseAndWaitingForPayment))]
-    #[case::recourse_invalid_data_sum(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), 700, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
-    #[case::recourse_invalid_data_currency(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), 500, "invalidcurrency".into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
-    #[case::recourse_invalid_data_reason(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Pay(100, CURRENCY_SAT.into()))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
-    #[case::recourse_invalid_data_recoursee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), 500, CURRENCY_SAT.into(), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
+    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), Sum::new_sat(500).expect("sat works"), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
+    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), Sum::new_sat(500).expect("sat works"), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(),  Sum::new_sat(500).expect("sat works"),RecourseReason::Accept)), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
+    #[case::recourse_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(),  Sum::new_sat(500).expect("sat works"),RecourseReason::Accept)), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::recourse_not_in_recourse(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(),  Sum::new_sat(500).expect("sat works"),RecourseReason::Accept)), ..valid_bill_validate_action_data(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant())) }, Err(ValidationError::BillIsNotRequestedToRecourseAndWaitingForPayment))]
+    #[case::recourse_invalid_data_reason(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_other_bill_identified_participant(), Sum::new_sat(500).expect("sat works"), RecourseReason::Pay(Sum::new_sat(100).expect("sat works"),))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
+    #[case::recourse_invalid_data_recoursee(BillValidateActionData { endorsee_node_id: Some(node_id_test()), mode: BillValidationActionMode::Deep(BillAction::Recourse(valid_bill_identified_participant(), Sum::new_sat(500).expect("sat works"), RecourseReason::Accept)), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(add_endorse_block(add_endorse_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),), valid_other_bill_identified_participant(), valid_bill_identified_participant()), valid_bill_identified_participant(), valid_other_bill_identified_participant()))) }, Err(ValidationError::BillRecourseDataInvalid))]
     fn test_validate_bill_recourse_payment_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1230,7 +1217,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::mint(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::mint(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_mint_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1239,16 +1226,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
-    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
-    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
-    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
-    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
-    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
-    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::mint_not_accepted(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillNotAccepted))]
-    #[case::mint_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), 500, CURRENCY_SAT.into())), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
+    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
+    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
+    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
+    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
+    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
+    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
+    #[case::mint_not_accepted(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillNotAccepted))]
+    #[case::mint_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Mint(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(add_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::CallerIsNotHolder))]
     fn test_validate_bill_mint_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1283,8 +1270,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::offer_to_sell(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
-    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) , mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::offer_to_sell(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
+    #[case::offer_to_sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 2) , mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     fn test_validate_bill_offer_to_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1293,15 +1280,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
-    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
-    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
-    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
-    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
-    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
-    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::offer_to_sell_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), safe_deadline_ts(DAY_IN_SECS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
+    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::active_offer_to_sell_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsOfferedToSellAndWaitingForPayment))]
+    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
+    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
+    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
+    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
+    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
+    #[case::offer_to_sell_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::OfferToSell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), safe_deadline_ts(DAY_IN_SECS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
     fn test_validate_bill_offer_to_sell_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1310,10 +1297,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::sell(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
+    #[case::sell(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Ok(()))]
     // minus 8 seconds so timestamp is before offer to sell expiry and after req to pay expiry
     // as every block adds 1 sec to issue block, which is now() - 10
-    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), mode: BillValidationActionMode::Deep(BillAction::Sell(valid_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
+    #[case::sell_req_to_pay_expired_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS - 8), mode: BillValidationActionMode::Deep(BillAction::Sell(valid_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)))) }, Ok(()))]
     fn test_validate_bill_sell_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,
@@ -1322,19 +1309,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
-    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
-    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
-    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
-    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
-    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
-    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
-    #[case::sell_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
-    #[case::sell_not_offered_to_sell(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillIsNotOfferToSellWaitingForPayment))]
-    #[case::sell_invalid_data_sum(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_bill_participant(), 700, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
-    #[case::sell_invalid_data_currency(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_bill_participant(), 500, "invalidcurrency".into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
-    #[case::sell_invalid_data_buyer(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
-    #[case::sell_invalid_data_payment_address(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), 500, CURRENCY_SAT.into(), OTHER_VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
+    #[case::last_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRecoursedToTheEnd))]
+    #[case::active_req_to_pay_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsRequestedToPayAndWaitingForPayment))]
+    #[case::active_recourse_blocked(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_req_to_recourse_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillIsInRecourseAndWaitingForPayment))]
+    #[case::rejected_to_accept_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_reject_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToAccept))]
+    #[case::rejected_to_pay_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), ..valid_bill_validate_action_data(add_reject_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillWasRejectedToPay))]
+    #[case::payment_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), timestamp: now().timestamp() as u64 + (PAYMENT_DEADLINE_SECONDS * 3), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillPaymentExpired))]
+    #[case::acceptance_expired_only_recourse(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), timestamp: now().timestamp() as u64 + (ACCEPT_DEADLINE_SECONDS * 2), ..valid_bill_validate_action_data(add_req_to_accept_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillAcceptanceExpired))]
+    #[case::sell_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::CallerIsNotHolder))]
+    #[case::sell_not_offered_to_sell(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ValidationError::BillIsNotOfferToSellWaitingForPayment))]
+    #[case::sell_invalid_data_buyer(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
+    #[case::sell_invalid_data_payment_address(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::Sell(valid_other_bill_participant(), Sum::new_sat(500).expect("sat works"), OTHER_VALID_PAYMENT_ADDRESS_TESTNET.into())), signer_node_id: node_id_test_other(), ..valid_bill_validate_action_data(add_offer_to_sell_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ValidationError::BillSellDataInvalid))]
     fn test_validate_bill_sell_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ValidationError>,

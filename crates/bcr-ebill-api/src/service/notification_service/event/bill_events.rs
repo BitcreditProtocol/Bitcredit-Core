@@ -6,6 +6,7 @@ use bcr_ebill_core::{
         bill::{BillBlock, BillBlockchain},
     },
     notification::{ActionType, BillEventType},
+    sum::Sum,
 };
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -106,7 +107,7 @@ impl BillChainEvent {
                             event_type,
                             bill_id: self.bill.id.to_owned(),
                             action_type: override_action.or(action.clone()),
-                            sum: Some(self.bill.sum),
+                            sum: Some(self.bill.sum.clone()),
                         },
                     ),
                 )
@@ -145,5 +146,5 @@ pub struct BillChainEventPayload {
     pub event_type: BillEventType,
     pub bill_id: BillId,
     pub action_type: Option<ActionType>,
-    pub sum: Option<u64>,
+    pub sum: Option<Sum>,
 }

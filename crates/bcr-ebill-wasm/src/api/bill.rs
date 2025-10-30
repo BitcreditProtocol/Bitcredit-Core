@@ -14,11 +14,12 @@ use bcr_ebill_api::{
         country::Country,
         date::Date,
         identity::IdentityType,
+        sum::{Currency, Sum},
     },
     external,
     service::{Error, bill_service::Error as BillServiceError},
     util::{
-        self, BcrKeys, ValidationError, currency,
+        self, BcrKeys, ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
     },
 };
@@ -250,7 +251,7 @@ impl Bill {
             let bills = get_ctx()
                 .bill_service
                 .search_bills(
-                    &filter.currency,
+                    &Currency::sat(),
                     &filter.search_term,
                     from,
                     to,
@@ -316,10 +317,9 @@ impl Bill {
                 )
                 .await?;
             let sum = bill.data.sum;
-            let parsed_sum = currency::parse_sum(&sum)?;
-            let sum_as_words = util::numbers_to_words::encode(&parsed_sum);
+            let sum_as_words = util::numbers_to_words::encode(&sum.as_sat());
             Ok(BillNumbersToWordsForSum {
-                sum: parsed_sum,
+                sum: sum.as_sat(),
                 sum_as_words,
             })
         }
@@ -429,8 +429,7 @@ impl Bill {
                 maturity_date: Date::new(bill_payload.maturity_date)?,
                 drawee: NodeId::from_str(&bill_payload.drawee).map_err(ValidationError::from)?,
                 payee: NodeId::from_str(&bill_payload.payee).map_err(ValidationError::from)?,
-                sum: bill_payload.sum.to_owned(),
-                currency: bill_payload.currency.to_owned(),
+                sum: Sum::new_sat_from_str(&bill_payload.sum)?,
                 country_of_payment: Country::parse(&bill_payload.country_of_payment)?,
                 city_of_payment: City::new(bill_payload.city_of_payment)?,
                 file_upload_ids: bill_payload.file_upload_ids.to_owned(),
@@ -479,7 +478,7 @@ impl Bill {
         payload: OfferToSellBitcreditBillPayload,
         buyer: BillParticipant,
         timestamp: u64,
-        sum: u64,
+        sum: Sum,
         buying_deadline_timestamp: u64,
     ) -> Result<()> {
         let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
@@ -488,12 +487,7 @@ impl Bill {
             .bill_service
             .execute_bill_action(
                 &payload.bill_id,
-                BillAction::OfferToSell(
-                    buyer.clone(),
-                    sum,
-                    payload.currency.clone(),
-                    buying_deadline_timestamp,
-                ),
+                BillAction::OfferToSell(buyer.clone(), sum, buying_deadline_timestamp),
                 &signer_public_data,
                 &signer_keys,
                 timestamp,
@@ -522,7 +516,7 @@ impl Bill {
                 }
             };
 
-            let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
+            let sum = Sum::new_sat_from_str(&offer_to_sell_payload.sum)?;
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
             let deadline_ts = Date::new(&offer_to_sell_payload.buying_deadline)?.to_timestamp();
             self.offer_to_sell_bill(
@@ -558,7 +552,7 @@ impl Bill {
                 }
             };
 
-            let sum = currency::parse_sum(&offer_to_sell_payload.sum)?;
+            let sum = Sum::new_sat_from_str(&offer_to_sell_payload.sum)?;
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
             let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
             self.offer_to_sell_bill(
@@ -674,7 +668,7 @@ impl Bill {
                 .execute_bill_action(
                     &request_to_pay_bill_payload.bill_id,
                     BillAction::RequestToPay(
-                        request_to_pay_bill_payload.currency.clone(),
+                        Currency::sat(), // TODO (currency): parse and use given currency
                         parse_deadline_string(&request_to_pay_bill_payload.payment_deadline)?,
                     ),
                     &signer_public_data,
@@ -975,10 +969,10 @@ impl Bill {
         let res: Result<()> = async {
             let request_recourse_payload: RequestRecourseForPaymentPayload =
                 serde_wasm_bindgen::from_value(payload)?;
-            let sum = currency::parse_sum(&request_recourse_payload.sum)?;
+            let sum = Sum::new_sat_from_str(&request_recourse_payload.sum)?;
 
             request_recourse(
-                RecourseReason::Pay(sum, request_recourse_payload.currency.clone()),
+                RecourseReason::Pay(sum),
                 &request_recourse_payload.bill_id,
                 &request_recourse_payload.recoursee,
                 parse_deadline_string(&request_recourse_payload.recourse_deadline)?,

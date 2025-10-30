@@ -13,6 +13,7 @@ pub use bcr_ebill_core::mint;
 pub use bcr_ebill_core::name;
 pub use bcr_ebill_core::nostr_contact;
 pub use bcr_ebill_core::notification;
+pub use bcr_ebill_core::sum;
 pub use bcr_ebill_core::zip;
 
 pub use bcr_ebill_core::File;

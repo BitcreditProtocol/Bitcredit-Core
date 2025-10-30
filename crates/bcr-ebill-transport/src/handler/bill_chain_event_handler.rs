@@ -127,7 +127,6 @@ impl BillChainEventHandler {
 mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_api::constants::CURRENCY_SAT;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
         address::Address,
@@ -146,6 +145,7 @@ mod tests {
         email::Email,
         identity::{Identity, IdentityType, IdentityWithAll},
         name::Name,
+        sum::Sum,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -362,8 +362,7 @@ mod tests {
             drawer: empty_bill_identified_participant(),
             payee: BillParticipant::Ident(empty_bill_identified_participant()),
             endorsee: None,
-            currency: CURRENCY_SAT.to_string(),
-            sum: 500,
+            sum: Sum::new_sat(500).expect("sat works"),
             maturity_date: Date::new("2099-11-12").unwrap(),
             issue_date: Date::new("2099-08-12").unwrap(),
             city_of_payment: City::new("Vienna").unwrap(),

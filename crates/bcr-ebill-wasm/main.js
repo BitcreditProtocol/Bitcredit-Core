@@ -224,7 +224,7 @@ async function start(create_identity) {
   console.log("status: ", status);
 
   if (identity) {
-    let search = success_or_fail(await generalApi.search({ filter: { search_term: "Test", currency: "sat", item_types: ["Contact"] } }));
+    let search = success_or_fail(await generalApi.search({ filter: { search_term: "Test", currency: "SAT", item_types: ["Contact"] } }));
     console.log("search: ", search);
   }
 
@@ -421,7 +421,7 @@ async function triggerBill(t, blank) {
       payee: t == 0 ? node_id : identity.node_id,
       drawee: t == 0 ? identity.node_id : node_id,
       sum: "1500",
-      currency: "sat",
+      currency: "SAT",
       country_of_payment: "GB",
       city_of_payment: "London",
       file_upload_ids: file_upload_id ? [file_upload_id] : []
@@ -536,7 +536,7 @@ async function acceptBill() {
 async function requestToPayBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_pay({ bill_id, currency: "sat", payment_deadline: getDeadlineDate() }));
+    return success_or_fail(await billApi.request_to_pay({ bill_id, currency: "SAT", payment_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -545,7 +545,7 @@ async function offerToSellBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.offer_to_sell({ bill_id, sum: "500", currency: "sat", buyer: endorsee, buying_deadline: getDeadlineDate() }));
+    return success_or_fail(await billApi.offer_to_sell({ bill_id, sum: "500", currency: "SAT", buyer: endorsee, buying_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -563,7 +563,7 @@ async function requestToRecourseBillPayment() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "sat", sum: "1500", recourse_deadline: getDeadlineDate() }));
+    return success_or_fail(await billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "SAT", sum: "1500", recourse_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -697,14 +697,14 @@ async function fetchBillBills() {
 
 async function fetchBillBalances() {
   let measured = measure(async () => {
-    return success_or_fail(await generalApi.overview("sat"));
+    return success_or_fail(await generalApi.overview("SAT"));
   });
   await measured();
 }
 
 async function fetchBillSearch() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.search({ filter: { currency: "sat", role: "All" } }));
+    return success_or_fail(await billApi.search({ filter: { currency: "SAT", role: "All" } }));
   });
   await measured();
 }
