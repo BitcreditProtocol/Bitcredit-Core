@@ -51,37 +51,18 @@ impl ChainInvite {
 }
 
 /// Generalizes key pairs for different chain types.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ChainKeys {
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_privkey",
+        deserialize_with = "crate::util::borsh::deserialize_privkey"
+    )]
     pub private_key: SecretKey,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
     pub public_key: PublicKey,
-}
-
-impl borsh::BorshSerialize for ChainKeys {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let private_bytes = self.private_key.secret_bytes();
-        let public_bytes = self.public_key.serialize();
-        borsh::BorshSerialize::serialize(&private_bytes.to_vec(), writer)?;
-        borsh::BorshSerialize::serialize(&public_bytes.to_vec(), writer)?;
-        Ok(())
-    }
-}
-
-impl borsh::BorshDeserialize for ChainKeys {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let private_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        let public_bytes: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-
-        let private_key = SecretKey::from_slice(&private_bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        let public_key = PublicKey::from_slice(&public_bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        Ok(Self {
-            private_key,
-            public_key,
-        })
-    }
 }
 
 /// The encrypted BCR bill payload contained in a public block Nostr event.

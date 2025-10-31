@@ -41,10 +41,8 @@ pub use company_events::CompanyChainEvent;
 pub use contact::ContactShareEvent;
 pub use identity_events::IdentityChainEvent;
 
-use crate::util::{base58_decode, base58_encode};
-
 /// The global event type that is used for all events.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub enum EventType {
     /// Private Bill related events
     Bill,
@@ -86,7 +84,7 @@ impl Display for EventType {
 /// and is serializable.
 /// This event should contain all the information that is needed
 /// to send to different channels including email, push and Nostr.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize)]
 pub struct Event<T: BorshSerialize> {
     pub event_type: EventType,
     pub version: String,
@@ -144,22 +142,22 @@ fn get_version(_event_type: &EventType) -> String {
 /// how to handle it. This payload envelope allows us to find out
 /// the type of event to later deserialize the data into the correct
 /// type.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct EventEnvelope {
     pub event_type: EventType,
     pub version: String,
-    pub data: String,
+    pub data: Vec<u8>,
 }
 
 impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
     type Error = ProtocolError;
 
     fn try_from(event: Event<T>) -> Result<Self> {
-        let serialized = base58_encode(&borsh::to_vec(&event.data)?);
+        let serialized = &borsh::to_vec(&event.data)?;
         Ok(Self {
             event_type: event.event_type,
             version: event.version,
-            data: serialized,
+            data: serialized.to_vec(),
         })
     }
 }
@@ -191,9 +189,7 @@ impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
 impl<T: BorshDeserialize + BorshSerialize> TryFrom<EventEnvelope> for Event<T> {
     type Error = ProtocolError;
     fn try_from(envelope: EventEnvelope) -> Result<Self> {
-        let bytes: Vec<u8> = base58_decode(&envelope.data)
-            .map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
-        let data: T = borsh::from_slice(&bytes)?;
+        let data: T = borsh::from_slice(&envelope.data)?;
         Ok(Self {
             event_type: envelope.event_type,
             version: envelope.version,

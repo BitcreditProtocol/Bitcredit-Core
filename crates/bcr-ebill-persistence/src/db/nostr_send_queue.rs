@@ -9,7 +9,6 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use surrealdb::sql::Thing;
 
 use crate::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
@@ -105,7 +104,7 @@ struct QueuedMessageDb {
     pub id: Thing,
     pub sender_id: NodeId,
     pub node_id: NodeId,
-    pub payload: Value,
+    pub payload: String,
     pub created: DateTimeUtc,
     pub last_try: DateTimeUtc,
     pub num_retries: i32,
@@ -147,6 +146,8 @@ impl From<QueuedMessageDb> for NostrQueuedMessage {
 
 #[cfg(test)]
 mod tests {
+    use bcr_ebill_core::util::base58_encode;
+
     use super::*;
     use crate::{db::get_memory_db, tests::tests::node_id_test};
 
@@ -259,7 +260,7 @@ mod tests {
             id: id.to_string(),
             sender_id: node_id_test(),
             node_id: node_id_test(),
-            payload: serde_json::json!({"foo": "bar"}),
+            payload: base58_encode(&borsh::to_vec(r#"{"foo": "bar"}"#).unwrap()),
         }
     }
 }

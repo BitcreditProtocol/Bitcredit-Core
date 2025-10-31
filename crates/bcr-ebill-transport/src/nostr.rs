@@ -26,7 +26,7 @@ use bcr_ebill_api::{
             Error, NostrConfig, NostrContactData, Result, transport::NotificationJsonTransportApi,
         },
     },
-    util::BcrKeys,
+    util::{BcrKeys, base58_encode},
 };
 use bcr_ebill_core::{ServiceTraitBounds, protocol::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
@@ -237,7 +237,7 @@ impl NostrClient {
         event: EventEnvelope,
     ) -> Result<()> {
         let public_key = recipient.node_id().npub();
-        let message = serde_json::to_string(&event)?;
+        let message = base58_encode(&borsh::to_vec(&event)?);
         let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
@@ -261,7 +261,7 @@ impl NostrClient {
         event: EventEnvelope,
     ) -> Result<()> {
         let public_key = recipient.node_id().npub();
-        let message = serde_json::to_string(&event)?;
+        let message = base58_encode(&borsh::to_vec(&event)?);
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self

@@ -8,7 +8,6 @@ use bcr_ebill_core::{
 };
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// Allows storing and retrieving time based offsets for subscriptions
 /// to Nostr relays. It will also store the event ids that have been
@@ -68,7 +67,7 @@ pub struct NostrQueuedMessage {
     pub id: String,
     pub sender_id: NodeId,
     pub node_id: NodeId,
-    pub payload: Value,
+    pub payload: String,
 }
 
 /// Keeps track of our Nostr contacts. We need to communicate with some network participants before

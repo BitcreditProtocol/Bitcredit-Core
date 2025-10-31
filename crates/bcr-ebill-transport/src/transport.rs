@@ -167,7 +167,7 @@ pub fn root_and_reply_id(event: &Event) -> (Option<EventId>, Option<EventId>) {
 /// its content as an EventEnvelope.
 pub fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
     let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key())?;
-    let payload = serde_json::from_slice::<EventEnvelope>(&decrypted)?;
+    let payload = borsh::from_slice::<EventEnvelope>(&decrypted)?;
     Ok(payload)
 }
 
@@ -208,10 +208,7 @@ pub fn create_public_chain_event(
     previous_event: Option<Event>,
     root_event: Option<Event>,
 ) -> Result<EventBuilder> {
-    let payload = base58_encode(&encrypt_ecies(
-        &serde_json::to_vec(&event)?,
-        &keys.pub_key(),
-    )?);
+    let payload = base58_encode(&encrypt_ecies(&borsh::to_vec(&event)?, &keys.pub_key())?);
     let event = match previous_event {
         Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None)
             .tag(bcr_nostr_tag(id, blockchain)),
@@ -222,24 +219,22 @@ pub fn create_public_chain_event(
 }
 
 fn extract_text_envelope(message: &str) -> Option<EventEnvelope> {
-    match serde_json::from_str::<EventEnvelope>(message) {
-        Ok(envelope) => Some(envelope),
-        Err(e) => {
-            error!("Json deserializing event envelope failed: {e}");
-            None
-        }
+    if let Ok(data) = base58_decode(message)
+        && let Ok(envelope) = borsh::from_slice::<EventEnvelope>(&data)
+    {
+        Some(envelope)
+    } else {
+        error!("Json deserializing event envelope failed");
+        None
     }
 }
 
 fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
-    if rumor.kind == Kind::PrivateDirectMessage {
-        match serde_json::from_str::<EventEnvelope>(rumor.content.as_str()) {
-            Ok(envelope) => Some(envelope),
-            Err(e) => {
-                error!("Json deserializing event envelope failed: {e}");
-                None
-            }
-        }
+    if rumor.kind == Kind::PrivateDirectMessage
+        && let Ok(data) = base58_decode(rumor.content.as_str())
+        && let Ok(envelope) = borsh::from_slice::<EventEnvelope>(&data)
+    {
+        Some(envelope)
     } else {
         None
     }
