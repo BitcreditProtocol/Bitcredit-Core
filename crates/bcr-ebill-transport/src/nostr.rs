@@ -23,13 +23,12 @@ use bcr_ebill_api::{
     service::{
         contact_service::ContactServiceApi,
         notification_service::{
-            Error, NostrConfig, NostrContactData, Result, event::EventEnvelope,
-            transport::NotificationJsonTransportApi,
+            Error, NostrConfig, NostrContactData, Result, transport::NotificationJsonTransportApi,
         },
     },
-    util::BcrKeys,
+    util::{BcrKeys, base58_encode},
 };
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{ServiceTraitBounds, protocol::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
 
 use tokio::task::JoinSet;
@@ -238,7 +237,7 @@ impl NostrClient {
         event: EventEnvelope,
     ) -> Result<()> {
         let public_key = recipient.node_id().npub();
-        let message = serde_json::to_string(&event)?;
+        let message = base58_encode(&borsh::to_vec(&event)?);
         let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
@@ -262,7 +261,7 @@ impl NostrClient {
         event: EventEnvelope,
     ) -> Result<()> {
         let public_key = recipient.node_id().npub();
-        let message = serde_json::to_string(&event)?;
+        let message = base58_encode(&borsh::to_vec(&event)?);
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -650,7 +649,8 @@ pub async fn handle_direct_message<T: NostrSigner>(
         let sender_npub = sender.to_bech32();
         let sender_pub_key = sender.to_hex();
         debug!(
-            "Processing event: {envelope:?} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}"
+            "Processing event: {} {} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}",
+            envelope.event_type, envelope.version
         );
         handle_event(envelope, client_id, event_handlers, event).await?;
     }
@@ -763,13 +763,13 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use bcr_ebill_api::service::notification_service::event::{Event, EventType};
     use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
     use bcr_ebill_api::util::BcrKeys;
     use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;
+    use bcr_ebill_core::protocol::{Event, EventType};
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
     use tokio::time;

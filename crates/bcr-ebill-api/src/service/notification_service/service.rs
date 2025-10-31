@@ -1,7 +1,4 @@
-use super::{
-    NostrContactData, Result,
-    event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
-};
+use super::{NostrContactData, Result};
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId,
@@ -11,7 +8,12 @@ use bcr_ebill_core::{
     notification::{ActionType, Notification},
     sum::Sum,
 };
-use bcr_ebill_core::{ServiceTraitBounds, company::Company, util::BcrKeys};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    company::Company,
+    protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
+    util::BcrKeys,
+};
 use bcr_ebill_persistence::notification::NotificationFilter;
 use std::collections::HashMap;
 
@@ -137,14 +139,6 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         mint: &BillParticipant,
         bill: &BitcreditBill,
     ) -> Result<()>;
-
-    /// Sent when: A new quote is created, Sent by: Mint
-    /// Receiver: Holder, Action: Check quote page
-    async fn send_new_quote_event(&self, quote: &BitcreditBill) -> Result<()>;
-
-    /// Sent when: A quote is approved by: Previous Holder
-    /// Receiver: Mint (new holder), Action: CheckBill
-    async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> Result<()>;
 
     /// Returns filtered client notifications
     async fn get_client_notifications(

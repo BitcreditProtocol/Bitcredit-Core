@@ -1,11 +1,12 @@
 use crate::{Result, handler::public_chain_helpers::EventContainer};
 use async_trait::async_trait;
-use bcr_ebill_api::{service::notification_service::event::EventEnvelope, util::BcrKeys};
+use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::{BillId, BillKeys},
     blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
+    protocol::EventEnvelope,
 };
 use log::trace;
 #[cfg(test)]
@@ -60,7 +61,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// the event.
     async fn handle_event(
         &self,
-        event: bcr_ebill_api::service::notification_service::event::EventEnvelope,
+        event: bcr_ebill_core::protocol::EventEnvelope,
         node_id: &NodeId,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()>;
@@ -215,9 +216,9 @@ impl NotificationHandlerApi for LoggingEventHandler {
 mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_api::service::notification_service::event::Event;
     use bcr_ebill_core::notification::BillEventType;
-    use serde::{Deserialize, Serialize, de::DeserializeOwned};
+    use bcr_ebill_core::protocol::Event;
+    use borsh::{BorshDeserialize, BorshSerialize};
     use tokio::sync::Mutex;
 
     use crate::handler::test_utils::get_test_nostr_event;
@@ -262,22 +263,25 @@ mod tests {
         assert_eq!(event.data, received.data, "handled payload was not correct");
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
     struct TestEventPayload {
         pub event_type: BillEventType,
         pub foo: String,
         pub bar: u32,
     }
 
-    struct TestEventHandler<T: Serialize + DeserializeOwned> {
+    struct TestEventHandler<T: BorshSerialize + BorshDeserialize> {
         pub called: Mutex<bool>,
         pub received_event: Mutex<Option<Event<T>>>,
         pub accepted_event: Option<EventType>,
     }
 
-    impl<T: Serialize + DeserializeOwned + Send + Sync> ServiceTraitBounds for TestEventHandler<T> {}
+    impl<T: BorshSerialize + BorshDeserialize + Send + Sync> ServiceTraitBounds
+        for TestEventHandler<T>
+    {
+    }
 
-    impl<T: Serialize + DeserializeOwned> TestEventHandler<T> {
+    impl<T: BorshSerialize + BorshDeserialize> TestEventHandler<T> {
         pub fn new(accepted_event: Option<EventType>) -> Self {
             Self {
                 called: Mutex::new(false),

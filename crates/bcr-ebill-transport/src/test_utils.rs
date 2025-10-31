@@ -1,7 +1,6 @@
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::notification_service::NostrConfig;
-use bcr_ebill_api::service::notification_service::event::{EventEnvelope, EventType};
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
@@ -16,6 +15,7 @@ use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::name::Name;
+use bcr_ebill_core::protocol::{EventEnvelope, EventType};
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::{
     NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
@@ -38,11 +38,12 @@ use crate::chain_keys::ChainKeyServiceApi;
 use crate::handler::NotificationHandlerApi;
 
 use super::nostr::NostrClient;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use bcr_ebill_api::service::notification_service::{NostrContactData, Result, event::Event};
+use bcr_ebill_api::service::notification_service::{NostrContactData, Result};
+use bcr_ebill_core::protocol::Event;
 
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 
@@ -61,20 +62,29 @@ pub const NOSTR_NPUB1: &str = "npub1c504lwrnmrt7atmnxxlf54rw3pxjhjv3455h3flnham3
 #[allow(dead_code)]
 pub const NOSTR_NPUB2: &str = "npub1zax8v4hasewaxducdn89clqwmv4dp84r6vgpls5j5xg6f7xda3fqh2sg75";
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct TestEventPayload {
     pub event_type: BillEventType,
     pub foo: String,
     pub bar: u32,
 }
 
-pub struct TestEventHandler<T: Serialize + DeserializeOwned> {
+pub struct TestEventHandler<T: borsh::BorshSerialize + borsh::BorshDeserialize> {
     pub called: Mutex<bool>,
     pub received_event: Mutex<Option<Event<T>>>,
     pub accepted_event: Option<EventType>,
 }
 
-impl<T: Serialize + DeserializeOwned> TestEventHandler<T> {
+impl<T: borsh::BorshSerialize + borsh::BorshDeserialize> TestEventHandler<T> {
     pub fn new(accepted_event: Option<EventType>) -> Self {
         Self {
             called: Mutex::new(false),
@@ -121,7 +131,10 @@ pub fn init_test_cfg() {
     }
 }
 
-impl<T: Serialize + DeserializeOwned + Send + Sync> ServiceTraitBounds for TestEventHandler<T> {}
+impl<T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync> ServiceTraitBounds
+    for TestEventHandler<T>
+{
+}
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]

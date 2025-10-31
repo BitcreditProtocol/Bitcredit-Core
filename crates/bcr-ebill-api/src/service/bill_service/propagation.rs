@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use crate::service::notification_service::event::BillChainEvent;
-
 use super::{BillAction, Result, service::BillService};
 use bcr_ebill_core::{
     NodeId,
@@ -10,6 +8,7 @@ use bcr_ebill_core::{
     contact::Contact,
     identity::Identity,
     notification::ActionType,
+    protocol::BillChainEvent,
 };
 
 impl BillService {

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds, blockchain::BlockchainType, contact::BillParticipant, util::BcrKeys,
+    NodeId, ServiceTraitBounds, blockchain::BlockchainType, contact::BillParticipant,
+    protocol::EventEnvelope, util::BcrKeys,
 };
 
 #[cfg(test)]
@@ -8,7 +9,7 @@ use mockall::automock;
 
 use nostr::{Event, Filter, types::RelayUrl};
 
-use super::{NostrContactData, Result, event::EventEnvelope};
+use super::{NostrContactData, Result};
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockNotificationJsonTransportApi {}

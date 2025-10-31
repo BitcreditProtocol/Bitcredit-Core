@@ -1,16 +1,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bcr_ebill_api::service::notification_service::event::IdentityBlockEvent;
 use bcr_ebill_core::hash::Sha256Hash;
+use bcr_ebill_core::protocol::{Event, EventEnvelope, IdentityBlockEvent};
 use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType, util::date::now};
 use bcr_ebill_persistence::identity::IdentityStoreApi;
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, trace, warn};
 
 use crate::{EventType, transport::root_and_reply_id};
-use bcr_ebill_api::service::notification_service::event::Event;
-use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
+use bcr_ebill_api::service::notification_service::Result;
 
 use super::{IdentityChainEventProcessorApi, NotificationHandlerApi};
 

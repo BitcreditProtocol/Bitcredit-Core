@@ -1,13 +1,12 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use bcr_ebill_api::service::notification_service::{
-    event::ChainInvite, transport::NotificationJsonTransportApi,
-};
+use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds, ValidationError,
     blockchain::{BlockchainType, company::CompanyBlock},
     company::CompanyKeys,
+    protocol::{ChainInvite, Event},
     util::BcrKeys,
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
@@ -17,8 +16,8 @@ use crate::{
     EventType,
     handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
 };
-use bcr_ebill_api::service::notification_service::event::Event;
-use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
+use bcr_ebill_api::service::notification_service::Result;
+use bcr_ebill_core::protocol::EventEnvelope;
 
 use super::{CompanyChainEventProcessorApi, NotificationHandlerApi};
 
@@ -172,7 +171,7 @@ mod tests {
     };
 
     use super::*;
-    use bcr_ebill_api::service::notification_service::event::CompanyBlockEvent;
+    use bcr_ebill_core::protocol::CompanyBlockEvent;
     use bcr_ebill_core::{
         blockchain::{
             Blockchain,

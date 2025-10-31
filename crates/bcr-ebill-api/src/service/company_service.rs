@@ -20,7 +20,6 @@ use crate::get_config;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
 use crate::service::Error;
-use crate::service::notification_service::event::{CompanyChainEvent, IdentityChainEvent};
 use crate::service::notification_service::{BcrMetadata, NostrContactData};
 use crate::util::BcrKeys;
 use crate::util::file::UploadFileType;
@@ -42,7 +41,10 @@ use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
-use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError};
+use bcr_ebill_core::{
+    NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    protocol::{CompanyChainEvent, IdentityChainEvent},
+};
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info};
 use std::sync::Arc;

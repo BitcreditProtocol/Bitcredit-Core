@@ -4,9 +4,34 @@ mod company_events;
 mod contact;
 mod identity_events;
 
-use crate::service::notification_service::{Error, Result};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
+use std::fmt::Display;
+
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, ProtocolError>;
+
+#[derive(Debug, Error)]
+pub enum ProtocolError {
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    #[error("Deserialization error: {0}")]
+    Deserialization(String),
+}
+
+impl From<serde_json::Error> for ProtocolError {
+    fn from(e: serde_json::Error) -> Self {
+        ProtocolError::Serialization(format!("JSON error: {e}"))
+    }
+}
+
+impl From<std::io::Error> for ProtocolError {
+    fn from(e: std::io::Error) -> Self {
+        ProtocolError::Serialization(format!("IO error: {e}"))
+    }
+}
 
 pub use bill_events::{BillChainEvent, BillChainEventPayload};
 pub use blockchain_event::{
@@ -17,7 +42,7 @@ pub use contact::ContactShareEvent;
 pub use identity_events::IdentityChainEvent;
 
 /// The global event type that is used for all events.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub enum EventType {
     /// Private Bill related events
     Bill,
@@ -49,18 +74,24 @@ impl EventType {
     }
 }
 
+impl Display for EventType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 /// A generic event that can be sent to a specific recipient
 /// and is serializable.
 /// This event should contain all the information that is needed
 /// to send to different channels including email, push and Nostr.
-#[derive(Serialize, Debug, Clone)]
-pub struct Event<T: Serialize> {
+#[derive(Debug, Clone, BorshSerialize)]
+pub struct Event<T: BorshSerialize> {
     pub event_type: EventType,
     pub version: String,
     pub data: T,
 }
 
-impl<T: Serialize> Event<T> {
+impl<T: BorshSerialize> Event<T> {
     pub fn new(event_type: EventType, data: T) -> Self {
         Self {
             event_type: event_type.to_owned(),
@@ -111,21 +142,22 @@ fn get_version(_event_type: &EventType) -> String {
 /// how to handle it. This payload envelope allows us to find out
 /// the type of event to later deserialize the data into the correct
 /// type.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct EventEnvelope {
     pub event_type: EventType,
     pub version: String,
-    pub data: Value,
+    pub data: Vec<u8>,
 }
 
-impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
-    type Error = Error;
+impl<T: BorshSerialize> TryFrom<Event<T>> for EventEnvelope {
+    type Error = ProtocolError;
 
     fn try_from(event: Event<T>) -> Result<Self> {
+        let serialized = &borsh::to_vec(&event.data)?;
         Ok(Self {
             event_type: event.event_type,
             version: event.version,
-            data: serde_json::to_value(event.data)?,
+            data: serialized.to_vec(),
         })
     }
 }
@@ -134,10 +166,10 @@ impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
 /// # Example
 ///
 /// ```
-/// use serde::{Deserialize, Serialize};
+/// use borsh::{BorshDeserialize, BorshSerialize};
 /// use bcr_ebill_transport::{EventType, Event, EventEnvelope};
 ///
-/// #[derive(Serialize, Deserialize)]
+/// #[derive(BorshSerialize, BorshDeserialize)]
 /// struct MyEventPayload {
 ///     foo: String,
 ///     bar: u32,
@@ -154,10 +186,10 @@ impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
 ///
 /// ```
 ///
-impl<T: DeserializeOwned + Serialize> TryFrom<EventEnvelope> for Event<T> {
-    type Error = Error;
+impl<T: BorshDeserialize + BorshSerialize> TryFrom<EventEnvelope> for Event<T> {
+    type Error = ProtocolError;
     fn try_from(envelope: EventEnvelope) -> Result<Self> {
-        let data: T = serde_json::from_value(envelope.data)?;
+        let data: T = borsh::from_slice(&envelope.data)?;
         Ok(Self {
             event_type: envelope.event_type,
             version: envelope.version,
@@ -198,7 +230,7 @@ mod tests {
         );
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
     pub struct TestEventPayload {
         pub foo: String,
         pub bar: u32,

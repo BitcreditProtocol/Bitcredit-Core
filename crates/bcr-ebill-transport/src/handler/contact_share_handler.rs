@@ -2,18 +2,20 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_ebill_api::{
-    service::notification_service::{
-        event::ContactShareEvent, transport::NotificationJsonTransportApi,
-    },
+    service::notification_service::transport::NotificationJsonTransportApi,
     util::{base58_decode, crypto::decrypt_ecies},
 };
-use bcr_ebill_core::{NodeId, ServiceTraitBounds, contact::Contact, nostr_contact::NostrContact};
+use bcr_ebill_core::{
+    NodeId, ServiceTraitBounds,
+    contact::Contact,
+    nostr_contact::NostrContact,
+    protocol::{ContactShareEvent, Event, EventEnvelope},
+};
 use bcr_ebill_persistence::{ContactStoreApi, nostr::NostrContactStoreApi};
 use log::{debug, warn};
 
 use crate::EventType;
-use bcr_ebill_api::service::notification_service::event::Event;
-use bcr_ebill_api::service::notification_service::{Error, Result, event::EventEnvelope};
+use bcr_ebill_api::service::notification_service::{Error, Result};
 
 use super::NotificationHandlerApi;
 

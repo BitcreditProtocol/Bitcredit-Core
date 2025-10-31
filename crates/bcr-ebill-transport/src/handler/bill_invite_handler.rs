@@ -1,11 +1,11 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use bcr_ebill_api::service::notification_service::event::ChainInvite;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds, ValidationError,
     bill::{BillId, BillKeys},
     blockchain::BlockchainType,
+    protocol::{ChainInvite, Event, EventEnvelope},
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, warn};
@@ -14,8 +14,7 @@ use crate::{
     EventType,
     handler::public_chain_helpers::{BlockData, EventContainer},
 };
-use bcr_ebill_api::service::notification_service::event::Event;
-use bcr_ebill_api::service::notification_service::{Result, event::EventEnvelope};
+use bcr_ebill_api::service::notification_service::Result;
 
 use super::{BillChainEventProcessorApi, NotificationHandlerApi};
 
@@ -161,7 +160,7 @@ mod tests {
     };
 
     use super::*;
-    use bcr_ebill_api::service::notification_service::event::BillBlockEvent;
+    use bcr_ebill_core::protocol::BillBlockEvent;
     use bcr_ebill_core::{blockchain::Blockchain, util::crypto::BcrKeys};
     use mockall::predicate::{always, eq};
 

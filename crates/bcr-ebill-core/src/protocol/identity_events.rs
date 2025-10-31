@@ -1,6 +1,4 @@
-use bcr_ebill_core::{
-    NodeId, blockchain::identity::IdentityBlock, identity::Identity, util::BcrKeys,
-};
+use crate::{NodeId, blockchain::identity::IdentityBlock, identity::Identity, util::BcrKeys};
 
 use super::{Event, blockchain_event::IdentityBlockEvent};
 

@@ -1,6 +1,5 @@
 use super::Result;
 use super::notification_service::NotificationServiceApi;
-use super::notification_service::event::IdentityChainEvent;
 use crate::data::validate_node_id_network;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
@@ -30,7 +29,7 @@ use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError};
+use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError, protocol::IdentityChainEvent};
 use log::{debug, error, info};
 use std::sync::Arc;
 

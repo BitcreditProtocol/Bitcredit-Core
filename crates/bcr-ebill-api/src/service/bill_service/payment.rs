@@ -1,9 +1,6 @@
 use super::Result;
 use super::service::BillService;
-use crate::service::{
-    bill_service::{BillAction, BillServiceApi},
-    notification_service::event::BillChainEvent,
-};
+use crate::service::bill_service::{BillAction, BillServiceApi};
 use bcr_ebill_core::{
     NodeId,
     bill::{BillId, BillKeys, BitcreditBill, PaymentState, RecourseReason},
@@ -17,6 +14,7 @@ use bcr_ebill_core::{
     company::{Company, CompanyKeys},
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     identity::{Identity, IdentityType, IdentityWithAll},
+    protocol::BillChainEvent,
     util::BcrKeys,
 };
 use log::{debug, info};

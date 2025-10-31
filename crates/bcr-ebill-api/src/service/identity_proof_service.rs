@@ -1,10 +1,6 @@
 use crate::{
     external::identity_proof::IdentityProofApi,
-    service::notification_service::{
-        NotificationServiceApi,
-        event::{CompanyChainEvent, IdentityChainEvent},
-    },
-    util,
+    service::notification_service::NotificationServiceApi, util,
 };
 
 use super::{Error, Result};
@@ -21,6 +17,7 @@ use bcr_ebill_core::{
     company::CompanyKeys,
     contact::{BillParticipant, ContactType},
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
+    protocol::{CompanyChainEvent, IdentityChainEvent},
     util::{BcrKeys, date::now},
 };
 use bcr_ebill_persistence::{

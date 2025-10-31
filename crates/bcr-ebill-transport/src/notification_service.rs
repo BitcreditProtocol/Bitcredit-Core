@@ -9,12 +9,9 @@ use crate::handler::{
 use crate::nostr::NostrClient;
 use async_trait::async_trait;
 use bcr_ebill_api::external::email::EmailClientApi;
-use bcr_ebill_api::service::notification_service::event::{
-    BillChainEvent, BillChainEventPayload, CompanyChainEvent, ContactShareEvent, Event,
-    EventEnvelope, IdentityChainEvent,
-};
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::service::notification_service::{NostrConfig, NostrContactData};
+use bcr_ebill_api::util::{base58_decode, base58_encode};
 use bcr_ebill_core::address::Address;
 use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::blockchain::BlockchainType;
@@ -26,6 +23,10 @@ use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::nostr_contact::TrustLevel;
+use bcr_ebill_core::protocol::{
+    BillChainEvent, BillChainEventPayload, CompanyChainEvent, ContactShareEvent, Event,
+    EventEnvelope, IdentityChainEvent,
+};
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::ContactStoreApi;
@@ -35,7 +36,6 @@ use bcr_ebill_persistence::nostr::{
 };
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use log::{debug, error, warn};
-use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::task::spawn;
 use tokio_with_wasm::alias as tokio;
@@ -220,7 +220,10 @@ impl NotificationService {
                         self.queue_retry_message(
                             sender,
                             node_id,
-                            serde_json::to_value(event_to_process)?,
+                            base58_encode(
+                                &borsh::to_vec(event_to_process)
+                                    .map_err(|e| Error::Message(e.to_string()))?,
+                            ),
                         )
                         .await?;
                     }
@@ -261,7 +264,7 @@ impl NotificationService {
         &self,
         sender: &NodeId,
         recipient: &NodeId,
-        payload: Value,
+        payload: String,
     ) -> Result<()> {
         let queue_message = NostrQueuedMessage {
             id: uuid::Uuid::new_v4().to_string(),
@@ -930,16 +933,6 @@ impl NotificationServiceApi for NotificationService {
         Ok(())
     }
 
-    async fn send_new_quote_event(&self, _bill: &BitcreditBill) -> Result<()> {
-        // @TODO: How do we know the quoting participants
-        Ok(())
-    }
-
-    async fn send_quote_is_approved_event(&self, _bill: &BitcreditBill) -> Result<()> {
-        // @TODO: How do we address a mint ???
-        Ok(())
-    }
-
     async fn get_client_notifications(
         &self,
         filter: NotificationFilter,
@@ -1048,7 +1041,9 @@ impl NotificationServiceApi for NotificationService {
             .await
             .map(|r| r.first().cloned())
         {
-            if let Ok(message) = serde_json::from_value::<EventEnvelope>(queued_message.payload) {
+            if let Ok(message) =
+                borsh::from_slice::<EventEnvelope>(&base58_decode(&queued_message.payload)?)
+            {
                 if let Err(e) = self
                     .send_retry_message(
                         &queued_message.sender_id,
@@ -1186,7 +1181,7 @@ impl NotificationServiceApi for NotificationService {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_api::service::notification_service::event::{ChainInvite, EventType};
+    use bcr_ebill_api::util::base58_encode;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
@@ -1199,6 +1194,7 @@ mod tests {
         ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
     };
     use bcr_ebill_core::contact::Contact;
+    use bcr_ebill_core::protocol::{ChainInvite, EventType, Result};
     use bcr_ebill_core::sum::Currency;
     use bcr_ebill_core::util::{BcrKeys, date::now};
     use mockall::predicate::eq;
@@ -1786,7 +1782,7 @@ mod tests {
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> = e.clone().try_into();
                 r.is_ok()
             })
             .returning(|_, _| Ok(()));
@@ -1937,7 +1933,7 @@ mod tests {
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> = e.clone().try_into();
                 r.is_ok()
             })
             .returning(|_, _| Ok(()));
@@ -1956,7 +1952,7 @@ mod tests {
 
         mock.expect_send_private_event()
             .withf(move |_, e| {
-                let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> = e.clone().try_into();
                 r.is_err()
             })
             .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
@@ -2054,7 +2050,9 @@ mod tests {
                 .withf(move |r, e| {
                     let part = clone2.clone();
                     let valid_node_id = r.node_id() == part.0.node_id;
-                    let event_result: Result<Event<BillChainEventPayload>> = e.clone().try_into();
+                    let event_result: bcr_ebill_core::protocol::Result<
+                        Event<BillChainEventPayload>,
+                    > = e.clone().try_into();
                     if let Ok(event) = event_result {
                         let valid_event_type = event.data.event_type == part.1;
                         valid_node_id && valid_event_type && event.data.action_type == part.2
@@ -2066,7 +2064,8 @@ mod tests {
 
             mock.expect_send_private_event()
                 .withf(move |_, e| {
-                    let r: Result<Event<ChainInvite>> = e.clone().try_into();
+                    let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
+                        e.clone().try_into();
                     r.is_ok()
                 })
                 .returning(|_, _| Ok(()));
@@ -2788,12 +2787,14 @@ mod tests {
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender_id = node_id_test();
-        let payload = serde_json::to_value(EventEnvelope {
-            version: "1.0".to_string(),
-            event_type: EventType::Bill,
-            data: serde_json::Value::Null,
-        })
-        .unwrap();
+        let payload = base58_encode(
+            &borsh::to_vec(&EventEnvelope {
+                version: "1.0".to_string(),
+                event_type: EventType::Bill,
+                data: vec![],
+            })
+            .unwrap(),
+        );
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
             sender_id: sender_id.to_owned(),
@@ -2920,12 +2921,14 @@ mod tests {
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender_id = node_id_test();
-        let payload = serde_json::to_value(EventEnvelope {
-            version: "1.0".to_string(),
-            event_type: EventType::Bill,
-            data: serde_json::Value::Null,
-        })
-        .unwrap();
+        let payload = base58_encode(
+            &borsh::to_vec(&EventEnvelope {
+                version: "1.0".to_string(),
+                event_type: EventType::Bill,
+                data: vec![],
+            })
+            .unwrap(),
+        );
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
@@ -2996,19 +2999,23 @@ mod tests {
         let message_id1 = "test_message_id_1";
         let message_id2 = "test_message_id_2";
 
-        let payload1 = serde_json::to_value(EventEnvelope {
-            version: "1.0".to_string(),
-            event_type: EventType::Bill,
-            data: serde_json::Value::Null,
-        })
-        .unwrap();
+        let payload1 = base58_encode(
+            &borsh::to_vec(&EventEnvelope {
+                version: "1.0".to_string(),
+                event_type: EventType::Bill,
+                data: vec![],
+            })
+            .unwrap(),
+        );
 
-        let payload2 = serde_json::to_value(EventEnvelope {
-            version: "1.0".to_string(),
-            event_type: EventType::Bill,
-            data: serde_json::Value::Null,
-        })
-        .unwrap();
+        let payload2 = base58_encode(
+            &borsh::to_vec(&EventEnvelope {
+                version: "1.0".to_string(),
+                event_type: EventType::Bill,
+                data: vec![],
+            })
+            .unwrap(),
+        );
 
         let queued_message1 = NostrQueuedMessage {
             id: message_id1.to_string(),
@@ -3108,7 +3115,7 @@ mod tests {
         let message_id = "test_message_id";
         let sender = node_id_test();
         // Invalid payload that can't be deserialized to EventEnvelope
-        let invalid_payload = serde_json::json!({ "invalid": "data" });
+        let invalid_payload = base58_encode(&borsh::to_vec(&"invalid data").unwrap());
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
@@ -3160,12 +3167,14 @@ mod tests {
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender = node_id_test();
-        let payload = serde_json::to_value(EventEnvelope {
-            version: "1.0".to_string(),
-            event_type: EventType::Bill,
-            data: serde_json::Value::Null,
-        })
-        .unwrap();
+        let payload = base58_encode(
+            &borsh::to_vec(&EventEnvelope {
+                version: "1.0".to_string(),
+                event_type: EventType::Bill,
+                data: vec![],
+            })
+            .unwrap(),
+        );
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),
@@ -3238,12 +3247,14 @@ mod tests {
         let node_id = node_id_test_other();
         let message_id = "test_message_id";
         let sender = node_id_test();
-        let payload = serde_json::to_value(EventEnvelope {
-            version: "1.0".to_string(),
-            event_type: EventType::Bill,
-            data: serde_json::Value::Null,
-        })
-        .unwrap();
+        let payload = base58_encode(
+            &borsh::to_vec(&EventEnvelope {
+                version: "1.0".to_string(),
+                event_type: EventType::Bill,
+                data: vec![],
+            })
+            .unwrap(),
+        );
 
         let queued_message = NostrQueuedMessage {
             id: message_id.to_string(),

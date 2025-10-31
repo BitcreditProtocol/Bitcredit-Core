@@ -1,14 +1,15 @@
-use bcr_ebill_core::{
+use crate::{
     NodeId, PublicKey, SecretKey,
     bill::{BillId, BillKeys},
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
     util::BcrKeys,
 };
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 /// A chain invite sent to new chain participants via private Nostr DM.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ChainInvite {
     pub chain_id: String,
     pub chain_type: BlockchainType,
@@ -50,14 +51,22 @@ impl ChainInvite {
 }
 
 /// Generalizes key pairs for different chain types.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ChainKeys {
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_privkey",
+        deserialize_with = "crate::util::borsh::deserialize_privkey"
+    )]
     pub private_key: SecretKey,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
     pub public_key: PublicKey,
 }
 
 /// The encrypted BCR bill payload contained in a public block Nostr event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockEvent {
     pub bill_id: BillId,
     pub block_height: usize,
@@ -65,7 +74,7 @@ pub struct BillBlockEvent {
 }
 
 /// The encrypted BCR identity payload contained in a public block Nostr event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct IdentityBlockEvent {
     pub node_id: NodeId,
     pub block_height: usize,
@@ -73,7 +82,7 @@ pub struct IdentityBlockEvent {
 }
 ///
 /// The encrypted BCR company payload contained in a public block Nostr event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct CompanyBlockEvent {
     pub node_id: NodeId,
     pub block_height: usize,

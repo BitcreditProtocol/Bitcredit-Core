@@ -1,4 +1,4 @@
-use bcr_ebill_core::{
+use crate::{
     NodeId,
     bill::{BillId, BillKeys, BitcreditBill},
     blockchain::{
@@ -8,14 +8,13 @@ use bcr_ebill_core::{
     notification::{ActionType, BillEventType},
     sum::Sum,
 };
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::service::notification_service::{Error, Result};
-
 use super::{
-    Event, EventType,
+    Event, EventType, ProtocolError, Result,
     blockchain_event::{BillBlockEvent, ChainInvite},
 };
 
@@ -42,7 +41,7 @@ impl BillChainEvent {
             .get_all_nodes_with_added_block_height(bill_keys)
             .map_err(|e| {
                 error!("Failed to get participants from blockchain: {e}");
-                Error::Blockchain(
+                ProtocolError::Deserialization(
                     "Failed to get participants from blockchain when creating a new chain event"
                         .to_string(),
                 )
@@ -141,7 +140,7 @@ impl BillChainEvent {
 /// performed by the receiver and a change in the blockchain. If the
 /// recipient is a new chain participant, the recipient receives the full
 /// chain otherwise just the most recent block.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillChainEventPayload {
     pub event_type: BillEventType,
     pub bill_id: BillId,

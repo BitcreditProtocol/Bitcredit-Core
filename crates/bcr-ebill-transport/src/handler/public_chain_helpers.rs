@@ -1,12 +1,10 @@
 use std::{cmp::Reverse, sync::Arc};
 
-use bcr_ebill_api::service::notification_service::{
-    event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
-    transport::NotificationJsonTransportApi,
-};
+use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     hash::Sha256Hash,
+    protocol::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
     util::{BcrKeys, date::now},
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;
@@ -98,13 +96,13 @@ pub fn decrypt_block(
             let decrypted = decrypt_public_chain_event(&payload.payload, keys)?;
             let data = match chain_type {
                 BlockchainType::Bill => {
-                    BlockData::Bill(serde_json::from_value::<BillBlockEvent>(decrypted.data)?.block)
+                    BlockData::Bill(borsh::from_slice::<BillBlockEvent>(&decrypted.data)?.block)
                 }
                 BlockchainType::Identity => BlockData::Identity(
-                    serde_json::from_value::<IdentityBlockEvent>(decrypted.data)?.block,
+                    borsh::from_slice::<IdentityBlockEvent>(&decrypted.data)?.block,
                 ),
                 BlockchainType::Company => BlockData::Company(
-                    serde_json::from_value::<CompanyBlockEvent>(decrypted.data)?.block,
+                    borsh::from_slice::<CompanyBlockEvent>(&decrypted.data)?.block,
                 ),
             };
             Ok(data)
