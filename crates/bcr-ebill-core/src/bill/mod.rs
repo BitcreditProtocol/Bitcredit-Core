@@ -4,7 +4,7 @@ use super::{
     notification::Notification,
 };
 use crate::{
-    BitcoinAddress, NodeId,
+    BitcoinAddress,
     block_id::BlockId,
     blockchain::{
         Block,
@@ -22,14 +22,13 @@ use crate::{
     timestamp::Timestamp,
     util::BcrKeys,
 };
+use bcr_common::core::{BillId, NodeId};
 use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
-
-pub mod validation;
-
-pub use bcr_common::core::BillId;
 use strum::{EnumCount, EnumIter};
 use uuid::Uuid;
+
+pub mod validation;
 
 /// Concrete incoming bill Actions with their data
 #[derive(Debug, Clone, PartialEq, Eq)]

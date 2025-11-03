@@ -2,17 +2,17 @@ use std::str::FromStr;
 
 use super::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bcr_common::core::NodeId;
 use bcr_ebill_api::{
-    data::{
-        NodeId, OptionalPostalAddress, PostalAddress, city::City, country::Country, date::Date,
-        email::Email, identification::Identification, name::Name,
-    },
     external,
-    service::Error,
-    util::{
-        ValidationError,
-        file::{UploadFileHandler, detect_content_type_for_bytes},
+    service::{
+        Error,
+        file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
     },
+};
+use bcr_ebill_core::{
+    OptionalPostalAddress, PostalAddress, ValidationError, city::City, country::Country,
+    date::Date, email::Email, identification::Identification, name::Name,
 };
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;

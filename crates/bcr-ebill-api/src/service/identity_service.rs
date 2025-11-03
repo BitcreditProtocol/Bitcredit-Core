@@ -1,37 +1,37 @@
 use super::Result;
 use super::notification_service::NotificationServiceApi;
-use crate::data::validate_node_id_network;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
+use crate::service::file_upload_service::UploadFileType;
 use crate::service::notification_service::{BcrMetadata, NostrContactData};
-use crate::util::file::UploadFileType;
+use crate::util::validate_node_id_network;
 use crate::{get_config, util};
-use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
 
-use crate::blockchain::Blockchain;
-use crate::blockchain::identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData};
-use crate::data::{
-    File, OptionalPostalAddress, PublicKey, SecretKey,
-    identity::{Identity, IdentityWithAll},
-};
-use crate::persistence::file_upload::FileUploadStoreApi;
-use crate::persistence::identity::IdentityChainStoreApi;
 use async_trait::async_trait;
-use bcr_ebill_core::blockchain::identity::IdentityBlockPlaintextWrapper;
+use bcr_common::core::NodeId;
+use bcr_ebill_core::blockchain::Blockchain;
+use bcr_ebill_core::blockchain::identity::{
+    IdentityBlock, IdentityBlockPlaintextWrapper, IdentityBlockchain, IdentityCreateBlockData,
+    IdentityUpdateBlockData,
+};
 use bcr_ebill_core::city::City;
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::identification::Identification;
-use bcr_ebill_core::identity::validation::{validate_create_identity, validate_update_identity};
-use bcr_ebill_core::identity::{ActiveIdentityState, IdentityType};
+use bcr_ebill_core::identity::validation::validate_create_identity;
+use bcr_ebill_core::identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll};
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::base58_encode;
-use bcr_ebill_core::util::crypto::DeriveKeypair;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds, ValidationError, protocol::IdentityChainEvent};
+use bcr_ebill_core::util::crypto::{self, DeriveKeypair};
+use bcr_ebill_core::util::{BcrKeys, base58_encode};
+use bcr_ebill_core::{File, OptionalPostalAddress, Validate};
+use bcr_ebill_core::{ServiceTraitBounds, ValidationError, protocol::IdentityChainEvent};
+use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
+use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use log::{debug, error, info};
+use secp256k1::{PublicKey, SecretKey};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -190,7 +190,7 @@ impl IdentityService {
         relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
         Ok(File {
@@ -224,7 +224,7 @@ fn get_bcr_data(identity: &Identity, keys: &BcrKeys) -> Result<BcrMetadata> {
     let contact = identity.as_contact(None);
     debug!("Publishing identity contact data: {contact:?}");
     let payload = serde_json::to_string(&contact)?;
-    let encrypted = base58_encode(&util::crypto::encrypt_ecies(
+    let encrypted = base58_encode(&crypto::encrypt_ecies(
         payload.as_bytes(),
         &derived_keys.public_key(),
     )?);
@@ -268,8 +268,6 @@ impl IdentityServiceApi for IdentityService {
         let nostr_relays = identity.nostr_relays.clone();
 
         let keys = self.store.get_key_pair().await?;
-
-        validate_update_identity(identity.t.clone(), &postal_address)?;
 
         if let Some(ref name_to_set) = name
             && &identity.name != name_to_set
@@ -387,22 +385,21 @@ impl IdentityServiceApi for IdentityService {
         }
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
-        let new_block = IdentityBlock::create_block_for_update(
-            &previous_block,
-            &IdentityUpdateBlockData {
-                name,
-                email,
-                postal_address,
-                date_of_birth,
-                country_of_birth,
-                city_of_birth,
-                identification_number,
-                profile_picture_file,
-                identity_document_file,
-            },
-            &keys,
-            timestamp,
-        )?;
+        let block_data = IdentityUpdateBlockData {
+            t: None,
+            name,
+            email,
+            postal_address,
+            date_of_birth,
+            country_of_birth,
+            city_of_birth,
+            identification_number,
+            profile_picture_file,
+            identity_document_file,
+        };
+        block_data.validate()?;
+        let new_block =
+            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)?;
         self.blockchain_store.add_block(&new_block).await?;
         self.store.save(&identity).await?;
         self.populate_block(&identity, &new_block, &keys).await?;
@@ -501,7 +498,9 @@ impl IdentityServiceApi for IdentityService {
         };
 
         // create new identity chain and persist it
-        let identity_chain = IdentityBlockchain::new(&identity.clone().into(), &keys, timestamp)?;
+        let block_data: IdentityCreateBlockData = identity.clone().into();
+        block_data.validate()?;
+        let identity_chain = IdentityBlockchain::new(&block_data, &keys, timestamp)?;
         let first_block = identity_chain.get_first_block();
         self.blockchain_store.add_block(first_block).await?;
 
@@ -592,22 +591,21 @@ impl IdentityServiceApi for IdentityService {
         };
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
-        let new_block = IdentityBlock::create_block_for_update(
-            &previous_block,
-            &IdentityUpdateBlockData {
-                name: Some(name),
-                email,
-                postal_address,
-                date_of_birth,
-                country_of_birth,
-                city_of_birth,
-                identification_number,
-                profile_picture_file,
-                identity_document_file,
-            },
-            &keys,
-            timestamp,
-        )?;
+        let block_data = IdentityUpdateBlockData {
+            t: Some(t.clone()),
+            name: Some(name),
+            email,
+            postal_address,
+            date_of_birth,
+            country_of_birth,
+            city_of_birth,
+            identification_number,
+            profile_picture_file,
+            identity_document_file,
+        };
+        block_data.validate()?;
+        let new_block =
+            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)?;
         self.blockchain_store.add_block(&new_block).await?;
         self.store.save(&identity).await?;
         self.populate_block(&identity, &new_block, &keys).await?;
@@ -659,7 +657,7 @@ impl IdentityServiceApi for IdentityService {
                     .file_upload_client
                     .download(nostr_relay, &file.nostr_hash)
                     .await?;
-                let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
+                let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
                 let file_hash = Sha256Hash::from_bytes(&decrypted);
                 if file_hash != file.hash {
                     error!("Hash for identity file {file_name} did not match uploaded file");

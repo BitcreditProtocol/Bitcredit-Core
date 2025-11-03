@@ -1,4 +1,5 @@
-use crate::{DateTimeUtc, NodeId, bill::BillId, timestamp::Timestamp};
+use crate::{DateTimeUtc, timestamp::Timestamp};
+use bcr_common::core::{BillId, NodeId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

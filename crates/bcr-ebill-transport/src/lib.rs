@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::notification_service::{Error, Result};
 use bcr_ebill_api::{
     Config, DbContext,
     external::email::EmailClientApi,
@@ -10,9 +12,9 @@ use bcr_ebill_api::{
             NostrConfig, NotificationServiceApi, transport::NotificationJsonTransportApi,
         },
     },
-    util::BcrKeys,
 };
-use bcr_ebill_core::{NodeId, protocol::EventType};
+use bcr_ebill_core::protocol::EventType;
+use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::{company::CompanyStoreApi, identity::IdentityStoreApi};
 use chain_keys::ChainKeyServiceApi;
 use handler::{
@@ -22,6 +24,7 @@ use handler::{
     NostrContactProcessor, NotificationHandlerApi,
 };
 use log::{debug, error};
+use notification_service::NotificationService;
 
 pub mod chain_keys;
 pub mod handler;
@@ -33,10 +36,8 @@ pub mod test_utils;
 pub mod transport;
 
 pub use async_broadcast::Receiver;
-pub use bcr_ebill_api::service::notification_service::{Error, Result};
 pub use handler::RestoreAccountService;
 pub use nostr::{NostrClient, NostrConsumer};
-use notification_service::NotificationService;
 pub use push_notification::{PushApi, PushService};
 pub use transport::bcr_nostr_tag;
 

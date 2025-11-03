@@ -3,13 +3,12 @@
 pub mod tests {
     use crate::CourtConfig;
     use crate::service::notification_service::{self, chain_keys::ChainKeyServiceApi};
-    use crate::{
-        CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
-        data::bill::BillKeys,
-    };
+    use crate::{CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig};
     use async_trait::async_trait;
+    use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::BitcoinAddress;
     use bcr_ebill_core::address::Address;
+    use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::block_id::BlockId;
     use bcr_ebill_core::city::City;
     use bcr_ebill_core::country::Country;
@@ -20,8 +19,8 @@ pub mod tests {
     use bcr_ebill_core::sum::Sum;
     use bcr_ebill_core::timestamp::Timestamp;
     use bcr_ebill_core::{
-        NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
-        bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
+        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
+        bill::{BitcreditBill, BitcreditBillResult, PaymentState},
         blockchain::{
             BlockchainType,
             bill::{BillBlock, BillBlockchain, BillOpCode},
@@ -40,8 +39,8 @@ pub mod tests {
     use bcr_ebill_persistence::identity_proof::IdentityProofStoreApi;
     use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
-        BackupStoreApi, ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
-        NotificationStoreApi, Result, SurrealDbConfig,
+        ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi, NotificationStoreApi, Result,
+        SurrealDbConfig,
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
@@ -53,11 +52,11 @@ pub mod tests {
         },
         notification::NotificationFilter,
     };
+    use std::sync::Arc;
     use std::{
         collections::{HashMap, HashSet},
         str::FromStr,
     };
-    use std::{path::Path, sync::Arc};
     use uuid::Uuid;
 
     // Need to wrap mocks, because traits are in a different crate
@@ -146,19 +145,6 @@ pub mod tests {
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
             async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> Result<Vec<NostrContact>>;
-        }
-    }
-
-    mockall::mock! {
-        pub BackupStoreApiMock {}
-
-        impl ServiceTraitBounds for BackupStoreApiMock {}
-
-        #[async_trait]
-        impl BackupStoreApi for BackupStoreApiMock {
-            async fn backup(&self) -> Result<Vec<u8>>;
-            async fn restore(&self, file_path: &Path) -> Result<()>;
-            async fn drop_db(&self, name: &str) -> Result<()>;
         }
     }
 
@@ -439,7 +425,6 @@ pub mod tests {
 
         #[async_trait]
         impl FileUploadStoreApi for FileUploadStoreApiMock {
-            async fn create_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;
             async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;
             async fn write_temp_upload_file(
                 &self,
@@ -465,7 +450,6 @@ pub mod tests {
             nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApiMock::new()),
             notification_store: Arc::new(MockNotificationStoreApiMock::new()),
             email_notification_store: Arc::new(MockEmailNotificationStoreApiMock::new()),
-            backup_store: Arc::new(MockBackupStoreApiMock::new()),
             queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
             nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
             mint_store: Arc::new(MockMintStore::new()),
@@ -486,7 +470,10 @@ pub mod tests {
                         connection_string: "ws://localhost:8800".to_string(),
                         ..SurrealDbConfig::default()
                     },
-                    data_dir: ".".to_string(),
+                    files_db_config: SurrealDbConfig {
+                        connection_string: "ws://localhost:8800".to_string(),
+                        ..SurrealDbConfig::default()
+                    },
                     nostr_config: NostrConfig {
                         only_known_contacts: false,
                         relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],

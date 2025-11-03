@@ -258,6 +258,7 @@ mod tests {
         let block2 = IdentityBlock::create_block_for_update(
             &block,
             &IdentityUpdateBlockData {
+                t: None,
                 name: None,
                 email: None,
                 postal_address: empty_optional_address(),

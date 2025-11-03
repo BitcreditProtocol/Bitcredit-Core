@@ -1,9 +1,9 @@
 use super::Result;
 use super::service::BillService;
 use crate::service::bill_service::{BillAction, BillServiceApi};
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    NodeId,
-    bill::{BillId, BillKeys, BitcreditBill, PaymentState, RecourseReason},
+    bill::{BillKeys, BitcreditBill, PaymentState, RecourseReason},
     blockchain::{
         Blockchain,
         bill::{

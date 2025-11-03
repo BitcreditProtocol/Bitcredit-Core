@@ -57,7 +57,6 @@ async function start() {
         bitcoin_network: "testnet",
         nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
-        data_dir: ".",
         job_runner_initial_delay_seconds: 1,
         job_runner_check_interval_seconds: 600,
     };
@@ -271,7 +270,6 @@ async function start() {
         bitcoin_network: "testnet",
         nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
-        data_dir: ".",
         job_runner_initial_delay_seconds: 1,
         job_runner_check_interval_seconds: 600,
     };

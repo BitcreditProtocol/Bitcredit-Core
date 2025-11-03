@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    ServiceTraitBounds,
     block_id::BlockId,
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
     timestamp::Timestamp,

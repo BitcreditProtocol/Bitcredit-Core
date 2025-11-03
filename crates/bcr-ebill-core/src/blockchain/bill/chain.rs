@@ -8,7 +8,6 @@ use super::block::{
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
-use crate::NodeId;
 use crate::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use crate::bill::{
     BillHistory, BillHistoryBlock, BillKeys, LightSignedBy, PastEndorsee, PastPaymentStatus,
@@ -22,6 +21,7 @@ use crate::date::Date;
 use crate::hash::Sha256Hash;
 use crate::timestamp::Timestamp;
 use crate::util::BcrKeys;
+use bcr_common::core::NodeId;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};

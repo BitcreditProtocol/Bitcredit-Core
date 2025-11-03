@@ -1,8 +1,6 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain};
-use crate::NodeId;
-use crate::bill::BillId;
 use crate::block_id::BlockId;
 use crate::blockchain::{Error, borsh_to_json_value};
 use crate::city::City;
@@ -20,6 +18,8 @@ use crate::{
     File, OptionalPostalAddress, PostalAddress,
     company::{Company, CompanyKeys},
 };
+use bcr_common::core::BillId;
+use bcr_common::core::NodeId;
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;

@@ -1,15 +1,13 @@
-use bcr_ebill_api::{
-    data::{
-        NodeId,
-        city::City,
-        contact::{Contact, ContactType},
-        country::Country,
-        date::Date,
-        email::Email,
-        identification::Identification,
-        name::Name,
-    },
-    service::Error,
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::Error;
+use bcr_ebill_core::{
+    city::City,
+    contact::{Contact, ContactType},
+    country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    name::Name,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;

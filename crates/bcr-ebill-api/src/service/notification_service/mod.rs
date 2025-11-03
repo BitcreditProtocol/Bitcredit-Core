@@ -1,4 +1,4 @@
-use crate::{external, util};
+use crate::external;
 use bcr_ebill_core::{name::Name, util::crypto};
 
 pub mod chain_keys;
@@ -10,7 +10,7 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use bcr_ebill_core::NodeId;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::util::BcrKeys;
 use nostr::{
     nips::{nip01::Metadata, nip19::ToBech32},
@@ -78,8 +78,8 @@ impl From<crypto::Error> for Error {
     }
 }
 
-impl From<util::Error> for Error {
-    fn from(e: util::Error) -> Self {
+impl From<bcr_ebill_core::util::Error> for Error {
+    fn from(e: bcr_ebill_core::util::Error) -> Self {
         Error::Crypto(format!("Failed base58 operation: {e}"))
     }
 }

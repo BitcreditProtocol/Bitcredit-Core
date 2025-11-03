@@ -1,4 +1,4 @@
-use crate::{Field, OptionalPostalAddress, Validate, ValidationError, email::Email};
+use crate::{Field, OptionalPostalAddress, ValidationError, email::Email};
 
 use super::IdentityType;
 
@@ -7,33 +7,14 @@ pub fn validate_create_identity(
     email: &Option<Email>,
     postal_address: &OptionalPostalAddress,
 ) -> Result<(), ValidationError> {
-    match t {
-        IdentityType::Anon => {
-            // only node id and name need to be set
+    if let IdentityType::Ident = t {
+        // email needs to be set and not blank
+        if email.is_none() {
+            return Err(ValidationError::FieldEmpty(Field::Email));
         }
-        IdentityType::Ident => {
-            // email needs to be set and not blank
-            if email.is_none() {
-                return Err(ValidationError::FieldEmpty(Field::Email));
-            }
-            // For Ident, the postal address needs to be fully set
-            postal_address.validate_to_be_non_optional()?;
-        }
-    };
-
-    Ok(())
-}
-
-pub fn validate_update_identity(
-    t: IdentityType,
-    postal_address: &OptionalPostalAddress,
-) -> Result<(), ValidationError> {
-    match t {
-        IdentityType::Anon => {}
-        IdentityType::Ident => {
-            postal_address.validate()?;
-        }
-    };
+        // For Ident, the postal address needs to be fully set
+        postal_address.validate_to_be_non_optional()?;
+    }
     Ok(())
 }
 
@@ -64,11 +45,5 @@ mod tests {
             validate_create_identity(t, email, postal_address,),
             Err(expected)
         );
-    }
-
-    #[test]
-    fn test_validate_update_identity() {
-        let result = validate_update_identity(IdentityType::Anon, &OptionalPostalAddress::empty());
-        assert!(result.is_ok());
     }
 }

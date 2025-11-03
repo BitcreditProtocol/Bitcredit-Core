@@ -1,10 +1,9 @@
 use std::str::FromStr;
 
 use super::Result;
-use bcr_ebill_api::{
-    data::{GeneralSearchFilterItemType, sum::Currency},
-    service::Error,
-    util::{VALID_CURRENCIES, ValidationError, file::detect_content_type_for_bytes},
+use bcr_ebill_api::service::{Error, file_upload_service::detect_content_type_for_bytes};
+use bcr_ebill_core::{
+    GeneralSearchFilterItemType, ValidationError, constants::VALID_CURRENCIES, sum::Currency,
 };
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;

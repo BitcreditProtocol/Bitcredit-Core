@@ -1,4 +1,4 @@
-use bcr_ebill_api::data::timestamp::Timestamp;
+use bcr_ebill_core::timestamp::Timestamp;
 use log::{error, info};
 
 use crate::context::get_ctx;

@@ -1,18 +1,18 @@
 use super::{NostrContactData, Result};
 use async_trait::async_trait;
-use bcr_ebill_core::{
-    NodeId,
-    bill::{BillId, BitcreditBill},
-    contact::{BillIdentParticipant, BillParticipant},
-    email::Email,
-    notification::{ActionType, Notification},
-    sum::Sum,
-};
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     ServiceTraitBounds,
     company::Company,
     protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
     util::BcrKeys,
+};
+use bcr_ebill_core::{
+    bill::BitcreditBill,
+    contact::{BillIdentParticipant, BillParticipant},
+    email::Email,
+    notification::{ActionType, Notification},
+    sum::Sum,
 };
 use bcr_ebill_persistence::notification::NotificationFilter;
 use std::collections::HashMap;

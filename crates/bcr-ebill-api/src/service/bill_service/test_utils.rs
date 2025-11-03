@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    data::identity::IdentityWithAll,
     external::{self, court::MockCourtClientApi, file_storage::MockFileStorageClientApi},
     service::{
         company_service::tests::get_valid_company_block,
@@ -16,7 +15,6 @@ use crate::{
         empty_bitcredit_bill, empty_identity, init_test_cfg, node_id_test, node_id_test_other,
         node_id_test_other2, private_key_test, valid_payment_address_testnet,
     },
-    util,
 };
 use bcr_ebill_core::{
     BitcoinAddress,
@@ -53,7 +51,6 @@ use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
 use service::BillService;
 use std::str::FromStr;
 use std::{collections::HashMap, sync::Arc};
-use util::crypto::BcrKeys;
 
 pub struct MockBillContext {
     pub contact_store: MockContactStoreApiMock,

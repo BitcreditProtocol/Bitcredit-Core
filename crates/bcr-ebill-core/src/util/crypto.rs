@@ -23,9 +23,6 @@ pub enum Error {
     #[error("Ecies encryption error: {0}")]
     Ecies(String),
 
-    #[error("Signature had invalid length")]
-    InvalidSignatureLength,
-
     #[error("Aggregated signature needs at least 2 keys")]
     TooFewKeys,
 

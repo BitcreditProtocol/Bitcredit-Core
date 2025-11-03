@@ -2,7 +2,8 @@ use bcr_ebill_api::service::bill_service::Error as BillServiceError;
 use bcr_ebill_api::service::{
     Error as ServiceError, notification_service::Error as NotificationServiceError,
 };
-use bcr_ebill_api::util::{self, ValidationError};
+use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::util::crypto;
 use log::error;
 use serde::Serialize;
 use thiserror::Error;
@@ -24,16 +25,16 @@ pub enum WasmError {
     WasmSerialization(#[from] serde_wasm_bindgen::Error),
 
     #[error("crypto error: {0}")]
-    Crypto(#[from] util::crypto::Error),
+    Crypto(#[from] crypto::Error),
 
     #[error("persistence error: {0}")]
-    Persistence(#[from] bcr_ebill_api::PersistenceError),
+    Persistence(#[from] bcr_ebill_persistence::Error),
 
     #[error("api init error: {0}")]
     Init(#[from] anyhow::Error),
 
     #[error("Validation error: {0}")]
-    Validation(#[from] bcr_ebill_api::util::ValidationError),
+    Validation(#[from] ValidationError),
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -134,7 +135,6 @@ enum JsErrorType {
     TooManyFiles,
     InvalidFileName,
     UnknownNodeId,
-    BackupNotSupported,
     CallerMustBeSignatory,
     InvalidBase58,
     InvalidSignature,
@@ -355,7 +355,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::TooManyFiles => err_400(e, JsErrorType::TooManyFiles),
         ValidationError::InvalidFileName(_) => err_400(e, JsErrorType::InvalidFileName),
         ValidationError::UnknownNodeId(_) => err_400(e, JsErrorType::UnknownNodeId),
-        ValidationError::BackupNotSupported => err_400(e, JsErrorType::BackupNotSupported),
         ValidationError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
         ValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
         ValidationError::InvalidBase58 => err_400(e, JsErrorType::InvalidBase58),

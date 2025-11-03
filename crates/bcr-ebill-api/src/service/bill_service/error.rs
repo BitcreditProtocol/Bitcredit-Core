@@ -1,4 +1,5 @@
-use crate::{blockchain, external, persistence, service::notification_service, util};
+use crate::{external, service::notification_service};
+use bcr_ebill_core::{blockchain, util::crypto};
 use thiserror::Error;
 
 /// Generic error type
@@ -22,7 +23,7 @@ pub enum Error {
 
     /// all errors originating from the persistence layer
     #[error("Persistence error: {0}")]
-    Persistence(#[from] persistence::Error),
+    Persistence(#[from] bcr_ebill_persistence::Error),
 
     /// all errors originating from external APIs
     #[error("External API error: {0}")]
@@ -30,7 +31,7 @@ pub enum Error {
 
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Cryptography error: {0}")]
-    Cryptography(#[from] util::crypto::Error),
+    Cryptography(#[from] crypto::Error),
 
     #[error("Notification error: {0}")]
     Notification(#[from] notification_service::Error),

@@ -1,10 +1,11 @@
 use crate::{
-    NodeId, PublicKey, SecretKey,
-    bill::{BillId, BillKeys},
+    PublicKey, SecretKey,
+    bill::BillKeys,
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
     util::BcrKeys,
 };
+use bcr_common::core::{BillId, NodeId};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 

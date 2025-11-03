@@ -1,6 +1,5 @@
 use crate::{
-    NodeId,
-    bill::{BillId, BillKeys, BitcreditBill},
+    bill::{BillKeys, BitcreditBill},
     blockchain::{
         Blockchain,
         bill::{BillBlock, BillBlockchain},
@@ -8,6 +7,7 @@ use crate::{
     notification::{ActionType, BillEventType},
     sum::Sum,
 };
+use bcr_common::core::{BillId, NodeId};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};

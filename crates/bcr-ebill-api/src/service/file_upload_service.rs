@@ -1,28 +1,29 @@
 use super::{Error, Result};
 use crate::constants::{
-    MAX_DOCUMENT_FILE_SIZE_BYTES, MAX_FILE_NAME_CHARACTERS, VALID_FILE_MIME_TYPES,
+    MAX_DOCUMENT_FILE_SIZE_BYTES, MAX_FILE_NAME_CHARACTERS, MAX_PICTURE_FILE_SIZE_BYTES,
+    VALID_FILE_MIME_TYPES,
 };
-use crate::data::UploadFileResult;
-use crate::persistence::file_upload::FileUploadStoreApi;
-use crate::{persistence, util};
+use crate::util::get_uuid_v4;
 use async_trait::async_trait;
 use bcr_ebill_core::name::Name;
-use bcr_ebill_core::{ServiceTraitBounds, ValidationError};
+use bcr_ebill_core::{ServiceTraitBounds, UploadFileResult, ValidationError};
+use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use log::{debug, error};
 use std::sync::Arc;
+use std::{ffi::OsStr, path::Path};
 use uuid::Uuid;
+
+#[cfg(test)]
+use mockall::automock;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait FileUploadServiceApi: ServiceTraitBounds {
     /// validates the given uploaded file
-    async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()>;
+    async fn validate_attached_file(&self, file: &dyn UploadFileHandler) -> Result<()>;
 
     /// uploads files
-    async fn upload_file(
-        &self,
-        file: &dyn util::file::UploadFileHandler,
-    ) -> Result<UploadFileResult>;
+    async fn upload_file(&self, file: &dyn UploadFileHandler) -> Result<UploadFileResult>;
 
     /// returns a temp upload file
     async fn get_temp_file(&self, file_upload_id: &Uuid) -> Result<Option<(Name, Vec<u8>)>>;
@@ -44,7 +45,7 @@ impl ServiceTraitBounds for FileUploadService {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileUploadServiceApi for FileUploadService {
-    async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()> {
+    async fn validate_attached_file(&self, file: &dyn UploadFileHandler) -> Result<()> {
         if file.is_empty() {
             return Err(Error::Validation(ValidationError::FileIsEmpty));
         }
@@ -86,24 +87,20 @@ impl FileUploadServiceApi for FileUploadService {
         Ok(())
     }
 
-    async fn upload_file(
-        &self,
-        file: &dyn util::file::UploadFileHandler,
-    ) -> Result<UploadFileResult> {
+    async fn upload_file(&self, file: &dyn UploadFileHandler) -> Result<UploadFileResult> {
         // create a new random id
-        let file_upload_id = util::get_uuid_v4();
-        // create a folder to store the files
-        self.file_upload_store
-            .create_temp_upload_folder(&file_upload_id)
-            .await?;
+        let file_upload_id = get_uuid_v4();
         // sanitize and randomize file name and write file into the temporary folder
-        let file_name = Name::new(util::file::generate_unique_filename(
-            &util::file::sanitize_filename(&file.name().ok_or(Error::Validation(
+        let file_name = Name::new(generate_unique_filename(
+            &sanitize_filename(&file.name().ok_or(Error::Validation(
                 ValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS),
             ))?),
             file.extension(),
         ))?;
-        let read_file = file.get_contents().await.map_err(persistence::Error::Io)?;
+        let read_file = file
+            .get_contents()
+            .await
+            .map_err(bcr_ebill_persistence::Error::Io)?;
         self.file_upload_store
             .write_temp_upload_file(&file_upload_id, &file_name, &read_file)
             .await?;
@@ -122,12 +119,78 @@ impl FileUploadServiceApi for FileUploadService {
     }
 }
 
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait UploadFileHandler: Send + Sync {
+    /// Read the attached uploaded file
+    async fn get_contents(&self) -> std::io::Result<Vec<u8>>;
+    /// Returns the extension for an uploaded file
+    fn extension(&self) -> Option<String>;
+    /// Returns the name for an uploaded file
+    fn name(&self) -> Option<String>;
+    /// Returns the file length for an uploaded file
+    fn len(&self) -> usize;
+    /// Returns whether it's empty
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    /// detects the content type of the file by checking the first bytes
+    async fn detect_content_type(&self) -> std::io::Result<Option<String>>;
+}
+
+/// The different types of files we have in the system
+pub enum UploadFileType {
+    Document,
+    Picture,
+}
+
+impl UploadFileType {
+    pub fn check_file_size(&self, bytes_len: usize) -> bool {
+        match self {
+            UploadFileType::Document => bytes_len <= MAX_DOCUMENT_FILE_SIZE_BYTES,
+            UploadFileType::Picture => bytes_len <= MAX_PICTURE_FILE_SIZE_BYTES,
+        }
+    }
+
+    pub fn max_file_size(&self) -> usize {
+        match self {
+            UploadFileType::Document => MAX_DOCUMENT_FILE_SIZE_BYTES,
+            UploadFileType::Picture => MAX_PICTURE_FILE_SIZE_BYTES,
+        }
+    }
+}
+
+/// Function to sanitize the filename by removing unwanted characters.
+pub fn sanitize_filename(filename: &str) -> String {
+    filename
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_')
+        .collect()
+}
+
+pub fn detect_content_type_for_bytes(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 256 {
+        return None; // can't decide with so few bytes
+    }
+    infer::get(&bytes[..256]).map(|t| t.mime_type().to_owned())
+}
+
+/// Function to generate a unique filename using UUID while preserving the file extension.
+pub fn generate_unique_filename(original_filename: &str, extension: Option<String>) -> String {
+    let path = Path::new(original_filename);
+    let stem = path.file_stem().and_then(OsStr::to_str).unwrap_or("");
+    let extension = extension.unwrap_or_default();
+    let optional_dot = if extension.is_empty() { "" } else { "." };
+    format!("{}_{}{}{}", stem, get_uuid_v4(), optional_dot, extension)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{tests::tests::MockFileUploadStoreApiMock, util::get_uuid_v4};
+    use MockUploadFileHandler;
     use std::sync::Arc;
-    use util::file::MockUploadFileHandler;
 
     fn get_service(mock_storage: MockFileUploadStoreApiMock) -> FileUploadService {
         FileUploadService::new(Arc::new(mock_storage))
@@ -140,9 +203,6 @@ mod tests {
         storage
             .expect_write_temp_upload_file()
             .returning(|_, _, _| Ok(()));
-        storage
-            .expect_create_temp_upload_folder()
-            .returning(|_| Ok(()));
         let mut file = MockUploadFileHandler::new();
         file.expect_name()
             .returning(|| Some(String::from("invoice")));
@@ -158,31 +218,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upload_file_baseline_fails_on_folder_creation() {
-        let file_bytes = String::from("hello world").as_bytes().to_vec();
-        let mut storage = MockFileUploadStoreApiMock::new();
-        storage
-            .expect_create_temp_upload_folder()
-            .returning(|_| Err(persistence::Error::Io(std::io::Error::other("test error"))));
-        let mut file = MockUploadFileHandler::new();
-        file.expect_name()
-            .returning(|| Some(String::from("invoice")));
-        file.expect_extension()
-            .returning(|| Some(String::from("pdf")));
-        file.expect_get_contents()
-            .returning(move || Ok(file_bytes.clone()));
-        let service = get_service(storage);
-
-        let res = service.upload_file(&file).await;
-        assert!(res.is_err());
-    }
-
-    #[tokio::test]
     async fn upload_file_baseline_fails_on_file_creation() {
-        let mut storage = MockFileUploadStoreApiMock::new();
-        storage
-            .expect_create_temp_upload_folder()
-            .returning(|_| Ok(()));
+        let storage = MockFileUploadStoreApiMock::new();
         let mut file = MockUploadFileHandler::new();
         file.expect_name()
             .returning(|| Some(String::from("invoice")));
@@ -198,10 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn upload_file_baseline_fails_on_file_name_errors() {
-        let mut storage = MockFileUploadStoreApiMock::new();
-        storage
-            .expect_create_temp_upload_folder()
-            .returning(|_| Ok(()));
+        let storage = MockFileUploadStoreApiMock::new();
         let mut file = MockUploadFileHandler::new();
         file.expect_name().returning(|| None);
         let service = get_service(storage);
@@ -216,10 +250,11 @@ mod tests {
         let mut storage = MockFileUploadStoreApiMock::new();
         storage
             .expect_write_temp_upload_file()
-            .returning(|_, _, _| Err(persistence::Error::Io(std::io::Error::other("test error"))));
-        storage
-            .expect_create_temp_upload_folder()
-            .returning(|_| Ok(()));
+            .returning(|_, _, _| {
+                Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
+                    "test error",
+                )))
+            });
         let mut file = MockUploadFileHandler::new();
         file.expect_name()
             .returning(|| Some(String::from("invoice")));
@@ -386,12 +421,59 @@ mod tests {
     #[tokio::test]
     async fn get_temp_file_err() {
         let mut storage = MockFileUploadStoreApiMock::new();
-        storage
-            .expect_read_temp_upload_file()
-            .returning(|_| Err(persistence::Error::Io(std::io::Error::other("test error"))));
+        storage.expect_read_temp_upload_file().returning(|_| {
+            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
+                "test error",
+            )))
+        });
         let service = get_service(storage);
 
         let res = service.get_temp_file(&get_uuid_v4()).await;
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn sanitize_filename_basic() {
+        assert_eq!(
+            sanitize_filename("FI$$LE()()NAME.PD@@@F"),
+            String::from("filename.pdf")
+        );
+    }
+
+    #[test]
+    fn sanitize_filename_empty() {
+        assert_eq!(sanitize_filename(""), String::from(""));
+    }
+
+    #[test]
+    fn sanitize_filename_sane() {
+        assert_eq!(
+            sanitize_filename("invoice-october_2024.pdf"),
+            String::from("invoice-october_2024.pdf")
+        );
+    }
+
+    #[test]
+    fn generate_unique_filename_basic() {
+        assert_eq!(
+            generate_unique_filename("file_name.pdf", Some(String::from("pdf"))),
+            String::from("file_name_00000000-0000-0000-0000-000000000000.pdf")
+        );
+    }
+
+    #[test]
+    fn generate_unique_filename_no_ext() {
+        assert_eq!(
+            generate_unique_filename("file_name", None),
+            String::from("file_name_00000000-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[test]
+    fn generate_unique_filename_multi_ext() {
+        assert_eq!(
+            generate_unique_filename("file_name", Some(String::from("tar.gz"))),
+            String::from("file_name_00000000-0000-0000-0000-000000000000.tar.gz")
+        );
     }
 }

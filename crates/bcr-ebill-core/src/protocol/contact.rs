@@ -1,4 +1,4 @@
-use crate::NodeId;
+use bcr_common::core::NodeId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use secp256k1::SecretKey;
 

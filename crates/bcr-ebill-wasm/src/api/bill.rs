@@ -2,28 +2,27 @@ use std::str::FromStr;
 
 use super::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::{
-    data::{
-        NodeId,
-        bill::{
-            BillAction, BillId, BillIssueData, BillsFilterRole, LightBitcreditBillResult,
-            RecourseReason,
-        },
-        city::City,
-        contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
-        country::Country,
-        date::Date,
-        identity::IdentityType,
-        name::Name,
-        sum::{Currency, Sum},
-        timestamp::Timestamp,
-    },
     external,
-    service::{Error, bill_service::Error as BillServiceError},
-    util::{
-        self, BcrKeys, ValidationError,
-        file::{UploadFileHandler, detect_content_type_for_bytes},
+    service::{
+        Error,
+        bill_service::Error as BillServiceError,
+        file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
     },
+};
+use bcr_ebill_core::{
+    ValidationError,
+    bill::{BillAction, BillIssueData, BillsFilterRole, LightBitcreditBillResult, RecourseReason},
+    city::City,
+    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+    country::Country,
+    date::Date,
+    identity::IdentityType,
+    name::Name,
+    sum::{Currency, Sum},
+    timestamp::Timestamp,
+    util::BcrKeys,
 };
 use log::error;
 use uuid::Uuid;
@@ -322,7 +321,7 @@ impl Bill {
                 )
                 .await?;
             let sum = bill.data.sum;
-            let sum_as_words = util::numbers_to_words::encode(&sum.as_sat());
+            let sum_as_words = crate::util::numbers_to_words(&sum.as_sat());
             Ok(BillNumbersToWordsForSum {
                 sum: sum.as_sat(),
                 sum_as_words,

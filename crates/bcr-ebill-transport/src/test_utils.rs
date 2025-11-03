@@ -1,9 +1,9 @@
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::notification_service::NostrConfig;
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
-use bcr_ebill_api::util::BcrKeys;
-use bcr_ebill_api::{Config, CourtConfig, DevModeConfig, SurrealDbConfig};
+use bcr_ebill_api::{Config, CourtConfig, DevModeConfig};
 use bcr_ebill_core::BitcoinAddress;
 use bcr_ebill_core::address::Address;
 use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
@@ -19,9 +19,9 @@ use bcr_ebill_core::name::Name;
 use bcr_ebill_core::protocol::{EventEnvelope, EventType};
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::timestamp::Timestamp;
+use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_core::{
-    NodeId, OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
-    bill::BillId,
+    OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
     blockchain::BlockchainType,
     contact::BillParticipant,
     contact::{BillIdentParticipant, Contact, ContactType},
@@ -33,6 +33,7 @@ use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStore
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bcr_ebill_persistence::{
     ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
+    SurrealDbConfig,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -110,7 +111,10 @@ pub fn init_test_cfg() {
                     connection_string: "ws://localhost:8800".to_string(),
                     ..SurrealDbConfig::default()
                 },
-                data_dir: ".".to_string(),
+                files_db_config: SurrealDbConfig {
+                    connection_string: "ws://localhost:8800".to_string(),
+                    ..SurrealDbConfig::default()
+                },
                 nostr_config: bcr_ebill_api::NostrConfig {
                     only_known_contacts: false,
                     relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
@@ -436,7 +440,7 @@ mockall::mock! {
             node_ids: &[NodeId],
         ) -> bcr_ebill_persistence::Result<HashMap<NodeId, bool>>;
         async fn add(&self, notification: Notification) -> bcr_ebill_persistence::Result<Notification>;
-        async fn list(&self, filter: bcr_ebill_api::NotificationFilter) -> bcr_ebill_persistence::Result<Vec<Notification>>;
+        async fn list(&self, filter: bcr_ebill_persistence::notification::NotificationFilter) -> bcr_ebill_persistence::Result<Vec<Notification>>;
         async fn get_latest_by_references(
             &self,
             reference: &[String],

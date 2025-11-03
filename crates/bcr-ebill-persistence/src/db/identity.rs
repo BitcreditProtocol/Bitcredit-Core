@@ -3,8 +3,9 @@ use std::str::FromStr;
 use super::{FileDb, OptionalPostalAddressDb, Result, surreal::SurrealWrapper};
 use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, SecretKey, ServiceTraitBounds,
+    SecretKey, ServiceTraitBounds,
     city::City,
     country::Country,
     date::Date,

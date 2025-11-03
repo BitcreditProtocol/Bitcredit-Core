@@ -1,3 +1,4 @@
+use bcr_common::core::NodeId;
 use std::collections::HashMap;
 
 use super::{
@@ -12,7 +13,7 @@ use crate::{
     constants::{DB_SEARCH_TERM, DB_TABLE},
 };
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    ServiceTraitBounds,
     city::City,
     contact::{Contact, ContactType},
     country::Country,

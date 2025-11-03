@@ -8,12 +8,10 @@ use crate::{
         notification::{NotificationStatusWeb, NotificationWeb},
     },
 };
-use bcr_ebill_api::{
-    NotificationFilter,
-    data::NodeId,
-    service::Error,
-    util::{Field, ValidationError},
-};
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::Error;
+use bcr_ebill_core::{Field, ValidationError};
+use bcr_ebill_persistence::notification::NotificationFilter;
 use log::{error, info};
 use wasm_bindgen::prelude::*;
 

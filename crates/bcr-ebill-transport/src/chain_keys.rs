@@ -1,10 +1,10 @@
 use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::notification_service::Result;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds, ValidationError, bill::BillId, blockchain::BlockchainType,
-    util::BcrKeys,
+    ServiceTraitBounds, ValidationError, blockchain::BlockchainType, util::BcrKeys,
 };
 use bcr_ebill_persistence::{
     bill::BillStoreApi, company::CompanyStoreApi, identity::IdentityStoreApi,

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::hash::Sha256Hash;
 use bcr_ebill_core::protocol::{CompanyBlockEvent, Event, EventEnvelope};
 use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds, blockchain::BlockchainType};
+use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType};
 use bcr_ebill_persistence::{
     NostrChainEventStoreApi, company::CompanyStoreApi, nostr::NostrChainEvent,
 };

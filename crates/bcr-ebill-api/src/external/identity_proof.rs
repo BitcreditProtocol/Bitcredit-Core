@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
+    ServiceTraitBounds, ValidationError,
     identity_proof::{IdentityProofStamp, IdentityProofStatus},
+    util::crypto,
 };
 use borsh_derive::BorshSerialize;
 use log::error;
@@ -15,7 +16,7 @@ use url::Url;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::{external::file_storage::to_url, util};
+use crate::external::file_storage::to_url;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, super::Error>;
@@ -31,10 +32,10 @@ pub enum Error {
     Api(#[from] reqwest::Error),
     /// all errors originating from interacting with cryptography
     #[error("External Identity Proof Crypto error: {0}")]
-    Crypto(#[from] util::crypto::Error),
+    Crypto(#[from] crypto::Error),
     /// all errors originating from interacting with base58
     #[error("External Identity Proof Validation error: {0}")]
-    Validation(#[from] util::ValidationError),
+    Validation(#[from] ValidationError),
     /// all nostr key  errors
     #[error("External Identity Proof Nostr Key Error")]
     NostrKey,

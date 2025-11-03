@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    File, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
+    ValidationError,
     city::City,
-    contact::{
-        BillParticipant,
-        validation::{validate_create_contact, validate_update_contact},
-    },
+    contact::{BillParticipant, Contact, ContactType, validation::validate_create_contact},
     country::Country,
     date::Date,
     email::Email,
@@ -15,26 +14,22 @@ use bcr_ebill_core::{
     identification::Identification,
     name::Name,
     nostr_contact::{NostrContact, NostrPublicKey, TrustLevel},
+    util::crypto,
 };
-use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::{
+    ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
+    nostr::NostrContactStoreApi,
+};
 #[cfg(test)]
 use mockall::automock;
 use uuid::Uuid;
 
 use crate::{
     Config,
-    data::{
-        File, OptionalPostalAddress, PostalAddress,
-        contact::{Contact, ContactType},
-        validate_node_id_network,
-    },
     external::file_storage::FileStorageClientApi,
     get_config,
-    persistence::{
-        contact::ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
-    },
-    service::notification_service::NotificationServiceApi,
-    util::{self, file::UploadFileType},
+    service::{file_upload_service::UploadFileType, notification_service::NotificationServiceApi},
+    util::{self, validate_node_id_network},
 };
 
 use super::Result;
@@ -208,7 +203,7 @@ impl ContactService {
         relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
         Ok(File {
@@ -330,8 +325,6 @@ impl ContactServiceApi for ContactService {
         };
 
         let nostr_relays = contact.nostr_relays.clone();
-
-        validate_update_contact(contact.t.clone(), &postal_address)?;
 
         let mut changed = false;
 
@@ -714,7 +707,7 @@ impl ContactServiceApi for ContactService {
                     .file_upload_client
                     .download(nostr_relay, &file.nostr_hash)
                     .await?;
-                let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
+                let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
                 let file_hash = Sha256Hash::from_bytes(&decrypted);
                 if file_hash != file.hash {
                     error!("Hash for contact file {file_name} did not match uploaded file");
@@ -746,9 +739,8 @@ pub mod tests {
             init_test_cfg, node_id_test, node_id_test_other,
         },
     };
-    use bcr_ebill_core::nostr_contact::HandshakeStatus;
+    use bcr_ebill_core::{nostr_contact::HandshakeStatus, util::BcrKeys};
     use std::collections::HashMap;
-    use util::BcrKeys;
 
     pub fn get_baseline_contact() -> Contact {
         Contact {

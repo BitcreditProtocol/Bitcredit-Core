@@ -1,12 +1,11 @@
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
+use bcr_common::core::NodeId;
 use bcr_ebill_api::constants::DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS;
-use bcr_ebill_api::data::validate_node_id_network;
-use bcr_ebill_api::{
-    Config as ApiConfig, MintConfig, NostrConfig, SurrealDbConfig, data::NodeId, get_db_context,
-    init,
-};
+use bcr_ebill_api::util::validate_node_id_network;
+use bcr_ebill_api::{Config as ApiConfig, MintConfig, NostrConfig, get_db_context, init};
 use bcr_ebill_api::{CourtConfig, DevModeConfig, PaymentConfig};
+use bcr_ebill_persistence::SurrealDbConfig;
 use context::{Context, get_ctx};
 use job::run_jobs;
 use log::{debug, info, warn};
@@ -27,6 +26,7 @@ mod context;
 mod data;
 mod error;
 mod job;
+mod util;
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
@@ -125,8 +125,8 @@ pub async fn initialize_api(
         bitcoin_network: config.bitcoin_network,
         esplora_base_url: url::Url::parse(&config.esplora_base_url)
             .expect("esplora base url is not a valid URL"),
-        db_config: SurrealDbConfig::default(),
-        data_dir: "./".to_owned(), // unused in wasm
+        db_config: SurrealDbConfig::default(), // unused in WASM builds
+        files_db_config: SurrealDbConfig::default(), // unused in WASM builds
         nostr_config: NostrConfig {
             relays: nostr_relays,
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),

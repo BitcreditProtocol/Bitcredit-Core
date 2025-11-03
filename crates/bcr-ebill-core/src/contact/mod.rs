@@ -1,11 +1,13 @@
 use crate::{
-    NodeId, ValidationError, city::City, country::Country, date::Date, email::Email,
+    ValidationError, city::City, country::Country, date::Date, email::Email,
     identification::Identification, identity::IdentityType, name::Name,
 };
 
 use super::{File, PostalAddress, company::Company, identity::Identity};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+
+use bcr_common::core::NodeId;
 
 pub mod validation;
 

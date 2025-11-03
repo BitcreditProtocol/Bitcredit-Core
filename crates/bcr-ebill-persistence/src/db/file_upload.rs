@@ -1,4 +1,3 @@
-#![cfg(any(target_arch = "wasm32", test))]
 use super::{
     super::{Error, Result, file_upload::FileUploadStoreApi},
     surreal::{Bindings, SurrealWrapper},
@@ -40,11 +39,6 @@ impl ServiceTraitBounds for FileUploadStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileUploadStoreApi for FileUploadStore {
-    async fn create_temp_upload_folder(&self, _file_upload_id: &Uuid) -> Result<()> {
-        // NOOP for wasm32
-        Ok(())
-    }
-
     async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TEMP_FILES_TABLE)?;

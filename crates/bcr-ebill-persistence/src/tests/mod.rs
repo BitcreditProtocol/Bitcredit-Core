@@ -3,11 +3,12 @@
 pub mod tests {
     use std::str::FromStr;
 
+    use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{
-        NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
+        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
         address::Address,
         bill::{
-            BillAcceptanceStatus, BillCallerActions, BillData, BillHistory, BillId, BillKeys,
+            BillAcceptanceStatus, BillCallerActions, BillData, BillHistory, BillKeys,
             BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus,
             BillSellStatus, BillStatus, BitcreditBill, BitcreditBillResult,
         },

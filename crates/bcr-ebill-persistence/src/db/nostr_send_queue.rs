@@ -4,7 +4,8 @@ use super::{
 };
 use crate::constants::{DB_IDS, DB_LIMIT, DB_TABLE};
 use async_trait::async_trait;
-use bcr_ebill_core::{DateTimeUtc, NodeId, ServiceTraitBounds, timestamp::Timestamp};
+use bcr_common::core::NodeId;
+use bcr_ebill_core::{DateTimeUtc, ServiceTraitBounds, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 

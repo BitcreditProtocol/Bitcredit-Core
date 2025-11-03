@@ -1,4 +1,3 @@
-pub mod backup;
 pub mod bill;
 pub mod company;
 pub mod constants;
@@ -14,7 +13,6 @@ pub mod notification;
 mod tests;
 
 use bcr_ebill_core::util;
-use log::error;
 use thiserror::Error;
 
 /// Generic persistence result type
@@ -123,21 +121,16 @@ impl From<surrealdb::Error> for Error {
     }
 }
 
-pub use backup::BackupStoreApi;
 pub use contact::ContactStoreApi;
-#[cfg(target_arch = "wasm32")]
 pub use db::file_upload::FileUploadStore;
 #[cfg(not(target_arch = "wasm32"))]
 pub use db::get_surreal_db;
 pub use db::{
-    SurrealDbConfig, backup::SurrealBackupStore, bill::SurrealBillStore,
-    bill_chain::SurrealBillChainStore, company::SurrealCompanyStore,
-    company_chain::SurrealCompanyChainStore, contact::SurrealContactStore,
-    identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
-    nostr_chain_event::SurrealNostrChainEventStore,
+    SurrealDbConfig, bill::SurrealBillStore, bill_chain::SurrealBillChainStore,
+    company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
+    contact::SurrealContactStore, identity::SurrealIdentityStore,
+    identity_chain::SurrealIdentityChainStore, nostr_chain_event::SurrealNostrChainEventStore,
     nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub use file_upload::FileUploadStore;
 pub use nostr::{NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
 pub use notification::NotificationStoreApi;

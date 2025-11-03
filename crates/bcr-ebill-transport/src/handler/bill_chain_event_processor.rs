@@ -1,17 +1,18 @@
 use crate::handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
 use crate::{Error, Result};
 use async_trait::async_trait;
+use bcr_common::core::BillId;
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
-use bcr_ebill_api::util::BcrKeys;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
-use bcr_ebill_core::bill::{BillId, BillKeys};
+use bcr_ebill_core::bill::BillKeys;
 use bcr_ebill_core::bill::{BillValidateActionData, BillValidationActionMode};
 use bcr_ebill_core::block_id::BlockId;
 use bcr_ebill_core::blockchain::bill::BillOpCode;
 use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::blockchain::{Block, Blockchain, BlockchainType};
+use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use log::{debug, error, info, warn};
@@ -471,8 +472,8 @@ impl BillChainEventProcessor {
 
 #[cfg(test)]
 mod tests {
+    use bcr_common::core::NodeId;
     use bcr_ebill_core::{
-        NodeId,
         blockchain::bill::block::{
             BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
             BillRejectBlockData, BillRequestToAcceptBlockData,

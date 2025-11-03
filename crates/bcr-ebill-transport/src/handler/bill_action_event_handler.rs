@@ -3,10 +3,9 @@ use super::NotificationHandlerApi;
 use crate::EventType;
 use crate::PushApi;
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::notification_service::{Error, Result};
-use bcr_ebill_core::NodeId;
 use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::bill::BillId;
 use bcr_ebill_core::notification::BillEventType;
 use bcr_ebill_core::notification::{Notification, NotificationType};
 use bcr_ebill_core::protocol::BillChainEventPayload;
@@ -188,7 +187,7 @@ fn event_description(event_type: &BillEventType) -> String {
 mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_core::{PublicKey, bill::BillId, notification::ActionType, sum::Sum};
+    use bcr_ebill_core::{PublicKey, notification::ActionType, sum::Sum};
     use mockall::predicate::{always, eq};
 
     use crate::handler::{

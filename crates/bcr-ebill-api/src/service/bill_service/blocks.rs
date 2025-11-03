@@ -1,6 +1,7 @@
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    NodeId, Validate, ValidationError,
-    bill::{BillId, BillKeys, BitcreditBill, RecourseReason},
+    Validate, ValidationError,
+    bill::{BillKeys, BitcreditBill, RecourseReason},
     blockchain::{
         self, Blockchain,
         bill::{
@@ -25,7 +26,7 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 
-use crate::data::validate_node_id_network;
+use crate::util::validate_node_id_network;
 
 use super::{BillAction, Result, error::Error, service::BillService};
 
@@ -65,7 +66,7 @@ impl BillService {
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
                     };
-                    block_data.validate()?;
+                    // nothing to validate - all checked via type system
                     BillBlock::create_block_for_accept(
                         bill_id.to_owned(),
                         previous_block,
@@ -326,7 +327,7 @@ impl BillService {
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
                     };
-                    block_data.validate()?;
+                    // nothing to validate - all checked via type system
                     BillBlock::create_block_for_reject_to_accept(
                         bill_id.to_owned(),
                         previous_block,
@@ -353,7 +354,7 @@ impl BillService {
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
                 };
-                block_data.validate()?;
+                // nothing to validate - all checked via type system
                 BillBlock::create_block_for_reject_to_buy(
                     bill_id.to_owned(),
                     previous_block,
@@ -373,7 +374,7 @@ impl BillService {
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
                     };
-                    block_data.validate()?;
+                    // nothing to validate - all checked via type system
                     BillBlock::create_block_for_reject_to_pay(
                         bill_id.to_owned(),
                         previous_block,
@@ -396,7 +397,7 @@ impl BillService {
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
                     };
-                    block_data.validate()?;
+                    // nothing to validate - all checked via type system
                     BillBlock::create_block_for_reject_to_pay_recourse(
                         bill_id.to_owned(),
                         previous_block,

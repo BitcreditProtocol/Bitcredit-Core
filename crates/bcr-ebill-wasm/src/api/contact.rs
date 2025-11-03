@@ -11,17 +11,20 @@ use crate::data::{
 };
 use crate::{Result, context::get_ctx};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bcr_ebill_api::data::city::City;
-use bcr_ebill_api::data::contact::ContactType;
-use bcr_ebill_api::data::country::Country;
-use bcr_ebill_api::data::date::Date;
-use bcr_ebill_api::data::email::Email;
-use bcr_ebill_api::data::identification::Identification;
-use bcr_ebill_api::data::name::Name;
-use bcr_ebill_api::data::{NodeId, OptionalPostalAddress, PostalAddress};
+use bcr_common::core::NodeId;
 use bcr_ebill_api::service;
-use bcr_ebill_api::util::ValidationError;
-use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
+use bcr_ebill_api::service::file_upload_service::{
+    UploadFileHandler, detect_content_type_for_bytes,
+};
+use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::city::City;
+use bcr_ebill_core::contact::ContactType;
+use bcr_ebill_core::country::Country;
+use bcr_ebill_core::date::Date;
+use bcr_ebill_core::email::Email;
+use bcr_ebill_core::identification::Identification;
+use bcr_ebill_core::name::Name;
+use bcr_ebill_core::{OptionalPostalAddress, PostalAddress};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 

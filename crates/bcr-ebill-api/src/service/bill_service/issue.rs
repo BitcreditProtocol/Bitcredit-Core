@@ -1,15 +1,12 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
 use crate::{
-    constants::MAX_BILL_ATTACHMENTS,
-    data::validate_node_id_network,
-    get_config,
-    util::{self, file::UploadFileType},
+    constants::MAX_BILL_ATTACHMENTS, get_config, service::file_upload_service::UploadFileType,
+    util::validate_node_id_network,
 };
+use bcr_common::core::BillId;
 use bcr_ebill_core::{
     File, PublicKey, Validate, ValidationError,
-    bill::{
-        BillId, BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue,
-    },
+    bill::{BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue},
     blockchain::{
         Blockchain,
         bill::{BillBlockchain, block::BillIssueBlockData},
@@ -18,7 +15,7 @@ use bcr_ebill_core::{
     hash::Sha256Hash,
     name::Name,
     protocol::BillChainEvent,
-    util::BcrKeys,
+    util::{BcrKeys, crypto},
 };
 use log::{debug, error, info};
 
@@ -39,7 +36,7 @@ impl BillService {
             )));
         }
         let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
         Ok(File {

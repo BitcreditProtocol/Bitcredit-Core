@@ -1,26 +1,38 @@
 use anyhow::{Result, anyhow};
-use bcr_ebill_core::NodeId;
+use bcr_common::core::NodeId;
+use bcr_ebill_persistence::db::surreal::SurrealWrapper;
+#[cfg(not(target_arch = "wasm32"))]
+use bcr_ebill_persistence::get_surreal_db;
+use bcr_ebill_persistence::{
+    ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
+    SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore, SurrealCompanyStore,
+    SurrealContactStore, SurrealDbConfig, SurrealIdentityChainStore, SurrealIdentityStore,
+    SurrealNostrChainEventStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    bill::{BillChainStoreApi, BillStoreApi},
+    company::{CompanyChainStoreApi, CompanyStoreApi},
+    db::{
+        email_notification::SurrealEmailNotificationStore,
+        identity_proof::SurrealIdentityProofStore, mint::SurrealMintStore,
+        nostr_contact_store::SurrealNostrContactStore,
+        nostr_send_queue::SurrealNostrEventQueueStore,
+    },
+    file_upload::FileUploadStoreApi,
+    identity::{IdentityChainStoreApi, IdentityStoreApi},
+    identity_proof::IdentityProofStoreApi,
+    mint::MintStoreApi,
+    nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
+    notification::EmailNotificationStoreApi,
+};
 use bitcoin::Network;
-use std::sync::OnceLock;
+use log::error;
+use std::sync::{Arc, OnceLock};
 
-mod blockchain;
 pub mod constants;
-pub mod data;
 pub mod external;
-pub mod persistence;
 pub mod service;
 #[cfg(test)]
 mod tests;
 pub mod util;
-
-pub use blockchain::Block;
-pub use blockchain::Blockchain;
-pub use blockchain::bill::BillOpCode;
-pub use persistence::DbContext;
-pub use persistence::Error as PersistenceError;
-pub use persistence::db::SurrealDbConfig;
-pub use persistence::get_db_context;
-pub use persistence::notification::NotificationFilter;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -28,7 +40,7 @@ pub struct Config {
     pub bitcoin_network: String,
     pub esplora_base_url: url::Url,
     pub db_config: SurrealDbConfig,
-    pub data_dir: String,
+    pub files_db_config: SurrealDbConfig,
     pub nostr_config: NostrConfig,
     pub mint_config: MintConfig,
     pub payment_config: PaymentConfig,
@@ -109,4 +121,102 @@ pub fn init(conf: Config) -> Result<()> {
 
 pub fn get_config() -> &'static Config {
     CONFIG.get().expect("E-Bill API is not initialized")
+}
+
+/// A container for all persistence related dependencies.
+#[derive(Clone)]
+pub struct DbContext {
+    pub contact_store: Arc<dyn ContactStoreApi>,
+    pub bill_store: Arc<dyn BillStoreApi>,
+    pub bill_blockchain_store: Arc<dyn BillChainStoreApi>,
+    pub identity_store: Arc<dyn IdentityStoreApi>,
+    pub identity_chain_store: Arc<dyn IdentityChainStoreApi>,
+    pub company_chain_store: Arc<dyn CompanyChainStoreApi>,
+    pub company_store: Arc<dyn CompanyStoreApi>,
+    pub file_upload_store: Arc<dyn FileUploadStoreApi>,
+    pub nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+    pub notification_store: Arc<dyn NotificationStoreApi>,
+    pub email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+    pub queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
+    pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    pub mint_store: Arc<dyn MintStoreApi>,
+    pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    pub identity_proof_store: Arc<dyn IdentityProofStoreApi>,
+}
+
+/// Creates a new instance of the DbContext with the given SurrealDB configuration.
+pub async fn get_db_context(
+    #[allow(unused)] conf: &Config,
+) -> bcr_ebill_persistence::Result<DbContext> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let db = get_surreal_db(&conf.db_config).await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let files_db = get_surreal_db(&conf.files_db_config).await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let surreal_wrapper = SurrealWrapper {
+        db: db.clone(),
+        files: false,
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let files_surreal_wrapper = SurrealWrapper {
+        db: files_db.clone(),
+        files: true,
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let surreal_wrapper = SurrealWrapper { files: false };
+
+    #[cfg(target_arch = "wasm32")]
+    let files_surreal_wrapper = SurrealWrapper { files: true };
+
+    let company_store = Arc::new(SurrealCompanyStore::new(surreal_wrapper.clone()));
+    let file_upload_store = Arc::new(
+        bcr_ebill_persistence::db::file_upload::FileUploadStore::new(files_surreal_wrapper),
+    );
+
+    if let Err(e) = file_upload_store.cleanup_temp_uploads().await {
+        error!("Error cleaning up temp uploads: {e}");
+    }
+
+    let contact_store = Arc::new(SurrealContactStore::new(surreal_wrapper.clone()));
+
+    let bill_store = Arc::new(SurrealBillStore::new(surreal_wrapper.clone()));
+    let bill_blockchain_store = Arc::new(SurrealBillChainStore::new(surreal_wrapper.clone()));
+
+    let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
+    let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(surreal_wrapper.clone()));
+    let identity_proof_store = Arc::new(SurrealIdentityProofStore::new(surreal_wrapper.clone()));
+    let company_chain_store = Arc::new(SurrealCompanyChainStore::new(surreal_wrapper.clone()));
+
+    let nostr_event_offset_store =
+        Arc::new(SurrealNostrEventOffsetStore::new(surreal_wrapper.clone()));
+    let notification_store = Arc::new(SurrealNotificationStore::new(surreal_wrapper.clone()));
+    let email_notification_store =
+        Arc::new(SurrealEmailNotificationStore::new(surreal_wrapper.clone()));
+
+    let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
+    let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
+    let mint_store = Arc::new(SurrealMintStore::new(surreal_wrapper.clone()));
+    let nostr_chain_event_store =
+        Arc::new(SurrealNostrChainEventStore::new(surreal_wrapper.clone()));
+
+    Ok(DbContext {
+        contact_store,
+        bill_store,
+        bill_blockchain_store,
+        identity_store,
+        identity_chain_store,
+        company_chain_store,
+        company_store,
+        file_upload_store,
+        nostr_event_offset_store,
+        notification_store,
+        email_notification_store,
+        queued_message_store,
+        nostr_contact_store,
+        mint_store,
+        nostr_chain_event_store,
+        identity_proof_store,
+    })
 }

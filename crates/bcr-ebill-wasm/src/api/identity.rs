@@ -14,23 +14,24 @@ use crate::{
     error::WasmError,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bcr_common::core::NodeId;
 use bcr_ebill_api::{
-    data::{
-        NodeId, OptionalPostalAddress,
-        city::City,
-        country::Country,
-        date::Date,
-        email::Email,
-        identification::Identification,
-        identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
-        name::Name,
-    },
     external,
-    service::{Error, notification_service::restore::RestoreAccountApi},
-    util::{
-        ValidationError,
-        file::{UploadFileHandler, detect_content_type_for_bytes},
+    service::{
+        Error,
+        file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
+        notification_service::restore::RestoreAccountApi,
     },
+};
+use bcr_ebill_core::{
+    OptionalPostalAddress, ValidationError,
+    city::City,
+    country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
+    name::Name,
 };
 use bcr_ebill_transport::create_restore_account_service;
 use uuid::Uuid;

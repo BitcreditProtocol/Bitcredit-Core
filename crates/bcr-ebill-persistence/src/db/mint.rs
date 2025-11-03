@@ -2,9 +2,9 @@ use std::str::FromStr;
 
 use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
-    bill::BillId,
+    ServiceTraitBounds,
     mint::{MintOffer, MintOfferRecoveryData, MintRequest, MintRequestStatus},
     sum::Sum,
     timestamp::Timestamp,

@@ -1,6 +1,5 @@
-use crate::{
-    Field, NodeId, OptionalPostalAddress, PostalAddress, Validate, ValidationError, email::Email,
-};
+use crate::{Field, PostalAddress, ValidationError, email::Email};
+use bcr_common::core::NodeId;
 
 use super::ContactType;
 
@@ -21,9 +20,7 @@ pub fn validate_create_contact(
         }
         ContactType::Person | ContactType::Company => {
             // email and address need to be set and not blank
-            if let Some(pa) = postal_address {
-                pa.validate()?;
-            } else {
+            if postal_address.is_none() {
                 return Err(ValidationError::FieldEmpty(Field::Address));
             }
 
@@ -33,19 +30,6 @@ pub fn validate_create_contact(
         }
     };
 
-    Ok(())
-}
-
-pub fn validate_update_contact(
-    t: ContactType,
-    postal_address: &OptionalPostalAddress,
-) -> Result<(), ValidationError> {
-    match t {
-        ContactType::Anon => {}
-        ContactType::Person | ContactType::Company => {
-            postal_address.validate()?;
-        }
-    };
     Ok(())
 }
 
@@ -90,11 +74,5 @@ mod tests {
             ),
             Err(expected)
         );
-    }
-
-    #[test]
-    fn test_validate_update_contact() {
-        let result = validate_update_contact(ContactType::Anon, &OptionalPostalAddress::empty());
-        assert!(result.is_ok());
     }
 }

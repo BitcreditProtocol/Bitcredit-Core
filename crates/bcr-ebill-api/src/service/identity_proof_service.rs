@@ -7,8 +7,9 @@ use super::{Error, Result};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds, ValidationError,
+    ServiceTraitBounds, ValidationError,
     blockchain::{
         Block,
         company::{CompanyBlock, CompanyIdentityProofBlockData},

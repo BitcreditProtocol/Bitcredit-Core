@@ -3,8 +3,8 @@ use super::NotificationHandlerApi;
 use crate::EventType;
 use crate::transport::root_and_reply_id;
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_api::service::notification_service::Result;
-use bcr_ebill_core::NodeId;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::hash::Sha256Hash;
@@ -129,10 +129,11 @@ impl BillChainEventHandler {
 mod tests {
     use std::str::FromStr;
 
+    use bcr_common::core::BillId;
     use bcr_ebill_core::{
         OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
         address::Address,
-        bill::{BillId, BillKeys, BitcreditBill},
+        bill::{BillKeys, BitcreditBill},
         blockchain::{
             Blockchain,
             bill::{

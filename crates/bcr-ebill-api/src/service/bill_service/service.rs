@@ -1,60 +1,54 @@
 use super::error::Error;
 use super::{BillAction, BillServiceApi, Result};
-use crate::blockchain::Blockchain;
-use crate::blockchain::bill::block::BillIdentParticipantBlockData;
-use crate::blockchain::bill::{BillBlockchain, BillOpCode};
-use crate::data::{
-    NodeId, SecretKey,
-    bill::{
-        BillCombinedBitcoinKey, BillId, BillKeys, BillRole, BillsBalance, BillsBalanceOverview,
-        BillsFilterRole, BitcreditBill, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
-        PastEndorsee,
-    },
-    contact::{BillIdentParticipant, ContactType},
-    identity::Identity,
-};
-use crate::data::{validate_bill_id_network, validate_node_id_network};
+use crate::external;
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
-use crate::persistence::bill::BillChainStoreApi;
-use crate::persistence::bill::BillStoreApi;
-use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
-use crate::persistence::contact::ContactStoreApi;
-use crate::persistence::file_upload::FileUploadStoreApi;
-use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
+use crate::service::file_upload_service::UploadFileType;
 use crate::service::notification_service::NotificationServiceApi;
-use crate::util::BcrKeys;
-use crate::util::file::UploadFileType;
-use crate::{external, util};
+use crate::util::{validate_bill_id_network, validate_node_id_network};
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::bill::{
-    BillHistory, BillIssueData, BillValidateActionData, BillValidationActionMode,
+    BillCombinedBitcoinKey, BillHistory, BillIssueData, BillKeys, BillRole, BillValidateActionData,
+    BillValidationActionMode, BillsBalance, BillsBalanceOverview, BillsFilterRole, BitcreditBill,
+    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastEndorsee,
     PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult,
     PastPaymentStatus, PaymentState,
 };
+use bcr_ebill_core::blockchain::Blockchain;
 use bcr_ebill_core::blockchain::bill::block::{
-    BillParticipantBlockData, BillRequestRecourseBlockData,
+    BillIdentParticipantBlockData, BillParticipantBlockData, BillRequestRecourseBlockData,
 };
 use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
-use bcr_ebill_core::blockchain::bill::create_bill_to_share_with_external_party;
+use bcr_ebill_core::blockchain::bill::{
+    BillBlockchain, BillOpCode, create_bill_to_share_with_external_party,
+};
 use bcr_ebill_core::company::{Company, CompanyKeys};
 use bcr_ebill_core::contact::{
-    BillAnonParticipant, BillParticipant, Contact, LightBillParticipant,
+    BillAnonParticipant, BillIdentParticipant, BillParticipant, Contact, ContactType,
+    LightBillParticipant,
 };
 use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::identity::{IdentityType, IdentityWithAll};
+use bcr_ebill_core::identity::{Identity, IdentityType, IdentityWithAll};
 use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::notification::ActionType;
 use bcr_ebill_core::sum::{Currency, Sum};
 use bcr_ebill_core::timestamp::Timestamp;
+use bcr_ebill_core::util::{BcrKeys, crypto};
 use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
+use bcr_ebill_persistence::ContactStoreApi;
+use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
+use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
+use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
+use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info, warn};
+use secp256k1::SecretKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1012,7 +1006,7 @@ impl BillServiceApi for BillService {
                 .file_upload_client
                 .download(nostr_relay, &file.nostr_hash)
                 .await?;
-            let decrypted = util::crypto::decrypt_ecies(&file_bytes, bill_private_key)?;
+            let decrypted = crypto::decrypt_ecies(&file_bytes, bill_private_key)?;
             let file_hash = Sha256Hash::from_bytes(&decrypted);
             if file_hash != file.hash {
                 error!(
