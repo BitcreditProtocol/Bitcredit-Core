@@ -5,13 +5,14 @@ use bcr_common::client::keys::Client as KeysClient;
 use bcr_common::client::quote::Client as QuoteClient;
 use bcr_common::client::swap::Client as SwapClient;
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
+use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::{
-    SecretKey, ServiceTraitBounds,
-    blockchain::bill::BillToShareWithExternalParty,
-    util::{BcrKeys, date::DateTimeUtc},
+    DateTimeUtc, SecretKey, ServiceTraitBounds, blockchain::bill::BillToShareWithExternalParty,
+    util::BcrKeys,
 };
 use cashu::{ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use thiserror::Error;
+use uuid::Uuid;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, super::Error>;
@@ -88,7 +89,7 @@ pub trait MintClientApi: ServiceTraitBounds {
         &self,
         mint_url: &url::Url,
         keyset: cdk02::KeySet,
-        quote_id: &str,
+        quote_id: &Uuid,
         private_key: &SecretKey,
         blinded_messages: Vec<cashu::BlindedMessage>,
         secrets: Vec<cashu::secret::Secret>,
@@ -102,22 +103,22 @@ pub trait MintClientApi: ServiceTraitBounds {
         mint_url: &url::Url,
         bill_to_share: BillToShareWithExternalParty,
         requester_keys: &BcrKeys,
-    ) -> Result<String>;
+    ) -> Result<Uuid>;
     /// Look up a quote for a mint
     async fn lookup_quote_for_mint(
         &self,
         mint_url: &url::Url,
-        quote_id: &str,
+        quote_id: &Uuid,
     ) -> Result<QuoteStatusReply>;
     /// Resolve quote from mint
     async fn resolve_quote_for_mint(
         &self,
         mint_url: &url::Url,
-        quote_id: &str,
+        quote_id: &Uuid,
         resolve: ResolveMintOffer,
     ) -> Result<()>;
     /// Cancel request to mint
-    async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &str) -> Result<()>;
+    async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &Uuid) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -206,7 +207,7 @@ impl MintClientApi for MintClient {
         &self,
         mint_url: &url::Url,
         keyset: cdk02::KeySet,
-        quote_id: &str,
+        quote_id: &Uuid,
         private_key: &SecretKey,
         blinded_messages: Vec<cashu::BlindedMessage>,
         secrets: Vec<cashu::secret::Secret>,
@@ -216,7 +217,7 @@ impl MintClientApi for MintClient {
             cashu::MintUrl::from_str(mint_url.as_str()).map_err(|_| Error::InvalidMintUrl)?;
         let secret_key = cdk01::SecretKey::from_hex(private_key.display_secret().to_string())
             .map_err(|_| Error::PrivateKey)?;
-        let qid = uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?;
+        let qid = quote_id.to_owned();
         let currency = self
             .key_client(mint_url)?
             .keyset_info(keyset.id)
@@ -274,7 +275,7 @@ impl MintClientApi for MintClient {
         mint_url: &url::Url,
         bill_to_share: BillToShareWithExternalParty,
         requester_keys: &BcrKeys,
-    ) -> Result<String> {
+    ) -> Result<Uuid> {
         let shared_bill = map_shared_bill(bill_to_share);
 
         let public_key = cdk01::PublicKey::from_hex(requester_keys.get_public_key())
@@ -288,17 +289,17 @@ impl MintClientApi for MintClient {
                 log::error!("Error enquiring to mint {mint_url}: {e}");
                 Error::QuoteClient
             })?;
-        Ok(mint_request_id.to_string())
+        Ok(mint_request_id)
     }
 
     async fn lookup_quote_for_mint(
         &self,
         mint_url: &url::Url,
-        quote_id: &str,
+        quote_id: &Uuid,
     ) -> Result<QuoteStatusReply> {
         let reply = self
             .quote_client(mint_url)?
-            .lookup(uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?)
+            .lookup(quote_id.to_owned())
             .await
             .map_err(|e| {
                 log::error!("Error looking up request on mint {mint_url}: {e}");
@@ -310,15 +311,13 @@ impl MintClientApi for MintClient {
     async fn resolve_quote_for_mint(
         &self,
         mint_url: &url::Url,
-        quote_id: &str,
+        quote_id: &Uuid,
         resolve: ResolveMintOffer,
     ) -> Result<()> {
         match resolve {
             ResolveMintOffer::Accept => {
                 self.quote_client(mint_url)?
-                    .accept_offer(
-                        uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
-                    )
+                    .accept_offer(quote_id.to_owned())
                     .await
                     .map_err(|e| {
                         log::error!("Error accepting request on mint {mint_url}: {e}");
@@ -327,9 +326,7 @@ impl MintClientApi for MintClient {
             }
             ResolveMintOffer::Reject => {
                 self.quote_client(mint_url)?
-                    .reject_offer(
-                        uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
-                    )
+                    .reject_offer(quote_id.to_owned())
                     .await
                     .map_err(|e| {
                         log::error!("Error rejecting request on mint {mint_url}: {e}");
@@ -340,11 +337,9 @@ impl MintClientApi for MintClient {
         Ok(())
     }
 
-    async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &str) -> Result<()> {
+    async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &Uuid) -> Result<()> {
         self.quote_client(mint_url)?
-            .cancel_enquiry(
-                uuid::Uuid::from_str(quote_id).map_err(|_| Error::InvalidMintRequestId)?,
-            )
+            .cancel_enquiry(quote_id.to_owned())
             .await
             .map_err(|e| {
                 log::error!("Error cancelling request on mint {mint_url}: {e}");
@@ -356,13 +351,13 @@ impl MintClientApi for MintClient {
 
 pub fn generate_blinds(
     keyset_id: cashu::Id,
-    discounted_amount: u64,
+    discounted_amount: Sum,
 ) -> Result<(
     Vec<cashu::BlindedMessage>,
     Vec<cashu::secret::Secret>,
     Vec<cashu::SecretKey>,
 )> {
-    let amounts: Vec<cashu::Amount> = cashu::Amount::from(discounted_amount).split();
+    let amounts: Vec<cashu::Amount> = cashu::Amount::from(discounted_amount.as_sat()).split();
     let mut blinded_messages = Vec::with_capacity(amounts.len());
     let mut secrets = Vec::with_capacity(amounts.len());
     let mut rs = Vec::with_capacity(amounts.len());

@@ -4,7 +4,7 @@ use super::{
     notification::Notification,
 };
 use crate::{
-    NodeId,
+    BitcoinAddress, NodeId,
     block_id::BlockId,
     blockchain::{
         Block,
@@ -19,6 +19,7 @@ use crate::{
     country::Country,
     date::Date,
     sum::{Currency, Sum},
+    timestamp::Timestamp,
     util::BcrKeys,
 };
 use secp256k1::{PublicKey, SecretKey};
@@ -28,23 +29,24 @@ pub mod validation;
 
 pub use bcr_common::core::BillId;
 use strum::{EnumCount, EnumIter};
+use uuid::Uuid;
 
 /// Concrete incoming bill Actions with their data
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BillAction {
     // deadline_ts
-    RequestAcceptance(u64),
+    RequestAcceptance(Timestamp),
     Accept,
     // currency, deadline_ts
-    RequestToPay(Currency, u64),
+    RequestToPay(Currency, Timestamp),
     // buyer, sum, deadline_ts
-    OfferToSell(BillParticipant, Sum, u64),
+    OfferToSell(BillParticipant, Sum, Timestamp),
     // buyer, sum, currency, payment_address
-    Sell(BillParticipant, Sum, String),
+    Sell(BillParticipant, Sum, BitcoinAddress),
     // endorsee
     Endorse(BillParticipant),
     // recoursee, recourse reason, deadline_ts
-    RequestRecourse(BillIdentParticipant, RecourseReason, u64),
+    RequestRecourse(BillIdentParticipant, RecourseReason, Timestamp),
     // recoursee, sum, currency reason/
     Recourse(BillIdentParticipant, Sum, RecourseReason),
     // mint, sum, currency
@@ -135,10 +137,10 @@ pub struct BillIssueData {
     pub sum: Sum,
     pub country_of_payment: Country,
     pub city_of_payment: City,
-    pub file_upload_ids: Vec<String>,
+    pub file_upload_ids: Vec<Uuid>,
     pub drawer_public_data: BillParticipant,
     pub drawer_keys: BcrKeys,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub blank_issue: bool,
 }
 
@@ -150,7 +152,7 @@ pub struct BillValidateActionData {
     pub endorsee_node_id: Option<NodeId>,
     pub maturity_date: Date,
     pub bill_keys: BillKeys,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub signer_node_id: NodeId,
     pub is_paid: bool,
     pub mode: BillValidationActionMode,
@@ -255,15 +257,15 @@ pub struct BillWaitingForRecourseState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingStatePaymentData {
-    pub time_of_request: u64,
+    pub time_of_request: Timestamp,
     pub sum: Sum,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
     pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
-    pub payment_deadline: Option<u64>,
+    pub payment_deadline: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone)]
@@ -275,47 +277,47 @@ pub struct BillStatus {
     pub mint: BillMintStatus,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
-    pub last_block_time: u64,
+    pub last_block_time: Timestamp,
 }
 
 #[derive(Debug, Clone)]
 pub struct BillAcceptanceStatus {
-    pub time_of_request_to_accept: Option<u64>,
+    pub time_of_request_to_accept: Option<Timestamp>,
     pub requested_to_accept: bool,
     pub accepted: bool,
     pub request_to_accept_timed_out: bool,
     pub rejected_to_accept: bool,
-    pub acceptance_deadline_timestamp: Option<u64>,
+    pub acceptance_deadline_timestamp: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BillPaymentStatus {
-    pub time_of_request_to_pay: Option<u64>,
+    pub time_of_request_to_pay: Option<Timestamp>,
     pub requested_to_pay: bool,
     pub paid: bool,
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
-    pub payment_deadline_timestamp: Option<u64>,
+    pub payment_deadline_timestamp: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BillSellStatus {
-    pub time_of_last_offer_to_sell: Option<u64>,
+    pub time_of_last_offer_to_sell: Option<Timestamp>,
     pub sold: bool,
     pub offered_to_sell: bool,
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
-    pub buying_deadline_timestamp: Option<u64>,
+    pub buying_deadline_timestamp: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BillRecourseStatus {
-    pub time_of_last_request_to_recourse: Option<u64>,
+    pub time_of_last_request_to_recourse: Option<Timestamp>,
     pub recoursed: bool,
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
-    pub recourse_deadline_timestamp: Option<u64>,
+    pub recourse_deadline_timestamp: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone)]
@@ -325,9 +327,9 @@ pub struct BillMintStatus {
 
 #[derive(Debug, Clone)]
 pub struct BillData {
-    pub time_of_drawing: u64,
+    pub time_of_drawing: Timestamp,
     pub issue_date: Date,
-    pub time_of_maturity: u64,
+    pub time_of_maturity: Timestamp,
     pub maturity_date: Date,
     pub country_of_issuing: Country,
     pub city_of_issuing: City,
@@ -389,7 +391,7 @@ pub struct BillHistoryBlock {
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<LightBillParticipant>,
     pub signed: LightSignedBy,
-    pub signing_timestamp: u64,
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>,
 }
 
@@ -535,9 +537,9 @@ pub struct LightBitcreditBillResult {
     pub active_notification: Option<Notification>,
     pub sum: Sum,
     pub issue_date: Date,
-    pub time_of_drawing: u64,
-    pub time_of_maturity: u64,
-    pub last_block_time: u64,
+    pub time_of_drawing: Timestamp,
+    pub time_of_maturity: Timestamp,
+    pub last_block_time: Timestamp,
 }
 
 impl From<BitcreditBillResult> for LightBitcreditBillResult {
@@ -594,7 +596,7 @@ pub enum BillsFilterRole {
 pub struct PastEndorsee {
     pub pay_to_the_order_of: BillIdentParticipant,
     pub signed: LightSignedBy,
-    pub signing_timestamp: u64,
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>,
 }
 
@@ -602,7 +604,7 @@ pub struct PastEndorsee {
 pub struct Endorsement {
     pub pay_to_the_order_of: LightBillParticipant,
     pub signed: LightSignedBy,
-    pub signing_timestamp: u64,
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>,
 }
 
@@ -637,51 +639,51 @@ pub enum PastPaymentResult {
 
 #[derive(Debug, Clone)]
 pub enum PastPaymentStatus {
-    Paid(u64),     // timestamp
-    Rejected(u64), // timestamp
-    Expired(u64),  // timestamp
+    Paid(Timestamp),     // timestamp
+    Rejected(Timestamp), // timestamp
+    Expired(Timestamp),  // timestamp
 }
 
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataSell {
-    pub time_of_request: u64,
+    pub time_of_request: Timestamp,
     pub buyer: BillParticipant,
     pub seller: BillParticipant,
     pub sum: Sum,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
-    pub payment_deadline: u64,
+    pub payment_deadline: Timestamp,
 }
 
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataPayment {
-    pub time_of_request: u64,
+    pub time_of_request: Timestamp,
     pub payer: BillIdentParticipant,
     pub payee: BillParticipant,
     pub sum: Sum,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
-    pub payment_deadline: u64,
+    pub payment_deadline: Timestamp,
 }
 
 #[derive(Debug, Clone)]
 pub struct PastPaymentDataRecourse {
-    pub time_of_request: u64,
+    pub time_of_request: Timestamp,
     pub recourser: BillParticipant,
     pub recoursee: BillIdentParticipant,
     pub sum: Sum,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
     pub status: PastPaymentStatus,
-    pub payment_deadline: u64,
+    pub payment_deadline: Timestamp,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -694,7 +696,7 @@ pub enum PaymentState {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PaidData {
-    pub block_time: u64, // unix timestamp
+    pub block_time: Timestamp,
     pub block_hash: String,
     pub confirmations: u64,
     pub tx_id: String,

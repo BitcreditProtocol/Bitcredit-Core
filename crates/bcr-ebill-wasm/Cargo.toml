@@ -19,6 +19,7 @@ serde_repr.workspace = true
 log.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
+uuid.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 tokio_with_wasm.workspace = true

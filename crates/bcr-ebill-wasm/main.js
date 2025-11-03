@@ -765,8 +765,7 @@ async function devModeGetBillChain() {
   let measured = measure(async () => {
     let res = success_or_fail(await billApi.dev_mode_get_full_bill_chain(bill_id));
     return res.map((b) => {
-      const block = JSON.parse(b);
-      return { ...block, data: JSON.parse(block.data) };
+      return JSON.parse(b);
     })
   });
   await measured();
@@ -777,8 +776,7 @@ async function devModeGetIdentityChain() {
   let measured = measure(async () => {
     let res = success_or_fail(await identityApi.dev_mode_get_full_identity_chain());
     return res.map((b) => {
-      const block = JSON.parse(b);
-      return { ...block, data: JSON.parse(block.data) };
+      return JSON.parse(b);
     })
   });
   await measured();
@@ -790,8 +788,7 @@ async function devModeGetCompanyChain() {
   let measured = measure(async () => {
     let res = success_or_fail(await companyApi.dev_mode_get_full_company_chain(company_id));
     return res.map((b) => {
-      const block = JSON.parse(b);
-      return { ...block, data: JSON.parse(block.data) };
+      return JSON.parse(b);
     })
   });
   await measured();

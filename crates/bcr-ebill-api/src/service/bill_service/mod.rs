@@ -15,6 +15,8 @@ use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::bill::{BillAction, BillHistory, BillIssueData, PastPaymentResult};
 use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
 use bcr_ebill_core::sum::Currency;
+use bcr_ebill_core::timestamp::Timestamp;
+use uuid::Uuid;
 
 pub use error::Error;
 #[cfg(test)]
@@ -53,8 +55,8 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         currency: &Currency,
         search_term: &Option<String>,
-        date_range_from: Option<u64>,
-        date_range_to: Option<u64>,
+        date_range_from: Option<Timestamp>,
+        date_range_to: Option<Timestamp>,
         role: &BillsFilterRole,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<LightBitcreditBillResult>>;
@@ -79,7 +81,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult>;
 
     /// Gets the keys for a given bill
@@ -103,7 +105,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         bill_action: BillAction,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<BillBlockchain>;
 
     /// Check payment status of bills that are requested to pay and not expired and not paid yet, updating their
@@ -140,7 +142,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
 
     /// Check if actions expected on bills in certain states have expired and execute the necessary
     /// steps after timeout.
-    async fn check_bills_timeouts(&self, now: u64) -> Result<()>;
+    async fn check_bills_timeouts(&self, now: Timestamp) -> Result<()>;
 
     /// Returns previous endorseers of the bill to select from for Recourse
     async fn get_past_endorsees(
@@ -156,7 +158,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Vec<PastPaymentResult>>;
 
     /// Returns all endorsements of the bill
@@ -165,7 +167,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<Vec<Endorsement>>;
 
     /// Clear the bill cache
@@ -178,7 +180,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         mint_node_id: &NodeId,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()>;
 
     /// Returns the mint state for a given bill
@@ -191,23 +193,23 @@ pub trait BillServiceApi: ServiceTraitBounds {
     /// Cancel a pending request to mint
     async fn cancel_request_to_mint(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()>;
 
     /// Accept a mint offer for a given request to mint
     async fn accept_mint_offer(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()>;
 
     /// Reject a mint offer for a given request to mint
     async fn reject_mint_offer(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()>;
 
@@ -242,7 +244,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BillHistory>;
 }
 
@@ -259,15 +261,15 @@ pub mod tests {
             },
         },
         tests::tests::{
-            VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test, bill_id_test_other, bill_id_test_other2,
+            bill_id_test, bill_id_test_other, bill_id_test_other2,
             bill_identified_participant_only_node_id, empty_address,
             empty_bill_identified_participant, init_test_cfg, node_id_test, node_id_test_other,
-            private_key_test,
+            private_key_test, valid_payment_address_testnet,
         },
-        util,
+        util::{self, get_uuid_v4},
     };
     use bcr_ebill_core::{
-        File, ValidationError,
+        DateTimeUtc, File, ValidationError,
         bill::{
             BillAcceptanceStatus, BillCallerBillAction, BillCurrentWaitingState, BillPaymentStatus,
             BillRecourseStatus, BillSellStatus, BillWaitingForPaymentState,
@@ -299,10 +301,10 @@ pub mod tests {
         name::Name,
         notification::ActionType,
         sum::{Currency, Sum},
-        util::date::DateTimeUtc,
     };
     use cashu::nut02 as cdk02;
     use mockall::predicate::{always, eq, function};
+    use nostr::hashes::sha256::Hash as Sha256HexHash;
     use std::{
         collections::{HashMap, HashSet},
         str::FromStr,
@@ -542,12 +544,18 @@ pub mod tests {
     #[tokio::test]
     async fn issue_bill_baseline() {
         let mut ctx = get_ctx();
-        let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
+        let expected_file_name =
+            Name::new("invoice_00000000-0000-0000-0000-000000000000.pdf").unwrap();
         let file_bytes = String::from("hello world").as_bytes().to_vec();
 
         ctx.file_upload_store
             .expect_read_temp_upload_file()
-            .returning(move |_| Ok((expected_file_name.to_string(), file_bytes.clone())));
+            .returning(move |_| {
+                Ok((
+                    Name::new("invoice_00000000-0000-0000-0000-000000000000.pdf").unwrap(),
+                    file_bytes.clone(),
+                ))
+            });
         ctx.file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
@@ -589,12 +597,12 @@ pub mod tests {
                 sum: Sum::new_sat(100).expect("sat works"),
                 country_of_payment: Country::AT,
                 city_of_payment: City::new("Vienna").unwrap(),
-                file_upload_ids: vec!["some_file_id".to_string()],
+                file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
                 ),
                 drawer_keys: drawer.key_pair,
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 blank_issue: false,
             })
             .await
@@ -607,14 +615,20 @@ pub mod tests {
     #[tokio::test]
     async fn issue_bill_baseline_anon() {
         let mut ctx = get_ctx();
-        let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
+        let expected_file_name =
+            Name::new("invoice_00000000-0000-0000-0000-000000000000.pdf").unwrap();
         let file_bytes = String::from("hello world").as_bytes().to_vec();
         let mut payee = BillAnonParticipant::from(empty_bill_identified_participant());
         payee.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
 
         ctx.file_upload_store
             .expect_read_temp_upload_file()
-            .returning(move |_| Ok((expected_file_name.to_string(), file_bytes.clone())));
+            .returning(move |_| {
+                Ok((
+                    Name::new("invoice_00000000-0000-0000-0000-000000000000.pdf").unwrap(),
+                    file_bytes.clone(),
+                ))
+            });
         ctx.file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
@@ -654,12 +668,12 @@ pub mod tests {
                 sum: Sum::new_sat(100).expect("sat works"),
                 country_of_payment: Country::AT,
                 city_of_payment: City::new("Vienna").unwrap(),
-                file_upload_ids: vec!["some_file_upload_id".to_string()],
+                file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
                 ),
                 drawer_keys: drawer.key_pair,
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 blank_issue: true,
             })
             .await
@@ -692,12 +706,12 @@ pub mod tests {
                 sum: Sum::new_sat(100).expect("sat works"),
                 country_of_payment: Country::AT,
                 city_of_payment: City::new("Vienna").unwrap(),
-                file_upload_ids: vec!["some_file_upload_id".to_string()],
+                file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: BillParticipant::Anon(BillAnonParticipant::new(
                     drawer.identity,
                 )),
                 drawer_keys: drawer.key_pair,
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 blank_issue: false,
             })
             .await;
@@ -732,12 +746,12 @@ pub mod tests {
                 sum: Sum::new_sat(100).expect("sat works"),
                 country_of_payment: Country::AT,
                 city_of_payment: City::new("Vienna").unwrap(),
-                file_upload_ids: vec!["some_file_upload_id".to_string()],
+                file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: BillParticipant::Ident(
                     BillIdentParticipant::new(drawer.identity).unwrap(),
                 ),
                 drawer_keys: drawer.key_pair,
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 blank_issue: true,
             })
             .await;
@@ -752,12 +766,18 @@ pub mod tests {
     #[tokio::test]
     async fn issue_bill_as_company() {
         let mut ctx = get_ctx();
-        let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
+        let expected_file_name =
+            Name::new("invoice_00000000-0000-0000-0000-000000000000.pdf").unwrap();
         let file_bytes = String::from("hello world").as_bytes().to_vec();
 
         ctx.file_upload_store
             .expect_read_temp_upload_file()
-            .returning(move |_| Ok((expected_file_name.to_string(), file_bytes.clone())));
+            .returning(move |_| {
+                Ok((
+                    Name::new("invoice_00000000-0000-0000-0000-000000000000.pdf").unwrap(),
+                    file_bytes.clone(),
+                ))
+            });
         ctx.file_upload_store
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
@@ -802,10 +822,10 @@ pub mod tests {
                 sum: Sum::new_sat(100).expect("sat works"),
                 country_of_payment: Country::AT,
                 city_of_payment: City::new("Vienna").unwrap(),
-                file_upload_ids: vec!["some_file_upload_id".to_string()],
+                file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
                 drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 blank_issue: false,
             })
             .await
@@ -830,9 +850,12 @@ pub mod tests {
                 .open_and_decrypt_attached_file(
                     &bill_id_test(),
                     &File {
-                        name: "some_file".into(),
+                        name: Name::new("some_file").unwrap(),
                         hash: Sha256Hash::new("some hash"),
-                        nostr_hash: "".into()
+                        nostr_hash: Sha256HexHash::from_str(
+                            "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+                        )
+                        .unwrap(),
                     },
                     &private_key_test(),
                 )
@@ -973,12 +996,14 @@ pub mod tests {
             .all_participant_node_ids
             .push(identity.identity.node_id.clone());
         bill.status.payment = BillPaymentStatus {
-            time_of_request_to_pay: Some(1531593928), // more than 2 days before request
+            time_of_request_to_pay: Some(Timestamp::new(1531593928).unwrap()), // more than 2 days before request
             requested_to_pay: true,
             paid: false,
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
-            payment_deadline_timestamp: Some(1531593928 + 2 * PAYMENT_DEADLINE_SECONDS),
+            payment_deadline_timestamp: Some(
+                Timestamp::new(1531593928).unwrap() + 2 * PAYMENT_DEADLINE_SECONDS,
+            ),
         };
 
         ctx.bill_blockchain_store
@@ -1057,7 +1082,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = Timestamp::now();
                 let mut chain = get_genesis_chain(Some(bill.clone()));
                 let req_to_pay_block = BillBlock::create_block_for_request_to_pay(
                     bill_id_test(),
@@ -1136,7 +1161,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1192,7 +1217,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1221,12 +1246,14 @@ pub mod tests {
             .all_participant_node_ids
             .push(drawee_node_id.clone());
         bill.status.payment = BillPaymentStatus {
-            time_of_request_to_pay: Some(1531593928), // more than 2 days before request
+            time_of_request_to_pay: Some(Timestamp::new(1531593928).unwrap()), // more than 2 days before request
             requested_to_pay: true,
             paid: false,
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
-            payment_deadline_timestamp: Some(1531593928 + 2 * PAYMENT_DEADLINE_SECONDS),
+            payment_deadline_timestamp: Some(
+                Timestamp::new(1531593928).unwrap() + 2 * PAYMENT_DEADLINE_SECONDS,
+            ),
         };
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store
@@ -1246,7 +1273,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1285,7 +1312,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1319,7 +1346,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet),
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -1355,7 +1382,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1416,7 +1443,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1446,7 +1473,7 @@ pub mod tests {
     #[tokio::test]
     async fn get_detail_waiting_for_offer_to_sell_and_expire() {
         let mut ctx = get_ctx();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
@@ -1511,7 +1538,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
@@ -1592,7 +1619,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1666,7 +1693,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1731,7 +1758,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1764,7 +1791,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
@@ -1848,7 +1875,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1900,7 +1927,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -1956,7 +1983,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2011,7 +2038,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2040,8 +2067,8 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
-        let now = util::date::now().timestamp() as u64;
-        bill.maturity_date = Date::from(util::date::seconds(now - PAYMENT_DEADLINE_SECONDS * 2));
+        let now = Timestamp::now();
+        bill.maturity_date = Date::from(now - PAYMENT_DEADLINE_SECONDS * 2);
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
@@ -2097,7 +2124,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(&bill_id_test());
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
         ctx.bill_blockchain_store
@@ -2173,7 +2200,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2226,7 +2253,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2255,7 +2282,7 @@ pub mod tests {
         let mut bill = get_baseline_bill(&bill_id_test());
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         ctx.bill_blockchain_store
@@ -2308,7 +2335,7 @@ pub mod tests {
         let mut ctx = get_ctx();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill(&bill_id_test());
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
@@ -2388,7 +2415,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2417,7 +2444,7 @@ pub mod tests {
                 BillAction::Accept,
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -2480,7 +2507,7 @@ pub mod tests {
                 BillAction::Accept,
                 &BillParticipant::Ident(BillIdentParticipant::from(company.1.0)),
                 &BcrKeys::from_private_key(&company.1.1.private_key).unwrap(),
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2520,7 +2547,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -2540,12 +2567,12 @@ pub mod tests {
                 bill_id_test(),
                 BlockId::next_from_previous_block_id(&latest_block.id()),
                 Sha256Hash::new("prevhash"),
-                "data".to_string(),
+                Vec::new(),
                 BillOpCode::Accept,
                 &keys,
                 None,
                 &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
                 Sha256Hash::new("plain text hash"),
             )
             .unwrap(),
@@ -2563,7 +2590,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -2606,7 +2633,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2649,7 +2676,7 @@ pub mod tests {
                 ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2682,7 +2709,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -2720,7 +2747,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2758,7 +2785,7 @@ pub mod tests {
                 BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2788,7 +2815,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -2836,7 +2863,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2888,7 +2915,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -2928,7 +2955,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -2959,7 +2986,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3004,7 +3031,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -3053,7 +3080,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -3090,7 +3117,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3123,16 +3150,17 @@ pub mod tests {
                         seller: bill.payee.clone().into(),
                         buyer: BillParticipantBlockData::Ident(buyer_clone.clone().into()),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        buying_deadline_timestamp: 1731593927 + 2 * DAY_IN_SECS,
+                        buying_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * DAY_IN_SECS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(offer_to_sell);
@@ -3154,13 +3182,13 @@ pub mod tests {
                 BillAction::Sell(
                     BillParticipant::Ident(buyer),
                     Sum::new_sat(15000).expect("sat works"),
-                    VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                    valid_payment_address_testnet(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -3195,16 +3223,17 @@ pub mod tests {
                         seller: bill.payee.clone().into(),
                         buyer: BillParticipantBlockData::Anon(buyer_clone.clone().into()),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        buying_deadline_timestamp: 1731593927 + 2 * DAY_IN_SECS,
+                        buying_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * DAY_IN_SECS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(offer_to_sell);
@@ -3226,13 +3255,13 @@ pub mod tests {
                 BillAction::Sell(
                     BillParticipant::Anon(buyer),
                     Sum::new_sat(15000).expect("sat works"),
-                    VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                    valid_payment_address_testnet(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -3264,16 +3293,17 @@ pub mod tests {
                         seller: bill.payee.clone().into(),
                         buyer: bill.payee.clone().into(), // buyer is seller, which is invalid
                         sum: Sum::new_sat(10000).expect("sat works"), // different sum
-                        payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0".to_owned(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        buying_deadline_timestamp: 1731593927 + 2 * DAY_IN_SECS,
+                        buying_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * DAY_IN_SECS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(offer_to_sell);
@@ -3292,13 +3322,13 @@ pub mod tests {
                 BillAction::Sell(
                     BillParticipant::Ident(buyer),
                     Sum::new_sat(15000).expect("sat works"),
-                    VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                    valid_payment_address_testnet(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3330,13 +3360,13 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     Sum::new_sat(15000).expect("sat works"),
-                    VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                    valid_payment_address_testnet(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3365,13 +3395,13 @@ pub mod tests {
                         bitcoin::Network::Testnet,
                     ))),
                     Sum::new_sat(15000).expect("sat works"),
-                    VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                    valid_payment_address_testnet(),
                 ),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3413,7 +3443,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -3434,7 +3464,7 @@ pub mod tests {
         let party2_participant = bill_identified_participant_only_node_id(party2_node_id.clone());
 
         let mut current_chain = get_genesis_chain(Some(bill.clone()));
-        let mut current_timestamp = 1731593928u64;
+        let mut current_timestamp = Timestamp::new(1731593928).unwrap();
 
         for i in 0..10 {
             let is_even = i % 2 == 0;
@@ -3518,7 +3548,7 @@ pub mod tests {
                 );
             }
 
-            current_timestamp += 1;
+            current_timestamp = current_timestamp + 1;
         }
 
         // Create a final context to verify the end state
@@ -3567,7 +3597,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(endorsements.is_ok());
@@ -3621,7 +3651,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -3668,7 +3698,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3703,7 +3733,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_err());
@@ -3825,7 +3855,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &bill_identified_participant_only_node_id(buyer_node_id.clone()),
-                    Some(util::date::now().timestamp() as u64),
+                    Some(Timestamp::now()),
                 )));
                 Ok(chain)
             });
@@ -3882,7 +3912,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &bill_identified_participant_only_node_id(buyer_node_id.clone()),
-                    Some(util::date::now().timestamp() as u64),
+                    Some(Timestamp::now()),
                 )));
                 Ok(chain)
             });
@@ -3914,7 +3944,7 @@ pub mod tests {
         // fetches bill ids
         ctx.bill_store
             .expect_get_bill_ids_with_op_codes_since()
-            .with(eq(op_codes.clone()), eq(0))
+            .with(eq(op_codes.clone()), eq(Timestamp::zero()))
             .returning(|_, _| Ok(vec![bill_id_test(), bill_id_test_other()]));
         // fetches bill chain accept
         ctx.bill_blockchain_store
@@ -3937,7 +3967,9 @@ pub mod tests {
         let service = get_service(ctx);
 
         // now is the same as block created time so no timeout should have happened
-        let res = service.check_bills_timeouts(1000).await;
+        let res = service
+            .check_bills_timeouts(Timestamp::new(1000).unwrap())
+            .await;
         assert!(res.is_ok());
     }
 
@@ -3954,7 +3986,7 @@ pub mod tests {
         // fetches bill ids
         ctx.bill_store
             .expect_get_bill_ids_with_op_codes_since()
-            .with(eq(op_codes.clone()), eq(0))
+            .with(eq(op_codes.clone()), eq(Timestamp::zero()))
             .returning(|_, _| Ok(vec![bill_id_test(), bill_id_test_other()]));
 
         // fetches bill chain accept
@@ -3991,7 +4023,7 @@ pub mod tests {
         let service = get_service(ctx);
 
         let res = service
-            .check_bills_timeouts(PAYMENT_DEADLINE_SECONDS + 1100)
+            .check_bills_timeouts(Timestamp::new(1100).unwrap() + PAYMENT_DEADLINE_SECONDS)
             .await;
         assert!(res.is_ok());
     }
@@ -4009,7 +4041,7 @@ pub mod tests {
         // fetches bill ids
         ctx.bill_store
             .expect_get_bill_ids_with_op_codes_since()
-            .with(eq(op_codes.clone()), eq(0))
+            .with(eq(op_codes.clone()), eq(Timestamp::zero()))
             .returning(|_, _| Ok(vec![bill_id_test(), bill_id_test_other()]));
 
         // fetches bill chain accept
@@ -4092,7 +4124,7 @@ pub mod tests {
         let service = get_service(ctx);
 
         let res = service
-            .check_bills_timeouts(PAYMENT_DEADLINE_SECONDS + 1100)
+            .check_bills_timeouts(Timestamp::new(1100).unwrap() + PAYMENT_DEADLINE_SECONDS)
             .await;
         assert!(res.is_ok());
     }
@@ -4118,7 +4150,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -4164,7 +4196,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = Timestamp::now();
                 let mut chain = get_genesis_chain(Some(bill.clone()));
 
                 // add endorse block from payee to endorsee
@@ -4200,7 +4232,7 @@ pub mod tests {
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
                         signing_timestamp: now + 2,
                         signing_address: Some(empty_address()),
@@ -4244,7 +4276,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -4302,7 +4334,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = Timestamp::now();
                 let mut chain = get_genesis_chain(Some(bill.clone()));
 
                 // add endorse block from payee to endorsee
@@ -4338,7 +4370,7 @@ pub mod tests {
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
                         signing_timestamp: now + 2,
                         signing_address: Some(empty_address()),
@@ -4382,7 +4414,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -4519,7 +4551,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = Timestamp::now();
                 let mut chain = get_genesis_chain(Some(bill.clone()));
 
                 // add endorse block from payee to endorsee
@@ -4555,7 +4587,7 @@ pub mod tests {
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
                         signing_timestamp: now + 2,
                         signing_address: Some(empty_address()),
@@ -4755,7 +4787,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64;
+                let now = Timestamp::now();
                 let mut chain = get_genesis_chain(Some(bill.clone()));
 
                 // add endorse block from payee to endorsee
@@ -4791,7 +4823,7 @@ pub mod tests {
                         // endorsed by endorsee
                         seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+                        payment_address: valid_payment_address_testnet(),
                         signatory: None,
                         signing_timestamp: now + 2,
                         signing_address: Some(empty_address()),
@@ -5018,7 +5050,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
-                    Some(1931593928),
+                    Some(Timestamp::new(1931593928).unwrap()),
                 )));
 
                 Ok(chain)
@@ -5033,7 +5065,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1931593928,
+                Timestamp::new(1931593928).unwrap(),
             )
             .await;
 
@@ -5128,7 +5160,7 @@ pub mod tests {
                     &bill_id_test(),
                     chain.get_latest_block(),
                     &BillIdentParticipant::new(identity_clone.clone()).unwrap(),
-                    Some(1931593928),
+                    Some(Timestamp::new(1931593928).unwrap()),
                 )));
 
                 Ok(chain)
@@ -5143,7 +5175,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1931593928,
+                Timestamp::new(1931593928).unwrap(),
             )
             .await;
 
@@ -5181,7 +5213,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let bill = get_baseline_bill(&bill_id_test());
         let payee = bill.payee.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -5243,7 +5275,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let bill = get_baseline_bill(&bill_id_test());
         let payee = bill.payee.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -5340,7 +5372,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -5392,7 +5424,7 @@ pub mod tests {
                 BillAction::RejectBuying,
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -5409,7 +5441,7 @@ pub mod tests {
         let bill = get_baseline_bill(&bill_id_test());
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         let payee = bill.payee.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -5474,7 +5506,7 @@ pub mod tests {
         let bill = get_baseline_bill(&bill_id_test());
         ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
         let payee = bill.payee.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -5534,7 +5566,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let bill = get_baseline_bill(&bill_id_test());
         let payee = bill.payee.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -5605,7 +5637,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let bill = get_baseline_bill(&bill_id_test());
         let payee = bill.payee.clone();
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         ctx.bill_store
             .expect_save_bill_to_cache()
@@ -5688,7 +5720,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64 - 10; // to avoid race with called code
+                let now = Timestamp::now() - 10; // to avoid race with called code
                 let mut chain = get_genesis_chain(Some(bill.clone()));
                 let req_to_recourse = BillBlock::create_block_for_request_recourse(
                     bill_id_test(),
@@ -5764,7 +5796,7 @@ pub mod tests {
         ctx.bill_blockchain_store
             .expect_get_chain()
             .returning(move |_| {
-                let now = util::date::now().timestamp() as u64 - 10; // to avoid race with called code
+                let now = Timestamp::now() - 10; // to avoid race with called code
                 let mut chain = get_genesis_chain(Some(bill.clone()));
                 let req_to_recourse = BillBlock::create_block_for_request_recourse(
                     bill_id_test(),
@@ -5839,13 +5871,13 @@ pub mod tests {
                         endorser: bill.payee.clone().into(),
                         endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(endorse_block);
@@ -5855,14 +5887,15 @@ pub mod tests {
                     &BillRequestToAcceptBlockData {
                         requester: bill.payee.clone().into(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        acceptance_deadline_timestamp: 1731593927 + 2 * ACCEPT_DEADLINE_SECONDS,
+                        acceptance_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * ACCEPT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(req_to_accept);
@@ -5872,13 +5905,13 @@ pub mod tests {
                     &BillRejectBlockData {
                         rejecter: bill.drawee.clone().into(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: empty_address(),
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(reject_accept);
@@ -5906,7 +5939,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -5946,13 +5979,13 @@ pub mod tests {
                         endorser: bill.payee.clone().into(),
                         endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(endorse_block);
@@ -5963,14 +5996,15 @@ pub mod tests {
                         requester: bill.payee.clone().into(),
                         currency: Currency::sat(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        payment_deadline_timestamp: 1731593927 + 2 * PAYMENT_DEADLINE_SECONDS,
+                        payment_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(req_to_pay);
@@ -5980,13 +6014,13 @@ pub mod tests {
                     &BillRejectBlockData {
                         rejecter: bill.drawee.clone().into(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: empty_address(),
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(reject_pay);
@@ -6010,7 +6044,7 @@ pub mod tests {
                 ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -6050,13 +6084,13 @@ pub mod tests {
                         endorser: bill.payee.clone().into(),
                         endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(endorse_block);
@@ -6067,14 +6101,15 @@ pub mod tests {
                         requester: bill.payee.clone().into(),
                         currency: Currency::sat(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        payment_deadline_timestamp: 1731593927 + 2 * PAYMENT_DEADLINE_SECONDS,
+                        payment_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(req_to_pay);
@@ -6084,13 +6119,13 @@ pub mod tests {
                     &BillRejectBlockData {
                         rejecter: bill.drawee.clone().into(),
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: empty_address(),
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(reject_pay);
@@ -6118,7 +6153,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -6164,14 +6199,15 @@ pub mod tests {
                         sum: Sum::new_sat(15000).expect("sat works"),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        recourse_deadline_timestamp: 1731593927 + 2 * RECOURSE_DEADLINE_SECONDS,
+                        recourse_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(req_to_recourse);
@@ -6199,7 +6235,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -6245,14 +6281,15 @@ pub mod tests {
                         sum: Sum::new_sat(15000).expect("sat works"),
                         recourse_reason: BillRecourseReasonBlockData::Pay,
                         signatory: None,
-                        signing_timestamp: 1731593927,
+                        signing_timestamp: Timestamp::new(1731593927).unwrap(),
                         signing_address: Some(empty_address()),
-                        recourse_deadline_timestamp: 1731593927 + 2 * RECOURSE_DEADLINE_SECONDS,
+                        recourse_deadline_timestamp: Timestamp::new(1731593927).unwrap()
+                            + 2 * RECOURSE_DEADLINE_SECONDS,
                     },
                     &BcrKeys::new(),
                     None,
                     &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                    1731593927,
+                    Timestamp::new(1731593927).unwrap(),
                 )
                 .unwrap();
                 chain.try_add_block(req_to_recourse);
@@ -6278,7 +6315,7 @@ pub mod tests {
                 ),
                 &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -6292,54 +6329,56 @@ pub mod tests {
         let service = get_service(ctx);
         let mut bill_payment = get_baseline_cached_bill(bill_id_test());
         bill_payment.status.payment = BillPaymentStatus {
-            time_of_request_to_pay: Some(1531593928),
+            time_of_request_to_pay: Some(Timestamp::new(1531593928).unwrap()),
             requested_to_pay: true,
             paid: false,
             request_to_pay_timed_out: false,
             rejected_to_pay: false,
-            payment_deadline_timestamp: Some(1531593928 + PAYMENT_DEADLINE_SECONDS),
+            payment_deadline_timestamp: Some(
+                Timestamp::new(1531593928).unwrap() + PAYMENT_DEADLINE_SECONDS,
+            ),
         };
 
         // true, because payment deadline was several days ago
         assert!(
             service
-                .check_requests_for_expiration(&bill_payment, 1731593928)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_payment.status.payment.request_to_pay_timed_out = true;
         // if it already timed out, we don't need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1731593928)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_payment.status.payment.request_to_pay_timed_out = false;
         // false, because time is before the deadline
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1431593928)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1431593928).unwrap())
                 .unwrap()
         );
         bill_payment.data.maturity_date = Date::new("2018-07-15").unwrap(); // before ts
         // false, because maturity date is before the deadline
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1531593929)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1531593929).unwrap())
                 .unwrap()
         );
         // false, because maturity date is after the deadline, but we call in-between
         // deadline: 1531766728 (2018-07-16)
         // maturity: 1531864799 (2018-07-15 + 2d end of day)
-        // called with: 1531864789(in-between)
+        // called with: Timestamp::new(1531864789).unwrap()(in-between)
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1531864789)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1531864789).unwrap())
                 .unwrap()
         );
         // true, because after maturity date
         assert!(
             service
-                .check_requests_for_expiration(&bill_payment, 1531978728)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1531978728).unwrap())
                 .unwrap()
         );
         bill_payment.current_waiting_state = Some(BillCurrentWaitingState::Payment(
@@ -6347,15 +6386,17 @@ pub mod tests {
                 payer: empty_bill_identified_participant(),
                 payee: BillParticipant::Ident(empty_bill_identified_participant()),
                 payment_data: BillWaitingStatePaymentData {
-                    time_of_request: 1531593928,
+                    time_of_request: Timestamp::new(1531593928).unwrap(),
                     sum: Sum::new_sat(10).expect("sat works"),
                     link_to_pay: String::default(),
-                    address_to_pay: String::default(),
+                    address_to_pay: valid_payment_address_testnet(),
                     mempool_link_for_address_to_pay: String::default(),
                     tx_id: None,
                     confirmations: 0,
                     in_mempool: false,
-                    payment_deadline: Some(1531593928 + 2 * PAYMENT_DEADLINE_SECONDS),
+                    payment_deadline: Some(
+                        Timestamp::new(1531593928).unwrap() + 2 * PAYMENT_DEADLINE_SECONDS,
+                    ),
                 },
             },
         ));
@@ -6365,7 +6406,7 @@ pub mod tests {
             service
                 .check_requests_for_expiration(
                     &bill_payment,
-                    1531593929 + PAYMENT_DEADLINE_SECONDS + 1
+                    Timestamp::new(1531593929).unwrap() + PAYMENT_DEADLINE_SECONDS + 1
                 )
                 .unwrap()
         );
@@ -6376,27 +6417,27 @@ pub mod tests {
             !service
                 .check_requests_for_expiration(
                     &bill_payment,
-                    1531593929 + PAYMENT_DEADLINE_SECONDS + 1
+                    Timestamp::new(1531593929).unwrap() + PAYMENT_DEADLINE_SECONDS + 1
                 )
                 .unwrap()
         );
         // after req to pay, and after end of day maturity date, payment expired
         assert!(
             service
-                .check_requests_for_expiration(&bill_payment, 1831593928)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1831593928).unwrap())
                 .unwrap()
         );
         // 1 sec after req to pay, not expired at all
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1531593929)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1531593929).unwrap())
                 .unwrap()
         );
         bill_payment.status.payment.rejected_to_pay = true;
         // already rejected, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1831593928)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1831593928).unwrap())
                 .unwrap()
         );
         bill_payment.status.payment.rejected_to_pay = false;
@@ -6404,24 +6445,29 @@ pub mod tests {
         // already paid, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_payment, 1831593928)
+                .check_requests_for_expiration(&bill_payment, Timestamp::new(1831593928).unwrap())
                 .unwrap()
         );
         bill_payment.status.payment.paid = false;
 
         let mut bill_acceptance = get_baseline_cached_bill(bill_id_test());
         bill_acceptance.status.acceptance = BillAcceptanceStatus {
-            time_of_request_to_accept: Some(1531593928),
+            time_of_request_to_accept: Some(Timestamp::new(1531593928).unwrap()),
             requested_to_accept: true,
             accepted: false,
             request_to_accept_timed_out: false,
             rejected_to_accept: false,
-            acceptance_deadline_timestamp: Some(1531593928 + ACCEPT_DEADLINE_SECONDS),
+            acceptance_deadline_timestamp: Some(
+                Timestamp::new(1531593928).unwrap() + ACCEPT_DEADLINE_SECONDS,
+            ),
         };
 
         assert!(
             service
-                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .check_requests_for_expiration(
+                    &bill_acceptance,
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .unwrap()
         );
         bill_acceptance
@@ -6431,7 +6477,10 @@ pub mod tests {
         // already expired, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .check_requests_for_expiration(
+                    &bill_acceptance,
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .unwrap()
         );
         bill_acceptance
@@ -6442,7 +6491,10 @@ pub mod tests {
         // already rejected, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .check_requests_for_expiration(
+                    &bill_acceptance,
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .unwrap()
         );
         bill_acceptance.status.acceptance.rejected_to_accept = false;
@@ -6450,24 +6502,27 @@ pub mod tests {
         // already accepted, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_acceptance, 1731593928)
+                .check_requests_for_expiration(
+                    &bill_acceptance,
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .unwrap()
         );
         bill_acceptance.status.acceptance.accepted = false;
 
         let mut bill_sell = get_baseline_cached_bill(bill_id_test());
         bill_sell.status.sell = BillSellStatus {
-            time_of_last_offer_to_sell: Some(1531593928),
+            time_of_last_offer_to_sell: Some(Timestamp::new(1531593928).unwrap()),
             offered_to_sell: true,
             sold: false,
             offer_to_sell_timed_out: false,
             rejected_offer_to_sell: false,
-            buying_deadline_timestamp: Some(1531593928 + DAY_IN_SECS),
+            buying_deadline_timestamp: Some(Timestamp::new(1531593928).unwrap() + DAY_IN_SECS),
         };
 
         assert!(
             service
-                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
 
@@ -6475,7 +6530,7 @@ pub mod tests {
         // already expired, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_sell.status.sell.offer_to_sell_timed_out = false;
@@ -6483,7 +6538,7 @@ pub mod tests {
         // already rejected, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_sell.status.sell.rejected_offer_to_sell = false;
@@ -6491,38 +6546,40 @@ pub mod tests {
         // already sold, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_sell, 1731593928)
+                .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_sell.status.sell.sold = false;
 
         let mut bill_recourse = get_baseline_cached_bill(bill_id_test());
         bill_recourse.status.recourse = BillRecourseStatus {
-            time_of_last_request_to_recourse: Some(1531593928),
+            time_of_last_request_to_recourse: Some(Timestamp::new(1531593928).unwrap()),
             requested_to_recourse: true,
             recoursed: false,
             request_to_recourse_timed_out: false,
             rejected_request_to_recourse: false,
-            recourse_deadline_timestamp: Some(1531593928 + RECOURSE_DEADLINE_SECONDS),
+            recourse_deadline_timestamp: Some(
+                Timestamp::new(1531593928).unwrap() + RECOURSE_DEADLINE_SECONDS,
+            ),
         };
 
         assert!(
             service
-                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_recourse.status.recourse.request_to_recourse_timed_out = true;
         // already expired, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_recourse.status.recourse.rejected_request_to_recourse = true;
         // already rejected, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_recourse.status.recourse.rejected_request_to_recourse = false;
@@ -6530,7 +6587,7 @@ pub mod tests {
         // already recoursed, no need to check anymore
         assert!(
             !service
-                .check_requests_for_expiration(&bill_recourse, 1731593928)
+                .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
                 .unwrap()
         );
         bill_recourse.status.recourse.recoursed = false;
@@ -6560,7 +6617,7 @@ pub mod tests {
             .returning(|_, _, _| Ok(vec![]));
         ctx.mint_client
             .expect_enquire_mint_quote()
-            .returning(|_, _, _| Ok("quote_id".to_owned()));
+            .returning(|_, _, _| Ok(get_uuid_v4()));
         ctx.mint_store
             .expect_add_request()
             .returning(|_, _, _, _, _| Ok(()));
@@ -6585,7 +6642,7 @@ pub mod tests {
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -6598,10 +6655,10 @@ pub mod tests {
 
         ctx.mint_store.expect_get_offer().returning(|_| {
             Ok(Some(MintOffer {
-                mint_request_id: "mint_req_id".to_owned(),
+                mint_request_id: get_uuid_v4(),
                 keyset_id: "keyset_id".to_owned(),
-                expiration_timestamp: 1731593928,
-                discounted_sum: 1500,
+                expiration_timestamp: Timestamp::new(1731593928).unwrap(),
+                discounted_sum: Sum::new_sat(1500).unwrap(),
                 proofs: None,
                 proofs_spent: false,
                 recovery_data: None,
@@ -6616,16 +6673,16 @@ pub mod tests {
                         requester_node_id: node_id_test(),
                         bill_id: bill_id_test(),
                         mint_node_id: node_id_test_other(),
-                        mint_request_id: "mint_req_id".to_owned(),
-                        timestamp: 1731593928,
+                        mint_request_id: get_uuid_v4(),
+                        timestamp: Timestamp::new(1731593928).unwrap(),
                         status: MintRequestStatus::Pending,
                     },
                     MintRequest {
                         requester_node_id: node_id_test(),
                         bill_id: bill_id_test(),
                         mint_node_id: node_id_test_other(),
-                        mint_request_id: "mint_req_id".to_owned(),
-                        timestamp: 1731593928,
+                        mint_request_id: get_uuid_v4(),
+                        timestamp: Timestamp::new(1731593928).unwrap(),
                         status: MintRequestStatus::Offered,
                     },
                 ])
@@ -6657,8 +6714,8 @@ pub mod tests {
                     "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                 )
                 .unwrap(),
-                mint_request_id: "mint_req_id".to_owned(),
-                timestamp: 1731593928,
+                mint_request_id: get_uuid_v4(),
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 status: MintRequestStatus::Pending,
             }))
         });
@@ -6668,7 +6725,7 @@ pub mod tests {
 
         let service = get_service(ctx);
         let res = service
-            .cancel_request_to_mint("mint_req_id", &identity.identity.node_id)
+            .cancel_request_to_mint(&get_uuid_v4(), &identity.identity.node_id)
             .await;
         assert!(res.is_ok());
     }
@@ -6708,8 +6765,8 @@ pub mod tests {
                     "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                 )
                 .unwrap(),
-                mint_request_id: "mint_req_id".to_owned(),
-                timestamp: 1731593938,
+                mint_request_id: get_uuid_v4(),
+                timestamp: Timestamp::new(1731593938).unwrap(),
                 status: MintRequestStatus::Offered,
             }))
         });
@@ -6721,10 +6778,10 @@ pub mod tests {
             .returning(|_, _| Ok(vec![]));
         ctx.mint_store.expect_get_offer().returning(|_| {
             Ok(Some(MintOffer {
-                mint_request_id: "mint_req_id".to_owned(),
+                mint_request_id: get_uuid_v4(),
                 keyset_id: "keyset_id".to_owned(),
-                expiration_timestamp: 1731593938,
-                discounted_sum: 1500,
+                expiration_timestamp: Timestamp::new(1731593938).unwrap(),
+                discounted_sum: Sum::new_sat(1500).unwrap(),
                 proofs: None,
                 proofs_spent: false,
                 recovery_data: None,
@@ -6741,12 +6798,12 @@ pub mod tests {
         let service = get_service(ctx);
         let res = service
             .accept_mint_offer(
-                "mint_req_id",
+                &get_uuid_v4(),
                 &BillParticipant::Ident(
                     BillIdentParticipant::new(identity.identity.clone()).unwrap(),
                 ),
                 &identity.key_pair,
-                1731593930,
+                Timestamp::new(1731593930).unwrap(),
             )
             .await;
         assert!(res.is_ok());
@@ -6770,8 +6827,8 @@ pub mod tests {
                     "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                 )
                 .unwrap(),
-                mint_request_id: "mint_req_id".to_owned(),
-                timestamp: 1731593928,
+                mint_request_id: get_uuid_v4(),
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 status: MintRequestStatus::Offered,
             }))
         });
@@ -6781,7 +6838,7 @@ pub mod tests {
 
         let service = get_service(ctx);
         let res = service
-            .reject_mint_offer("mint_req_id", &identity.identity.node_id)
+            .reject_mint_offer(&get_uuid_v4(), &identity.identity.node_id)
             .await;
         assert!(res.is_ok());
     }
@@ -6810,8 +6867,8 @@ pub mod tests {
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
                     .unwrap(),
-                    mint_request_id: "mint_req_id".to_owned(),
-                    timestamp: 1731593928,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     status: MintRequestStatus::Offered,
                 }])
             });
@@ -6848,8 +6905,8 @@ pub mod tests {
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
                     .unwrap(),
-                    mint_request_id: "mint_req_id".to_owned(),
-                    timestamp: 1731593928,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     status: MintRequestStatus::Offered,
                 }])
             });
@@ -6888,8 +6945,8 @@ pub mod tests {
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
                     .unwrap(),
-                    mint_request_id: "mint_req_id".to_owned(),
-                    timestamp: 1731593928,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     status: MintRequestStatus::Pending,
                 }])
             });
@@ -6930,8 +6987,8 @@ pub mod tests {
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
                     .unwrap(),
-                    mint_request_id: "mint_req_id".to_owned(),
-                    timestamp: 1731593928,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     status: MintRequestStatus::Pending,
                 }])
             });
@@ -6983,17 +7040,17 @@ pub mod tests {
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
                     .unwrap(),
-                    mint_request_id: "mint_req_id".to_owned(),
-                    timestamp: 1731593928,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     status: MintRequestStatus::Accepted,
                 }])
             });
         ctx.mint_store.expect_get_offer().returning(|_| {
             Ok(Some(MintOffer {
-                mint_request_id: "mint_req_id".to_owned(),
+                mint_request_id: get_uuid_v4(),
                 keyset_id: "keyset_id".to_owned(),
-                expiration_timestamp: 1731593938,
-                discounted_sum: 1500,
+                expiration_timestamp: Timestamp::new(1731593938).unwrap(),
+                discounted_sum: Sum::new_sat(1500).unwrap(),
                 proofs: None,
                 proofs_spent: false,
                 recovery_data: None,
@@ -7038,17 +7095,17 @@ pub mod tests {
                         "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
                     )
                     .unwrap(),
-                    mint_request_id: "mint_req_id".to_owned(),
-                    timestamp: 1731593928,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     status: MintRequestStatus::Accepted,
                 }])
             });
         ctx.mint_store.expect_get_offer().returning(|_| {
             Ok(Some(MintOffer {
-                mint_request_id: "mint_req_id".to_owned(),
+                mint_request_id: get_uuid_v4(),
                 keyset_id: "keyset_id".to_owned(),
-                expiration_timestamp: 1731593938,
-                discounted_sum: 1500,
+                expiration_timestamp: Timestamp::new(1731593938).unwrap(),
+                discounted_sum: Sum::new_sat(1500).unwrap(),
                 proofs: Some("proofs".into()),
                 proofs_spent: false,
                 recovery_data: None,
@@ -7121,7 +7178,7 @@ pub mod tests {
                     &mainnet_bill_id,
                     &identity.identity,
                     &node_id_test(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidBillId))
@@ -7132,7 +7189,7 @@ pub mod tests {
                     &bill_id_test(),
                     &identity.identity,
                     &mainnet_node_id,
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
@@ -7174,7 +7231,12 @@ pub mod tests {
         ));
         assert!(matches!(
             service
-                .get_past_payments(&mainnet_bill_id, &participant, &BcrKeys::new(), 1731593928)
+                .get_past_payments(
+                    &mainnet_bill_id,
+                    &participant,
+                    &BcrKeys::new(),
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .await,
             Err(Error::Validation(ValidationError::InvalidBillId))
         ));
@@ -7184,7 +7246,7 @@ pub mod tests {
                     &bill_id_test(),
                     &mainnet_participant,
                     &BcrKeys::new(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
@@ -7195,7 +7257,7 @@ pub mod tests {
                     &mainnet_bill_id,
                     &identity.identity,
                     &node_id_test(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidBillId))
@@ -7206,7 +7268,7 @@ pub mod tests {
                     &bill_id_test(),
                     &identity.identity,
                     &mainnet_node_id,
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
@@ -7218,7 +7280,7 @@ pub mod tests {
                     &node_id_test(),
                     &participant,
                     &BcrKeys::new(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidBillId))
@@ -7230,7 +7292,7 @@ pub mod tests {
                     &mainnet_node_id,
                     &participant,
                     &BcrKeys::new(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
@@ -7242,7 +7304,7 @@ pub mod tests {
                     &node_id_test(),
                     &mainnet_participant,
                     &BcrKeys::new(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
@@ -7260,7 +7322,9 @@ pub mod tests {
             Err(Error::Validation(ValidationError::InvalidNodeId))
         ));
         assert!(matches!(
-            service.cancel_request_to_mint("", &mainnet_node_id).await,
+            service
+                .cancel_request_to_mint(&get_uuid_v4(), &mainnet_node_id)
+                .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
         ));
         assert!(matches!(
@@ -7277,12 +7341,19 @@ pub mod tests {
         ));
         assert!(matches!(
             service
-                .accept_mint_offer("", &mainnet_participant, &BcrKeys::new(), 1731593928)
+                .accept_mint_offer(
+                    &get_uuid_v4(),
+                    &mainnet_participant,
+                    &BcrKeys::new(),
+                    Timestamp::new(1731593928).unwrap()
+                )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
         ));
         assert!(matches!(
-            service.reject_mint_offer("", &mainnet_node_id).await,
+            service
+                .reject_mint_offer(&get_uuid_v4(), &mainnet_node_id)
+                .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
         ));
         // issue
@@ -7299,10 +7370,10 @@ pub mod tests {
                     sum: Sum::new_sat(100).expect("sat works"),
                     country_of_payment: Country::AT,
                     city_of_payment: City::new("Vienna").unwrap(),
-                    file_upload_ids: vec!["some_file_id".to_string()],
+                    file_upload_ids: vec![get_uuid_v4()],
                     drawer_public_data: participant.clone(),
                     drawer_keys: BcrKeys::new(),
-                    timestamp: 1731593928,
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     blank_issue: false,
                 })
                 .await,
@@ -7321,10 +7392,10 @@ pub mod tests {
                     sum: Sum::new_sat(100).expect("sat works"),
                     country_of_payment: Country::AT,
                     city_of_payment: City::new("Vienna").unwrap(),
-                    file_upload_ids: vec!["some_file_id".to_string()],
+                    file_upload_ids: vec![get_uuid_v4()],
                     drawer_public_data: participant.clone(),
                     drawer_keys: BcrKeys::new(),
-                    timestamp: 1731593928,
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     blank_issue: false,
                 })
                 .await,
@@ -7343,10 +7414,10 @@ pub mod tests {
                     sum: Sum::new_sat(100).expect("sat works"),
                     country_of_payment: Country::AT,
                     city_of_payment: City::new("Vienna").unwrap(),
-                    file_upload_ids: vec!["some_file_id".to_string()],
+                    file_upload_ids: vec![get_uuid_v4()],
                     drawer_public_data: mainnet_participant.clone(),
                     drawer_keys: BcrKeys::new(),
-                    timestamp: 1731593928,
+                    timestamp: Timestamp::new(1731593928).unwrap(),
                     blank_issue: false,
                 })
                 .await,
@@ -7360,7 +7431,7 @@ pub mod tests {
                     BillAction::Accept,
                     &participant,
                     &BcrKeys::new(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidBillId))
@@ -7372,7 +7443,7 @@ pub mod tests {
                     BillAction::Accept,
                     &mainnet_participant,
                     &BcrKeys::new(),
-                    1731593928
+                    Timestamp::new(1731593928).unwrap()
                 )
                 .await,
             Err(Error::Validation(ValidationError::InvalidNodeId))
@@ -7422,7 +7493,7 @@ pub mod tests {
                 &bill_id_test(),
                 &identity.identity,
                 &identity.identity.node_id,
-                1731593928,
+                Timestamp::new(1731593928).unwrap(),
             )
             .await;
         assert!(res.is_ok());

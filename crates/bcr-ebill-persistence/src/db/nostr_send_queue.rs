@@ -2,12 +2,9 @@ use super::{
     Result,
     surreal::{Bindings, SurrealWrapper},
 };
-use crate::{
-    constants::{DB_IDS, DB_LIMIT, DB_TABLE},
-    util::date::{self, DateTimeUtc},
-};
+use crate::constants::{DB_IDS, DB_LIMIT, DB_TABLE};
 use async_trait::async_trait;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds};
+use bcr_ebill_core::{DateTimeUtc, NodeId, ServiceTraitBounds, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
@@ -76,7 +73,7 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
             self.db.select_one(Self::TABLE, id.to_owned()).await?;
         if let Some(mut msg) = current {
             msg.num_retries += 1;
-            msg.last_try = date::now();
+            msg.last_try = Timestamp::now().to_datetime();
             msg.completed = msg.num_retries >= msg.max_retries;
             msg.processing = false;
             let _: Option<QueuedMessageDb> =
@@ -90,7 +87,7 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
             self.db.select_one(Self::TABLE, id.to_owned()).await?;
         if let Some(mut msg) = current {
             msg.completed = true;
-            msg.last_try = date::now();
+            msg.last_try = Timestamp::now().to_datetime();
             msg.processing = false;
             let _: Option<QueuedMessageDb> =
                 self.db.update(Self::TABLE, id.to_owned(), msg).await?;
@@ -123,8 +120,8 @@ impl QueuedMessageDb {
             sender_id: value.sender_id,
             node_id: value.node_id,
             payload: value.payload,
-            created: date::now(),
-            last_try: date::seconds(0),
+            created: Timestamp::now().to_datetime(),
+            last_try: Timestamp::new(0).expect("safe").to_datetime(),
             num_retries: 0,
             max_retries,
             completed: false,

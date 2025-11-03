@@ -1,9 +1,10 @@
 use crate::get_config;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    PublicKey, ServiceTraitBounds,
+    BitcoinAddress, PublicKey, ServiceTraitBounds,
     bill::{InMempoolData, PaidData, PaymentState},
     sum::Sum,
+    timestamp::Timestamp,
 };
 use bitcoin::{Network, secp256k1::Scalar};
 use log::debug;
@@ -46,9 +47,9 @@ use mockall::automock;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BitcoinClientApi: ServiceTraitBounds {
-    async fn get_address_info(&self, address: &str) -> Result<AddressInfo>;
+    async fn get_address_info(&self, address: &BitcoinAddress) -> Result<AddressInfo>;
 
-    async fn get_transactions(&self, address: &str) -> Result<Transactions>;
+    async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions>;
 
     async fn get_last_block_height(&self) -> Result<u64>;
 
@@ -56,7 +57,7 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
     /// the target amount is filled, returning the respective payment status
     async fn check_payment_for_address(
         &self,
-        address: &str,
+        address: &BitcoinAddress,
         target_amount: u64,
     ) -> Result<PaymentState>;
 
@@ -64,9 +65,9 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
         &self,
         bill_public_key: &PublicKey,
         holder_public_key: &PublicKey,
-    ) -> Result<String>;
+    ) -> Result<BitcoinAddress>;
 
-    fn generate_link_to_pay(&self, address: &str, sum: &Sum, message: &str) -> String;
+    fn generate_link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, message: &str) -> String;
 
     fn get_combined_private_descriptor(
         &self,
@@ -74,7 +75,7 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
         pkey_to_combine: &bitcoin::PrivateKey,
     ) -> Result<String>;
 
-    fn get_mempool_link_for_address(&self, address: &str) -> String;
+    fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String;
 }
 
 #[derive(Clone)]
@@ -134,10 +135,11 @@ impl Default for BitcoinClient {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl BitcoinClientApi for BitcoinClient {
-    async fn get_address_info(&self, address: &str) -> Result<AddressInfo> {
+    async fn get_address_info(&self, address: &BitcoinAddress) -> Result<AddressInfo> {
+        let addr_str = address.assume_checked_ref().to_string();
         let address: AddressInfo = self
             .cl
-            .get(self.request_url(&format!("/address/{address}")))
+            .get(self.request_url(&format!("/address/{addr_str}")))
             .send()
             .await
             .map_err(Error::from)?
@@ -148,10 +150,11 @@ impl BitcoinClientApi for BitcoinClient {
         Ok(address)
     }
 
-    async fn get_transactions(&self, address: &str) -> Result<Transactions> {
+    async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions> {
+        let addr_str = address.assume_checked_ref().to_string();
         let transactions: Transactions = self
             .cl
-            .get(self.request_url(&format!("/address/{address}/txs")))
+            .get(self.request_url(&format!("/address/{addr_str}/txs")))
             .send()
             .await
             .map_err(Error::from)?
@@ -176,10 +179,13 @@ impl BitcoinClientApi for BitcoinClient {
 
     async fn check_payment_for_address(
         &self,
-        address: &str,
+        address: &BitcoinAddress,
         target_amount: u64,
     ) -> Result<PaymentState> {
-        debug!("checking if btc address {address} is paid {target_amount}");
+        debug!(
+            "checking if btc address {} is paid {target_amount}",
+            address.assume_checked_ref()
+        );
         // in parallel, get current chain height, transactions and address info for the given address
         let (chain_block_height, txs) =
             try_join!(self.get_last_block_height(), self.get_transactions(address),)?;
@@ -191,7 +197,7 @@ impl BitcoinClientApi for BitcoinClient {
         &self,
         bill_public_key: &PublicKey,
         holder_public_key: &PublicKey,
-    ) -> Result<String> {
+    ) -> Result<BitcoinAddress> {
         let public_key_bill = bitcoin::CompressedPublicKey(*bill_public_key);
         let public_key_bill_holder = bitcoin::CompressedPublicKey(*holder_public_key);
 
@@ -201,12 +207,19 @@ impl BitcoinClientApi for BitcoinClient {
             .map_err(Error::from)?;
         let pub_key_bill = bitcoin::CompressedPublicKey(public_key_bill);
 
-        Ok(bitcoin::Address::p2wpkh(&pub_key_bill, get_config().bitcoin_network()).to_string())
+        Ok(
+            bitcoin::Address::p2wpkh(&pub_key_bill, get_config().bitcoin_network())
+                .as_unchecked()
+                .to_owned(),
+        )
     }
 
-    fn generate_link_to_pay(&self, address: &str, sum: &Sum, message: &str) -> String {
+    fn generate_link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, message: &str) -> String {
         let btc_sum = sum.as_btc_string();
-        let link = format!("bitcoin:{address}?amount={btc_sum}&message={message}");
+        let link = format!(
+            "bitcoin:{}?amount={btc_sum}&message={message}",
+            address.assume_checked_ref()
+        );
         link
     }
 
@@ -234,21 +247,22 @@ impl BitcoinClientApi for BitcoinClient {
         Ok(desc.to_string_with_secret(&kmap))
     }
 
-    fn get_mempool_link_for_address(&self, address: &str) -> String {
-        self.link_url(&format!("/address/{address}"))
+    fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String {
+        self.link_url(&format!("/address/{}", address.assume_checked_ref()))
     }
 }
 
 fn payment_state_from_transactions(
     chain_block_height: u64,
     txs: Transactions,
-    address: &str,
+    address: &BitcoinAddress,
     target_amount: u64,
 ) -> Result<PaymentState> {
     // no transactions - no payment
     if txs.is_empty() {
         return Ok(PaymentState::NotFound);
     }
+    let addr_string = address.assume_checked_ref().to_string();
 
     let mut total = 0;
     let mut tx_filled = None;
@@ -258,7 +272,7 @@ fn payment_state_from_transactions(
         for vout in tx.vout.iter() {
             // sum up outputs towards the address to check
             if let Some(ref addr) = vout.scriptpubkey_address
-                && addr == address
+                && addr == &addr_string
             {
                 total += vout.value;
             }
@@ -274,7 +288,7 @@ fn payment_state_from_transactions(
         Some(tx) => {
             // in mem pool
             if !tx.status.confirmed {
-                debug!("payment for {address} is in mem pool {}", tx.txid);
+                debug!("payment for {addr_string} is in mem pool {}", tx.txid);
                 Ok(PaymentState::InMempool(InMempoolData { tx_id: tx.txid }))
             } else {
                 match (
@@ -285,7 +299,7 @@ fn payment_state_from_transactions(
                     (Some(block_height), Some(block_time), Some(block_hash)) => {
                         let confirmations = chain_block_height - block_height + 1;
                         let paid_data = PaidData {
-                            block_time,
+                            block_time: Timestamp::new(block_time).map_err(|_| Error::InvalidData(format!("Invalid data when checking payment for {addr_string} - invalid block time")))?,
                             block_hash,
                             confirmations,
                             tx_id: tx.txid,
@@ -295,22 +309,22 @@ fn payment_state_from_transactions(
                         {
                             // paid and confirmed
                             debug!(
-                                "payment for {address} is paid and confirmed with {confirmations} confirmations"
+                                "payment for {addr_string} is paid and confirmed with {confirmations} confirmations"
                             );
                             Ok(PaymentState::PaidConfirmed(paid_data))
                         } else {
                             // paid but not enough confirmations yet
                             debug!(
-                                "payment for {address} is paid and unconfirmed with {confirmations} confirmations"
+                                "payment for {addr_string} is paid and unconfirmed with {confirmations} confirmations"
                             );
                             Ok(PaymentState::PaidUnconfirmed(paid_data))
                         }
                     }
                     _ => {
                         log::error!(
-                            "Invalid data when checking payment for {address} - confirmed tx, but no metadata"
+                            "Invalid data when checking payment for {addr_string} - confirmed tx, but no metadata"
                         );
-                        Err(Error::InvalidData(format!("Invalid data when checking payment for {address} - confirmed tx, but no metadata")).into())
+                        Err(Error::InvalidData(format!("Invalid data when checking payment for {addr_string} - confirmed tx, but no metadata")).into())
                     }
                 }
             }
@@ -318,7 +332,7 @@ fn payment_state_from_transactions(
         None => {
             // not enough funds to cover amount
             debug!(
-                "Not enough funds to cover {target_amount} yet when checking payment for {address}: {total}"
+                "Not enough funds to cover {target_amount} yet when checking payment for {addr_string}: {total}"
             );
             Ok(PaymentState::NotFound)
         }
@@ -369,6 +383,7 @@ pub struct Status {
 #[cfg(test)]
 pub mod tests {
     use crate::tests::tests::init_test_cfg;
+    use std::str::FromStr;
 
     use super::*;
 
@@ -376,7 +391,7 @@ pub mod tests {
     fn test_payment_state_from_transactions() {
         init_test_cfg();
         let test_height = 4578915;
-        let test_addr = "n4n9CNeCkgtEs8wukKEvWC78eEqK4A3E6d";
+        let test_addr = BitcoinAddress::from_str("n4n9CNeCkgtEs8wukKEvWC78eEqK4A3E6d").unwrap();
         let test_amount = 500;
         let mut test_tx = Tx {
             txid: "".into(),
@@ -390,18 +405,18 @@ pub mod tests {
             },
             vout: vec![Vout {
                 value: 500,
-                scriptpubkey_address: Some(test_addr.to_owned()),
+                scriptpubkey_address: Some(test_addr.assume_checked_ref().to_string()),
             }],
         };
 
         let res_empty =
-            payment_state_from_transactions(test_height, vec![], test_addr, test_amount);
+            payment_state_from_transactions(test_height, vec![], &test_addr, test_amount);
         assert!(matches!(res_empty, Ok(PaymentState::NotFound)));
 
         let res_paid_confirmed = payment_state_from_transactions(
             test_height,
             vec![test_tx.clone()],
-            test_addr,
+            &test_addr,
             test_amount,
         );
         assert!(matches!(
@@ -413,7 +428,7 @@ pub mod tests {
         let res_paid_unconfirmed = payment_state_from_transactions(
             test_height,
             vec![test_tx.clone()],
-            test_addr,
+            &test_addr,
             test_amount,
         );
         assert!(matches!(
@@ -427,7 +442,7 @@ pub mod tests {
         let res_paid_confirmed_no_data = payment_state_from_transactions(
             test_height,
             vec![test_tx.clone()],
-            test_addr,
+            &test_addr,
             test_amount,
         );
         assert!(matches!(
@@ -441,7 +456,7 @@ pub mod tests {
         let res_in_mem_pool = payment_state_from_transactions(
             test_height,
             vec![test_tx.clone()],
-            test_addr,
+            &test_addr,
             test_amount,
         );
         assert!(matches!(res_in_mem_pool, Ok(PaymentState::InMempool(..))));
@@ -450,7 +465,7 @@ pub mod tests {
         let res_not_filled = payment_state_from_transactions(
             test_height,
             vec![test_tx.clone()],
-            test_addr,
+            &test_addr,
             test_amount,
         );
         assert!(matches!(res_not_filled, Ok(PaymentState::NotFound)));

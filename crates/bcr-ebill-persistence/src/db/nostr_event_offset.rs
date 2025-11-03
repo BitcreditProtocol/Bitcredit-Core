@@ -2,12 +2,9 @@ use super::{
     Result,
     surreal::{Bindings, SurrealWrapper},
 };
-use crate::{
-    constants::{DB_NODE_ID, DB_TABLE},
-    util::date::{self, DateTimeUtc},
-};
+use crate::constants::{DB_NODE_ID, DB_TABLE};
 use async_trait::async_trait;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds};
+use bcr_ebill_core::{DateTimeUtc, NodeId, ServiceTraitBounds, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::{NostrEventOffset, NostrEventOffsetStoreApi};
@@ -30,7 +27,7 @@ impl ServiceTraitBounds for SurrealNostrEventOffsetStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
-    async fn current_offset(&self, node_id: &NodeId) -> Result<u64> {
+    async fn current_offset(&self, node_id: &NodeId) -> Result<Timestamp> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_NODE_ID, node_id.to_string())?;
@@ -40,9 +37,8 @@ impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
             .await?;
         let value = result
             .first()
-            .map(|c| c.time.timestamp())
-            .unwrap_or(0)
-            .try_into()?;
+            .map(|c| Timestamp::from(c.time))
+            .unwrap_or(Timestamp::new(0).expect("safe"));
         Ok(value)
     }
 
@@ -75,7 +71,7 @@ impl From<NostrEventOffsetDb> for NostrEventOffset {
     fn from(db: NostrEventOffsetDb) -> Self {
         Self {
             event_id: db.event_id,
-            time: db.time.timestamp() as u64,
+            time: Timestamp::from(db.time),
             success: db.success,
             node_id: db.node_id,
         }
@@ -86,7 +82,7 @@ impl From<NostrEventOffset> for NostrEventOffsetDb {
     fn from(offset: NostrEventOffset) -> Self {
         Self {
             event_id: offset.event_id,
-            time: date::seconds(offset.time),
+            time: offset.time.to_datetime(),
             success: offset.success,
             node_id: offset.node_id,
         }
@@ -105,7 +101,7 @@ mod tests {
             .current_offset(&node_id_test())
             .await
             .expect("could not get offset");
-        assert_eq!(offset, 0);
+        assert_eq!(offset, Timestamp::new(0).unwrap());
     }
 
     #[tokio::test]
@@ -113,7 +109,7 @@ mod tests {
         let store = get_store().await;
         let data = NostrEventOffset {
             event_id: "test_event".to_string(),
-            time: 1000,
+            time: Timestamp::new(1000).unwrap(),
             success: true,
             node_id: node_id_test(),
         };
@@ -126,7 +122,7 @@ mod tests {
             .current_offset(&node_id_test())
             .await
             .expect("could not get offset");
-        assert_eq!(offset, 1000);
+        assert_eq!(offset, Timestamp::new(1000).unwrap());
     }
 
     #[tokio::test]
@@ -134,7 +130,7 @@ mod tests {
         let store = get_store().await;
         let data = NostrEventOffset {
             event_id: "test_event".to_string(),
-            time: 1000,
+            time: Timestamp::new(1000).unwrap(),
             success: false,
             node_id: node_id_test(),
         };

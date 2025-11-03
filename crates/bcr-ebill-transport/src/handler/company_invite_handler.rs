@@ -178,6 +178,7 @@ mod tests {
             company::{CompanyBlockchain, CompanyCreateBlockData},
         },
         company::Company,
+        timestamp::Timestamp,
         util::crypto::BcrKeys,
     };
     use mockall::predicate::eq;
@@ -457,7 +458,7 @@ mod tests {
         create_public_chain_event(
             &node_id_test().to_string(),
             generate_test_block(height),
-            1000,
+            Timestamp::new(1000).unwrap(),
             BlockchainType::Company,
             keys.clone(),
             previous,
@@ -488,7 +489,7 @@ mod tests {
             &CompanyCreateBlockData::from(company.to_owned()),
             &BcrKeys::new(),
             keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }

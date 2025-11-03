@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::block_id::BlockId;
 use crate::hash::Sha256Hash;
 use crate::signature::SchnorrSignature;
+use crate::timestamp::Timestamp;
 use crate::util::crypto;
 use crate::{ValidationError, util};
 use borsh::{BorshDeserialize, BorshSerialize, to_vec};
@@ -117,12 +118,12 @@ pub trait Block {
     type BlockDataToHash: BorshSerialize;
 
     fn id(&self) -> BlockId;
-    fn timestamp(&self) -> u64;
+    fn timestamp(&self) -> Timestamp;
     fn op_code(&self) -> &Self::OpCode;
     fn plaintext_hash(&self) -> &Sha256Hash;
     fn hash(&self) -> &Sha256Hash;
     fn previous_hash(&self) -> &Sha256Hash;
-    fn data(&self) -> &str;
+    fn data(&self) -> &[u8];
     fn signature(&self) -> &SchnorrSignature;
     fn public_key(&self) -> &PublicKey;
     fn validate(&self) -> bool;
@@ -305,9 +306,9 @@ pub trait Blockchain {
     }
 }
 
-fn borsh_to_json_string<T: borsh::BorshDeserialize + serde::Serialize>(
+fn borsh_to_json_value<T: borsh::BorshDeserialize + serde::Serialize>(
     bytes: &[u8],
-) -> Result<String> {
+) -> Result<serde_json::Value> {
     let block_data: T = borsh::from_slice(bytes)?;
-    serde_json::to_string(&block_data).map_err(|e| Error::JSON(e.to_string()))
+    serde_json::to_value(&block_data).map_err(|e| Error::JSON(e.to_string()))
 }

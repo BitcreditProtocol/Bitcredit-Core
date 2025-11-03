@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     identity_proof::{IdentityProof, IdentityProofStatus},
+    timestamp::Timestamp,
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -24,11 +25,11 @@ pub trait IdentityProofStoreApi: ServiceTraitBounds {
         &self,
         id: &str,
         status: &IdentityProofStatus,
-        status_last_checked_timestamp: u64,
+        status_last_checked_timestamp: Timestamp,
     ) -> Result<()>;
     /// Get all identity proofs that haven't been checked since the given timestamp
     async fn get_with_status_last_checked_timestamp_before(
         &self,
-        before_timestamp: u64,
+        before_timestamp: Timestamp,
     ) -> Result<Vec<IdentityProof>>;
 }

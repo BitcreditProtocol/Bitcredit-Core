@@ -1,10 +1,13 @@
 use bill::LightBitcreditBillResult;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
 use company::Company;
 use contact::Contact;
+use nostr::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
+use uuid::Uuid;
 
 pub mod address;
 pub mod bill;
@@ -30,18 +33,23 @@ pub mod signature;
 pub mod sum;
 #[cfg(test)]
 mod tests;
+pub mod timestamp;
 pub mod util;
 pub mod zip;
 
 pub use bcr_common::core::NodeId;
 pub use bitcoin::secp256k1::{PublicKey, SecretKey};
 
-use crate::{address::Address, city::City, country::Country, hash::Sha256Hash, zip::Zip};
+use crate::{
+    address::Address, city::City, country::Country, hash::Sha256Hash, name::Name, zip::Zip,
+};
 
 /// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
 /// multi-threaded (e.g. web) environment without issues.
 #[cfg(not(target_arch = "wasm32"))]
 pub trait ServiceTraitBounds: Send + Sync {}
+
+pub type DateTimeUtc = DateTime<Utc>;
 
 #[cfg(target_arch = "wasm32")]
 pub trait ServiceTraitBounds {}
@@ -49,6 +57,8 @@ pub trait ServiceTraitBounds {}
 pub trait Validate {
     fn validate(&self) -> Result<(), ValidationError>;
 }
+
+pub type BitcoinAddress = bitcoin::Address<bitcoin::address::NetworkUnchecked>;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PostalAddress {
@@ -174,14 +184,18 @@ pub enum GeneralSearchFilterItemType {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct File {
-    pub name: String,
-    pub hash: Sha256Hash,   // the hash over the unencrypted file
-    pub nostr_hash: String, // the identification hash on Nostr for the encrypted file
+    pub name: Name,
+    pub hash: Sha256Hash, // the hash over the unencrypted file
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_sha256_hex_hash",
+        deserialize_with = "crate::util::borsh::deserialize_sha256_hex_hash"
+    )]
+    pub nostr_hash: Sha256HexHash, // the identification hash on Nostr for the encrypted file, sha256 as hex
 }
 
 #[derive(Debug)]
 pub struct UploadFileResult {
-    pub file_upload_id: String,
+    pub file_upload_id: Uuid,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -527,6 +541,10 @@ pub enum ValidationError {
     /// error returned if the bill action was invalid
     #[error("Invalid bill action")]
     InvalidBillAction,
+
+    /// error returned if the mint request id was invalid
+    #[error("Invalid mint request id")]
+    InvalidMintRequestId,
 }
 
 impl From<bcr_common::core::Error> for ValidationError {

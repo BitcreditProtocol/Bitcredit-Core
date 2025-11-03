@@ -15,6 +15,7 @@ use bcr_ebill_core::{
     contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
     identity::{Identity, IdentityType, IdentityWithAll},
     protocol::BillChainEvent,
+    timestamp::Timestamp,
     util::BcrKeys,
 };
 use log::{debug, info};
@@ -114,7 +115,7 @@ impl BillService {
         &self,
         bill_id: &BillId,
         identity: &IdentityWithAll,
-        now: u64,
+        now: Timestamp,
     ) -> Result<()> {
         info!("Checking bill recourse payment for {bill_id}");
         let bill_keys = self.store.get_keys(bill_id).await?;
@@ -258,7 +259,7 @@ impl BillService {
         &self,
         bill_id: &BillId,
         identity: &IdentityWithAll,
-        now: u64,
+        now: Timestamp,
     ) -> Result<()> {
         info!("Checking bill offer to sell payment for {bill_id}");
         let bill_keys = self.store.get_keys(bill_id).await?;

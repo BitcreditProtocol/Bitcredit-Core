@@ -8,8 +8,7 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_core::protocol::{ChainInvite, Event};
 use log::{debug, error, info, warn};
-use secp256k1::SecretKey;
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
@@ -274,8 +273,7 @@ impl IdentityChainEventProcessor {
                 }
                 IdentityBlockPayload::CreateCompany(payload) => {
                     info!("Received company create block. Restoring Company data");
-                    let secret_key = SecretKey::from_str(&payload.company_key)
-                        .map_err(|e| Error::Crypto(e.to_string()))?;
+                    let secret_key = payload.company_key;
                     let company_keys = BcrKeys::from_private_key(&secret_key)?;
                     let invite = ChainInvite::company(
                         payload.company_id.to_string(),
@@ -297,8 +295,7 @@ impl IdentityChainEventProcessor {
                             "Found personal bill issue block so adding bill {}",
                             payload.bill_id
                         );
-                        let secret_key = SecretKey::from_str(&bill_key)
-                            .map_err(|e| Error::Crypto(e.to_string()))?;
+                        let secret_key = bill_key;
                         let bill_keys = BcrKeys::from_private_key(&secret_key)?;
                         let invite = ChainInvite::bill(
                             payload.bill_id.to_string(),
@@ -432,6 +429,7 @@ pub mod tests {
         identity::Identity,
         identity_proof::IdentityProofStamp,
         name::Name,
+        timestamp::Timestamp,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -802,7 +800,7 @@ pub mod tests {
         create_public_chain_event(
             &node_id.to_string(),
             data,
-            1000,
+            Timestamp::new(1000).unwrap(),
             BlockchainType::Identity,
             keys.clone(),
             previous,
@@ -893,7 +891,7 @@ pub mod tests {
             Sha256Hash::new("genesis hash"),
             &identity.into(),
             keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .expect("could not create block")
     }
@@ -903,8 +901,13 @@ pub mod tests {
         keys: &BcrKeys,
         data: &IdentityUpdateBlockData,
     ) -> IdentityBlock {
-        IdentityBlock::create_block_for_update(previous_block, data, keys, 1731594928)
-            .expect("could not create block")
+        IdentityBlock::create_block_for_update(
+            previous_block,
+            data,
+            keys,
+            Timestamp::new(1731594928).unwrap(),
+        )
+        .expect("could not create block")
     }
 
     pub fn get_identity_proof_block(
@@ -912,8 +915,13 @@ pub mod tests {
         keys: &BcrKeys,
         data: &IdentityProofBlockData,
     ) -> IdentityBlock {
-        IdentityBlock::create_block_for_identity_proof(previous_block, data, keys, 1731594928)
-            .expect("could not create block")
+        IdentityBlock::create_block_for_identity_proof(
+            previous_block,
+            data,
+            keys,
+            Timestamp::new(1731594928).unwrap(),
+        )
+        .expect("could not create block")
     }
 
     fn create_mocks() -> (

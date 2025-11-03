@@ -4,7 +4,7 @@ use super::{Block, Blockchain};
 use crate::NodeId;
 use crate::bill::BillId;
 use crate::block_id::BlockId;
-use crate::blockchain::{Error, borsh_to_json_string};
+use crate::blockchain::{Error, borsh_to_json_value};
 use crate::city::City;
 use crate::country::Country;
 use crate::date::Date;
@@ -14,12 +14,13 @@ use crate::identification::Identification;
 use crate::identity_proof::IdentityProofStamp;
 use crate::name::Name;
 use crate::signature::SchnorrSignature;
+use crate::timestamp::Timestamp;
 use crate::util::{self, BcrKeys, crypto};
 use crate::{File, OptionalPostalAddress, identity::Identity};
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -39,9 +40,13 @@ pub struct IdentityBlockDataToHash {
     id: BlockId,
     plaintext_hash: Sha256Hash,
     previous_hash: Sha256Hash,
-    data: String,
-    timestamp: u64,
-    public_key: String,
+    data: Vec<u8>,
+    timestamp: Timestamp,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_pubkey",
+        deserialize_with = "crate::util::borsh::deserialize_pubkey"
+    )]
+    public_key: PublicKey,
     op_code: IdentityOpCode,
 }
 
@@ -50,8 +55,8 @@ pub struct IdentityBlock {
     pub id: BlockId,
     pub plaintext_hash: Sha256Hash,
     pub hash: Sha256Hash,
-    pub timestamp: u64,
-    pub data: String,
+    pub timestamp: Timestamp,
+    pub data: Vec<u8>,
     #[borsh(
         serialize_with = "crate::util::borsh::serialize_pubkey",
         deserialize_with = "crate::util::borsh::deserialize_pubkey"
@@ -71,35 +76,45 @@ pub struct IdentityBlockPlaintextWrapper {
 impl IdentityBlockPlaintextWrapper {
     /// This is only used for dev mode
     pub fn to_json_text(&self) -> Result<String> {
-        let mut block = self.block.clone();
-        let block_data_string: String = match self.block.op_code() {
+        let mut serialized =
+            serde_json::to_value(&self.block).map_err(|e| Error::JSON(e.to_string()))?;
+
+        let block_data: serde_json::Value = match self.block.op_code() {
             IdentityOpCode::Create => {
-                borsh_to_json_string::<IdentityCreateBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<IdentityCreateBlockData>(&self.plaintext_data_bytes)?
             }
             IdentityOpCode::Update => {
-                borsh_to_json_string::<IdentityUpdateBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<IdentityUpdateBlockData>(&self.plaintext_data_bytes)?
             }
             IdentityOpCode::AddSignatory => {
-                borsh_to_json_string::<IdentityAddSignatoryBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<IdentityAddSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
-            IdentityOpCode::RemoveSignatory => borsh_to_json_string::<
-                IdentityRemoveSignatoryBlockData,
-            >(&self.plaintext_data_bytes)?,
+            IdentityOpCode::RemoveSignatory => {
+                borsh_to_json_value::<IdentityRemoveSignatoryBlockData>(&self.plaintext_data_bytes)?
+            }
             IdentityOpCode::SignPersonBill => {
-                borsh_to_json_string::<IdentitySignPersonBillBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<IdentitySignPersonBillBlockData>(&self.plaintext_data_bytes)?
             }
-            IdentityOpCode::SignCompanyBill => borsh_to_json_string::<
-                IdentitySignCompanyBillBlockData,
-            >(&self.plaintext_data_bytes)?,
+            IdentityOpCode::SignCompanyBill => {
+                borsh_to_json_value::<IdentitySignCompanyBillBlockData>(&self.plaintext_data_bytes)?
+            }
             IdentityOpCode::CreateCompany => {
-                borsh_to_json_string::<IdentityCreateCompanyBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<IdentityCreateCompanyBlockData>(&self.plaintext_data_bytes)?
             }
             IdentityOpCode::IdentityProof => {
-                borsh_to_json_string::<IdentityProofBlockData>(&self.plaintext_data_bytes)?
+                borsh_to_json_value::<IdentityProofBlockData>(&self.plaintext_data_bytes)?
             }
         };
-        block.data = block_data_string;
-        serde_json::to_string(&block).map_err(|e| Error::JSON(e.to_string()))
+
+        if let Some(obj) = serialized.as_object_mut() {
+            obj.insert("data".to_string(), block_data);
+        } else {
+            return Err(Error::JSON(
+                "Block didn't serialize to JSON object".to_string(),
+            ));
+        }
+
+        serde_json::to_string(&serialized).map_err(|e| Error::JSON(e.to_string()))
     }
 }
 
@@ -161,7 +176,11 @@ pub struct IdentitySignPersonBillBlockData {
     pub block_id: BlockId,
     pub block_hash: Sha256Hash,
     pub operation: BillOpCode,
-    pub bill_key: Option<String>,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_optional_privkey",
+        deserialize_with = "crate::util::borsh::deserialize_optional_privkey"
+    )]
+    pub bill_key: Option<SecretKey>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -176,7 +195,11 @@ pub struct IdentitySignCompanyBillBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateCompanyBlockData {
     pub company_id: NodeId,
-    pub company_key: String,
+    #[borsh(
+        serialize_with = "crate::util::borsh::serialize_privkey",
+        deserialize_with = "crate::util::borsh::deserialize_privkey"
+    )]
+    pub company_key: SecretKey,
     pub block_hash: Sha256Hash,
 }
 
@@ -226,7 +249,7 @@ impl Block for IdentityBlock {
         self.id
     }
 
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> Timestamp {
         self.timestamp
     }
 
@@ -246,7 +269,7 @@ impl Block for IdentityBlock {
         &self.previous_hash
     }
 
-    fn data(&self) -> &str {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
@@ -263,20 +286,11 @@ impl Block for IdentityBlock {
     }
 
     fn validate_plaintext_hash(&self, private_key: &secp256k1::SecretKey) -> bool {
-        match util::base58_decode(&self.data) {
-            Ok(decoded) => match util::crypto::decrypt_ecies(&decoded, private_key) {
-                Ok(decrypted) => self.plaintext_hash() == &Sha256Hash::from_bytes(&decrypted),
-                Err(e) => {
-                    error!(
-                        "Decrypt Error while validating plaintext hash for id {}: {e}",
-                        self.id()
-                    );
-                    false
-                }
-            },
+        match util::crypto::decrypt_ecies(self.data(), private_key) {
+            Ok(decrypted) => self.plaintext_hash() == &Sha256Hash::from_bytes(&decrypted),
             Err(e) => {
                 error!(
-                    "Decode Error while validating plaintext hash for id {}: {e}",
+                    "Decrypt Error while validating plaintext hash for id {}: {e}",
                     self.id()
                 );
                 false
@@ -291,7 +305,7 @@ impl Block for IdentityBlock {
             previous_hash: self.previous_hash().to_owned(),
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
-            public_key: self.public_key().to_string(),
+            public_key: self.public_key().to_owned(),
             op_code: self.op_code().to_owned(),
         }
     }
@@ -301,10 +315,10 @@ impl IdentityBlock {
     fn new(
         id: BlockId,
         previous_hash: Sha256Hash,
-        data: String,
+        data: Vec<u8>,
         op_code: IdentityOpCode,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
         plaintext_hash: Sha256Hash,
     ) -> Result<Self> {
         let hash = Self::calculate_hash(IdentityBlockDataToHash {
@@ -313,7 +327,7 @@ impl IdentityBlock {
             previous_hash: previous_hash.clone(),
             data: data.clone(),
             timestamp,
-            public_key: keys.get_public_key(),
+            public_key: keys.pub_key(),
             op_code: op_code.clone(),
         })?;
         let signature = crypto::signature(&hash, &keys.get_private_key())?;
@@ -335,15 +349,12 @@ impl IdentityBlock {
         genesis_hash: Sha256Hash,
         identity: &IdentityCreateBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let identity_bytes = to_vec(identity)?;
         let plaintext_hash = Self::calculate_plaintext_hash(identity)?;
 
-        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
-            &identity_bytes,
-            &keys.pub_key(),
-        )?);
+        let encrypted_data = util::crypto::encrypt_ecies(&identity_bytes, &keys.pub_key())?;
 
         Self::new(
             BlockId::first(),
@@ -360,7 +371,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentityUpdateBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -376,7 +387,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentitySignPersonBillBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -392,7 +403,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentitySignCompanyBillBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -408,7 +419,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentityCreateCompanyBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -424,7 +435,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentityAddSignatoryBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -440,7 +451,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentityRemoveSignatoryBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -456,7 +467,7 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &IdentityProofBlockData,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -472,14 +483,13 @@ impl IdentityBlock {
         previous_block: &Self,
         data: &T,
         keys: &BcrKeys,
-        timestamp: u64,
+        timestamp: Timestamp,
         op_code: IdentityOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
         let plaintext_hash = Self::calculate_plaintext_hash(data)?;
 
-        let encrypted_data =
-            util::base58_encode(&util::crypto::encrypt_ecies(&bytes, &keys.pub_key())?);
+        let encrypted_data = util::crypto::encrypt_ecies(&bytes, &keys.pub_key())?;
 
         let new_block = Self::new(
             BlockId::next_from_previous_block_id(&previous_block.id()),
@@ -523,8 +533,7 @@ impl IdentityBlock {
     }
 
     fn get_decrypted_block_bytes(&self, keys: &BcrKeys) -> Result<Vec<u8>> {
-        let bytes = util::base58_decode(&self.data)?;
-        let decrypted_bytes = util::crypto::decrypt_ecies(&bytes, &keys.get_private_key())?;
+        let decrypted_bytes = util::crypto::decrypt_ecies(&self.data, &keys.get_private_key())?;
         Ok(decrypted_bytes)
     }
 }
@@ -548,7 +557,11 @@ impl Blockchain for IdentityBlockchain {
 
 impl IdentityBlockchain {
     /// Creates a new identity chain
-    pub fn new(identity: &IdentityCreateBlockData, keys: &BcrKeys, timestamp: u64) -> Result<Self> {
+    pub fn new(
+        identity: &IdentityCreateBlockData,
+        keys: &BcrKeys,
+        timestamp: Timestamp,
+    ) -> Result<Self> {
         let genesis_hash = Sha256Hash::from_bytes(keys.get_public_key().as_bytes());
 
         let first_block =
@@ -632,7 +645,8 @@ mod tests {
         let identity = empty_identity();
         let keys = BcrKeys::new();
 
-        let chain = IdentityBlockchain::new(&identity.into(), &keys, 1731593928);
+        let chain =
+            IdentityBlockchain::new(&identity.into(), &keys, Timestamp::new(1731593928).unwrap());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
         assert!(
@@ -644,7 +658,11 @@ mod tests {
     fn create_and_check_validity() {
         let identity = empty_identity();
 
-        let chain = IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928);
+        let chain = IdentityBlockchain::new(
+            &identity.into(),
+            &BcrKeys::new(),
+            Timestamp::new(1731593928).unwrap(),
+        );
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
     }
@@ -654,7 +672,8 @@ mod tests {
         let identity = empty_identity();
         let keys = BcrKeys::new();
 
-        let chain = IdentityBlockchain::new(&identity.into(), &keys, 1731593928);
+        let chain =
+            IdentityBlockchain::new(&identity.into(), &keys, Timestamp::new(1731593928).unwrap());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
         let mut chain = chain.unwrap();
@@ -673,7 +692,7 @@ mod tests {
                 identity_document_file: None,
             },
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(update_block.is_ok());
         chain.try_add_block(update_block.unwrap());
@@ -685,10 +704,10 @@ mod tests {
                 block_id: BlockId::first(),
                 block_hash: Sha256Hash::new("some hash"),
                 operation: BillOpCode::Issue,
-                bill_key: Some(private_key_test().display_secret().to_string()),
+                bill_key: Some(private_key_test()),
             },
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(sign_person_bill_block.is_ok());
         chain.try_add_block(sign_person_bill_block.unwrap());
@@ -703,7 +722,7 @@ mod tests {
                 operation: BillOpCode::Issue,
             },
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(sign_company_bill_block.is_ok());
         chain.try_add_block(sign_company_bill_block.unwrap());
@@ -712,11 +731,11 @@ mod tests {
             chain.get_latest_block(),
             &IdentityCreateCompanyBlockData {
                 company_id: node_id_test(),
-                company_key: "some key".to_string(),
+                company_key: private_key_test(),
                 block_hash: Sha256Hash::new("some hash"),
             },
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(create_company_block.is_ok());
         chain.try_add_block(create_company_block.unwrap());
@@ -730,7 +749,7 @@ mod tests {
                 signatory: node_id_test(),
             },
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(add_signatory_block.is_ok());
         chain.try_add_block(add_signatory_block.unwrap());
@@ -744,7 +763,7 @@ mod tests {
                 signatory: node_id_test(),
             },
             &keys,
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         );
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
@@ -756,7 +775,7 @@ mod tests {
                 url: url::Url::parse("https://bit.cr").unwrap(),
             },
             &keys,
-            1731593929,
+            Timestamp::new(1731593929).unwrap(),
         );
         assert!(identity_proof_block.is_ok());
         chain.try_add_block(identity_proof_block.unwrap());

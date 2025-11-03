@@ -1,4 +1,4 @@
-use bcr_ebill_api::util::date::now;
+use bcr_ebill_api::data::timestamp::Timestamp;
 use log::{error, info};
 
 use crate::context::get_ctx;
@@ -63,10 +63,10 @@ async fn run_check_bill_recourse_payment_job() {
 
 async fn run_check_bill_timeouts() {
     info!("Running Check Bill Timeouts Job");
-    let current_time = now().timestamp();
+    let current_time = Timestamp::now();
     if let Err(e) = get_ctx()
         .bill_service
-        .check_bills_timeouts(current_time as u64)
+        .check_bills_timeouts(current_time)
         .await
     {
         error!("Error while running Check Bill Timeouts Job: {e}");

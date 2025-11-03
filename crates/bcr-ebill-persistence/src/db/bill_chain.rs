@@ -20,6 +20,8 @@ use bcr_ebill_core::{
     },
     hash::Sha256Hash,
     signature::SchnorrSignature,
+    timestamp::Timestamp,
+    util::{base58_decode, base58_encode},
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,7 +88,7 @@ impl BillChainStoreApi for SurrealBillChainStore {
 
         match result.first() {
             None => Err(Error::NoBillBlock),
-            Some(block) => Ok(block.to_owned().into()),
+            Some(block) => block.to_owned().try_into(),
         }
     }
 
@@ -168,8 +170,8 @@ impl BillChainStoreApi for SurrealBillChainStore {
                 e
             })?;
 
-        let blocks: Vec<BillBlock> = result.into_iter().map(|b| b.into()).collect();
-        let chain = BillBlockchain::new_from_blocks(blocks)?;
+        let blocks: Result<Vec<BillBlock>> = result.into_iter().map(|b| b.try_into()).collect();
+        let chain = BillBlockchain::new_from_blocks(blocks?)?;
 
         Ok(chain)
     }
@@ -183,26 +185,28 @@ pub struct BillBlockDb {
     pub hash: Sha256Hash,
     pub previous_hash: Sha256Hash,
     pub signature: SchnorrSignature,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub public_key: PublicKey,
     pub data: String,
     pub op_code: BillOpCode,
 }
 
-impl From<BillBlockDb> for BillBlock {
-    fn from(value: BillBlockDb) -> Self {
-        Self {
+impl TryFrom<BillBlockDb> for BillBlock {
+    type Error = Error;
+
+    fn try_from(value: BillBlockDb) -> Result<Self> {
+        Ok(Self {
             bill_id: value.bill_id,
             id: value.block_id,
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: value.data,
+            data: base58_decode(&value.data)?,
             public_key: value.public_key,
             previous_hash: value.previous_hash,
             signature: value.signature,
             op_code: value.op_code,
-        }
+        })
     }
 }
 
@@ -217,7 +221,7 @@ impl From<&BillBlock> for BillBlockDb {
             signature: value.signature.clone(),
             timestamp: value.timestamp,
             public_key: value.public_key,
-            data: value.data.clone(),
+            data: base58_encode(&value.data.clone()),
             op_code: value.op_code.clone(),
         }
     }
@@ -270,13 +274,13 @@ mod tests {
                     postal_address: empty_address(),
                 },
                 signatory: None,
-                signing_timestamp: 1731593928,
+                signing_timestamp: Timestamp::new(1731593928).unwrap(),
                 signing_address: empty_address(),
             },
             &BcrKeys::new(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         store.add_block(&bill_id_test(), &block2).await.unwrap();

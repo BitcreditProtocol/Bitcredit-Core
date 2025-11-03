@@ -1,9 +1,12 @@
+use std::str::FromStr;
+
 use super::Result;
 use bcr_ebill_api::{
     data::{GeneralSearchFilterItemType, sum::Currency},
     service::Error,
     util::{VALID_CURRENCIES, ValidationError, file::detect_content_type_for_bytes},
 };
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -63,9 +66,11 @@ impl General {
             if file_upload_id.is_empty() {
                 return Err(Error::Validation(ValidationError::InvalidFileUploadId).into());
             }
+            let parsed_id =
+                Uuid::from_str(file_upload_id).map_err(|_| ValidationError::InvalidFileUploadId)?;
             match get_ctx()
                 .file_upload_service
-                .get_temp_file(file_upload_id)
+                .get_temp_file(&parsed_id)
                 .await
             {
                 Ok(Some((file_name, file_bytes))) => {

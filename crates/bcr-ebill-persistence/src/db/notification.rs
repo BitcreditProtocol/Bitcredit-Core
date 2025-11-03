@@ -12,12 +12,12 @@ use surrealdb::sql::Thing;
 use crate::{
     constants::{DB_ACTIVE, DB_IDS, DB_NOTIFICATION_TYPE, DB_TABLE},
     notification::{NotificationFilter, NotificationStoreApi},
-    util::date::{DateTimeUtc, now},
 };
 use bcr_ebill_core::{
-    NodeId,
+    DateTimeUtc, NodeId,
     bill::BillId,
     notification::{Notification, NotificationType},
+    timestamp::Timestamp,
 };
 use bcr_ebill_core::{ServiceTraitBounds, notification::ActionType};
 
@@ -213,7 +213,7 @@ impl NotificationStoreApi for SurrealNotificationStore {
             reference_id: bill_id.to_string(),
             block_height,
             action_type,
-            datetime: now(),
+            datetime: Timestamp::now().to_datetime(),
         };
         let _: Option<SentBlockNotificationDb> = self.db.create(Self::SENT_TABLE, None, db).await?;
         Ok(())
@@ -304,7 +304,7 @@ struct SentBlockNotificationDb {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::bill::BillId;
+    use bcr_ebill_core::{bill::BillId, timestamp::Timestamp};
     use serde_json::json;
     use uuid::Uuid;
 
@@ -312,7 +312,6 @@ mod tests {
     use crate::{
         db::get_memory_db,
         tests::tests::{bill_id_test, bill_id_test_other, node_id_test, node_id_test_other},
-        util::date::now,
     };
 
     async fn get_store() -> SurrealNotificationStore {
@@ -665,7 +664,7 @@ mod tests {
             notification_type: NotificationType::General,
             reference_id: Some("general".to_string()),
             description: "general desc".to_string(),
-            datetime: now(),
+            datetime: Timestamp::now().to_datetime(),
             active: true,
             payload: None,
         }

@@ -380,8 +380,8 @@ impl NotificationService {
                 chain_type,
                 block_height,
                 block_hash: block_hash.to_owned(),
-                received: event.created_at.as_u64(),
-                time: event.created_at.as_u64(),
+                received: event.created_at.into(),
+                time: event.created_at.into(),
                 payload: event.clone(),
                 valid: true,
             })
@@ -1196,7 +1196,8 @@ mod tests {
     use bcr_ebill_core::contact::Contact;
     use bcr_ebill_core::protocol::{ChainInvite, EventType, Result};
     use bcr_ebill_core::sum::Currency;
-    use bcr_ebill_core::util::{BcrKeys, date::now};
+    use bcr_ebill_core::timestamp::Timestamp;
+    use bcr_ebill_core::util::BcrKeys;
     use mockall::predicate::eq;
     use std::sync::Arc;
 
@@ -1209,7 +1210,7 @@ mod tests {
         MockNostrContactStore, MockNostrQueuedMessageStore, MockNotificationJsonTransport,
         MockNotificationStore, bill_id_test, empty_address, get_baseline_identity,
         get_genesis_chain, init_test_cfg, node_id_test, node_id_test_other, node_id_test_other2,
-        private_key_test,
+        private_key_test, valid_payment_address_testnet,
     };
 
     use super::super::test_utils::{get_identity_public_data, get_test_bitcredit_bill};
@@ -1232,7 +1233,7 @@ mod tests {
         nostr::event::Event::new(
             nostr::event::EventId::from_byte_array(id),
             keys.public_key(),
-            nostr::Timestamp::from_secs(now().timestamp() as u64),
+            nostr::Timestamp::from_secs(Timestamp::now().inner()),
             nostr::event::Kind::TextNote,
             nostr::event::Tags::default(),
             "test".to_string(),
@@ -1292,7 +1293,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_offer_to_sell(
             bill.id.to_owned(),
@@ -1302,7 +1303,7 @@ mod tests {
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
-                payment_address: "Address".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
@@ -1451,7 +1452,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_offer_to_sell(
             bill.id.to_owned(),
@@ -1461,7 +1462,7 @@ mod tests {
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
-                payment_address: "Address".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
@@ -1701,7 +1702,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_offer_to_sell(
             bill.id.to_owned(),
@@ -1711,7 +1712,7 @@ mod tests {
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
-                payment_address: "Address".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
@@ -1839,7 +1840,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_offer_to_sell(
             bill.id.to_owned(),
@@ -1849,7 +1850,7 @@ mod tests {
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
-                payment_address: "Address".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
@@ -2171,7 +2172,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_accept(
             bill.id.to_owned(),
@@ -2226,7 +2227,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_request_to_accept(
             bill.id.to_owned(),
@@ -2282,7 +2283,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_request_to_pay(
             bill.id.to_owned(),
@@ -2417,7 +2418,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_offer_to_sell(
             bill.id.to_owned(),
@@ -2427,7 +2428,7 @@ mod tests {
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
-                payment_address: "Address".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
@@ -2482,7 +2483,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_offer_to_sell(
             bill.id.to_owned(),
@@ -2492,7 +2493,7 @@ mod tests {
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
                 sum: Sum::new_sat(100).expect("sat works"),
                 signatory: None,
-                payment_address: "Address".to_string(),
+                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
@@ -2547,7 +2548,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_recourse(
             bill.id.to_owned(),
@@ -2606,7 +2607,7 @@ mod tests {
         );
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        let timestamp = now().timestamp() as u64;
+        let timestamp = Timestamp::now();
         let keys = get_baseline_identity().key_pair;
         let block = BillBlock::create_block_for_accept(
             bill.id.to_owned(),

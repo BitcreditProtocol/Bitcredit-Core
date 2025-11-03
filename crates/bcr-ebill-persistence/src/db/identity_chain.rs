@@ -19,6 +19,8 @@ use bcr_ebill_core::{
     },
     hash::Sha256Hash,
     signature::SchnorrSignature,
+    timestamp::Timestamp,
+    util::{base58_decode, base58_encode},
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,7 +88,7 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
 
         match result.first() {
             None => Err(Error::NoIdentityBlock),
-            Some(block) => Ok(block.to_owned().into()),
+            Some(block) => block.to_owned().try_into(),
         }
     }
 
@@ -167,11 +169,8 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
                 log::error!("Get Identity Block: {e}");
                 e
             })?;
-        let blocks = result
-            .into_iter()
-            .map(|b| b.into())
-            .collect::<Vec<IdentityBlock>>();
-        Ok(IdentityBlockchain::new_from_blocks(blocks)?)
+        let blocks: Result<Vec<IdentityBlock>> = result.into_iter().map(|b| b.try_into()).collect();
+        Ok(IdentityBlockchain::new_from_blocks(blocks?)?)
     }
 }
 
@@ -182,25 +181,26 @@ pub struct IdentityBlockDb {
     pub hash: Sha256Hash,
     pub previous_hash: Sha256Hash,
     pub signature: SchnorrSignature,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     pub public_key: PublicKey,
     pub data: String,
     pub op_code: IdentityOpCode,
 }
 
-impl From<IdentityBlockDb> for IdentityBlock {
-    fn from(value: IdentityBlockDb) -> Self {
-        Self {
+impl TryFrom<IdentityBlockDb> for IdentityBlock {
+    type Error = Error;
+    fn try_from(value: IdentityBlockDb) -> Result<Self> {
+        Ok(Self {
             id: value.block_id,
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: value.data,
+            data: base58_decode(&value.data)?,
             public_key: value.public_key,
             previous_hash: value.previous_hash,
             signature: value.signature,
             op_code: value.op_code,
-        }
+        })
     }
 }
 
@@ -214,7 +214,7 @@ impl From<&IdentityBlock> for IdentityBlockDb {
             signature: value.signature.clone(),
             timestamp: value.timestamp,
             public_key: value.public_key,
-            data: value.data.clone(),
+            data: base58_encode(&value.data.clone()),
             op_code: value.op_code.clone(),
         }
     }
@@ -247,7 +247,7 @@ mod tests {
             Sha256Hash::new("genesis hash"),
             &empty_identity().into(),
             &BcrKeys::new(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         store.add_block(&block).await.unwrap();
@@ -269,7 +269,7 @@ mod tests {
                 identity_document_file: None,
             },
             &BcrKeys::new(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();
         store.add_block(&block2).await.unwrap();

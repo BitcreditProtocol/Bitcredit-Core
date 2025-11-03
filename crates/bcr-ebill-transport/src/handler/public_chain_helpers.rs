@@ -5,7 +5,8 @@ use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     hash::Sha256Hash,
     protocol::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
-    util::{BcrKeys, date::now},
+    timestamp::Timestamp,
+    util::BcrKeys,
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 use nostr::{
@@ -244,8 +245,8 @@ impl EventContainer {
             chain_type,
             block_height,
             block_hash: self.block.get_block_hash(),
-            received: now().timestamp() as u64,
-            time: self.event.created_at.as_u64(),
+            received: Timestamp::now(),
+            time: self.event.created_at.into(),
             payload: self.event.clone(),
             valid,
         }

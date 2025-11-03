@@ -3,7 +3,10 @@
 * Document versioning scheme
 * Rework WASM API to return `TSResult<T> =  { Success: T } | { Error: JsErrorData }` without triggering exceptions
 * Rework `sum` and `currency` into a coherent `Sum` type that's ready for multi-currency and exchange rates (breaking DB change)
-* Add strong types for `SchnorrSignature`, `Sha256Hash`, `BlockId` (breaking DB change)
+* Refactor the transport layer to distinguish between protocol and the rest and to use `borsh` for serialization on our side
+* Add strong types for `SchnorrSignature`, `Sha256Hash`, `BlockId`, `File` types, `Mint` types and use `PublicKey` and `SecretKey` in protocol types (breaking DB change)
+* Use bytes without encoding for bill data (breaking DB change)
+* Fix plaintext-chain rendering - the nesting of `data` now works properly and one `JSON.parse` call is enough (breaking API change)
 
 # 0.4.12
 

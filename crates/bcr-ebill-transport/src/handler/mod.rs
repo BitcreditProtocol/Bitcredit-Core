@@ -353,6 +353,7 @@ mod test_utils {
         nostr_contact::NostrPublicKey,
         notification::{ActionType, Notification, NotificationType},
         sum::Sum,
+        timestamp::Timestamp,
         util::BcrKeys,
     };
     use bcr_ebill_persistence::{
@@ -485,7 +486,7 @@ mod test_utils {
             async fn get_bill_ids_with_op_codes_since(
                 &self,
                 op_code: std::collections::HashSet<BillOpCode> ,
-                since: u64,
+                since: Timestamp,
             ) -> Result<Vec<BillId>>;
         }
     }
@@ -547,11 +548,11 @@ mod test_utils {
                 &self,
                 id: &str,
                 status: &IdentityProofStatus,
-                status_last_checked_timestamp: u64,
+                status_last_checked_timestamp: Timestamp,
             ) -> Result<()>;
             async fn get_with_status_last_checked_timestamp_before(
                 &self,
-                before_timestamp: u64,
+                before_timestamp: Timestamp,
             ) -> Result<Vec<IdentityProof>>;
         }
     }
@@ -655,11 +656,11 @@ mod test_utils {
     pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
         BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             get_baseline_identity().key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }

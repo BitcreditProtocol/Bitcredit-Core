@@ -1,6 +1,6 @@
 use crate::{
     external::identity_proof::IdentityProofApi,
-    service::notification_service::NotificationServiceApi, util,
+    service::notification_service::NotificationServiceApi,
 };
 
 use super::{Error, Result};
@@ -18,7 +18,8 @@ use bcr_ebill_core::{
     contact::{BillParticipant, ContactType},
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
     protocol::{CompanyChainEvent, IdentityChainEvent},
-    util::{BcrKeys, date::now},
+    timestamp::Timestamp,
+    util::BcrKeys,
 };
 use bcr_ebill_persistence::{
     company::{CompanyChainStoreApi, CompanyStoreApi},
@@ -137,7 +138,7 @@ impl IdentityProofServiceApi for IdentityProofService {
         stamp: &IdentityProofStamp,
     ) -> Result<IdentityProof> {
         debug!("Adding identity proof for {}", signer_public_data.node_id());
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
         let node_id = signer_public_data.node_id();
         if !stamp.verify_against_node_id(&node_id) {
             return Err(Error::Validation(ValidationError::InvalidSignature));
@@ -164,7 +165,7 @@ impl IdentityProofServiceApi for IdentityProofService {
                 url,
             )
             .await;
-        let checked = util::date::now().timestamp() as u64;
+        let checked = Timestamp::now();
 
         // only add, if the check was successful
         if !matches!(status, IdentityProofStatus::Success) {
@@ -284,7 +285,7 @@ impl IdentityProofServiceApi for IdentityProofService {
                         &identity_proof.url,
                     )
                     .await;
-                let checked = util::date::now().timestamp() as u64;
+                let checked = Timestamp::now();
 
                 // update the status in the DB
                 self.store.update_status_by_id(id, &status, checked).await?;
@@ -301,10 +302,11 @@ impl IdentityProofServiceApi for IdentityProofService {
     }
 
     async fn re_check_outdated_identity_proofs(&self) -> Result<()> {
-        let two_weeks_ago = now()
+        let two_weeks_ago: Timestamp = Timestamp::now()
+            .to_datetime()
             .checked_sub_days(Days::new(IDENTITY_PROOFS_CHECK_AFTER_DAYS))
             .expect("is a valid date")
-            .timestamp() as u64;
+            .into();
         let identity_proofs = self
             .store
             .get_with_status_last_checked_timestamp_before(two_weeks_ago)
@@ -357,7 +359,7 @@ impl IdentityProofServiceApi for IdentityProofService {
                     &identity_proof.url,
                 )
                 .await;
-            let checked = util::date::now().timestamp() as u64;
+            let checked = Timestamp::now();
 
             // update the status in the DB
             if let Err(e) = self
@@ -422,12 +424,14 @@ pub mod tests {
             .expect_get_latest_block()
             .returning(|| {
                 let identity = empty_identity();
-                Ok(
-                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                        .unwrap()
-                        .get_latest_block()
-                        .clone(),
+                Ok(IdentityBlockchain::new(
+                    &identity.into(),
+                    &BcrKeys::new(),
+                    Timestamp::new(1731593928).unwrap(),
                 )
+                .unwrap()
+                .get_latest_block()
+                .clone())
             });
         ctx.identity_store
             .expect_get()
@@ -554,9 +558,9 @@ pub mod tests {
                 node_id: node_id_test(),
                 stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
                 url: Url::parse("https://bit.cr/").expect("valid url"),
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 status: IdentityProofStatus::Success,
-                status_last_checked_timestamp: 1731593929,
+                status_last_checked_timestamp: Timestamp::new(1731593929).unwrap(),
                 block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
@@ -574,9 +578,9 @@ pub mod tests {
                 node_id: node_id_test_other(),
                 stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
                 url: Url::parse("https://bit.cr/").expect("valid url"),
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 status: IdentityProofStatus::Success,
-                status_last_checked_timestamp: 1731593929,
+                status_last_checked_timestamp: Timestamp::new(1731593929).unwrap(),
                 block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
@@ -604,9 +608,9 @@ pub mod tests {
                 node_id: node_id_test(),
                 stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
                 url: Url::parse("https://bit.cr/").expect("valid url"),
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 status: IdentityProofStatus::Success,
-                status_last_checked_timestamp: 1731593929,
+                status_last_checked_timestamp: Timestamp::new(1731593929).unwrap(),
                 block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });
@@ -642,9 +646,9 @@ pub mod tests {
                 node_id: node_id_test_other(),
                 stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
                 url: Url::parse("https://bit.cr/").expect("valid url"),
-                timestamp: 1731593928,
+                timestamp: Timestamp::new(1731593928).unwrap(),
                 status: IdentityProofStatus::Success,
-                status_last_checked_timestamp: 1731593929,
+                status_last_checked_timestamp: Timestamp::new(1731593929).unwrap(),
                 block_id: BlockId::next_from_previous_block_id(&BlockId::first()),
             }))
         });

@@ -3,30 +3,31 @@ use crate::Error;
 
 use super::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::{ServiceTraitBounds, name::Name};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait FileUploadStoreApi: ServiceTraitBounds {
     /// Creates temporary upload folder with the given name
-    async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()>;
+    async fn create_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;
 
     /// Deletes temporary upload folder with the given name
-    async fn remove_temp_upload_folder(&self, file_upload_id: &str) -> Result<()>;
+    async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;
 
     /// Writes the temporary upload file with the given file name and bytes for the given file_upload_id
     async fn write_temp_upload_file(
         &self,
-        file_upload_id: &str,
-        file_name: &str,
+        file_upload_id: &Uuid,
+        file_name: &Name,
         file_bytes: &[u8],
     ) -> Result<()>;
 
     /// Reads the temporary files from the given file_upload_id and returns their file name and
     /// bytes
-    async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)>;
+    async fn read_temp_upload_file(&self, file_upload_id: &Uuid) -> Result<(Name, Vec<u8>)>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -84,16 +85,16 @@ impl ServiceTraitBounds for FileUploadStore {}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg(not(target_arch = "wasm32"))]
 impl FileUploadStoreApi for FileUploadStore {
-    async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()> {
-        let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id);
+    async fn create_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()> {
+        let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id.to_string());
         if !dest_dir.exists() {
             tokio::fs::create_dir_all(&dest_dir).await?;
         }
         Ok(())
     }
 
-    async fn remove_temp_upload_folder(&self, file_upload_id: &str) -> Result<()> {
-        let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id);
+    async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()> {
+        let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id.to_string());
         if dest_dir.exists() {
             log::info!("deleting temp upload folder for bill at {dest_dir:?}");
             tokio::fs::remove_dir_all(dest_dir).await?;
@@ -103,20 +104,20 @@ impl FileUploadStoreApi for FileUploadStore {
 
     async fn write_temp_upload_file(
         &self,
-        file_upload_id: &str,
-        file_name: &str,
+        file_upload_id: &Uuid,
+        file_name: &Name,
         file_bytes: &[u8],
     ) -> Result<()> {
         let dest = Path::new(&self.temp_upload_folder)
-            .join(file_upload_id)
-            .join(file_name);
+            .join(file_upload_id.to_string())
+            .join(file_name.to_string());
         tokio::fs::write(dest, file_bytes).await?;
         Ok(())
     }
 
-    async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)> {
+    async fn read_temp_upload_file(&self, file_upload_id: &Uuid) -> Result<(Name, Vec<u8>)> {
         let mut files = Vec::new();
-        let folder = Path::new(&self.temp_upload_folder).join(file_upload_id);
+        let folder = Path::new(&self.temp_upload_folder).join(file_upload_id.to_string());
         let mut dir = tokio::fs::read_dir(&folder).await?;
         while let Some(entry) = dir.next_entry().await? {
             let file_path = entry.path();
@@ -124,13 +125,13 @@ impl FileUploadStoreApi for FileUploadStore {
                 && let Some(file_name_str) = file_name.to_str()
             {
                 let file_bytes = tokio::fs::read(&file_path).await?;
-                files.push((file_name_str.to_owned(), file_bytes));
+                files.push((Name::new(file_name_str)?, file_bytes));
             }
         }
         if files.is_empty() {
             return Err(Error::NoSuchEntity(
                 "file".to_string(),
-                file_upload_id.to_owned(),
+                file_upload_id.to_string(),
             ));
         }
         Ok(files[0].clone())

@@ -19,6 +19,7 @@ pub mod tests {
         identity::{Identity, IdentityType},
         name::Name,
         sum::Sum,
+        timestamp::Timestamp,
         util::BcrKeys,
     };
 
@@ -115,9 +116,9 @@ pub mod tests {
                 all_participant_node_ids: vec![],
             },
             data: BillData {
-                time_of_drawing: 1731593928,
+                time_of_drawing: Timestamp::new(1731593928).unwrap(),
                 issue_date: Date::new("2024-05-01").unwrap(),
-                time_of_maturity: 1731593928,
+                time_of_maturity: Timestamp::new(1731593928).unwrap(),
                 maturity_date: Date::new("2024-07-01").unwrap(),
                 country_of_issuing: Country::AT,
                 city_of_issuing: City::new("Vienna").unwrap(),
@@ -165,7 +166,7 @@ pub mod tests {
                 },
                 redeemed_funds_available: false,
                 has_requested_funds: false,
-                last_block_time: 1731593928,
+                last_block_time: Timestamp::new(1731593928).unwrap(),
             },
             current_waiting_state: None,
             history: BillHistory { blocks: vec![] },

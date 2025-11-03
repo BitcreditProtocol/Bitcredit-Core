@@ -115,6 +115,12 @@ impl Display for Currency {
     }
 }
 
+impl From<bitcoin::Amount> for Sum {
+    fn from(value: bitcoin::Amount) -> Self {
+        Self::new_sat_zero_allowed(value.to_sat())
+    }
+}
+
 impl Currency {
     pub fn new(code: &str, decimals: u8) -> Result<Self, ValidationError> {
         Ok(Self {

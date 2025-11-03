@@ -5,7 +5,10 @@ use bcr_ebill_core::{
     NodeId, ServiceTraitBounds,
     bill::BillId,
     mint::{MintOffer, MintRequest, MintRequestStatus},
+    sum::Sum,
+    timestamp::Timestamp,
 };
+use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -33,36 +36,36 @@ pub trait MintStoreApi: ServiceTraitBounds {
         requester_node_id: &NodeId,
         bill_id: &BillId,
         mint_node_id: &NodeId,
-        mint_request_id: &str,
-        timestamp: u64,
+        mint_request_id: &Uuid,
+        timestamp: Timestamp,
     ) -> Result<()>;
     /// Get request to mint for the given mint request id
-    async fn get_request(&self, mint_request_id: &str) -> Result<Option<MintRequest>>;
+    async fn get_request(&self, mint_request_id: &Uuid) -> Result<Option<MintRequest>>;
     /// Update the given request to mint with a new status
     async fn update_request(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         new_status: &MintRequestStatus,
     ) -> Result<()>;
     /// Adds proofs for a given offer
-    async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()>;
+    async fn add_proofs_to_offer(&self, mint_request_id: &Uuid, proofs: &str) -> Result<()>;
     /// Adds recovery data to offer
     async fn add_recovery_data_to_offer(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         secrets: &[String],
         rs: &[String],
     ) -> Result<()>;
     /// Set proofs to spent for offer
-    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &str) -> Result<()>;
+    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &Uuid) -> Result<()>;
     /// Adds an offer for a request to mint
     async fn add_offer(
         &self,
-        mint_request_id: &str,
+        mint_request_id: &Uuid,
         keyset_id: &str,
-        expiration_timestamp: u64,
-        discounted_sum: u64,
+        expiration_timestamp: Timestamp,
+        discounted_sum: Sum,
     ) -> Result<()>;
     /// Gets an offer by the mint request id
-    async fn get_offer(&self, mint_request_id: &str) -> Result<Option<MintOffer>>;
+    async fn get_offer(&self, mint_request_id: &Uuid) -> Result<Option<MintOffer>>;
 }

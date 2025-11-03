@@ -11,14 +11,15 @@ use crate::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
         MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
         MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockMintStore,
-        MockNostrContactStore, VALID_PAYMENT_ADDRESS_TESTNET, bill_id_test,
-        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
-        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, init_test_cfg,
-        node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+        MockNostrContactStore, bill_id_test, bill_identified_participant_only_node_id,
+        bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
+        empty_bitcredit_bill, empty_identity, init_test_cfg, node_id_test, node_id_test_other,
+        node_id_test_other2, private_key_test, valid_payment_address_testnet,
     },
     util,
 };
 use bcr_ebill_core::{
+    BitcoinAddress,
     address::Address,
     bill::{
         BillAcceptanceStatus, BillCallerActions, BillData, BillMintStatus, BillParticipants,
@@ -46,10 +47,11 @@ use bcr_ebill_core::{
     date::Date,
     name::Name,
     sum::Sum,
-    util::date::now,
+    timestamp::Timestamp,
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
 use service::BillService;
+use std::str::FromStr;
 use std::{collections::HashMap, sync::Arc};
 use util::crypto::BcrKeys;
 
@@ -104,9 +106,9 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             ],
         },
         data: BillData {
-            time_of_drawing: 1731593928,
+            time_of_drawing: Timestamp::new(1731593928).unwrap(),
             issue_date: Date::new("2024-05-01").unwrap(),
-            time_of_maturity: 1731593928,
+            time_of_maturity: Timestamp::new(1731593928).unwrap(),
             maturity_date: Date::new("2024-07-01").unwrap(),
             country_of_issuing: Country::AT,
             city_of_issuing: City::new("Vienna").unwrap(),
@@ -154,7 +156,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             },
             redeemed_funds_available: false,
             has_requested_funds: false,
-            last_block_time: 1731593928,
+            last_block_time: Timestamp::new(1731593928).unwrap(),
         },
         current_waiting_state: None,
         history: BillHistory { blocks: vec![] },
@@ -181,11 +183,11 @@ pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
 pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
     let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
     BillBlockchain::new(
-        &BillIssueBlockData::from(bill, None, 1731593920),
+        &BillIssueBlockData::from(bill, None, Timestamp::new(1731593920).unwrap()),
         get_baseline_identity().key_pair,
         None,
         BcrKeys::from_private_key(&private_key_test()).unwrap(),
-        1731593920,
+        Timestamp::new(1731593920).unwrap(),
     )
     .unwrap()
 }
@@ -197,7 +199,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_check_payment_for_address()
         .returning(|_, _| {
             Ok(PaymentState::PaidConfirmed(PaidData {
-                block_time: 1731593928,
+                block_time: Timestamp::new(1731593928).unwrap(),
                 block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                     .into(),
                 confirmations: 7,
@@ -213,7 +215,9 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         });
     bitcoin_client
         .expect_get_address_to_pay()
-        .returning(|_, _| Ok(String::from("tb1qssh7nk78mm35h75dg4th77zqz4qk3eay68krf9")));
+        .returning(|_, _| {
+            Ok(BitcoinAddress::from_str("tb1qssh7nk78mm35h75dg4th77zqz4qk3eay68krf9").unwrap())
+        });
     bitcoin_client
         .expect_get_mempool_link_for_address()
         .returning(|_| {
@@ -237,12 +241,14 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_latest_block()
         .returning(|| {
             let identity = empty_identity();
-            Ok(
-                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
-                    .unwrap()
-                    .get_latest_block()
-                    .clone(),
+            Ok(IdentityBlockchain::new(
+                &identity.into(),
+                &BcrKeys::new(),
+                Timestamp::new(1731593928).unwrap(),
             )
+            .unwrap()
+            .get_latest_block()
+            .clone())
         });
     ctx.company_chain_store
         .expect_get_latest_block()
@@ -263,7 +269,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         })
     });
     let payment_state_paid = PaymentState::PaidConfirmed(PaidData {
-        block_time: 1731593928,
+        block_time: Timestamp::new(1731593928).unwrap(),
         block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1".into(),
         confirmations: 7,
         tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c".into(),
@@ -346,7 +352,7 @@ pub fn request_to_recourse_block(
     id: &BillId,
     first_block: &BillBlock,
     recoursee: &BillIdentParticipant,
-    ts: Option<u64>,
+    ts: Option<Timestamp>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_request_recourse(
@@ -419,7 +425,11 @@ pub fn reject_recourse_block(id: &BillId, first_block: &BillBlock) -> BillBlock 
     .expect("block could not be created")
 }
 
-pub fn request_to_accept_block(id: &BillId, first_block: &BillBlock, ts: Option<u64>) -> BillBlock {
+pub fn request_to_accept_block(
+    id: &BillId,
+    first_block: &BillBlock,
+    ts: Option<Timestamp>,
+) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_request_to_accept(
         id.to_owned(),
@@ -463,7 +473,7 @@ pub fn offer_to_sell_block(
     id: &BillId,
     first_block: &BillBlock,
     buyer: &BillIdentParticipant,
-    ts: Option<u64>,
+    ts: Option<Timestamp>,
 ) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_offer_to_sell(
@@ -475,7 +485,7 @@ pub fn offer_to_sell_block(
             ),
             buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
             sum: Sum::new_sat(15000).expect("sat works"),
-            payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+            payment_address: valid_payment_address_testnet(),
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
@@ -516,7 +526,7 @@ pub fn sell_block(id: &BillId, first_block: &BillBlock, buyer: &BillIdentPartici
                 bill_identified_participant_only_node_id(node_id_test()).into(),
             ),
             buyer: BillParticipantBlockData::Ident(buyer.to_owned().into()),
-            payment_address: VALID_PAYMENT_ADDRESS_TESTNET.to_string(),
+            payment_address: valid_payment_address_testnet(),
             sum: Sum::new_sat(15000).expect("sat works"),
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
@@ -548,7 +558,11 @@ pub fn accept_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
     .expect("block could not be created")
 }
 
-pub fn request_to_pay_block(id: &BillId, first_block: &BillBlock, ts: Option<u64>) -> BillBlock {
+pub fn request_to_pay_block(
+    id: &BillId,
+    first_block: &BillBlock,
+    ts: Option<Timestamp>,
+) -> BillBlock {
     let timestamp = ts.unwrap_or(first_block.timestamp + 1);
     BillBlock::create_block_for_request_to_pay(
         id.to_owned(),
@@ -596,6 +610,6 @@ pub fn bill_keys() -> BillKeys {
     }
 }
 
-pub fn safe_deadline_ts(min_deadline: u64) -> u64 {
-    now().timestamp() as u64 + 2 * min_deadline
+pub fn safe_deadline_ts(min_deadline: u64) -> Timestamp {
+    Timestamp::now() + 2 * min_deadline
 }

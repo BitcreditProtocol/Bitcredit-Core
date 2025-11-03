@@ -19,6 +19,7 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 #[cfg(test)]
 use mockall::automock;
+use uuid::Uuid;
 
 use crate::{
     Config,
@@ -77,9 +78,9 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
         ignore_avatar_file_upload_id: bool,
-        proof_document_file_upload_id: Option<String>,
+        proof_document_file_upload_id: Option<Uuid>,
         ignore_proof_document_file_upload_id: bool,
     ) -> Result<()>;
 
@@ -95,8 +96,8 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
-        proof_document_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
+        proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact>;
 
     /// Deanonymize a contact
@@ -111,8 +112,8 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
-        proof_document_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
+        proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact>;
 
     /// Returns whether a given npub (as hex) is in our contact list.
@@ -129,7 +130,7 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         &self,
         contact: Contact,
         id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
 }
@@ -171,7 +172,7 @@ impl ContactService {
 
     async fn process_upload_file(
         &self,
-        upload_id: &Option<String>,
+        upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
         relay_url: &url::Url,
@@ -200,7 +201,7 @@ impl ContactService {
 
     async fn encrypt_and_save_uploaded_file(
         &self,
-        file_name: &str,
+        file_name: &Name,
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
@@ -213,7 +214,7 @@ impl ContactService {
         Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
-            nostr_hash: nostr_hash.to_string(),
+            nostr_hash,
         })
     }
 
@@ -314,9 +315,9 @@ impl ContactServiceApi for ContactService {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
         ignore_avatar_file_upload_id: bool,
-        proof_document_file_upload_id: Option<String>,
+        proof_document_file_upload_id: Option<Uuid>,
         ignore_proof_document_file_upload_id: bool,
     ) -> Result<()> {
         debug!("updating contact with node_id: {node_id}");
@@ -330,12 +331,7 @@ impl ContactServiceApi for ContactService {
 
         let nostr_relays = contact.nostr_relays.clone();
 
-        validate_update_contact(
-            contact.t.clone(),
-            &postal_address,
-            &avatar_file_upload_id,
-            &proof_document_file_upload_id,
-        )?;
+        validate_update_contact(contact.t.clone(), &postal_address)?;
 
         let mut changed = false;
 
@@ -476,8 +472,8 @@ impl ContactServiceApi for ContactService {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
-        proof_document_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
+        proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact> {
         debug!("creating {t:?} contact with node_id {node_id}");
         validate_node_id_network(node_id)?;
@@ -486,8 +482,6 @@ impl ContactServiceApi for ContactService {
             node_id,
             &email,
             &postal_address,
-            &avatar_file_upload_id,
-            &proof_document_file_upload_id,
             get_config().bitcoin_network(),
         )?;
 
@@ -575,8 +569,8 @@ impl ContactServiceApi for ContactService {
         country_of_birth_or_registration: Option<Country>,
         city_of_birth_or_registration: Option<City>,
         identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<String>,
-        proof_document_file_upload_id: Option<String>,
+        avatar_file_upload_id: Option<Uuid>,
+        proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact> {
         debug!("de-anonymizing {t:?} contact with node_id {node_id}");
         validate_node_id_network(node_id)?;
@@ -585,8 +579,6 @@ impl ContactServiceApi for ContactService {
             node_id,
             &email,
             &postal_address,
-            &avatar_file_upload_id,
-            &proof_document_file_upload_id,
             get_config().bitcoin_network(),
         )?;
 
@@ -696,7 +688,7 @@ impl ContactServiceApi for ContactService {
         &self,
         contact: Contact,
         node_id: &NodeId,
-        file_name: &str,
+        file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for contact with id: {node_id}",);
@@ -706,13 +698,13 @@ impl ContactServiceApi for ContactService {
         if let Some(nostr_relay) = nostr_relays.first() {
             let mut file = None;
             if let Some(avatar_file) = contact.avatar_file
-                && avatar_file.name == file_name
+                && &avatar_file.name == file_name
             {
                 file = Some(avatar_file);
             }
 
             if let Some(proof_document_file) = contact.proof_document_file
-                && proof_document_file.name == file_name
+                && &proof_document_file.name == file_name
             {
                 file = Some(proof_document_file);
             }

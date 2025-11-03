@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{
     Result, TSResult,
     context::get_ctx,
@@ -28,13 +30,13 @@ use bcr_ebill_api::{
     util::{
         ValidationError,
         file::{UploadFileHandler, detect_content_type_for_bytes},
-        validate_file_upload_id,
     },
 };
 use bcr_ebill_transport::create_restore_account_service;
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
-async fn get_file(file_name: &str) -> Result<(Vec<u8>, String)> {
+async fn get_file(file_name: &Name) -> Result<(Vec<u8>, String)> {
     let identity = get_ctx().identity_service.get_full_identity().await?;
     let private_key = identity.key_pair.get_private_key();
     let id = identity.identity.node_id.clone();
@@ -70,10 +72,11 @@ impl Identity {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BinaryFileResponse>")]
     pub async fn file(&self, file_name: &str) -> JsValue {
         let res: Result<BinaryFileResponse> = async {
-            let (file_bytes, content_type) = get_file(file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_file(&name).await?;
             Ok(BinaryFileResponse {
                 data: file_bytes,
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -84,11 +87,12 @@ impl Identity {
     #[wasm_bindgen(unchecked_return_type = "TSResult<Base64FileResponse>")]
     pub async fn file_base64(&self, file_name: &str) -> JsValue {
         let res: Result<Base64FileResponse> = async {
-            let (file_bytes, content_type) = get_file(file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_file(&name).await?;
 
             Ok(Base64FileResponse {
                 data: STANDARD.encode(&file_bytes),
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -147,9 +151,6 @@ impl Identity {
 
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
-            validate_file_upload_id(identity.profile_picture_file_upload_id.as_deref())?;
-            validate_file_upload_id(identity.identity_document_file_upload_id.as_deref())?;
-
             get_ctx()
                 .identity_service
                 .deanonymize_identity(
@@ -170,8 +171,18 @@ impl Identity {
                         .identification_number
                         .map(Identification::new)
                         .transpose()?,
-                    identity.profile_picture_file_upload_id,
-                    identity.identity_document_file_upload_id,
+                    identity
+                        .profile_picture_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
+                    identity
+                        .identity_document_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     timestamp,
                 )
                 .await?;
@@ -194,9 +205,6 @@ impl Identity {
 
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
-            validate_file_upload_id(identity.profile_picture_file_upload_id.as_deref())?;
-            validate_file_upload_id(identity.identity_document_file_upload_id.as_deref())?;
-
             get_ctx()
                 .identity_service
                 .create_identity(
@@ -217,8 +225,18 @@ impl Identity {
                         .identification_number
                         .map(Identification::new)
                         .transpose()?,
-                    identity.profile_picture_file_upload_id,
-                    identity.identity_document_file_upload_id,
+                    identity
+                        .profile_picture_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
+                    identity
+                        .identity_document_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     timestamp,
                 )
                 .await?;
@@ -245,9 +263,6 @@ impl Identity {
                 has_field(&payload, "identity_document_file_upload_id");
 
             let identity_payload: ChangeIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
-
-            validate_file_upload_id(identity_payload.profile_picture_file_upload_id.as_deref())?;
-            validate_file_upload_id(identity_payload.identity_document_file_upload_id.as_deref())?;
 
             if identity_payload.name.is_none()
                 && identity_payload.email.is_none()
@@ -284,9 +299,19 @@ impl Identity {
                         .identification_number
                         .map(Identification::new)
                         .transpose()?,
-                    identity_payload.profile_picture_file_upload_id,
+                    identity_payload
+                        .profile_picture_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     !has_profile_picture_file_upload_id,
-                    identity_payload.identity_document_file_upload_id,
+                    identity_payload
+                        .identity_document_file_upload_id
+                        .map(|s| {
+                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                        })
+                        .transpose()?,
                     !has_identity_document_file_upload_id,
                     timestamp,
                 )

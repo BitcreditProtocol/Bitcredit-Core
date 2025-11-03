@@ -1,8 +1,4 @@
-use crate::{
-    NodeId,
-    bill::BillId,
-    util::date::{DateTimeUtc, now},
-};
+use crate::{DateTimeUtc, NodeId, bill::BillId, timestamp::Timestamp};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,7 +45,7 @@ impl Notification {
             notification_type: NotificationType::Bill,
             reference_id: Some(bill_id.to_string()),
             description: description.to_string(),
-            datetime: now(),
+            datetime: Timestamp::now().to_datetime(),
             active: true,
             payload,
         }

@@ -5,8 +5,6 @@ pub use bcr_ebill_core::Field;
 pub use bcr_ebill_core::ValidationError;
 pub use bcr_ebill_core::constants::VALID_CURRENCIES;
 pub use bcr_ebill_core::util::crypto;
-pub use bcr_ebill_core::util::date;
-pub use bcr_ebill_core::util::validate_file_upload_id;
 
 pub use bcr_ebill_core::util::BcrKeys;
 pub use bcr_ebill_core::util::Error;

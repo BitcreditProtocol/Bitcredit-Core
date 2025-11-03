@@ -14,7 +14,9 @@ use bcr_ebill_api::{
         country::Country,
         date::Date,
         identity::IdentityType,
+        name::Name,
         sum::{Currency, Sum},
+        timestamp::Timestamp,
     },
     external,
     service::{Error, bill_service::Error as BillServiceError},
@@ -24,6 +26,7 @@ use bcr_ebill_api::{
     },
 };
 use log::error;
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -50,9 +53,9 @@ use crate::{
 
 use super::identity::get_current_identity;
 
-async fn get_attachment(bill_id: &str, file_name: &str) -> Result<(Vec<u8>, String)> {
+async fn get_attachment(bill_id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
     let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
-    let current_timestamp = util::date::now().timestamp() as u64;
+    let current_timestamp = Timestamp::now();
     let identity = get_ctx().identity_service.get_identity().await?;
     // get bill
     let bill = get_ctx()
@@ -66,7 +69,7 @@ async fn get_attachment(bill_id: &str, file_name: &str) -> Result<(Vec<u8>, Stri
         .await?;
 
     // check if this file even exists on the bill
-    let file = match bill.data.files.iter().find(|f| f.name == file_name) {
+    let file = match bill.data.files.iter().find(|f| &f.name == file_name) {
         Some(f) => f,
         None => {
             return Err(bcr_ebill_api::service::bill_service::Error::NotFound.into());
@@ -102,7 +105,7 @@ impl Bill {
     pub async fn endorsements(&self, id: &str) -> JsValue {
         let res: Result<EndorsementsResponse> = async {
             let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-            let current_timestamp = util::date::now().timestamp() as u64;
+            let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let result = get_ctx()
                 .bill_service
@@ -132,7 +135,7 @@ impl Bill {
                     &bill_id,
                     &caller_public_data,
                     &caller_keys,
-                    util::date::now().timestamp() as u64,
+                    Timestamp::now(),
                 )
                 .await?;
             Ok(PastPaymentsResponse {
@@ -177,10 +180,11 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BinaryFileResponse>")]
     pub async fn attachment(&self, bill_id: &str, file_name: &str) -> JsValue {
         let res: Result<BinaryFileResponse> = async {
-            let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_attachment(bill_id, &name).await?;
             Ok(BinaryFileResponse {
                 data: file_bytes,
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -191,10 +195,11 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<Base64FileResponse>")]
     pub async fn attachment_base64(&self, bill_id: &str, file_name: &str) -> JsValue {
         let res: Result<Base64FileResponse> = async {
-            let (file_bytes, content_type) = get_attachment(bill_id, file_name).await?;
+            let name = Name::new(file_name)?;
+            let (file_bytes, content_type) = get_attachment(bill_id, &name).await?;
             Ok(Base64FileResponse {
                 data: STANDARD.encode(&file_bytes),
-                name: file_name.to_owned(),
+                name,
                 content_type,
             })
         }
@@ -244,7 +249,7 @@ impl Bill {
                     // Change the date to the end of the day, so we collect bills during the day as well
                     let to = Date::new(&date_range.to)
                         .map(|d| d.to_timestamp())
-                        .map(util::date::end_of_day_as_timestamp)?;
+                        .map(|ts| ts.end_of_day())?;
                     (Some(from), Some(to))
                 }
             };
@@ -305,7 +310,7 @@ impl Bill {
     pub async fn numbers_to_words_for_sum(&self, id: &str) -> JsValue {
         let res: Result<BillNumbersToWordsForSum> = async {
             let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-            let current_timestamp = util::date::now().timestamp() as u64;
+            let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let bill = get_ctx()
                 .bill_service
@@ -331,7 +336,7 @@ impl Bill {
     pub async fn detail(&self, id: &str) -> JsValue {
         let res: Result<BitcreditBillWeb> = async {
             let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
-            let current_timestamp = util::date::now().timestamp() as u64;
+            let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let bill_detail = get_ctx()
                 .bill_service
@@ -414,10 +419,19 @@ impl Bill {
     async fn issue_bill(
         &self,
         bill_payload: BitcreditBillPayload,
-        timestamp: u64,
+        timestamp: Timestamp,
         blank_issue: bool,
     ) -> Result<BillId> {
         let (drawer_public_data, drawer_keys) = get_signer_public_data_and_keys().await?;
+
+        let mut parsed_file_upload_ids: Vec<Uuid> =
+            Vec::with_capacity(bill_payload.file_upload_ids.len());
+
+        for file_upload_id in bill_payload.file_upload_ids.iter() {
+            parsed_file_upload_ids.push(
+                Uuid::from_str(file_upload_id).map_err(|_| ValidationError::InvalidFileUploadId)?,
+            );
+        }
 
         let bill = get_ctx()
             .bill_service
@@ -432,7 +446,7 @@ impl Bill {
                 sum: Sum::new_sat_from_str(&bill_payload.sum)?,
                 country_of_payment: Country::parse(&bill_payload.country_of_payment)?,
                 city_of_payment: City::new(bill_payload.city_of_payment)?,
-                file_upload_ids: bill_payload.file_upload_ids.to_owned(),
+                file_upload_ids: parsed_file_upload_ids,
                 drawer_public_data: drawer_public_data.clone(),
                 drawer_keys: drawer_keys.clone(),
                 timestamp,
@@ -477,9 +491,9 @@ impl Bill {
         &self,
         payload: OfferToSellBitcreditBillPayload,
         buyer: BillParticipant,
-        timestamp: u64,
+        timestamp: Timestamp,
         sum: Sum,
-        buying_deadline_timestamp: u64,
+        buying_deadline_timestamp: Timestamp,
     ) -> Result<()> {
         let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
@@ -572,7 +586,7 @@ impl Bill {
         &self,
         payload: EndorseBitcreditBillPayload,
         endorsee: BillParticipant,
-        timestamp: u64,
+        timestamp: Timestamp,
     ) -> Result<()> {
         let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
         get_ctx()
@@ -806,9 +820,11 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn cancel_request_to_mint(&self, mint_request_id: &str) -> JsValue {
         let res: Result<()> = async {
+            let parsed_id = Uuid::from_str(mint_request_id)
+                .map_err(|_| ValidationError::InvalidMintRequestId)?;
             get_ctx()
                 .bill_service
-                .cancel_request_to_mint(mint_request_id, &get_current_identity_node_id().await?)
+                .cancel_request_to_mint(&parsed_id, &get_current_identity_node_id().await?)
                 .await?;
             Ok(())
         }
@@ -821,14 +837,11 @@ impl Bill {
         let res: Result<()> = async {
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            let parsed_id = Uuid::from_str(mint_request_id)
+                .map_err(|_| ValidationError::InvalidMintRequestId)?;
             get_ctx()
                 .bill_service
-                .accept_mint_offer(
-                    mint_request_id,
-                    &signer_public_data,
-                    &signer_keys,
-                    timestamp,
-                )
+                .accept_mint_offer(&parsed_id, &signer_public_data, &signer_keys, timestamp)
                 .await?;
             Ok(())
         }
@@ -839,9 +852,11 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn reject_mint_offer(&self, mint_request_id: &str) -> JsValue {
         let res: Result<()> = async {
+            let parsed_id = Uuid::from_str(mint_request_id)
+                .map_err(|_| ValidationError::InvalidMintRequestId)?;
             get_ctx()
                 .bill_service
-                .reject_mint_offer(mint_request_id, &get_current_identity_node_id().await?)
+                .reject_mint_offer(&parsed_id, &get_current_identity_node_id().await?)
                 .await?;
             Ok(())
         }
@@ -1085,7 +1100,7 @@ impl Bill {
     pub async fn bill_history(&self, bill_id: &str) -> JsValue {
         let res: Result<BillHistoryResponse> = async {
             let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
-            let current_timestamp = util::date::now().timestamp() as u64;
+            let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let res: BillHistoryResponse = get_ctx()
                 .bill_service
@@ -1108,7 +1123,7 @@ async fn request_recourse(
     recourse_reason: RecourseReason,
     bill_id: &BillId,
     recoursee_node_id: &NodeId,
-    recourse_deadline_timestamp: u64,
+    recourse_deadline_timestamp: Timestamp,
 ) -> Result<()> {
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;

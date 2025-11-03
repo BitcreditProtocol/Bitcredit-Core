@@ -2,9 +2,11 @@ use bcr_ebill_api::data::{
     NodeId,
     bill::BillId,
     mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus},
+    timestamp::Timestamp,
 };
 use serde::Serialize;
 use tsify::Tsify;
+use uuid::Uuid;
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
@@ -15,8 +17,10 @@ pub struct MintRequestWeb {
     pub bill_id: BillId,
     #[tsify(type = "string")]
     pub mint_node_id: NodeId,
-    pub mint_request_id: String,
-    pub timestamp: u64,
+    #[tsify(type = "string")]
+    pub mint_request_id: Uuid,
+    #[tsify(type = "number")]
+    pub timestamp: Timestamp,
     pub status: MintRequestStatusWeb,
 }
 
@@ -48,16 +52,20 @@ impl From<MintRequestStatus> for MintRequestStatusWeb {
     fn from(val: MintRequestStatus) -> Self {
         match val {
             MintRequestStatus::Pending => MintRequestStatusWeb::Pending,
-            MintRequestStatus::Denied { timestamp } => MintRequestStatusWeb::Denied { timestamp },
+            MintRequestStatus::Denied { timestamp } => MintRequestStatusWeb::Denied {
+                timestamp: timestamp.inner(),
+            },
             MintRequestStatus::Offered => MintRequestStatusWeb::Offered,
             MintRequestStatus::Accepted => MintRequestStatusWeb::Accepted,
-            MintRequestStatus::Rejected { timestamp } => {
-                MintRequestStatusWeb::Rejected { timestamp }
-            }
-            MintRequestStatus::Cancelled { timestamp } => {
-                MintRequestStatusWeb::Cancelled { timestamp }
-            }
-            MintRequestStatus::Expired { timestamp } => MintRequestStatusWeb::Expired { timestamp },
+            MintRequestStatus::Rejected { timestamp } => MintRequestStatusWeb::Rejected {
+                timestamp: timestamp.inner(),
+            },
+            MintRequestStatus::Cancelled { timestamp } => MintRequestStatusWeb::Cancelled {
+                timestamp: timestamp.inner(),
+            },
+            MintRequestStatus::Expired { timestamp } => MintRequestStatusWeb::Expired {
+                timestamp: timestamp.inner(),
+            },
         }
     }
 }
@@ -65,9 +73,11 @@ impl From<MintRequestStatus> for MintRequestStatusWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct MintOfferWeb {
-    pub mint_request_id: String,
+    #[tsify(type = "string")]
+    pub mint_request_id: Uuid,
     pub keyset_id: String,
-    pub expiration_timestamp: u64,
+    #[tsify(type = "number")]
+    pub expiration_timestamp: Timestamp,
     pub discounted_sum: u64,
     pub proofs: Option<String>,
     pub proofs_spent: bool,
@@ -79,7 +89,7 @@ impl From<MintOffer> for MintOfferWeb {
             mint_request_id: val.mint_request_id.to_owned(),
             keyset_id: val.keyset_id.to_owned(),
             expiration_timestamp: val.expiration_timestamp,
-            discounted_sum: val.discounted_sum,
+            discounted_sum: val.discounted_sum.as_sat(),
             proofs: val.proofs.to_owned(),
             proofs_spent: val.proofs_spent,
         }

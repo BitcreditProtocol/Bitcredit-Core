@@ -7,13 +7,14 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use bcr_ebill_core::{NodeId, blockchain::BlockchainType, contact::BillParticipant};
+use bcr_ebill_core::{
+    NodeId, blockchain::BlockchainType, contact::BillParticipant, timestamp::Timestamp,
+};
 use log::{debug, error, info, trace, warn};
 use nostr::{nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
-    PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, Timestamp,
-    ToBech32,
+    PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
 };
 use std::sync::{Arc, atomic::Ordering};
 use std::{collections::HashMap, sync::atomic::AtomicBool};
@@ -325,7 +326,7 @@ impl NotificationJsonTransportApi for NostrClient {
         &self,
         id: &str,
         blockchain: BlockchainType,
-        block_time: u64,
+        block_time: Timestamp,
         keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
@@ -501,7 +502,7 @@ impl NostrConsumer {
                         Filter::new()
                             .pubkey(current_client.keys.get_nostr_keys().public_key())
                             .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
-                            .since(offset_ts),
+                            .since(offset_ts.into()),
                     )
                     .await
                     .expect("Failed to subscribe to Nostr dm events");
@@ -520,7 +521,7 @@ impl NostrConsumer {
                             Filter::new()
                                 .authors(contacts)
                                 .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
-                                .since(offset_ts),
+                                .since(offset_ts.into()),
                         )
                         .await
                         .expect("Failed to subscribe to Nostr public events");
@@ -580,16 +581,16 @@ pub async fn process_event(
     client_id: NodeId,
     chain_key_store: Arc<dyn ChainKeyServiceApi>,
     event_handlers: &[Arc<dyn NotificationHandlerApi>],
-) -> Result<(bool, u64)> {
+) -> Result<(bool, Timestamp)> {
     let (success, time) = match event.kind {
         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
             trace!("Received encrypted direct message: {event:?}");
             match handle_direct_message(event.clone(), &signer, &client_id, event_handlers).await {
                 Err(e) => {
                     error!("Failed to handle direct message: {e}");
-                    (false, 0u64)
+                    (false, Timestamp::zero())
                 }
-                Ok(_) => (true, event.created_at.as_u64()),
+                Ok(_) => (true, event.created_at.into()),
             }
         }
         Kind::TextNote => {
@@ -599,13 +600,13 @@ pub async fn process_event(
             {
                 Err(e) => {
                     debug!("Skipping public chain event with missing chain keys: {e}");
-                    (false, 0u64)
+                    (false, Timestamp::zero())
                 }
                 Ok(v) => {
                     if v {
-                        (v, event.created_at.as_u64())
+                        (v, event.created_at.into())
                     } else {
-                        (false, 0u64)
+                        (false, Timestamp::zero())
                     }
                 }
             }
@@ -613,14 +614,14 @@ pub async fn process_event(
         Kind::RelayList => {
             // we have not subscribed to relaylist events yet
             debug!("Received relay list from: {}", event.pubkey);
-            (true, 0u64)
+            (true, Timestamp::zero())
         }
         Kind::Metadata => {
             // we have not subscribed to metadata events yet
             debug!("Received metadata from: {}", event.pubkey);
-            (true, 0u64)
+            (true, Timestamp::zero())
         }
-        _ => (true, 0u64),
+        _ => (true, Timestamp::zero()),
     };
 
     Ok((success, time))
@@ -704,19 +705,18 @@ async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) ->
         .await
         .map_err(|e| error!("Could not get event offset: {e}"))
         .ok()
-        .unwrap_or(0);
-    let ts = if current <= NOSTR_EVENT_TIME_SLACK {
+        .unwrap_or(Timestamp::zero());
+    if current.inner() <= NOSTR_EVENT_TIME_SLACK {
         current
     } else {
         current - NOSTR_EVENT_TIME_SLACK
-    };
-    Timestamp::from_secs(ts)
+    }
 }
 
 pub async fn add_offset(
     db: &Arc<dyn NostrEventOffsetStoreApi>,
     event_id: EventId,
-    time: u64,
+    time: Timestamp,
     success: bool,
     node_id: &NodeId,
 ) {
@@ -770,6 +770,7 @@ mod tests {
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;
     use bcr_ebill_core::protocol::{Event, EventType};
+    use bcr_ebill_core::timestamp::Timestamp;
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
     use tokio::time;
@@ -880,7 +881,7 @@ mod tests {
         // expect the offset store to return the current offset once on start
         offset_store
             .expect_current_offset()
-            .returning(|_| Ok(1000))
+            .returning(|_| Ok(Timestamp::new(1000).unwrap()))
             .once();
 
         // should also check if the event has been processed already

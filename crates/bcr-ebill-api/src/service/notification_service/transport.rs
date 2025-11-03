@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
     NodeId, ServiceTraitBounds, blockchain::BlockchainType, contact::BillParticipant,
-    protocol::EventEnvelope, util::BcrKeys,
+    protocol::EventEnvelope, timestamp::Timestamp, util::BcrKeys,
 };
 
 #[cfg(test)]
@@ -35,7 +35,7 @@ pub trait NotificationJsonTransportApi: ServiceTraitBounds {
         &self,
         id: &str,
         blockchain: BlockchainType,
-        block_time: u64,
+        block_time: Timestamp,
         keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,

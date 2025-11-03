@@ -480,6 +480,7 @@ mod tests {
         constants::ACCEPT_DEADLINE_SECONDS,
         contact::BillIdentParticipant,
         protocol::{BillBlockEvent, Event, EventEnvelope},
+        timestamp::Timestamp,
         util::BcrKeys,
     };
     use mockall::predicate::{always, eq};
@@ -843,7 +844,7 @@ mod tests {
         create_public_chain_event(
             &bill_id.to_string(),
             data,
-            1000,
+            Timestamp::new(1000).unwrap(),
             BlockchainType::Bill,
             keys.clone(),
             previous,

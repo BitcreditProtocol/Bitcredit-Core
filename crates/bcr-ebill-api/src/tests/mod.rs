@@ -8,6 +8,7 @@ pub mod tests {
         data::bill::BillKeys,
     };
     use async_trait::async_trait;
+    use bcr_ebill_core::BitcoinAddress;
     use bcr_ebill_core::address::Address;
     use bcr_ebill_core::block_id::BlockId;
     use bcr_ebill_core::city::City;
@@ -17,6 +18,7 @@ pub mod tests {
     use bcr_ebill_core::hash::Sha256Hash;
     use bcr_ebill_core::name::Name;
     use bcr_ebill_core::sum::Sum;
+    use bcr_ebill_core::timestamp::Timestamp;
     use bcr_ebill_core::{
         NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         bill::{BillId, BitcreditBill, BitcreditBillResult, PaymentState},
@@ -56,6 +58,7 @@ pub mod tests {
         str::FromStr,
     };
     use std::{path::Path, sync::Arc};
+    use uuid::Uuid;
 
     // Need to wrap mocks, because traits are in a different crate
     mockall::mock! {
@@ -99,31 +102,31 @@ pub mod tests {
                 requester_node_id: &NodeId,
                 bill_id: &BillId,
                 mint_node_id: &NodeId,
-                mint_request_id: &str,
-                timestamp: u64,
+                mint_request_id: &Uuid,
+                timestamp: Timestamp,
             ) -> Result<()>;
-            async fn get_request(&self, mint_request_id: &str) -> Result<Option<MintRequest>>;
+            async fn get_request(&self, mint_request_id: &Uuid) -> Result<Option<MintRequest>>;
             async fn update_request(
                 &self,
-                mint_request_id: &str,
+                mint_request_id: &Uuid,
                 new_status: &MintRequestStatus,
             ) -> Result<()>;
-            async fn add_proofs_to_offer(&self, mint_request_id: &str, proofs: &str) -> Result<()>;
+            async fn add_proofs_to_offer(&self, mint_request_id: &Uuid, proofs: &str) -> Result<()>;
             async fn add_recovery_data_to_offer(
                 &self,
-                mint_request_id: &str,
+                mint_request_id: &Uuid,
                 secrets: &[String],
                 rs: &[String],
             ) -> Result<()>;
-            async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &str) -> Result<()>;
+            async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &Uuid) -> Result<()>;
             async fn add_offer(
                 &self,
-                mint_request_id: &str,
+                mint_request_id: &Uuid,
                 keyset_id: &str,
-                expiration_timestamp: u64,
-                discounted_sum: u64,
+                expiration_timestamp: Timestamp,
+                discounted_sum: Sum,
             ) -> Result<()>;
-            async fn get_offer(&self, mint_request_id: &str) -> Result<Option<MintOffer>>;
+            async fn get_offer(&self, mint_request_id: &Uuid) -> Result<Option<MintOffer>>;
         }
     }
 
@@ -206,7 +209,7 @@ pub mod tests {
             async fn get_bill_ids_with_op_codes_since(
                 &self,
                 op_code: HashSet<BillOpCode>,
-                since: u64,
+                since: Timestamp,
             ) -> Result<Vec<BillId>>;
         }
     }
@@ -309,7 +312,7 @@ pub mod tests {
 
         #[async_trait]
         impl NostrEventOffsetStoreApi for NostrEventOffsetStoreApiMock {
-            async fn current_offset(&self, node_id: &NodeId) -> Result<u64>;
+            async fn current_offset(&self, node_id: &NodeId) -> Result<Timestamp>;
             async fn is_processed(&self, event_id: &str) -> Result<bool>;
             async fn add_event(&self, data: NostrEventOffset) -> Result<()>;
         }
@@ -361,11 +364,11 @@ pub mod tests {
                 &self,
                 id: &str,
                 status: &IdentityProofStatus,
-                status_last_checked_timestamp: u64,
+                status_last_checked_timestamp: Timestamp,
             ) -> Result<()>;
             async fn get_with_status_last_checked_timestamp_before(
                 &self,
-                before_timestamp: u64,
+                before_timestamp: Timestamp,
             ) -> Result<Vec<IdentityProof>>;
         }
     }
@@ -436,15 +439,15 @@ pub mod tests {
 
         #[async_trait]
         impl FileUploadStoreApi for FileUploadStoreApiMock {
-            async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()>;
-            async fn remove_temp_upload_folder(&self, file_upload_id: &str) -> Result<()>;
+            async fn create_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;
+            async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;
             async fn write_temp_upload_file(
                 &self,
-                file_upload_id: &str,
-                file_name: &str,
+                file_upload_id: &Uuid,
+                file_name: &Name,
                 file_bytes: &[u8],
             ) -> Result<()>;
-            async fn read_temp_upload_file(&self, file_upload_id: &str) -> Result<(String, Vec<u8>)>;
+            async fn read_temp_upload_file(&self, file_upload_id: &Uuid) -> Result<(Name, Vec<u8>)>;
         }
     }
 
@@ -659,5 +662,7 @@ pub mod tests {
     pub const NODE_ID_TEST_STR: &str =
         "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0";
 
-    pub const VALID_PAYMENT_ADDRESS_TESTNET: &str = "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0";
+    pub fn valid_payment_address_testnet() -> BitcoinAddress {
+        BitcoinAddress::from_str("tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0").unwrap()
+    }
 }

@@ -23,7 +23,8 @@ use bcr_ebill_core::country::Country;
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::sum::Sum;
-use bcr_ebill_core::{NodeId, PublicKey, SecretKey, ServiceTraitBounds};
+use bcr_ebill_core::timestamp::Timestamp;
+use bcr_ebill_core::{BitcoinAddress, NodeId, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -352,13 +353,13 @@ impl BillStoreApi for SurrealBillStore {
     async fn get_bill_ids_with_op_codes_since(
         &self,
         op_codes: HashSet<BillOpCode>,
-        since: u64,
+        since: Timestamp,
     ) -> Result<Vec<BillId>> {
         let codes = op_codes.into_iter().collect::<Vec<BillOpCode>>();
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::CHAIN_TABLE)?;
         bindings.add(DB_OP_CODE, codes)?;
-        bindings.add(DB_TIMESTAMP, since as i64)?;
+        bindings.add(DB_TIMESTAMP, since.inner() as i64)?;
         let result: Vec<BillIdDb> = self
             .db
             .query("SELECT bill_id FROM type::table($table) WHERE op_code IN $op_code AND timestamp >= $timestamp GROUP BY bill_id", bindings)
@@ -445,15 +446,15 @@ impl From<&BillCurrentWaitingState> for BillCurrentWaitingStateDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillWaitingStatePaymentDataDb {
-    pub time_of_request: u64,
+    pub time_of_request: Timestamp,
     pub sum: Sum,
     pub link_to_pay: String,
-    pub address_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
     pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
-    pub payment_deadline: Option<u64>,
+    pub payment_deadline: Option<Timestamp>,
 }
 
 impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
@@ -578,7 +579,7 @@ pub struct BillStatusDb {
     pub mint: BillMintStatusDb,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
-    pub last_block_time: u64,
+    pub last_block_time: Timestamp,
 }
 
 impl From<BillStatusDb> for BillStatus {
@@ -613,12 +614,12 @@ impl From<&BillStatus> for BillStatusDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillAcceptanceStatusDb {
-    pub time_of_request_to_accept: Option<u64>,
+    pub time_of_request_to_accept: Option<Timestamp>,
     pub requested_to_accept: bool,
     pub accepted: bool,
     pub request_to_accept_timed_out: bool,
     pub rejected_to_accept: bool,
-    pub acceptance_deadline_timestamp: Option<u64>,
+    pub acceptance_deadline_timestamp: Option<Timestamp>,
 }
 
 impl From<BillAcceptanceStatusDb> for BillAcceptanceStatus {
@@ -649,12 +650,12 @@ impl From<&BillAcceptanceStatus> for BillAcceptanceStatusDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillPaymentStatusDb {
-    pub time_of_request_to_pay: Option<u64>,
+    pub time_of_request_to_pay: Option<Timestamp>,
     pub requested_to_pay: bool,
     pub paid: bool,
     pub request_to_pay_timed_out: bool,
     pub rejected_to_pay: bool,
-    pub payment_deadline_timestamp: Option<u64>,
+    pub payment_deadline_timestamp: Option<Timestamp>,
 }
 
 impl From<BillPaymentStatusDb> for BillPaymentStatus {
@@ -685,12 +686,12 @@ impl From<&BillPaymentStatus> for BillPaymentStatusDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillSellStatusDb {
-    pub time_of_last_offer_to_sell: Option<u64>,
+    pub time_of_last_offer_to_sell: Option<Timestamp>,
     pub sold: bool,
     pub offered_to_sell: bool,
     pub offer_to_sell_timed_out: bool,
     pub rejected_offer_to_sell: bool,
-    pub buying_deadline_timestamp: Option<u64>,
+    pub buying_deadline_timestamp: Option<Timestamp>,
 }
 
 impl From<BillSellStatusDb> for BillSellStatus {
@@ -721,12 +722,12 @@ impl From<&BillSellStatus> for BillSellStatusDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillRecourseStatusDb {
-    pub time_of_last_request_to_recourse: Option<u64>,
+    pub time_of_last_request_to_recourse: Option<Timestamp>,
     pub recoursed: bool,
     pub requested_to_recourse: bool,
     pub request_to_recourse_timed_out: bool,
     pub rejected_request_to_recourse: bool,
-    pub recourse_deadline_timestamp: Option<u64>,
+    pub recourse_deadline_timestamp: Option<Timestamp>,
 }
 
 impl From<BillRecourseStatusDb> for BillRecourseStatus {
@@ -778,9 +779,9 @@ impl From<&BillMintStatus> for BillMintStatusDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillDataDb {
-    pub time_of_drawing: u64,
+    pub time_of_drawing: Timestamp,
     pub issue_date: Date,
-    pub time_of_maturity: u64,
+    pub time_of_maturity: Timestamp,
     pub maturity_date: Date,
     pub country_of_issuing: Country,
     pub city_of_issuing: City,
@@ -916,7 +917,7 @@ pub struct BillHistoryBlockDb {
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<BillParticipantDb>,
     pub signed: LightSignedByDb,
-    pub signing_timestamp: u64,
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddressDb>,
 }
 
@@ -950,7 +951,7 @@ impl From<BillHistoryBlock> for BillHistoryBlockDb {
 pub struct EndorsementDb {
     pub pay_to_the_order_of: BillParticipantDb,
     pub signed: LightSignedByDb,
-    pub signing_timestamp: u64,
+    pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddressDb>,
 }
 
@@ -1192,7 +1193,7 @@ pub enum PaymentStateDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaidDataDb {
-    pub block_time: u64, // unix timestamp
+    pub block_time: Timestamp, // unix timestamp
     pub block_hash: String,
     pub confirmations: u64,
     pub tx_id: String,
@@ -1315,10 +1316,10 @@ pub mod tests {
             cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys, node_id_test,
             node_id_test_other, private_key_test,
         },
-        util::{self, BcrKeys},
+        util::BcrKeys,
     };
     use bcr_ebill_core::{
-        NodeId,
+        BitcoinAddress, NodeId,
         bill::{BillId, BillKeys, PaidData, PaymentState},
         block_id::BlockId,
         blockchain::bill::{
@@ -1337,8 +1338,10 @@ pub mod tests {
         date::Date,
         hash::Sha256Hash,
         sum::{Currency, Sum},
+        timestamp::Timestamp,
     };
     use chrono::Months;
+    use std::str::FromStr;
     use surrealdb::{Surreal, engine::any::Any};
 
     async fn get_db() -> Surreal<Any> {
@@ -1378,11 +1381,11 @@ pub mod tests {
         BillBlock::create_block_for_issue(
             id.to_owned(),
             Sha256Hash::new("prevhash"),
-            &BillIssueBlockData::from(bill, None, 1731593928),
+            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             &BcrKeys::from_private_key(&private_key_test()).unwrap(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
-            1731593928,
+            Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
     }
@@ -1411,14 +1414,15 @@ pub mod tests {
                         ),
                         currency: Currency::sat(),
                         signatory: None,
-                        signing_timestamp: 1731593928,
+                        signing_timestamp: Timestamp::new(1731593928).unwrap(),
                         signing_address: Some(empty_address()),
-                        payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
+                        payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
+                            + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
-                    1731593928,
+                    Timestamp::new(1731593928).unwrap(),
                 )
                 .unwrap(),
             )
@@ -1485,7 +1489,7 @@ pub mod tests {
             .set_payment_state(
                 &bill_id_test(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: 1731593928,
+                    block_time: Timestamp::new(1731593928).unwrap(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1510,7 +1514,7 @@ pub mod tests {
             .set_payment_state(
                 &bill_id_test(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: 1731593928,
+                    block_time: Timestamp::new(1731593928).unwrap(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1538,7 +1542,7 @@ pub mod tests {
                 &bill_id_test(),
                 BlockId::first(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: 1731593928,
+                    block_time: Timestamp::new(1731593928).unwrap(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1574,7 +1578,7 @@ pub mod tests {
                 &bill_id_test(),
                 BlockId::first(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: 1731593928,
+                    block_time: Timestamp::new(1731593928).unwrap(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1632,14 +1636,15 @@ pub mod tests {
                         ),
                         currency: Currency::sat(),
                         signatory: None,
-                        signing_timestamp: 1731593928,
+                        signing_timestamp: Timestamp::new(1731593928).unwrap(),
                         signing_address: Some(empty_address()),
-                        payment_deadline_timestamp: 1731593928 + 2 * PAYMENT_DEADLINE_SECONDS,
+                        payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
+                            + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
-                    1731593928,
+                    Timestamp::new(1731593928).unwrap(),
                 )
                 .unwrap(),
             )
@@ -1655,7 +1660,7 @@ pub mod tests {
             .set_payment_state(
                 &bill_id_test(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: 1731593928,
+                    block_time: Timestamp::new(1731593928).unwrap(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1676,7 +1681,7 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         let first_block = get_first_block(&bill_id_test());
         chain_store
@@ -1705,7 +1710,10 @@ pub mod tests {
                     .into(),
                 ),
                 sum: Sum::new_sat(15000).expect("sat works"),
-                payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
+                payment_address: BitcoinAddress::from_str(
+                    "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0",
+                )
+                .unwrap(),
                 signatory: None,
                 signing_timestamp: now,
                 signing_address: Some(empty_address()),
@@ -1744,7 +1752,10 @@ pub mod tests {
                             .into(),
                         ),
                         sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
+                        payment_address: BitcoinAddress::from_str(
+                            "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0",
+                        )
+                        .unwrap(),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -1770,10 +1781,14 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        let now_minus_one_month = util::date::now()
-            .checked_sub_months(Months::new(1))
-            .unwrap()
-            .timestamp() as u64;
+        let now_minus_one_month = Timestamp::new(
+            Timestamp::now()
+                .to_datetime()
+                .checked_sub_months(Months::new(1))
+                .unwrap()
+                .timestamp() as u64,
+        )
+        .unwrap();
 
         let first_block = get_first_block(&bill_id_test());
         chain_store
@@ -1802,7 +1817,10 @@ pub mod tests {
                     .into(),
                 ),
                 sum: Sum::new_sat(15000).expect("sat works"),
-                payment_address: "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk".to_string(),
+                payment_address: BitcoinAddress::from_str(
+                    "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0",
+                )
+                .unwrap(),
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),
@@ -1870,7 +1888,7 @@ pub mod tests {
 
         // should return all bill ids
         let res = store
-            .get_bill_ids_with_op_codes_since(all.clone(), 0)
+            .get_bill_ids_with_op_codes_since(all.clone(), Timestamp::new(0).unwrap())
             .await
             .expect("could not get bill ids");
         assert_eq!(res, vec![bill_id_pay.to_owned(), bill_id.to_owned()]);
@@ -1886,7 +1904,7 @@ pub mod tests {
         let to_accept_only = HashSet::from([BillOpCode::RequestToAccept]);
 
         let res = store
-            .get_bill_ids_with_op_codes_since(to_accept_only, 0)
+            .get_bill_ids_with_op_codes_since(to_accept_only, Timestamp::new(0).unwrap())
             .await
             .expect("could not get bill ids");
         assert_eq!(res, vec![bill_id.to_owned()]);
@@ -1895,13 +1913,13 @@ pub mod tests {
         let to_pay_only = HashSet::from([BillOpCode::RequestToPay]);
 
         let res = store
-            .get_bill_ids_with_op_codes_since(to_pay_only, 0)
+            .get_bill_ids_with_op_codes_since(to_pay_only, Timestamp::new(0).unwrap())
             .await
             .expect("could not get bill ids");
         assert_eq!(res, vec![bill_id_pay.to_owned()]);
     }
 
-    fn request_to_accept_block(id: &BillId, ts: u64, first_block: &BillBlock) -> BillBlock {
+    fn request_to_accept_block(id: &BillId, ts: Timestamp, first_block: &BillBlock) -> BillBlock {
         BillBlock::create_block_for_request_to_accept(
             id.clone(),
             first_block,
@@ -1922,7 +1940,7 @@ pub mod tests {
         .expect("block could not be created")
     }
 
-    fn request_to_pay_block(id: &BillId, ts: u64, first_block: &BillBlock) -> BillBlock {
+    fn request_to_pay_block(id: &BillId, ts: Timestamp, first_block: &BillBlock) -> BillBlock {
         BillBlock::create_block_for_request_to_pay(
             id.clone(),
             first_block,
@@ -1949,7 +1967,7 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        let now = util::date::now().timestamp() as u64;
+        let now = Timestamp::now();
 
         let first_block = get_first_block(&bill_id_test());
         chain_store
@@ -2040,10 +2058,14 @@ pub mod tests {
         let db = get_db().await;
         let chain_store = get_chain_store(db.clone()).await;
         let store = get_store(db.clone()).await;
-        let now_minus_one_month = util::date::now()
-            .checked_sub_months(Months::new(1))
-            .unwrap()
-            .timestamp() as u64;
+        let now_minus_one_month = Timestamp::new(
+            Timestamp::now()
+                .to_datetime()
+                .checked_sub_months(Months::new(1))
+                .unwrap()
+                .timestamp() as u64,
+        )
+        .unwrap();
 
         let first_block = get_first_block(&bill_id_test());
         chain_store

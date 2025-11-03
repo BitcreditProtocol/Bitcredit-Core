@@ -1,5 +1,3 @@
-use crate::util;
-
 use super::service::BillService;
 use super::{Error, Result};
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
@@ -13,6 +11,7 @@ use bcr_ebill_core::contact::{BillParticipant, Contact};
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::sum::Sum;
+use bcr_ebill_core::timestamp::Timestamp;
 use bcr_ebill_core::{NodeId, Validate, ValidationError};
 use bcr_ebill_core::{
     bill::{
@@ -142,7 +141,7 @@ impl BillService {
         bill_keys: &BillKeys,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult> {
         // fetch contacts to get current contact data for participants
         let contacts = self.contact_store.get_map().await?;
@@ -391,7 +390,7 @@ impl BillService {
                     // payment expired, we're not waiting anymore
                     None
                 } else if let Some(payment_deadline) = payment_deadline_timestamp
-                    && util::date::check_if_deadline_has_passed(payment_deadline, current_timestamp)
+                    && current_timestamp.has_deadline_passed(&payment_deadline)
                 {
                     // the request timed out, we're not waiting anymore, but the payment isn't expired
                     None
@@ -643,7 +642,7 @@ impl BillService {
     pub(super) fn check_requests_for_expiration(
         &self,
         bill: &BitcreditBillResult,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<bool> {
         let mut invalidate_and_recalculate = false;
         let acceptance = &bill.status.acceptance;
@@ -654,7 +653,7 @@ impl BillService {
             && !acceptance.rejected_to_accept
             && !acceptance.request_to_accept_timed_out
             && let Some(acceptance_deadline) = acceptance.acceptance_deadline_timestamp
-            && util::date::check_if_deadline_has_passed(acceptance_deadline, current_timestamp)
+            && current_timestamp.has_deadline_passed(&acceptance_deadline)
         {
             invalidate_and_recalculate = true;
         }
@@ -673,14 +672,14 @@ impl BillService {
                 &bill.data.maturity_date,
             )?;
             // payment has expired (after maturity date)
-            if util::date::check_if_deadline_has_passed(deadline_base, current_timestamp) {
+            if current_timestamp.has_deadline_passed(&deadline_base) {
                 invalidate_and_recalculate = true;
             }
             // if it was req to pay and is currently waiting, we have to check, if it's expired
             // once it's expired, we don't have to check this anymore
             if let Some(BillCurrentWaitingState::Payment(_)) = bill.current_waiting_state {
                 // req to pay has expired (before maturity date)
-                if util::date::check_if_deadline_has_passed(payment_deadline, current_timestamp) {
+                if current_timestamp.has_deadline_passed(&payment_deadline) {
                     invalidate_and_recalculate = true;
                 }
             }
@@ -694,7 +693,7 @@ impl BillService {
             && !sell.rejected_offer_to_sell
             && !sell.offer_to_sell_timed_out
             && let Some(buying_deadline) = sell.buying_deadline_timestamp
-            && util::date::check_if_deadline_has_passed(buying_deadline, current_timestamp)
+            && current_timestamp.has_deadline_passed(&buying_deadline)
         {
             invalidate_and_recalculate = true;
         }
@@ -707,7 +706,7 @@ impl BillService {
             && !recourse.rejected_request_to_recourse
             && !recourse.request_to_recourse_timed_out
             && let Some(recourse_deadline) = recourse.recourse_deadline_timestamp
-            && util::date::check_if_deadline_has_passed(recourse_deadline, current_timestamp)
+            && current_timestamp.has_deadline_passed(&recourse_deadline)
         {
             invalidate_and_recalculate = true;
         }
@@ -808,7 +807,7 @@ impl BillService {
         bill_id: &BillId,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult> {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
@@ -836,7 +835,7 @@ impl BillService {
         bill_id: &BillId,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
-        current_timestamp: u64,
+        current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult> {
         // if there is no such bill, we return an error
         match self.store.exists(bill_id).await {
@@ -918,7 +917,7 @@ fn calculate_possible_bill_actions_for_caller(
     endorsee_node_id: Option<NodeId>,
     maturity_date: Date,
     bill_keys: BillKeys,
-    timestamp: u64,
+    timestamp: Timestamp,
     signer_node_id: NodeId,
     is_paid: bool,
     is_waiting_for_req_to_pay: bool,
@@ -1003,7 +1002,7 @@ pub mod tests {
         let endorsee: Option<NodeId> = None;
         let maturity_date = bill.maturity_date.clone();
         let bill_keys = bill_keys();
-        let timestamp = 1731593928;
+        let timestamp = Timestamp::new(1731593928).unwrap();
 
         let is_paid = false;
         let is_waiting_for_req_to_pay = false;
