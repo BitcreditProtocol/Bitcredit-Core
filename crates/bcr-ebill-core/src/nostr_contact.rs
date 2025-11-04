@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
 
+use bcr_common::core::NodeId;
 use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    NodeId, ValidationError,
+    ValidationError,
     contact::{Contact, ContactType},
     name::Name,
 };

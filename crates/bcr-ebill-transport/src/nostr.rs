@@ -7,8 +7,12 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, blockchain::BlockchainType, contact::BillParticipant, timestamp::Timestamp,
+    blockchain::BlockchainType,
+    contact::BillParticipant,
+    timestamp::Timestamp,
+    util::{BcrKeys, base58_encode},
 };
 use log::{debug, error, info, trace, warn};
 use nostr::{nips::nip65::RelayMetadata, signer::NostrSigner};
@@ -27,7 +31,6 @@ use bcr_ebill_api::{
             Error, NostrConfig, NostrContactData, Result, transport::NotificationJsonTransportApi,
         },
     },
-    util::{BcrKeys, base58_encode},
 };
 use bcr_ebill_core::{ServiceTraitBounds, protocol::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
@@ -763,14 +766,14 @@ async fn handle_event(
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use bcr_common::core::NodeId;
     use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
-    use bcr_ebill_api::util::BcrKeys;
-    use bcr_ebill_core::NodeId;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;
     use bcr_ebill_core::protocol::{Event, EventType};
     use bcr_ebill_core::timestamp::Timestamp;
+    use bcr_ebill_core::util::BcrKeys;
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
     use tokio::time;

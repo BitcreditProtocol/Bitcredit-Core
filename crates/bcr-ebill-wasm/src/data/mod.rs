@@ -1,16 +1,14 @@
 use async_trait::async_trait;
-use bcr_ebill_api::{
-    NotificationFilter,
-    data::{
-        File, GeneralSearchFilterItemType, GeneralSearchResult, NodeId, OptionalPostalAddress,
-        PostalAddress, UploadFileResult, address::Address, city::City, country::Country,
-        date::Date, hash::Sha256Hash, name::Name, timestamp::Timestamp, zip::Zip,
-    },
-    util::{
-        ValidationError,
-        file::{UploadFileHandler, detect_content_type_for_bytes},
-    },
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::file_upload_service::{
+    UploadFileHandler, detect_content_type_for_bytes,
 };
+use bcr_ebill_core::{
+    File, GeneralSearchFilterItemType, GeneralSearchResult, OptionalPostalAddress, PostalAddress,
+    UploadFileResult, ValidationError, address::Address, city::City, country::Country, date::Date,
+    hash::Sha256Hash, name::Name, timestamp::Timestamp, zip::Zip,
+};
+use bcr_ebill_persistence::notification::NotificationFilter;
 use bill::LightBitcreditBillWeb;
 use company::CompanyWeb;
 use contact::ContactWeb;

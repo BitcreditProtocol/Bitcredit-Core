@@ -11,8 +11,9 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, PublicKey, ServiceTraitBounds,
+    PublicKey, ServiceTraitBounds,
     block_id::BlockId,
     blockchain::{
         Block,

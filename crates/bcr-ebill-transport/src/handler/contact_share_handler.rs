@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bcr_ebill_api::{
-    service::notification_service::transport::NotificationJsonTransportApi,
-    util::{base58_decode, crypto::decrypt_ecies},
-};
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    ServiceTraitBounds,
     contact::Contact,
     nostr_contact::NostrContact,
     protocol::{ContactShareEvent, Event, EventEnvelope},
+    util::{base58_decode, crypto::decrypt_ecies},
 };
 use bcr_ebill_persistence::{ContactStoreApi, nostr::NostrContactStoreApi};
 use log::{debug, warn};
@@ -112,11 +111,15 @@ mod tests {
     };
 
     use super::*;
-    use bcr_ebill_api::{
-        service::notification_service::{BcrMetadata, NostrContactData},
-        util::{base58_encode, crypto::encrypt_ecies},
+    use bcr_ebill_api::service::notification_service::{BcrMetadata, NostrContactData};
+    use bcr_ebill_core::{
+        contact::ContactType,
+        name::Name,
+        util::{
+            base58_encode,
+            crypto::{BcrKeys, encrypt_ecies},
+        },
     };
-    use bcr_ebill_core::{contact::ContactType, name::Name, util::crypto::BcrKeys};
     use mockall::predicate::{always, eq};
 
     #[tokio::test]

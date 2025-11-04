@@ -1,6 +1,7 @@
 use super::super::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::{NodeId, ServiceTraitBounds};
+use bcr_common::core::NodeId;
+use bcr_ebill_core::ServiceTraitBounds;
 use serde::{Deserialize, Serialize};
 
 use crate::{db::surreal::SurrealWrapper, notification::EmailNotificationStoreApi};

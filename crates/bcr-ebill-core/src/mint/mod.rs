@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
-use crate::{NodeId, bill::BillId, sum::Sum, timestamp::Timestamp};
+use crate::{sum::Sum, timestamp::Timestamp};
+use bcr_common::core::{BillId, NodeId};
 
 /// A request to mint
 #[derive(Debug, Clone)]

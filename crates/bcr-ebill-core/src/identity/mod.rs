@@ -1,6 +1,6 @@
 use super::{File, OptionalPostalAddress};
 use crate::{
-    NodeId, ValidationError,
+    ValidationError,
     blockchain::identity::{IdentityBlockPayload, IdentityCreateBlockData},
     city::City,
     contact::{Contact, ContactType},
@@ -11,6 +11,8 @@ use crate::{
     name::Name,
     util::BcrKeys,
 };
+use bcr_common::core::NodeId;
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 pub mod validation;
@@ -23,7 +25,17 @@ pub enum SwitchIdentityType {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[borsh(use_discriminant = true)]
 pub enum IdentityType {
     Ident = 0,
     Anon = 1,
@@ -71,7 +83,7 @@ impl Identity {
 
     pub fn from_block_data(data: IdentityCreateBlockData) -> Self {
         Self {
-            t: get_identity_type(&data.postal_address),
+            t: data.t,
             node_id: data.node_id,
             name: data.name,
             email: data.email,
@@ -90,8 +102,10 @@ impl Identity {
         // only the update block does actually mutate the identity
         if let IdentityBlockPayload::Update(payload) = data {
             // check whether the account was deanonymized with the update
-            if self.t == IdentityType::Anon {
-                self.t = get_identity_type(&payload.postal_address);
+            if let Some(ref t) = payload.t
+                && self.t == IdentityType::Anon
+            {
+                self.t = t.to_owned();
             }
             self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
             self.email = payload.email.to_owned().or(self.email.to_owned());
@@ -162,15 +176,6 @@ impl Identity {
             nostr_relays: self.nostr_relays.clone(),
             is_logical: false,
         }
-    }
-}
-
-/// determines the identity type based on the postal address
-fn get_identity_type(address: &OptionalPostalAddress) -> IdentityType {
-    if address.is_fully_set() {
-        IdentityType::Ident
-    } else {
-        IdentityType::Anon
     }
 }
 

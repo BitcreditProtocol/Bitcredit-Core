@@ -6,9 +6,8 @@ use crate::{
     context::get_ctx,
     data::identity_proof::IdentityProofWeb,
 };
-use bcr_ebill_api::{
-    data::identity_proof::IdentityProofStamp, service::Error, util::ValidationError,
-};
+use bcr_ebill_api::service::Error;
+use bcr_ebill_core::{ValidationError, identity_proof::IdentityProofStamp};
 
 use super::Result;
 use url::Url;

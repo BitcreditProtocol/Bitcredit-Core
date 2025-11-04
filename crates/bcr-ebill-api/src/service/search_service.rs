@@ -1,16 +1,18 @@
+use crate::util::validate_node_id_network;
+
 use super::Result;
 use super::{
     bill_service::BillServiceApi, company_service::CompanyServiceApi,
     contact_service::ContactServiceApi,
 };
-use crate::data::{GeneralSearchFilterItemType, bill::BillsFilterRole};
-use crate::data::{GeneralSearchResult, validate_node_id_network};
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
+use bcr_ebill_core::bill::BillsFilterRole;
 use bcr_ebill_core::sum::Currency;
 use log::debug;
 use std::sync::Arc;
 
-use bcr_ebill_core::{NodeId, ServiceTraitBounds};
+use bcr_ebill_core::{GeneralSearchFilterItemType, GeneralSearchResult, ServiceTraitBounds};
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]

@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bcr_ebill_api::{
-    service::notification_service::{
-        Result, restore::RestoreAccountApi, transport::NotificationJsonTransportApi,
-    },
-    util::BcrKeys,
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::notification_service::{
+    Result, restore::RestoreAccountApi, transport::NotificationJsonTransportApi,
 };
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    ServiceTraitBounds,
     blockchain::{BlockchainType, identity::IdentityBlock},
+    util::BcrKeys,
 };
 use log::{error, info};
 use nostr::filter::Filter;
@@ -129,10 +128,11 @@ impl RestoreAccountApi for RestoreAccountService {
 
 #[cfg(test)]
 mod tests {
-
-    use bcr_ebill_api::Blockchain;
     use bcr_ebill_core::{
-        blockchain::identity::{IdentityBlockchain, IdentityCreateBlockData},
+        blockchain::{
+            Blockchain,
+            identity::{IdentityBlockchain, IdentityCreateBlockData},
+        },
         identity::Identity,
         protocol::{Event, EventEnvelope, IdentityBlockEvent},
         timestamp::Timestamp,

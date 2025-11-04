@@ -1,22 +1,15 @@
-pub mod file;
-pub mod numbers_to_words;
-
-pub use bcr_ebill_core::Field;
-pub use bcr_ebill_core::ValidationError;
-pub use bcr_ebill_core::constants::VALID_CURRENCIES;
-pub use bcr_ebill_core::util::crypto;
-
-pub use bcr_ebill_core::util::BcrKeys;
-pub use bcr_ebill_core::util::Error;
-
-pub use bcr_ebill_core::util::base58_decode;
-pub use bcr_ebill_core::util::base58_encode;
+use bcr_common::core::BillId;
+use bcr_common::core::NodeId;
+use bcr_ebill_core::ValidationError;
 
 #[cfg(not(test))]
-pub use bcr_ebill_core::util::get_uuid_v4;
+pub(crate) use bcr_ebill_core::util::get_uuid_v4;
 
+use log::warn;
 #[cfg(test)]
 use uuid::{Uuid, uuid};
+
+use crate::get_config;
 
 #[cfg(test)]
 pub fn get_uuid_v4() -> Uuid {
@@ -45,6 +38,24 @@ pub fn update_optional_field<T: Clone + PartialEq>(
             }
         }
     };
+}
+
+pub fn validate_node_id_network(node_id: &NodeId) -> Result<(), ValidationError> {
+    if node_id.network() != get_config().bitcoin_network() {
+        warn!("Detected node id of wrong network {node_id}");
+        return Err(ValidationError::InvalidNodeId);
+    }
+
+    Ok(())
+}
+
+pub fn validate_bill_id_network(bill_id: &BillId) -> Result<(), ValidationError> {
+    if bill_id.network() != get_config().bitcoin_network() {
+        warn!("Detected bill id of wrong network {bill_id}");
+        return Err(ValidationError::InvalidBillId);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

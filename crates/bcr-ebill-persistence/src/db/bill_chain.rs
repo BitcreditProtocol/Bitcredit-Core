@@ -10,9 +10,9 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use bcr_common::core::BillId;
 use bcr_ebill_core::{
     PublicKey, ServiceTraitBounds,
-    bill::BillId,
     block_id::BlockId,
     blockchain::{
         Block,

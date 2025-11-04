@@ -3,8 +3,8 @@
 pub mod tests {
     use std::str::FromStr;
 
+    use crate::BitcoinAddress;
     use crate::address::Address;
-    use crate::bill::BillId;
     use crate::city::City;
     use crate::contact::BillParticipant;
     use crate::country::Country;
@@ -15,15 +15,14 @@ pub mod tests {
     use crate::sum::Sum;
     use crate::timestamp::Timestamp;
     use crate::zip::Zip;
-    use crate::{BitcoinAddress, NodeId, Validate};
     use crate::{
         OptionalPostalAddress, PostalAddress,
         bill::{BillKeys, BitcreditBill},
         contact::{BillIdentParticipant, ContactType},
         identity::Identity,
     };
+    use bcr_common::core::{BillId, NodeId};
     use borsh::BorshDeserialize;
-    use rstest::rstest;
     use serde::{Deserialize, Serialize};
 
     pub fn valid_address() -> PostalAddress {
@@ -35,15 +34,6 @@ pub mod tests {
         }
     }
 
-    #[rstest]
-    #[case::baseline(valid_address())]
-    #[case::no_zip( PostalAddress { zip: None, ..valid_address() },)]
-    #[case::spaced_zip(PostalAddress { zip: Some(Zip::new(" Some Street 1 ").unwrap()), ..valid_address() })]
-    #[case::spaced_zip_address(PostalAddress { zip: Some(Zip::new(" 10101 ").unwrap()), address: Address::new(" 56 Rue de Paris ").unwrap(), ..valid_address() })]
-    fn test_valid_addresses(#[case] address: PostalAddress) {
-        assert_eq!(address.validate(), Ok(()));
-    }
-
     pub fn valid_optional_address() -> OptionalPostalAddress {
         OptionalPostalAddress {
             country: Some(Country::AT),
@@ -51,22 +41,6 @@ pub mod tests {
             zip: Some(Zip::new("1010").unwrap()),
             address: Some(Address::new("Kärntner Straße 1").unwrap()),
         }
-    }
-
-    #[test]
-    fn test_valid_optional_address() {
-        let address = valid_optional_address();
-        assert_eq!(address.validate(), Ok(()));
-        assert_eq!(
-            OptionalPostalAddress {
-                country: None,
-                city: None,
-                zip: None,
-                address: None
-            }
-            .validate(),
-            Ok(())
-        );
     }
 
     pub fn empty_identity() -> Identity {

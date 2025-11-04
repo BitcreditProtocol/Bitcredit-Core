@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds, blockchain::BlockchainType, contact::BillParticipant,
+    ServiceTraitBounds, blockchain::BlockchainType, contact::BillParticipant,
     protocol::EventEnvelope, timestamp::Timestamp, util::BcrKeys,
 };
 

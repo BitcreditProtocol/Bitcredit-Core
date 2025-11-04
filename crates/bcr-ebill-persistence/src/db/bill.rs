@@ -5,10 +5,11 @@ use super::{BillIdDb, FileDb, PostalAddressDb, Result};
 use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::bill::{
     BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCurrentWaitingState,
-    BillData, BillHistory, BillHistoryBlock, BillId, BillMintStatus, BillParticipants,
-    BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
+    BillData, BillHistory, BillHistoryBlock, BillMintStatus, BillParticipants, BillPaymentStatus,
+    BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
     BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
     BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy, PaidData, PaymentState,
 };
@@ -24,7 +25,7 @@ use bcr_ebill_core::date::Date;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{BitcoinAddress, NodeId, PublicKey, SecretKey, ServiceTraitBounds};
+use bcr_ebill_core::{BitcoinAddress, PublicKey, SecretKey, ServiceTraitBounds};
 use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -1318,9 +1319,10 @@ pub mod tests {
         },
         util::BcrKeys,
     };
+    use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{
-        BitcoinAddress, NodeId,
-        bill::{BillId, BillKeys, PaidData, PaymentState},
+        BitcoinAddress,
+        bill::{BillKeys, PaidData, PaymentState},
         block_id::BlockId,
         blockchain::bill::{
             BillBlock, BillOpCode,

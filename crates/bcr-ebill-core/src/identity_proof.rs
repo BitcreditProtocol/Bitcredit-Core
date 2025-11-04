@@ -5,9 +5,10 @@ use secp256k1::{SECP256K1, SecretKey};
 use url::Url;
 
 use crate::{
-    NodeId, ValidationError, block_id::BlockId, hash::Sha256Hash, signature::SchnorrSignature,
+    ValidationError, block_id::BlockId, hash::Sha256Hash, signature::SchnorrSignature,
     timestamp::Timestamp, util,
 };
+use bcr_common::core::NodeId;
 
 #[derive(Debug, Clone)]
 pub enum IdentityProofStatus {

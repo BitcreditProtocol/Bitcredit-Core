@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::{BillAction, Result, service::BillService};
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId,
     bill::{BillKeys, RecourseReason},
     blockchain::bill::BillBlockchain,
     contact::Contact,

@@ -7,6 +7,10 @@
 * Add strong types for `SchnorrSignature`, `Sha256Hash`, `BlockId`, `File` types, `Mint` types and use `PublicKey` and `SecretKey` in protocol types (breaking DB change)
 * Use bytes without encoding for bill data (breaking DB change)
 * Fix plaintext-chain rendering - the nesting of `data` now works properly and one `JSON.parse` call is enough (breaking API change)
+* Add `IdentityType` to `IdentityCreateBlockData` and `IdentityUpdateBlockData`
+* Remove `BackupService` and `BackupStore` since it's unused
+* Remove file-based `FileUpload` - we use surreal/nostr-based everywhere
+* Refactoring & Restructuring, removing cross-crate exports (breaking for Library dependents)
 
 # 0.4.12
 

@@ -1,8 +1,6 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain};
-use crate::NodeId;
-use crate::bill::BillId;
 use crate::block_id::BlockId;
 use crate::blockchain::{Error, borsh_to_json_value};
 use crate::city::City;
@@ -11,12 +9,15 @@ use crate::date::Date;
 use crate::email::Email;
 use crate::hash::Sha256Hash;
 use crate::identification::Identification;
+use crate::identity::IdentityType;
 use crate::identity_proof::IdentityProofStamp;
 use crate::name::Name;
 use crate::signature::SchnorrSignature;
 use crate::timestamp::Timestamp;
 use crate::util::{self, BcrKeys, crypto};
+use crate::{Field, Validate, ValidationError};
 use crate::{File, OptionalPostalAddress, identity::Identity};
+use bcr_common::core::{BillId, NodeId};
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -120,6 +121,7 @@ impl IdentityBlockPlaintextWrapper {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
+    pub t: IdentityType,
     pub node_id: NodeId,
     pub name: Name,
     pub email: Option<Email>,
@@ -137,9 +139,24 @@ pub struct IdentityCreateBlockData {
     pub identity_document_file: Option<File>,
 }
 
+impl Validate for IdentityCreateBlockData {
+    fn validate(&self) -> std::result::Result<(), crate::ValidationError> {
+        if let IdentityType::Ident = self.t {
+            // email needs to be set and not blank
+            if self.email.is_none() {
+                return Err(ValidationError::FieldEmpty(Field::Email));
+            }
+            // For Ident, the postal address needs to be fully set
+            self.postal_address.validate_to_be_non_optional()?;
+        }
+        Ok(())
+    }
+}
+
 impl From<Identity> for IdentityCreateBlockData {
     fn from(value: Identity) -> Self {
         Self {
+            t: value.t,
             node_id: value.node_id,
             name: value.name,
             email: value.email,
@@ -159,6 +176,7 @@ impl From<Identity> for IdentityCreateBlockData {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Default, Debug, Clone, PartialEq,
 )]
 pub struct IdentityUpdateBlockData {
+    pub t: Option<IdentityType>, // for deanonymization
     pub name: Option<Name>,
     pub email: Option<Email>,
     pub postal_address: OptionalPostalAddress,
@@ -168,6 +186,21 @@ pub struct IdentityUpdateBlockData {
     pub identification_number: Option<Identification>,
     pub profile_picture_file: Option<File>,
     pub identity_document_file: Option<File>,
+}
+
+impl Validate for IdentityUpdateBlockData {
+    fn validate(&self) -> std::result::Result<(), crate::ValidationError> {
+        // deanonymization
+        if let Some(IdentityType::Ident) = self.t {
+            // email needs to be set and not blank
+            if self.email.is_none() {
+                return Err(ValidationError::FieldEmpty(Field::Email));
+            }
+            // For Ident, the postal address needs to be fully set
+            self.postal_address.validate_to_be_non_optional()?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -681,6 +714,7 @@ mod tests {
         let update_block = IdentityBlock::create_block_for_update(
             chain.get_latest_block(),
             &IdentityUpdateBlockData {
+                t: None,
                 name: Some(Name::new("newname").unwrap()),
                 email: None,
                 postal_address: valid_optional_address(),

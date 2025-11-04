@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use super::Result;
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
-    bill::{BillId, BillKeys, BitcreditBillResult, PaymentState},
+    ServiceTraitBounds,
+    bill::{BillKeys, BitcreditBillResult, PaymentState},
     block_id::BlockId,
     blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
     timestamp::Timestamp,

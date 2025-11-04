@@ -1,16 +1,15 @@
-use bcr_ebill_api::{
-    data::{
-        NodeId, PublicKey,
-        city::City,
-        country::Country,
-        date::Date,
-        email::Email,
-        identification::Identification,
-        identity::{Identity, IdentityType, SwitchIdentityType},
-        name::Name,
-        nostr_contact::NostrPublicKey,
-    },
-    service::{Error, Result},
+use bcr_common::core::NodeId;
+use bcr_ebill_api::service::{Error, Result};
+use bcr_ebill_core::{
+    PublicKey,
+    city::City,
+    country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    identity::{Identity, IdentityType, SwitchIdentityType},
+    name::Name,
+    nostr_contact::NostrPublicKey,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;

@@ -1,7 +1,8 @@
 use super::Result;
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
+    ServiceTraitBounds,
     blockchain::BlockchainType,
     hash::Sha256Hash,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},

@@ -1,5 +1,5 @@
-use bcr_ebill_api::data::{
-    NodeId,
+use bcr_common::core::NodeId;
+use bcr_ebill_core::{
     block_id::BlockId,
     identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
     timestamp::Timestamp,

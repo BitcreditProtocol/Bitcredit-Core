@@ -11,6 +11,7 @@ doctest = false
 borsh.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 log.workspace = true
@@ -19,6 +20,7 @@ uuid.workspace = true
 futures.workspace = true
 nostr.workspace = true
 bcr-ebill-core.workspace = true
+bcr-common.workspace = true
 tokio.workspace = true
 tokio_with_wasm.workspace = true
 bitcoin.workspace = true
@@ -28,7 +30,6 @@ arc-swap = "1.7"
 # Enable "kv-indxdb" only for WebAssembly (wasm32)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 surrealdb = { workspace = true, default-features = false, features = ["kv-indxdb"] }
-base64.workspace = true
 
 # Enable "protocol-ws" for all other targets
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -36,4 +37,3 @@ surrealdb = { workspace = true, default-features = false, features = ["protocol-
 
 [dev-dependencies]
 surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
-base64.workspace = true

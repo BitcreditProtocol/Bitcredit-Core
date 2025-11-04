@@ -1,4 +1,3 @@
-pub mod backup_service;
 pub mod bill_service;
 pub mod company_service;
 pub mod contact_service;
@@ -8,8 +7,7 @@ pub mod identity_service;
 pub mod notification_service;
 pub mod search_service;
 
-use crate::util;
-use crate::{blockchain, external};
+use crate::external;
 use thiserror::Error;
 
 /// Generic result type
@@ -36,7 +34,7 @@ pub enum Error {
 
     /// errors stemming from crypto utils
     #[error("Crypto util error: {0}")]
-    CryptoUtil(#[from] util::crypto::Error),
+    CryptoUtil(#[from] bcr_ebill_core::util::crypto::Error),
 
     /// errors that stem from validation in core
     #[error("Validation Error: {0}")]
@@ -47,7 +45,7 @@ pub enum Error {
 
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
-    Blockchain(#[from] blockchain::Error),
+    Blockchain(#[from] bcr_ebill_core::blockchain::Error),
 
     /// std io
     #[error("Io error: {0}")]

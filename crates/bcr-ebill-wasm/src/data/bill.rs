@@ -1,30 +1,29 @@
-use bcr_ebill_api::{
-    BillOpCode,
-    data::{
-        BitcoinAddress, NodeId,
-        bill::{
-            BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
-            BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillId,
-            BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus,
-            BillSellStatus, BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
-            BillWaitingForSellState, BillWaitingStatePaymentData, BillsFilterRole,
-            BitcreditBillResult, Endorsement, LightBitcreditBillResult, LightSignedBy,
-            PastEndorsee, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
-            PastPaymentResult, PastPaymentStatus,
-        },
-        block_id::BlockId,
-        city::City,
-        contact::{
-            BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
-            LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
-        },
-        country::Country,
-        date::Date,
-        email::Email,
-        name::Name,
-        timestamp::Timestamp,
+use bcr_common::core::{BillId, NodeId};
+use bcr_ebill_core::{
+    BitcoinAddress,
+    bill::{
+        BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
+        BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillMintStatus,
+        BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
+        BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
+        BillWaitingStatePaymentData, BillsFilterRole, BitcreditBillResult, Endorsement,
+        LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
+        PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
     },
+    block_id::BlockId,
+    blockchain::bill::BillOpCode,
+    city::City,
+    contact::{
+        BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
+        LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
+    },
+    country::Country,
+    date::Date,
+    email::Email,
+    name::Name,
+    timestamp::Timestamp,
 };
+
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;

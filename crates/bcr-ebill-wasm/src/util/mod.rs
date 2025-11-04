@@ -35,14 +35,14 @@ const ORDERS: [&str; 7] = [
     "quintillion",
 ];
 
-pub fn encode(num: &u64) -> String {
+pub fn numbers_to_words(num: &u64) -> String {
     match num {
         0..=19 => ONES[*num as usize].to_string(),
         20..=99 => {
             let upper: usize = (num / 10) as usize;
             match num % 10 {
                 0 => TENS[upper].to_string(),
-                lower => format!("{}-{}", TENS[upper], encode(&lower)),
+                lower => format!("{}-{}", TENS[upper], numbers_to_words(&lower)),
             }
         }
         100..=999 => format_num(num, 100, "hundred"),
@@ -59,9 +59,14 @@ pub fn encode(num: &u64) -> String {
 
 fn format_num(num: &u64, div: u64, order: &str) -> String {
     match (num / div, num % div) {
-        (upper, 0) => format!("{} {}", encode(&upper), order),
+        (upper, 0) => format!("{} {}", numbers_to_words(&upper), order),
         (upper, lower) => {
-            format!("{} {} {}", encode(&upper), order, encode(&lower))
+            format!(
+                "{} {} {}",
+                numbers_to_words(&upper),
+                order,
+                numbers_to_words(&lower)
+            )
         }
     }
 }
@@ -72,25 +77,25 @@ mod tests {
 
     #[test]
     fn numbers_to_letters_one() {
-        let result = encode(&5);
+        let result = numbers_to_words(&5);
         assert_eq!("five".to_string(), result);
     }
 
     #[test]
     fn numbers_to_letters_zero() {
-        let result = encode(&0);
+        let result = numbers_to_words(&0);
         assert_eq!("zero".to_string(), result);
     }
 
     #[test]
     fn numbers_to_letters_few() {
-        let result = encode(&999);
+        let result = numbers_to_words(&999);
         assert_eq!("nine hundred ninety-nine".to_string(), result);
     }
 
     #[test]
     fn numbers_to_letters_many() {
-        let result = encode(&123_324_324);
+        let result = numbers_to_words(&123_324_324);
         assert_eq!("one hundred twenty-three million three hundred twenty-four thousand three hundred twenty-four".to_string(), result);
     }
 }

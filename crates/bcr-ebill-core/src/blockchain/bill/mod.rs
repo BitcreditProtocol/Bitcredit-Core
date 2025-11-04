@@ -1,3 +1,4 @@
+use bcr_common::core::BillId;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use chain::BillBlockPlaintextWrapper;
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ pub use chain::BillBlockchain;
 
 use crate::{
     BitcoinAddress, PublicKey, SecretKey,
-    bill::{BillId, BillKeys},
+    bill::BillKeys,
     block_id::BlockId,
     blockchain::{Result, bill::block::BillParticipantBlockData},
     contact::BillParticipant,

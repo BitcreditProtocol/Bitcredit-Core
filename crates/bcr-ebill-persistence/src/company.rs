@@ -1,6 +1,7 @@
+use bcr_common::core::NodeId;
+use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::blockchain::company::{CompanyBlock, CompanyBlockchain};
 use bcr_ebill_core::company::{Company, CompanyKeys};
-use bcr_ebill_core::{NodeId, ServiceTraitBounds};
 use std::collections::HashMap;
 
 use super::Result;

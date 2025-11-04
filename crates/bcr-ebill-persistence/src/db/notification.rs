@@ -1,3 +1,4 @@
+use bcr_common::core::{BillId, NodeId};
 use std::collections::{HashMap, hash_map::Entry};
 
 use super::{
@@ -14,8 +15,7 @@ use crate::{
     notification::{NotificationFilter, NotificationStoreApi},
 };
 use bcr_ebill_core::{
-    DateTimeUtc, NodeId,
-    bill::BillId,
+    DateTimeUtc,
     notification::{Notification, NotificationType},
     timestamp::Timestamp,
 };
@@ -304,7 +304,7 @@ struct SentBlockNotificationDb {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::{bill::BillId, timestamp::Timestamp};
+    use bcr_ebill_core::timestamp::Timestamp;
     use serde_json::json;
     use uuid::Uuid;
 

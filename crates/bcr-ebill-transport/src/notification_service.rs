@@ -8,16 +8,19 @@ use crate::handler::{
 };
 use crate::nostr::NostrClient;
 use async_trait::async_trait;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_api::service::notification_service::{NostrConfig, NostrContactData};
-use bcr_ebill_api::util::{base58_decode, base58_encode};
+use bcr_ebill_api::util::{validate_bill_id_network, validate_node_id_network};
 use bcr_ebill_core::address::Address;
-use bcr_ebill_core::bill::BillId;
+use bcr_ebill_core::bill::BitcreditBill;
 use bcr_ebill_core::blockchain::BlockchainType;
 use bcr_ebill_core::city::City;
 use bcr_ebill_core::company::Company;
-use bcr_ebill_core::contact::{BillAnonParticipant, BillParticipant, ContactType};
+use bcr_ebill_core::contact::{
+    BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
+};
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::email::Email;
 use bcr_ebill_core::hash::Sha256Hash;
@@ -28,29 +31,22 @@ use bcr_ebill_core::protocol::{
     EventEnvelope, IdentityChainEvent,
 };
 use bcr_ebill_core::sum::Sum;
-use bcr_ebill_core::util::BcrKeys;
-use bcr_ebill_persistence::ContactStoreApi;
+use bcr_ebill_core::util::{BcrKeys, base58_decode, base58_encode};
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
     NostrQueuedMessageStoreApi,
 };
-use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
+use bcr_ebill_persistence::{ContactStoreApi, NotificationStoreApi};
 use log::{debug, error, warn};
 use tokio::sync::Mutex;
 use tokio::task::spawn;
 use tokio_with_wasm::alias as tokio;
 
-use bcr_ebill_api::data::{
-    bill::BitcreditBill,
-    contact::BillIdentParticipant,
-    notification::{Notification, NotificationType},
-};
-use bcr_ebill_api::data::{validate_bill_id_network, validate_node_id_network};
 use bcr_ebill_api::get_config;
-use bcr_ebill_api::persistence::notification::{NotificationFilter, NotificationStoreApi};
 use bcr_ebill_api::service::notification_service::{Error, NotificationServiceApi, Result};
-use bcr_ebill_core::notification::{ActionType, BillEventType};
-use bcr_ebill_core::{NodeId, PostalAddress, ServiceTraitBounds};
+use bcr_ebill_core::notification::{ActionType, BillEventType, Notification, NotificationType};
+use bcr_ebill_core::{PostalAddress, ServiceTraitBounds};
 
 /// A default implementation of the NotificationServiceApi that can
 /// send events via json and email transports.
@@ -1181,7 +1177,6 @@ impl NotificationServiceApi for NotificationService {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_api::util::base58_encode;
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,

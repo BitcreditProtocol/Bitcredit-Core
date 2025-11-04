@@ -1,5 +1,4 @@
 use crate::{
-    NodeId,
     blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData},
     city::City,
     country::Country,
@@ -8,6 +7,7 @@ use crate::{
     identification::Identification,
     name::Name,
 };
+use bcr_common::core::NodeId;
 
 use super::{File, PostalAddress};
 use secp256k1::{PublicKey, SecretKey};

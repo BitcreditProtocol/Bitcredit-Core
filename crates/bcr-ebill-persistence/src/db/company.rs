@@ -5,7 +5,7 @@ use super::{
 use crate::constants::{DB_SEARCH_TERM, DB_TABLE};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
     city::City,
     company::{Company, CompanyKeys},
     country::Country,
@@ -16,6 +16,7 @@ use bcr_ebill_core::{
 };
 
 use crate::{Error, company::CompanyStoreApi};
+use bcr_common::core::NodeId;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
 use surrealdb::sql::Thing;

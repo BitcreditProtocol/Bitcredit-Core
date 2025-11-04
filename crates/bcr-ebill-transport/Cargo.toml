@@ -8,6 +8,7 @@ license.workspace = true
 doctest = false
 
 [dependencies]
+bcr-common.workspace = true
 bcr-ebill-core.workspace = true
 bcr-ebill-persistence.workspace = true
 bcr-ebill-api.workspace = true

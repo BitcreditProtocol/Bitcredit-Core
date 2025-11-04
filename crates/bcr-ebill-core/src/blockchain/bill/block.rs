@@ -5,7 +5,7 @@ use super::BillOpCode::{
     RejectToPayRecourse, RequestRecourse, RequestToAccept, RequestToPay, Sell,
 };
 
-use crate::bill::{BillAction, BillHistoryBlock, BillId, LightSignedBy, RecourseReason};
+use crate::bill::{BillAction, BillHistoryBlock, LightSignedBy, RecourseReason};
 use crate::block_id::BlockId;
 use crate::blockchain::Block;
 use crate::city::City;
@@ -31,7 +31,8 @@ use crate::contact::{
     LightBillIdentParticipantWithAddress, LightBillParticipant,
 };
 use crate::identity::Identity;
-use crate::{BitcoinAddress, File, NodeId, PostalAddress, Validate, ValidationError};
+use crate::{BitcoinAddress, File, PostalAddress, Validate, ValidationError};
+use bcr_common::core::{BillId, NodeId};
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -82,20 +83,6 @@ pub struct BillRejectBlockData {
     pub signing_address: PostalAddress,
 }
 
-impl Validate for BillRejectBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.rejecter.validate()?;
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
-
-        Ok(())
-    }
-}
-
 /// Data for reject to buy
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRejectToBuyBlockData {
@@ -103,20 +90,6 @@ pub struct BillRejectToBuyBlockData {
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>,
-}
-
-impl Validate for BillRejectToBuyBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.rejecter.validate()?;
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
-
-        Ok(())
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
@@ -143,16 +116,6 @@ impl Validate for BillIssueBlockData {
         if self.drawee.node_id == self.payee.node_id() {
             return Err(ValidationError::DraweeCantBePayee);
         }
-
-        self.drawee.validate()?;
-        self.drawer.validate()?;
-        self.payee.validate()?;
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -193,20 +156,6 @@ pub struct BillAcceptBlockData {
     pub signing_address: PostalAddress, // address of the accepter
 }
 
-impl Validate for BillAcceptBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.accepter.validate()?;
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
-
-        Ok(())
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToPayBlockData {
     pub requester: BillParticipantBlockData, // requester is holder and can be anon
@@ -219,12 +168,6 @@ pub struct BillRequestToPayBlockData {
 
 impl Validate for BillRequestToPayBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.requester.validate()?;
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
         // The deadline has to be at or after the end of the day of signing time plus 48h
         let signing_ts_plus_minimum_deadline = self.signing_timestamp + PAYMENT_DEADLINE_SECONDS;
         if !signing_ts_plus_minimum_deadline
@@ -232,8 +175,6 @@ impl Validate for BillRequestToPayBlockData {
         {
             return Err(ValidationError::DeadlineBeforeMinimum);
         }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -250,14 +191,6 @@ pub struct BillRequestToAcceptBlockData {
 
 impl Validate for BillRequestToAcceptBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.requester.validate()?;
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
-
         // The deadline has to be at or after the end of the day of signing time plus 48h
         let signing_ts_plus_minimum_deadline = self.signing_timestamp + ACCEPT_DEADLINE_SECONDS;
         if !signing_ts_plus_minimum_deadline
@@ -282,18 +215,9 @@ pub struct BillMintBlockData {
 
 impl Validate for BillMintBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.endorser.validate()?;
-        self.endorsee.validate()?;
-
         if self.endorsee.node_id() == self.endorser.node_id() {
             return Err(ValidationError::EndorserCantBeEndorsee);
         }
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -317,15 +241,8 @@ pub struct BillOfferToSellBlockData {
 
 impl Validate for BillOfferToSellBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.seller.validate()?;
-        self.buyer.validate()?;
-
         if self.buyer.node_id() == self.seller.node_id() {
             return Err(ValidationError::BuyerCantBeSeller);
-        }
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
         }
 
         // The deadline has to be at or after the end of the day of signing time
@@ -335,8 +252,6 @@ impl Validate for BillOfferToSellBlockData {
         {
             return Err(ValidationError::DeadlineBeforeMinimum);
         }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -359,18 +274,9 @@ pub struct BillSellBlockData {
 
 impl Validate for BillSellBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.seller.validate()?;
-        self.buyer.validate()?;
-
         if self.buyer.node_id() == self.seller.node_id() {
             return Err(ValidationError::BuyerCantBeSeller);
         }
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -387,18 +293,9 @@ pub struct BillEndorseBlockData {
 
 impl Validate for BillEndorseBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.endorser.validate()?;
-        self.endorsee.validate()?;
-
         if self.endorsee.node_id() == self.endorser.node_id() {
             return Err(ValidationError::EndorserCantBeEndorsee);
         }
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -424,15 +321,8 @@ pub enum BillRecourseReasonBlockData {
 
 impl Validate for BillRequestRecourseBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.recourser.validate()?;
-        self.recoursee.validate()?;
-
         if self.recoursee.node_id == self.recourser.node_id() {
             return Err(ValidationError::RecourserCantBeRecoursee);
-        }
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
         }
 
         // The deadline has to be at or after the end of the day of signing time plus 48h
@@ -442,8 +332,6 @@ impl Validate for BillRequestRecourseBlockData {
         {
             return Err(ValidationError::DeadlineBeforeMinimum);
         }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -462,18 +350,9 @@ pub struct BillRecourseBlockData {
 
 impl Validate for BillRecourseBlockData {
     fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.recourser.validate()?;
-        self.recoursee.validate()?;
-
         if self.recoursee.node_id == self.recourser.node_id() {
             return Err(ValidationError::RecourserCantBeRecoursee);
         }
-
-        if let Some(ref signatory) = self.signatory {
-            signatory.validate()?;
-        }
-
-        self.signing_address.validate()?;
 
         Ok(())
     }
@@ -531,30 +410,10 @@ impl From<BillParticipantBlockData> for BillParticipant {
     }
 }
 
-impl Validate for BillParticipantBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        match self {
-            BillParticipantBlockData::Anon(data) => {
-                data.validate()?;
-            }
-            BillParticipantBlockData::Ident(data) => {
-                data.validate()?;
-            }
-        }
-        Ok(())
-    }
-}
-
 /// Anon bill participany data
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BillAnonParticipantBlockData {
     pub node_id: NodeId,
-}
-
-impl Validate for BillAnonParticipantBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        Ok(())
-    }
 }
 
 /// Legal data for parties of a bill within the liability chain
@@ -569,13 +428,6 @@ pub struct BillIdentParticipantBlockData {
 impl BillIdentParticipantBlockData {
     pub fn node_id(&self) -> NodeId {
         self.node_id.clone()
-    }
-}
-
-impl Validate for BillIdentParticipantBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        self.postal_address.validate()?;
-        Ok(())
     }
 }
 
@@ -653,12 +505,6 @@ impl From<BillIdentParticipantBlockData> for LightBillIdentParticipant {
 pub struct BillSignatoryBlockData {
     pub node_id: NodeId,
     pub name: Name,
-}
-
-impl Validate for BillSignatoryBlockData {
-    fn validate(&self) -> std::result::Result<(), ValidationError> {
-        Ok(())
-    }
 }
 
 impl From<Identity> for BillSignatoryBlockData {
@@ -1644,7 +1490,7 @@ impl BillBlock {
             }
             Accept => {
                 let data: BillAcceptBlockData = self.get_decrypted_block(bill_keys)?;
-                data.validate()?;
+                // nothing to validate - all checked via type system
                 (
                     data.accepter.node_id,
                     data.signatory.map(|s| s.node_id),
@@ -1691,7 +1537,7 @@ impl BillBlock {
             }
             RejectToAccept => {
                 let data: BillRejectBlockData = self.get_decrypted_block(bill_keys)?;
-                data.validate()?;
+                // nothing to validate - all checked via type system
                 (
                     data.rejecter.node_id,
                     data.signatory.map(|s| s.node_id),
@@ -1700,7 +1546,7 @@ impl BillBlock {
             }
             RejectToBuy => {
                 let data: BillRejectToBuyBlockData = self.get_decrypted_block(bill_keys)?;
-                data.validate()?;
+                // nothing to validate - all checked via type system
                 (
                     data.rejecter.node_id(),
                     data.signatory.map(|s| s.node_id),
@@ -1709,7 +1555,7 @@ impl BillBlock {
             }
             RejectToPay => {
                 let data: BillRejectBlockData = self.get_decrypted_block(bill_keys)?;
-                data.validate()?;
+                // nothing to validate - all checked via type system
                 (
                     data.rejecter.node_id,
                     data.signatory.map(|s| s.node_id),
@@ -1718,7 +1564,7 @@ impl BillBlock {
             }
             RejectToPayRecourse => {
                 let data: BillRejectBlockData = self.get_decrypted_block(bill_keys)?;
-                data.validate()?;
+                // nothing to validate - all checked via type system
                 (
                     data.rejecter.node_id,
                     data.signatory.map(|s| s.node_id),
@@ -3261,21 +3107,11 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn test_valid_bill_identity_block_data() {
-        assert_eq!(valid_bill_identity_block_data().validate(), Ok(()));
-    }
-
     fn valid_bill_signatory_block_data() -> BillSignatoryBlockData {
         BillSignatoryBlockData {
             node_id: node_id_test(),
             name: Name::new("Johanna Smith").unwrap(),
         }
-    }
-
-    #[test]
-    fn test_valid_bill_signatory_block_data() {
-        assert_eq!(valid_bill_signatory_block_data().validate(), Ok(()));
     }
 
     pub fn valid_bill_issue_block_data() -> BillIssueBlockData {
@@ -3318,21 +3154,6 @@ pub mod tests {
     #[test]
     fn test_valid_req_to_accept_block_data() {
         let accept = valid_req_to_accept_block_data();
-        assert_eq!(accept.validate(), Ok(()));
-    }
-
-    fn valid_accept_block_data() -> BillAcceptBlockData {
-        BillAcceptBlockData {
-            accepter: valid_bill_identity_block_data(),
-            signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
-            signing_address: valid_address(),
-        }
-    }
-
-    #[test]
-    fn test_valid_accept_block_data() {
-        let accept = valid_accept_block_data();
         assert_eq!(accept.validate(), Ok(()));
     }
 
@@ -3459,21 +3280,6 @@ pub mod tests {
     #[test]
     fn test_valid_recourse_block_data() {
         let accept = valid_recourse_block_data();
-        assert_eq!(accept.validate(), Ok(()));
-    }
-
-    fn valid_reject_block_data() -> BillRejectBlockData {
-        BillRejectBlockData {
-            rejecter: valid_bill_identity_block_data(),
-            signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
-            signing_address: valid_address(),
-        }
-    }
-
-    #[test]
-    fn test_valid_reject_block_data() {
-        let accept = valid_reject_block_data();
         assert_eq!(accept.validate(), Ok(()));
     }
 }

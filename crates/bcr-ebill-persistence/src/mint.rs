@@ -1,9 +1,9 @@
 use super::Result;
 use async_trait::async_trait;
 
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
-    bill::BillId,
+    ServiceTraitBounds,
     mint::{MintOffer, MintRequest, MintRequestStatus},
     sum::Sum,
     timestamp::Timestamp,

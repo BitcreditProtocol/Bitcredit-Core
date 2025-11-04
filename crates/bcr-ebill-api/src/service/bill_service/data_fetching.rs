@@ -1,5 +1,6 @@
 use super::service::BillService;
 use super::{Error, Result};
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use bcr_ebill_core::bill::{
     BillCallerActions, BillCallerBillAction, BillMintStatus, BillShallowValidationData,
@@ -12,11 +13,11 @@ use bcr_ebill_core::date::Date;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::sum::Sum;
 use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{NodeId, Validate, ValidationError};
+use bcr_ebill_core::{Validate, ValidationError};
 use bcr_ebill_core::{
     bill::{
-        BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillId, BillKeys,
-        BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
+        BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillKeys, BillParticipants,
+        BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
         BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
         BitcreditBill, BitcreditBillResult,
     },

@@ -1,37 +1,25 @@
 use super::Result;
 use super::notification_service::NotificationServiceApi;
-use crate::blockchain::Blockchain;
-use crate::blockchain::company::{
-    CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain, CompanyCreateBlockData,
-    CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+use crate::external::file_storage::FileStorageClientApi;
+use crate::get_config;
+use crate::service::Error;
+use crate::service::file_upload_service::UploadFileType;
+use crate::service::notification_service::{BcrMetadata, NostrContactData};
+use crate::util::{self, validate_node_id_network};
+use async_trait::async_trait;
+use bcr_common::core::NodeId;
+use bcr_ebill_core::blockchain::Blockchain;
+use bcr_ebill_core::blockchain::company::{
+    CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain,
+    CompanyCreateBlockData, CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
 };
-use crate::blockchain::identity::{
+use bcr_ebill_core::blockchain::identity::{
     IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
     IdentityRemoveSignatoryBlockData,
 };
-use crate::data::validate_node_id_network;
-use crate::data::{
-    File, OptionalPostalAddress, PostalAddress,
-    company::{Company, CompanyKeys},
-    contact::{Contact, ContactType},
-};
-use crate::external::file_storage::FileStorageClientApi;
-use crate::get_config;
-use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
-use crate::persistence::identity::IdentityChainStoreApi;
-use crate::service::Error;
-use crate::service::notification_service::{BcrMetadata, NostrContactData};
-use crate::util::BcrKeys;
-use crate::util::file::UploadFileType;
-use crate::{
-    persistence::{
-        contact::ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
-    },
-    util,
-};
-use async_trait::async_trait;
-use bcr_ebill_core::blockchain::company::CompanyBlockPlaintextWrapper;
 use bcr_ebill_core::city::City;
+use bcr_ebill_core::company::{Company, CompanyKeys};
+use bcr_ebill_core::contact::{Contact, ContactType};
 use bcr_ebill_core::country::Country;
 use bcr_ebill_core::date::Date;
 use bcr_ebill_core::email::Email;
@@ -40,12 +28,17 @@ use bcr_ebill_core::identification::Identification;
 use bcr_ebill_core::identity::IdentityType;
 use bcr_ebill_core::name::Name;
 use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::base58_encode;
 use bcr_ebill_core::util::crypto::DeriveKeypair;
+use bcr_ebill_core::util::{BcrKeys, base58_encode, crypto};
+use bcr_ebill_core::{File, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_core::{
-    NodeId, PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
     protocol::{CompanyChainEvent, IdentityChainEvent},
 };
+use bcr_ebill_persistence::ContactStoreApi;
+use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
+use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
+use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{debug, error, info};
 use std::sync::Arc;
@@ -216,7 +209,7 @@ impl CompanyService {
         relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
         let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
         info!("Saved company file {file_name} with hash {file_hash} for company {id}");
         Ok(File {
@@ -274,7 +267,7 @@ fn get_bcr_data(
         is_logical: false,
     };
     let payload = serde_json::to_string(&contact)?;
-    let encrypted = base58_encode(&util::crypto::encrypt_ecies(
+    let encrypted = base58_encode(&crypto::encrypt_ecies(
         payload.as_bytes(),
         &derived_keys.public_key(),
     )?);
@@ -951,7 +944,7 @@ impl CompanyServiceApi for CompanyService {
                     .file_upload_client
                     .download(nostr_relay, &file.nostr_hash)
                     .await?;
-                let decrypted = util::crypto::decrypt_ecies(&file_bytes, private_key)?;
+                let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
                 let file_hash = Sha256Hash::from_bytes(&decrypted);
                 if file_hash != file.hash {
                     error!("Hash for company file {file_name} did not match uploaded file");
@@ -1017,8 +1010,6 @@ impl CompanyServiceApi for CompanyService {
 pub mod tests {
     use super::*;
     use crate::{
-        blockchain::{Blockchain, identity::IdentityBlockchain},
-        data::identity::IdentityWithAll,
         external::file_storage::MockFileStorageClientApi,
         service::{
             bill_service::test_utils::get_baseline_identity,
@@ -1033,11 +1024,12 @@ pub mod tests {
         },
         util::get_uuid_v4,
     };
-    use bcr_ebill_core::country::Country;
+    use bcr_ebill_core::{
+        blockchain::identity::IdentityBlockchain, country::Country, identity::IdentityWithAll,
+    };
     use mockall::predicate::eq;
     use nostr::hashes::sha256::Hash as Sha256HexHash;
     use std::{collections::HashMap, str::FromStr};
-    use util::BcrKeys;
 
     fn get_service(
         mock_storage: MockCompanyStoreApiMock,
@@ -2501,7 +2493,7 @@ pub mod tests {
         let file_bytes = String::from("hello world").as_bytes().to_vec();
 
         let expected_encrypted =
-            util::crypto::encrypt_ecies(&file_bytes, &node_id_test().pub_key()).unwrap();
+            crypto::encrypt_ecies(&file_bytes, &node_id_test().pub_key()).unwrap();
 
         let (
             storage,

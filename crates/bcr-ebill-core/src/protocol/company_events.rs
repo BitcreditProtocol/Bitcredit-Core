@@ -1,11 +1,11 @@
 use crate::{
-    NodeId,
     blockchain::{
         Blockchain,
         company::{CompanyBlock, CompanyBlockchain},
     },
     company::{Company, CompanyKeys},
 };
+use bcr_common::core::NodeId;
 
 use super::{
     Event,

@@ -1,6 +1,5 @@
-use bcr_ebill_api::data::{
-    NodeId,
-    bill::BillId,
+use bcr_common::core::{BillId, NodeId};
+use bcr_ebill_core::{
     mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus},
     timestamp::Timestamp,
 };

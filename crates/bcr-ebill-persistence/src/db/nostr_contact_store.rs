@@ -7,8 +7,9 @@ use crate::{
     nostr::NostrContactStoreApi,
 };
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    NodeId, SecretKey, ServiceTraitBounds,
+    SecretKey, ServiceTraitBounds,
     name::Name,
     nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
 };

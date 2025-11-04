@@ -1,4 +1,5 @@
-use crate::{NodeId, blockchain::identity::IdentityBlock, identity::Identity, util::BcrKeys};
+use crate::{blockchain::identity::IdentityBlock, identity::Identity, util::BcrKeys};
+use bcr_common::core::NodeId;
 
 use super::{Event, blockchain_event::IdentityBlockEvent};
 

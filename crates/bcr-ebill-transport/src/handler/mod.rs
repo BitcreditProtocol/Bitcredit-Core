@@ -1,9 +1,10 @@
 use crate::{Result, handler::public_chain_helpers::EventContainer};
 use async_trait::async_trait;
-use bcr_ebill_api::util::BcrKeys;
+use bcr_common::core::{BillId, NodeId};
+use bcr_ebill_core::util::BcrKeys;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
-    bill::{BillId, BillKeys},
+    ServiceTraitBounds,
+    bill::BillKeys,
     blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     company::CompanyKeys,
     protocol::EventEnvelope,
@@ -331,10 +332,11 @@ mod tests {
 mod test_utils {
 
     use async_trait::async_trait;
+    use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{
-        NodeId, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
+        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
         address::Address,
-        bill::{BillId, BillKeys, BitcreditBill, BitcreditBillResult, PaymentState},
+        bill::{BillKeys, BitcreditBill, BitcreditBillResult, PaymentState},
         block_id::BlockId,
         blockchain::{
             bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},

@@ -37,7 +37,6 @@ pub mod timestamp;
 pub mod util;
 pub mod zip;
 
-pub use bcr_common::core::NodeId;
 pub use bitcoin::secp256k1::{PublicKey, SecretKey};
 
 use crate::{
@@ -68,21 +67,6 @@ pub struct PostalAddress {
     pub address: Address,
 }
 
-impl Validate for PostalAddress {
-    fn validate(&self) -> Result<(), ValidationError> {
-        Ok(())
-    }
-}
-
-impl Validate for Option<PostalAddress> {
-    fn validate(&self) -> Result<(), ValidationError> {
-        if let Some(data) = self {
-            data.validate()?;
-        }
-        Ok(())
-    }
-}
-
 impl fmt::Display for PostalAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.zip {
@@ -108,12 +92,6 @@ pub struct OptionalPostalAddress {
     pub city: Option<City>,
     pub zip: Option<Zip>,
     pub address: Option<Address>,
-}
-
-impl Validate for OptionalPostalAddress {
-    fn validate(&self) -> Result<(), ValidationError> {
-        Ok(())
-    }
 }
 
 impl OptionalPostalAddress {
@@ -505,10 +483,6 @@ pub enum ValidationError {
     /// error returned if the given node is not a local one (company or identity)
     #[error("The provided node_id: {0} is not a valid company id, or personal node_id")]
     UnknownNodeId(String),
-
-    /// error returned if the given surrealdb connection doesn't support backup
-    #[error("Backup not supported for given SurrealDB connection")]
-    BackupNotSupported,
 
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]

@@ -1,9 +1,10 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
+use bcr_common::core::NodeId;
 use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds, ValidationError,
+    ServiceTraitBounds, ValidationError,
     blockchain::{BlockchainType, company::CompanyBlock},
     company::CompanyKeys,
     protocol::{ChainInvite, Event},

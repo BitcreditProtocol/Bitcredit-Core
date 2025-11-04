@@ -3,9 +3,10 @@ use super::{Error, Result};
 use crate::constants::{
     SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
 };
+use bcr_common::core::BillId;
 use bcr_ebill_core::{
-    File, OptionalPostalAddress, PostalAddress, address::Address, bill::BillId, city::City,
-    country::Country, hash::Sha256Hash, name::Name, zip::Zip,
+    File, OptionalPostalAddress, PostalAddress, address::Address, city::City, country::Country,
+    hash::Sha256Hash, name::Name, zip::Zip,
 };
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
@@ -15,14 +16,12 @@ use surrealdb::{
     engine::any::{Any, connect},
 };
 
-pub mod backup;
 pub mod bill;
 pub mod bill_chain;
 pub mod company;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
-#[cfg(any(target_arch = "wasm32", test))]
 pub mod file_upload;
 pub mod identity;
 pub mod identity_chain;

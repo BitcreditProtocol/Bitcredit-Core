@@ -1,16 +1,14 @@
-use bcr_ebill_api::{
-    data::{
-        NodeId,
-        city::City,
-        company::Company,
-        contact::{Contact, ContactType},
-        country::Country,
-        date::Date,
-        email::Email,
-        identification::Identification,
-        name::Name,
-    },
-    util::ValidationError,
+use bcr_common::core::NodeId;
+use bcr_ebill_core::{
+    ValidationError,
+    city::City,
+    company::Company,
+    contact::{Contact, ContactType},
+    country::Country,
+    date::Date,
+    email::Email,
+    identification::Identification,
+    name::Name,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;

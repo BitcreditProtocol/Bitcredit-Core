@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::Result;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    NodeId, ServiceTraitBounds,
-    bill::BillId,
+    ServiceTraitBounds,
     notification::{ActionType, Notification, NotificationType},
 };
 
