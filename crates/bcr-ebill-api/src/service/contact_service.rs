@@ -28,7 +28,7 @@ use crate::{
     Config,
     external::file_storage::FileStorageClientApi,
     get_config,
-    service::{file_upload_service::UploadFileType, notification_service::NotificationServiceApi},
+    service::{file_upload_service::UploadFileType, transport_service::NotificationServiceApi},
     util::{self, validate_node_id_network},
 };
 
@@ -731,7 +731,7 @@ pub mod tests {
         get_config,
         service::{
             Error, bill_service::test_utils::get_baseline_identity,
-            notification_service::MockNotificationServiceApi,
+            transport_service::MockNotificationServiceApi,
         },
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,

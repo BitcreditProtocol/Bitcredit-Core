@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::notification_service::{
+use bcr_ebill_api::service::transport_service::{
     Result, restore::RestoreAccountApi, transport::NotificationJsonTransportApi,
 };
 use bcr_ebill_core::{

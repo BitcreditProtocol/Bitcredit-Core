@@ -1,9 +1,9 @@
 use super::Result;
-use super::notification_service::NotificationServiceApi;
+use super::transport_service::NotificationServiceApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
 use crate::service::file_upload_service::UploadFileType;
-use crate::service::notification_service::{BcrMetadata, NostrContactData};
+use crate::service::transport_service::{BcrMetadata, NostrContactData};
 use crate::util::validate_node_id_network;
 use crate::{get_config, util};
 
@@ -755,7 +755,7 @@ mod tests {
     use super::*;
     use crate::{
         external::file_storage::MockFileStorageClientApi,
-        service::notification_service::MockNotificationServiceApi,
+        service::transport_service::MockNotificationServiceApi,
         tests::tests::{
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
             empty_identity, empty_optional_address, filled_optional_address, init_test_cfg,

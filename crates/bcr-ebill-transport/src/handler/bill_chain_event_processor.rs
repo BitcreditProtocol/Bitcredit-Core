@@ -2,7 +2,7 @@ use crate::handler::public_chain_helpers::{BlockData, EventContainer, resolve_ev
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
-use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::ServiceTraitBounds;
 use bcr_ebill_core::Validate;
 use bcr_ebill_core::bill::BillKeys;

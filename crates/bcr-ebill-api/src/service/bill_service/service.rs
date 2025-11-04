@@ -7,7 +7,7 @@ use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::service::file_upload_service::UploadFileType;
-use crate::service::notification_service::NotificationServiceApi;
+use crate::service::transport_service::NotificationServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};

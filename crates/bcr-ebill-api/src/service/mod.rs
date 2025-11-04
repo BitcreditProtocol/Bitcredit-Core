@@ -4,8 +4,8 @@ pub mod contact_service;
 pub mod file_upload_service;
 pub mod identity_proof_service;
 pub mod identity_service;
-pub mod notification_service;
 pub mod search_service;
+pub mod transport_service;
 
 use crate::external;
 use thiserror::Error;
@@ -26,7 +26,7 @@ pub enum Error {
 
     /// errors stemming from sending or receiving notifications
     #[error("Notification service error: {0}")]
-    NotificationService(#[from] notification_service::Error),
+    NotificationService(#[from] transport_service::Error),
 
     /// errors stemming from handling bills
     #[error("Bill service error: {0}")]

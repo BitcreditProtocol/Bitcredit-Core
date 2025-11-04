@@ -1,10 +1,10 @@
 use super::Result;
-use super::notification_service::NotificationServiceApi;
+use super::transport_service::NotificationServiceApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::service::Error;
 use crate::service::file_upload_service::UploadFileType;
-use crate::service::notification_service::{BcrMetadata, NostrContactData};
+use crate::service::transport_service::{BcrMetadata, NostrContactData};
 use crate::util::{self, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -1014,7 +1014,7 @@ pub mod tests {
         service::{
             bill_service::test_utils::get_baseline_identity,
             contact_service::tests::{get_baseline_contact, get_baseline_nostr_contact},
-            notification_service::MockNotificationServiceApi,
+            transport_service::MockNotificationServiceApi,
         },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,

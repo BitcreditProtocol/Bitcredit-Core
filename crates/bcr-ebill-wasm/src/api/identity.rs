@@ -20,7 +20,7 @@ use bcr_ebill_api::{
     service::{
         Error,
         file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-        notification_service::restore::RestoreAccountApi,
+        transport_service::restore::RestoreAccountApi,
     },
 };
 use bcr_ebill_core::{

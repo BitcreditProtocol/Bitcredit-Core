@@ -27,7 +27,7 @@ use bcr_ebill_api::{
     constants::NOSTR_EVENT_TIME_SLACK,
     service::{
         contact_service::ContactServiceApi,
-        notification_service::{
+        transport_service::{
             Error, NostrConfig, NostrContactData, Result, transport::NotificationJsonTransportApi,
         },
     },
@@ -767,7 +767,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use bcr_common::core::NodeId;
-    use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+    use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;

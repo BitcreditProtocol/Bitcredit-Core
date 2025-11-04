@@ -9,7 +9,7 @@ use bcr_ebill_core::{
     },
 };
 
-use bcr_ebill_api::service::notification_service::{Error, Result};
+use bcr_ebill_api::service::transport_service::{Error, Result};
 
 use log::{error, info};
 

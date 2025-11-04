@@ -1,6 +1,7 @@
 use crate::external;
 use bcr_ebill_core::{name::Name, util::crypto};
 
+pub mod block_transport;
 pub mod chain_keys;
 pub mod restore;
 mod service;

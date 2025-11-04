@@ -10,8 +10,8 @@ use crate::nostr::NostrClient;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::external::email::EmailClientApi;
-use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
-use bcr_ebill_api::service::notification_service::{NostrConfig, NostrContactData};
+use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::{NostrConfig, NostrContactData};
 use bcr_ebill_api::util::{validate_bill_id_network, validate_node_id_network};
 use bcr_ebill_core::address::Address;
 use bcr_ebill_core::bill::BitcreditBill;
@@ -44,7 +44,7 @@ use tokio::task::spawn;
 use tokio_with_wasm::alias as tokio;
 
 use bcr_ebill_api::get_config;
-use bcr_ebill_api::service::notification_service::{Error, NotificationServiceApi, Result};
+use bcr_ebill_api::service::transport_service::{Error, NotificationServiceApi, Result};
 use bcr_ebill_core::notification::{ActionType, BillEventType, Notification, NotificationType};
 use bcr_ebill_core::{PostalAddress, ServiceTraitBounds};
 

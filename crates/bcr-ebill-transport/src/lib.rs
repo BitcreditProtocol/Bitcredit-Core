@@ -1,14 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::notification_service::{Error, Result};
+use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_api::{
     Config, DbContext,
     external::email::EmailClientApi,
     get_config, get_db_context,
     service::{
         contact_service::ContactServiceApi,
-        notification_service::{
+        transport_service::{
             NostrConfig, NotificationServiceApi, transport::NotificationJsonTransportApi,
         },
     },

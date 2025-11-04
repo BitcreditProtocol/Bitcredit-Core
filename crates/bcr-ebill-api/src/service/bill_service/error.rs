@@ -1,4 +1,4 @@
-use crate::{external, service::notification_service};
+use crate::{external, service::transport_service};
 use bcr_ebill_core::{blockchain, util::crypto};
 use thiserror::Error;
 
@@ -34,7 +34,7 @@ pub enum Error {
     Cryptography(#[from] crypto::Error),
 
     #[error("Notification error: {0}")]
-    Notification(#[from] notification_service::Error),
+    Notification(#[from] transport_service::Error),
 
     #[error("Protocol error: {0}")]
     Protocol(#[from] bcr_ebill_core::protocol::ProtocolError),

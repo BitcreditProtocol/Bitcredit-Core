@@ -1,6 +1,6 @@
 use crate::{
     external::identity_proof::IdentityProofApi,
-    service::notification_service::NotificationServiceApi,
+    service::transport_service::NotificationServiceApi,
 };
 
 use super::{Error, Result};
@@ -396,7 +396,7 @@ pub mod tests {
             company_service::tests::{
                 get_baseline_company, get_valid_company_block, get_valid_company_chain,
             },
-            notification_service::MockNotificationServiceApi,
+            transport_service::MockNotificationServiceApi,
         },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockIdentityChainStoreApiMock,

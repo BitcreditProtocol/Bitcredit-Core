@@ -1,6 +1,6 @@
 use bcr_ebill_api::service::bill_service::Error as BillServiceError;
 use bcr_ebill_api::service::{
-    Error as ServiceError, notification_service::Error as NotificationServiceError,
+    Error as ServiceError, transport_service::Error as NotificationServiceError,
 };
 use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::util::crypto;

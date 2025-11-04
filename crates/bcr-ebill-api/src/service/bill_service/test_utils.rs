@@ -4,7 +4,7 @@ use crate::{
     service::{
         company_service::tests::get_valid_company_block,
         contact_service::tests::get_baseline_contact,
-        notification_service::MockNotificationServiceApi,
+        transport_service::MockNotificationServiceApi,
     },
     tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,

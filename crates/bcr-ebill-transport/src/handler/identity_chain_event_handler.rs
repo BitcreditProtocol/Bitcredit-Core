@@ -11,7 +11,7 @@ use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, trace, warn};
 
 use crate::{EventType, transport::root_and_reply_id};
-use bcr_ebill_api::service::notification_service::Result;
+use bcr_ebill_api::service::transport_service::Result;
 
 use super::{IdentityChainEventProcessorApi, NotificationHandlerApi};
 

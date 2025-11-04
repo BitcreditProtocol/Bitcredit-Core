@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
 use bcr_ebill_core::{
     blockchain::Block,
     protocol::{ChainInvite, Event},

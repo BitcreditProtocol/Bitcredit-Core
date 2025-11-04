@@ -13,7 +13,7 @@ use bcr_ebill_api::{
         file_upload_service::{FileUploadService, FileUploadServiceApi},
         identity_proof_service::{IdentityProofService, IdentityProofServiceApi},
         identity_service::{IdentityService, IdentityServiceApi},
-        notification_service::NotificationServiceApi,
+        transport_service::NotificationServiceApi,
         search_service::{SearchService, SearchServiceApi},
     },
 };
