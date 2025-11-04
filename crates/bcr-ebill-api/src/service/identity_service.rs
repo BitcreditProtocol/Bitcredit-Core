@@ -166,7 +166,9 @@ impl IdentityService {
                 .file_upload_store
                 .read_temp_upload_file(upload_id)
                 .await
-                .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+                .map_err(|_| {
+                    crate::service::Error::Validation(ValidationError::NoFileForFileUploadId)
+                })?;
             // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
@@ -720,7 +722,7 @@ impl IdentityServiceApi for IdentityService {
         // if dev mode is off - we return an error
         if !get_config().dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
-            return Err(Error::InvalidOperation);
+            return Err(Error::Validation(ValidationError::InvalidOperation));
         }
 
         // if there is identity yet, we return an error
@@ -1129,11 +1131,10 @@ mod tests {
             let identity = empty_identity();
             Ok(identity)
         });
-        storage.expect_save().returning(|_| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
+        storage
+            .expect_save()
+            .returning(|_| Err(bcr_ebill_persistence::Error::EncodingError))
+            .times(1);
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_get_latest_block().returning(|| {
             let identity = empty_identity();
@@ -1201,11 +1202,9 @@ mod tests {
     #[tokio::test]
     async fn get_identity_propagates_errors() {
         let mut storage = MockIdentityStoreApiMock::new();
-        storage.expect_get().returning(|| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
+        storage
+            .expect_get()
+            .returning(|| Err(bcr_ebill_persistence::Error::EncodingError));
 
         let service = get_service(storage);
         let res = service.get_identity().await;
@@ -1235,11 +1234,9 @@ mod tests {
     #[tokio::test]
     async fn get_full_identity_propagates_errors() {
         let mut storage = MockIdentityStoreApiMock::new();
-        storage.expect_get_full().returning(|| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
+        storage
+            .expect_get_full()
+            .returning(|| Err(bcr_ebill_persistence::Error::EncodingError));
 
         let service = get_service(storage);
         let res = service.get_full_identity().await;

@@ -73,7 +73,7 @@ impl IdentityStoreApi for SurrealIdentityStore {
             .select_one(Self::IDENTITY_TABLE, Self::UNIQUE_ID.to_owned())
             .await?;
         match result {
-            None => Err(Error::NoIdentity),
+            None => Err(Error::NoSuchEntity("identity".to_string(), "".to_string())),
             Some(i) => Ok(i.into()),
         }
     }
@@ -97,7 +97,10 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn get_key_pair(&self) -> Result<BcrKeys> {
         let result: Option<KeyDb> = self.get_db_keys().await?;
         match result {
-            None => Err(Error::NoIdentityKey),
+            None => Err(Error::NoSuchEntity(
+                "identity key pair".to_string(),
+                "".to_string(),
+            )),
             Some(value) => value.try_into(),
         }
     }
@@ -143,7 +146,10 @@ impl IdentityStoreApi for SurrealIdentityStore {
         let result = self.get_db_keys().await?;
         match result {
             Some(key_db) => Ok(key_db.seed_phrase),
-            None => Err(Error::NoSeedPhrase),
+            None => Err(Error::NoSuchEntity(
+                "seedphrase".to_string(),
+                "".to_string(),
+            )),
         }
     }
 

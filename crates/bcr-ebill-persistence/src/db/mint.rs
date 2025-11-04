@@ -169,10 +169,13 @@ impl MintStoreApi for SurrealMintStore {
         // we only add proofs, if there is an offer and it has no proofs yet
         if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
             if offer.proofs.is_some() {
-                return Err(Error::MintOfferAlreadyHasProofs);
+                return Err(Error::Conflict("mint offer already has proofs".to_string()));
             }
         } else {
-            return Err(Error::MintOfferDoesNotExist);
+            return Err(Error::NoSuchEntity(
+                "mint offer".to_string(),
+                mint_request_id.to_string(),
+            ));
         }
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
@@ -193,14 +196,19 @@ impl MintStoreApi for SurrealMintStore {
         // we only add recovery data, if there is an offer and it has no proofs and no recovery data yet
         if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
             if offer.proofs.is_some() {
-                return Err(Error::MintOfferAlreadyHasProofs);
+                return Err(Error::Conflict("mint offer already has proofs".to_string()));
             }
 
             if offer.recovery_data.is_some() {
-                return Err(Error::MintOfferAlreadyHasRecoveryData);
+                return Err(Error::Conflict(
+                    "mint offer already has recovery data".to_string(),
+                ));
             }
         } else {
-            return Err(Error::MintOfferDoesNotExist);
+            return Err(Error::NoSuchEntity(
+                "mint offer".to_string(),
+                mint_request_id.to_string(),
+            ));
         }
         let recovery_data = MintOfferRecoveryDataDb {
             secrets: secrets.to_owned(),
@@ -220,10 +228,16 @@ impl MintStoreApi for SurrealMintStore {
         // we only set to spent, if there is an offer and it has proofs
         if let Ok(Some(offer)) = self.get_offer(mint_request_id).await {
             if offer.proofs.is_none() {
-                return Err(Error::MintOfferHasNoProofs);
+                return Err(Error::NoSuchEntity(
+                    "offer proofs".to_string(),
+                    mint_request_id.to_string(),
+                ));
             }
         } else {
-            return Err(Error::MintOfferDoesNotExist);
+            return Err(Error::NoSuchEntity(
+                "mint offer".to_string(),
+                mint_request_id.to_string(),
+            ));
         }
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::OFFERS_TABLE)?;
@@ -244,7 +258,7 @@ impl MintStoreApi for SurrealMintStore {
     ) -> Result<()> {
         // we only add an offer, if there isn't already an offer for this request
         if let Ok(Some(_)) = self.get_offer(mint_request_id).await {
-            return Err(Error::MintOfferAlreadyExists);
+            return Err(Error::Conflict("mint offer already exists".to_string()));
         }
         let entity = MintOfferDb {
             mint_request_id: mint_request_id.to_string(),
@@ -290,7 +304,8 @@ impl TryFrom<MintOfferDb> for MintOffer {
 
     fn try_from(value: MintOfferDb) -> Result<Self> {
         Ok(Self {
-            mint_request_id: Uuid::from_str(&value.mint_request_id)?,
+            mint_request_id: Uuid::from_str(&value.mint_request_id)
+                .map_err(|_| Error::EncodingError)?,
             keyset_id: value.keyset_id,
             expiration_timestamp: value.expiration_timestamp,
             discounted_sum: value.discounted_sum,
@@ -334,7 +349,8 @@ impl TryFrom<MintRequestDb> for MintRequest {
             requester_node_id: value.requester_node_id,
             bill_id: value.bill_id,
             mint_node_id: value.mint_node_id,
-            mint_request_id: Uuid::from_str(&value.mint_request_id)?,
+            mint_request_id: Uuid::from_str(&value.mint_request_id)
+                .map_err(|_| Error::EncodingError)?,
             timestamp: value.timestamp,
             status: value.status.into(),
         })

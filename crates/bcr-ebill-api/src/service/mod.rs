@@ -20,7 +20,7 @@ pub enum Error {
     #[error("Persistence error: {0}")]
     Persistence(#[from] bcr_ebill_persistence::Error),
 
-    /// errors that currently return early http status code Status::NotFound
+    /// errors stemming from resources that were not found
     #[error("not found")]
     NotFound,
 
@@ -47,18 +47,6 @@ pub enum Error {
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] bcr_ebill_core::blockchain::Error),
 
-    /// std io
-    #[error("Io error: {0}")]
-    Io(#[from] std::io::Error),
-
     #[error("Json error: {0}")]
     Json(#[from] serde_json::Error),
-
-    /// error returned if the given file upload id is not a temp file we have
-    #[error("No file found for file upload id")]
-    NoFileForFileUploadId,
-
-    /// errors stemming from trying to do invalid operations
-    #[error("invalid operation")]
-    InvalidOperation,
 }

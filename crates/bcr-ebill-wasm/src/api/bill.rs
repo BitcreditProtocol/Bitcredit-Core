@@ -525,7 +525,9 @@ impl Bill {
             {
                 Ok(Some(buyer)) => buyer,
                 Ok(None) | Err(_) => {
-                    return Err(BillServiceError::BuyerNotInContacts.into());
+                    return Err(
+                        BillServiceError::Validation(ValidationError::BuyerNotInContacts).into(),
+                    );
                 }
             };
 
@@ -561,7 +563,9 @@ impl Bill {
             {
                 Ok(Some(buyer)) => buyer.into(), // turn contact into anonymous participant
                 Ok(None) | Err(_) => {
-                    return Err(BillServiceError::BuyerNotInContacts.into());
+                    return Err(
+                        BillServiceError::Validation(ValidationError::BuyerNotInContacts).into(),
+                    );
                 }
             };
 
@@ -619,7 +623,10 @@ impl Bill {
             {
                 Ok(Some(endorsee)) => endorsee,
                 Ok(None) | Err(_) => {
-                    return Err(BillServiceError::EndorseeNotInContacts.into());
+                    return Err(BillServiceError::Validation(
+                        ValidationError::EndorseeNotInContacts,
+                    )
+                    .into());
                 }
             };
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
@@ -649,7 +656,10 @@ impl Bill {
             {
                 Ok(Some(endorsee)) => endorsee.into(), // turn contact into anonymous participant
                 Ok(None) | Err(_) => {
-                    return Err(BillServiceError::EndorseeNotInContacts.into());
+                    return Err(BillServiceError::Validation(
+                        ValidationError::EndorseeNotInContacts,
+                    )
+                    .into());
                 }
             };
             let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
@@ -1135,7 +1145,9 @@ async fn request_recourse(
     {
         Ok(Some(nc)) => nc,
         Ok(None) | Err(_) => {
-            return Err(BillServiceError::RecourseeNotInContacts.into());
+            return Err(
+                BillServiceError::Validation(ValidationError::RecourseeNotInContacts).into(),
+            );
         }
     };
 

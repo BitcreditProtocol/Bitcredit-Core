@@ -231,7 +231,12 @@ mod tests {
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoCompanyBlock))
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "company block".to_string(),
+                    node_id_test().to_string(),
+                ))
+            })
             .once();
 
         processor.expect_process_chain_data().never();

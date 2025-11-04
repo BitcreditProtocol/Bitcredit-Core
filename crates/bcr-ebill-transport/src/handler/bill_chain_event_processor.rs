@@ -521,12 +521,22 @@ mod tests {
         bill_store
             .expect_get_keys()
             .with(eq(bill_id_test()))
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "bill block".to_string(),
+                    bill_id_test().to_string(),
+                ))
+            });
 
         bill_chain_store
             .expect_get_chain()
             .with(eq(bill_id_test()))
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "bill block".to_string(),
+                    bill_id_test().to_string(),
+                ))
+            });
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
@@ -594,7 +604,12 @@ mod tests {
             .expect_get_chain()
             .with(eq(bill_id_test()))
             .times(1)
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "bill block".to_string(),
+                    bill_id_test().to_string(),
+                ))
+            });
         bill_chain_store
             .expect_add_block()
             .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
@@ -890,7 +905,12 @@ mod tests {
             .expect_get_chain()
             .with(eq(bill_id_test()))
             .times(1)
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "bill block".to_string(),
+                    bill_id_test().to_string(),
+                ))
+            });
         // should persist the issue block, but fail the second block
         bill_chain_store
             .expect_add_block()
@@ -935,7 +955,12 @@ mod tests {
             .expect_get_chain()
             .with(eq(bill_id_test()))
             .times(1)
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "bill block".to_string(),
+                    bill_id_test().to_string(),
+                ))
+            });
         bill_chain_store
             .expect_add_block()
             .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
@@ -1117,7 +1142,12 @@ mod tests {
             .expect_get_chain()
             .with(eq(bill_id_test()))
             .times(1)
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoBillBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "bill block".to_string(),
+                    bill_id_test().to_string(),
+                ))
+            });
 
         bill_chain_store.expect_add_block().never();
 

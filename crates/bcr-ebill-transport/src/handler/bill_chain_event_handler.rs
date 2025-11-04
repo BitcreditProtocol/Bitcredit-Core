@@ -282,7 +282,12 @@ mod tests {
         bill_store
             .expect_get_keys()
             .with(eq(bill.id))
-            .returning(|_| Err(bcr_ebill_persistence::Error::NoIdentity));
+            .returning(|_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "identity".to_string(),
+                    "".to_string(),
+                ))
+            });
 
         bill_chain_event_processor
             .expect_process_chain_data()
