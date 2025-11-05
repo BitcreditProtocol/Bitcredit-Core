@@ -44,7 +44,6 @@ enum JsErrorType {
     FieldInvalid,
     InvalidSum,
     InvalidCurrency,
-    InvalidPaymentAddress,
     InvalidContentType,
     IdentityCantBeAnon,
     InvalidContactType,
@@ -82,7 +81,6 @@ enum JsErrorType {
     NoFileForFileUploadId,
     NotFound,
     ExternalApi,
-    Io,
     Crypto,
     Persistence,
     Blockchain,
@@ -106,10 +104,8 @@ enum JsErrorType {
     CallerIsNotHolder,
     CallerIsNotRecoursee,
     CallerIsNotBuyer,
-    RequestAlreadyExpired,
     RequestAlreadyRejected,
     BillAlreadyPaid,
-    BillWasNotRequestedToAccept,
     BillWasNotRequestedToPay,
     BillWasNotOfferedToSell,
     BillRequestToAcceptDidNotExpireAndWasNotRejected,
@@ -123,20 +119,17 @@ enum JsErrorType {
     BillIsRequestedToPayAndWaitingForPayment,
     BillIsOfferedToSellAndWaitingForPayment,
     BillIsInRecourseAndWaitingForPayment,
-    BillWasRequestedToPay,
     // general
     SignatoryNotInContacts,
     SignatoryAlreadySignatory,
     CantRemoveLastSignatory,
     NotASignatory,
-    InvalidSecp256k1Key,
     FileIsTooBig,
     FileIsEmpty,
     TooManyFiles,
     InvalidFileName,
     UnknownNodeId,
     CallerMustBeSignatory,
-    InvalidBase58,
     InvalidSignature,
     InvalidHash,
     InvalidUrl,
@@ -165,20 +158,15 @@ impl From<WasmError> for JsErrorData {
         error!("{error}");
         match error {
             WasmError::Service(e) => match e {
-                ServiceError::NoFileForFileUploadId => {
-                    err_400(e, JsErrorType::NoFileForFileUploadId)
-                }
                 ServiceError::NotFound => err_404(e, JsErrorType::NotFound),
                 ServiceError::NotificationService(e) => notification_service_error_data(e),
                 ServiceError::BillService(e) => bill_service_error_data(e),
                 ServiceError::Validation(e) => validation_error_data(e),
                 ServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),
-                ServiceError::Io(e) => err_500(e, JsErrorType::Io),
                 ServiceError::CryptoUtil(e) => err_500(e, JsErrorType::Crypto),
                 ServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
                 ServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
                 ServiceError::Json(e) => err_500(e, JsErrorType::Json),
-                ServiceError::InvalidOperation => err_400(e, JsErrorType::InvalidOperation),
             },
             WasmError::BillService(e) => bill_service_error_data(e),
             WasmError::Validation(e) => validation_error_data(e),
@@ -206,27 +194,8 @@ fn notification_service_error_data(e: NotificationServiceError) -> JsErrorData {
 
 fn bill_service_error_data(e: BillServiceError) -> JsErrorData {
     match e {
-        BillServiceError::DraweeNotInContacts => err_400(e, JsErrorType::DraweeNotInContacts),
-        BillServiceError::PayeeNotInContacts => err_400(e, JsErrorType::PayeeNotInContacts),
-        BillServiceError::BuyerNotInContacts => err_400(e, JsErrorType::BuyerNotInContacts),
-        BillServiceError::EndorseeNotInContacts => err_400(e, JsErrorType::EndorseeNotInContacts),
-        BillServiceError::MintNotInContacts => err_400(e, JsErrorType::MintNotInContacts),
-        BillServiceError::RecourseeNotInContacts => err_400(e, JsErrorType::RecourseeNotInContacts),
-        BillServiceError::CancelMintRequestNotPending => {
-            err_400(e, JsErrorType::CancelMintRequestNotPending)
-        }
-        BillServiceError::RejectMintRequestNotOffered => {
-            err_400(e, JsErrorType::RejectMintRequestNotOffered)
-        }
-        BillServiceError::AcceptMintRequestNotOffered => {
-            err_400(e, JsErrorType::AcceptMintRequestNotOffered)
-        }
-        BillServiceError::AcceptMintOfferExpired => err_400(e, JsErrorType::AcceptMintOfferExpired),
-        BillServiceError::NoFileForFileUploadId => err_400(e, JsErrorType::NoFileForFileUploadId),
-        BillServiceError::InvalidOperation => err_400(e, JsErrorType::InvalidOperation),
         BillServiceError::Validation(e) => validation_error_data(e),
         BillServiceError::NotFound => err_404(e, JsErrorType::NotFound),
-        BillServiceError::Io(e) => err_500(e, JsErrorType::Io),
         BillServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
         BillServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),
         BillServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
@@ -242,7 +211,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::FieldInvalid(_) => err_400(e, JsErrorType::FieldInvalid),
         ValidationError::InvalidSum => err_400(e, JsErrorType::InvalidSum),
         ValidationError::InvalidCurrency => err_400(e, JsErrorType::InvalidCurrency),
-        ValidationError::InvalidPaymentAddress => err_400(e, JsErrorType::InvalidPaymentAddress),
         ValidationError::InvalidContactType => err_400(e, JsErrorType::InvalidContactType),
         ValidationError::InvalidIdentityType => err_400(e, JsErrorType::InvalidIdentityType),
         ValidationError::InvalidContentType => err_400(e, JsErrorType::InvalidContentType),
@@ -275,7 +243,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::RecourserCantBeRecoursee => {
             err_400(e, JsErrorType::RecourserCantBeRecoursee)
         }
-        ValidationError::RequestAlreadyExpired => err_400(e, JsErrorType::RequestAlreadyExpired),
         ValidationError::BillAlreadyAccepted => err_400(e, JsErrorType::BillAlreadyAccepted),
         ValidationError::BillWasRejectedToAccept => {
             err_400(e, JsErrorType::BillWasRejectedToAccept)
@@ -292,9 +259,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::BillWasNotRequestedToPay => {
             err_400(e, JsErrorType::BillWasNotRequestedToPay)
         }
-        ValidationError::BillWasNotRequestedToAccept => {
-            err_400(e, JsErrorType::BillWasNotRequestedToAccept)
-        }
         ValidationError::BillWasNotRequestedToRecourse => {
             err_400(e, JsErrorType::BillWasNotRequestedToRecourse)
         }
@@ -304,7 +268,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::BillIsOfferedToSellAndWaitingForPayment => {
             err_400(e, JsErrorType::BillIsOfferedToSellAndWaitingForPayment)
         }
-        ValidationError::BillWasRequestedToPay => err_400(e, JsErrorType::BillWasRequestedToPay),
         ValidationError::BillIsInRecourseAndWaitingForPayment => {
             err_400(e, JsErrorType::BillIsInRecourseAndWaitingForPayment)
         }
@@ -349,7 +312,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
             err_400(e, JsErrorType::CantRemoveLastSignatory)
         }
         ValidationError::NotASignatory(_) => err_400(e, JsErrorType::NotASignatory),
-        ValidationError::InvalidSecp256k1Key(_) => err_400(e, JsErrorType::InvalidSecp256k1Key),
         ValidationError::FileIsTooBig(_) => err_400(e, JsErrorType::FileIsTooBig),
         ValidationError::FileIsEmpty => err_400(e, JsErrorType::FileIsEmpty),
         ValidationError::TooManyFiles => err_400(e, JsErrorType::TooManyFiles),
@@ -357,7 +319,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::UnknownNodeId(_) => err_400(e, JsErrorType::UnknownNodeId),
         ValidationError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
         ValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
-        ValidationError::InvalidBase58 => err_400(e, JsErrorType::InvalidBase58),
         ValidationError::InvalidSignature => err_400(e, JsErrorType::InvalidSignature),
         ValidationError::InvalidHash => err_400(e, JsErrorType::InvalidHash),
         ValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
@@ -366,6 +327,24 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::InvalidIdentityProofStatus(_) => {
             err_400(e, JsErrorType::InvalidIdentityProofStatus)
         }
+        ValidationError::InvalidOperation => err_400(e, JsErrorType::InvalidOperation),
+        ValidationError::NoFileForFileUploadId => err_400(e, JsErrorType::NoFileForFileUploadId),
+        ValidationError::DraweeNotInContacts => err_400(e, JsErrorType::DraweeNotInContacts),
+        ValidationError::PayeeNotInContacts => err_400(e, JsErrorType::PayeeNotInContacts),
+        ValidationError::BuyerNotInContacts => err_400(e, JsErrorType::BuyerNotInContacts),
+        ValidationError::EndorseeNotInContacts => err_400(e, JsErrorType::EndorseeNotInContacts),
+        ValidationError::MintNotInContacts => err_400(e, JsErrorType::MintNotInContacts),
+        ValidationError::RecourseeNotInContacts => err_400(e, JsErrorType::RecourseeNotInContacts),
+        ValidationError::CancelMintRequestNotPending => {
+            err_400(e, JsErrorType::CancelMintRequestNotPending)
+        }
+        ValidationError::RejectMintRequestNotOffered => {
+            err_400(e, JsErrorType::RejectMintRequestNotOffered)
+        }
+        ValidationError::AcceptMintRequestNotOffered => {
+            err_400(e, JsErrorType::AcceptMintRequestNotOffered)
+        }
+        ValidationError::AcceptMintOfferExpired => err_400(e, JsErrorType::AcceptMintOfferExpired),
     }
 }
 

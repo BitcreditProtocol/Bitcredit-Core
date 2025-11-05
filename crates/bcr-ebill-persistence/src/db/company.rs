@@ -5,7 +5,7 @@ use super::{
 use crate::constants::{DB_SEARCH_TERM, DB_TABLE};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
+    PublicKey, SecretKey, ServiceTraitBounds,
     city::City,
     company::{Company, CompanyKeys},
     country::Country,
@@ -78,7 +78,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
             .into_iter()
             .map(|company| {
                 let id =
-                    NodeId::from_str(&company.id.id.to_raw()).map_err(ValidationError::from)?;
+                    NodeId::from_str(&company.id.id.to_raw()).map_err(|_| Error::EncodingError)?;
                 Ok((id, company))
             })
             .collect::<Result<_>>()?;
@@ -86,7 +86,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
             .into_iter()
             .filter_map(|keys| {
                 keys.id.clone().map(|id| {
-                    let id = NodeId::from_str(&id.id.to_raw()).map_err(ValidationError::from)?;
+                    let id = NodeId::from_str(&id.id.to_raw()).map_err(|_| Error::EncodingError)?;
                     Ok((id, keys))
                 })
             })
@@ -182,7 +182,7 @@ impl TryFrom<CompanyDb> for Company {
     type Error = Error;
     fn try_from(value: CompanyDb) -> Result<Company> {
         Ok(Self {
-            id: NodeId::from_str(&value.id.id.to_raw()).map_err(ValidationError::from)?,
+            id: NodeId::from_str(&value.id.id.to_raw()).map_err(|_| Error::EncodingError)?,
             name: value.name,
             country_of_registration: value.country_of_registration,
             city_of_registration: value.city_of_registration,

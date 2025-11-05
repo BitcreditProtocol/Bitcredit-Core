@@ -487,9 +487,12 @@ pub mod tests {
             transport,
         ) = create_mocks();
 
-        store
-            .expect_get()
-            .returning(move || Err(bcr_ebill_persistence::Error::NoIdentityBlock));
+        store.expect_get().returning(move || {
+            Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                "identity block".to_string(),
+                node_id_test().to_string(),
+            ))
+        });
 
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),

@@ -1678,7 +1678,9 @@ impl BillServiceApi for BillService {
                 .await?;
             Ok(())
         } else {
-            Err(Error::CancelMintRequestNotPending)
+            Err(Error::Validation(
+                ValidationError::CancelMintRequestNotPending,
+            ))
         }
     }
 
@@ -1742,7 +1744,7 @@ impl BillServiceApi for BillService {
             // and not expired
             if let Ok(Some(offer)) = self.mint_store.get_offer(&req.mint_request_id).await {
                 if offer.expiration_timestamp < timestamp {
-                    return Err(Error::AcceptMintOfferExpired);
+                    return Err(Error::Validation(ValidationError::AcceptMintOfferExpired));
                 }
                 // accept the offer
                 self.mint_client
@@ -1790,7 +1792,9 @@ impl BillServiceApi for BillService {
                 Err(Error::NotFound)
             }
         } else {
-            Err(Error::AcceptMintRequestNotOffered)
+            Err(Error::Validation(
+                ValidationError::AcceptMintRequestNotOffered,
+            ))
         }
     }
 
@@ -1823,7 +1827,9 @@ impl BillServiceApi for BillService {
                 .await?;
             Ok(())
         } else {
-            Err(Error::RejectMintRequestNotOffered)
+            Err(Error::Validation(
+                ValidationError::RejectMintRequestNotOffered,
+            ))
         }
     }
 
@@ -1835,7 +1841,7 @@ impl BillServiceApi for BillService {
         // if dev mode is off - we return an error
         if !get_config().dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
-            return Err(Error::InvalidOperation);
+            return Err(Error::Validation(ValidationError::InvalidOperation));
         }
 
         validate_bill_id_network(bill_id)?;

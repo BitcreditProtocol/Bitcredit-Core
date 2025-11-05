@@ -578,7 +578,12 @@ pub mod tests {
         store
             .expect_get()
             .with(eq(node_id_test()))
-            .returning(move |_| Err(bcr_ebill_persistence::Error::NoCompanyBlock));
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "company block".to_string(),
+                    node_id_test().to_string(),
+                ))
+            });
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -675,11 +680,17 @@ pub mod tests {
             &keys,
         )];
 
+        let node_id_clone = node_id.clone();
         // checks if we already have the chain
         chain_store
             .expect_get_chain()
             .with(eq(node_id.clone()))
-            .returning(|_| Err(bcr_ebill_persistence::Error::NoCompanyBlock))
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "company block".to_string(),
+                    node_id_clone.to_string(),
+                ))
+            })
             .once();
 
         // we need to validate if we are a signatory with our identity
