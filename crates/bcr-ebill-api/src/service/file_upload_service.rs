@@ -5,8 +5,8 @@ use crate::constants::{
 };
 use crate::util::get_uuid_v4;
 use async_trait::async_trait;
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::{ServiceTraitBounds, UploadFileResult, ValidationError};
+use bcr_ebill_core::application::{ServiceTraitBounds, UploadFileResult, ValidationError};
+use bcr_ebill_core::protocol::{Name, ProtocolValidationError};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use log::{debug, error};
 use std::sync::Arc;
@@ -47,42 +47,48 @@ impl ServiceTraitBounds for FileUploadService {}
 impl FileUploadServiceApi for FileUploadService {
     async fn validate_attached_file(&self, file: &dyn UploadFileHandler) -> Result<()> {
         if file.is_empty() {
-            return Err(Error::Validation(ValidationError::FileIsEmpty));
+            return Err(Error::Validation(
+                ProtocolValidationError::FileIsEmpty.into(),
+            ));
         }
 
         if file.len() > MAX_DOCUMENT_FILE_SIZE_BYTES {
-            return Err(Error::Validation(ValidationError::FileIsTooBig(
-                MAX_DOCUMENT_FILE_SIZE_BYTES,
-            )));
+            return Err(Error::Validation(
+                ProtocolValidationError::FileIsTooBig(MAX_DOCUMENT_FILE_SIZE_BYTES).into(),
+            ));
         }
 
         let name = match file.name() {
             Some(n) => n,
             None => {
-                return Err(Error::Validation(ValidationError::InvalidFileName(
-                    MAX_FILE_NAME_CHARACTERS,
-                )));
+                return Err(Error::Validation(
+                    ProtocolValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS).into(),
+                ));
             }
         };
 
         if name.is_empty() || name.len() > MAX_FILE_NAME_CHARACTERS {
-            return Err(Error::Validation(ValidationError::InvalidFileName(
-                MAX_FILE_NAME_CHARACTERS,
-            )));
+            return Err(Error::Validation(
+                ProtocolValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS).into(),
+            ));
         }
 
         let detected_type = match file.detect_content_type().await.map_err(|e| {
             error!("Could not detect content type for file {name}: {e}");
-            Error::Validation(ValidationError::InvalidContentType)
+            Error::Validation(ProtocolValidationError::InvalidContentType.into())
         })? {
             Some(t) => t,
             None => {
-                return Err(Error::Validation(ValidationError::InvalidContentType));
+                return Err(Error::Validation(
+                    ProtocolValidationError::InvalidContentType.into(),
+                ));
             }
         };
 
         if !VALID_FILE_MIME_TYPES.contains(&detected_type.as_str()) {
-            return Err(Error::Validation(ValidationError::InvalidContentType));
+            return Err(Error::Validation(
+                ProtocolValidationError::InvalidContentType.into(),
+            ));
         }
         Ok(())
     }
@@ -93,7 +99,7 @@ impl FileUploadServiceApi for FileUploadService {
         // sanitize and randomize file name and write file into the temporary folder
         let file_name = Name::new(generate_unique_filename(
             &sanitize_filename(&file.name().ok_or(Error::Validation(
-                ValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS),
+                ProtocolValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS).into(),
             ))?),
             file.extension(),
         ))?;

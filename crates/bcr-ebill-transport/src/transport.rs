@@ -1,16 +1,14 @@
 use bcr_ebill_core::{
-    blockchain::BlockchainType,
-    constants::BCR_NOSTR_CHAIN_PREFIX,
-    protocol::EventEnvelope,
-    timestamp::Timestamp,
-    util::{
-        BcrKeys, base58_decode, base58_encode,
-        crypto::{decrypt_ecies, encrypt_ecies},
-    },
+    protocol::Timestamp,
+    protocol::blockchain::BlockchainType,
+    protocol::constants::BCR_NOSTR_CHAIN_PREFIX,
+    protocol::crypto::{BcrKeys, decrypt_ecies, encrypt_ecies},
+    protocol::event::EventEnvelope,
 };
 
 use bcr_ebill_api::service::transport_service::{Error, Result};
 
+use bitcoin::base58;
 use log::{error, info};
 
 use nostr::{
@@ -166,7 +164,7 @@ pub fn root_and_reply_id(event: &Event) -> (Option<EventId>, Option<EventId>) {
 /// Given an encrypted payload and a private key, decrypts the payload and returns
 /// its content as an EventEnvelope.
 pub fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
-    let decrypted = decrypt_ecies(&base58_decode(data)?, &keys.get_private_key())?;
+    let decrypted = decrypt_ecies(&base58::decode(data)?, &keys.get_private_key())?;
     let payload = borsh::from_slice::<EventEnvelope>(&decrypted)?;
     Ok(payload)
 }
@@ -208,7 +206,7 @@ pub fn create_public_chain_event(
     previous_event: Option<Event>,
     root_event: Option<Event>,
 ) -> Result<EventBuilder> {
-    let payload = base58_encode(&encrypt_ecies(&borsh::to_vec(&event)?, &keys.pub_key())?);
+    let payload = base58::encode(&encrypt_ecies(&borsh::to_vec(&event)?, &keys.pub_key())?);
     let event = match previous_event {
         Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None)
             .tag(bcr_nostr_tag(id, blockchain)),
@@ -219,7 +217,7 @@ pub fn create_public_chain_event(
 }
 
 fn extract_text_envelope(message: &str) -> Option<EventEnvelope> {
-    if let Ok(data) = base58_decode(message)
+    if let Ok(data) = base58::decode(message)
         && let Ok(envelope) = borsh::from_slice::<EventEnvelope>(&data)
     {
         Some(envelope)
@@ -231,7 +229,7 @@ fn extract_text_envelope(message: &str) -> Option<EventEnvelope> {
 
 fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
     if rumor.kind == Kind::PrivateDirectMessage
-        && let Ok(data) = base58_decode(rumor.content.as_str())
+        && let Ok(data) = base58::decode(rumor.content.as_str())
         && let Ok(envelope) = borsh::from_slice::<EventEnvelope>(&data)
     {
         Some(envelope)

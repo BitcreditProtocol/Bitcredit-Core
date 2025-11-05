@@ -13,17 +13,16 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    PublicKey, ServiceTraitBounds,
-    block_id::BlockId,
-    blockchain::{
-        Block,
-        company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
+    application::ServiceTraitBounds,
+    protocol::{
+        BlockId, PublicKey, SchnorrSignature, Sha256Hash, Timestamp,
+        blockchain::{
+            Block,
+            company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
+        },
     },
-    hash::Sha256Hash,
-    signature::SchnorrSignature,
-    timestamp::Timestamp,
-    util::{base58_decode, base58_encode},
 };
+use bitcoin::base58;
 use serde::{Deserialize, Serialize};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
@@ -187,7 +186,8 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
             })?;
 
         let blocks: Result<Vec<CompanyBlock>> = result.into_iter().map(|b| b.try_into()).collect();
-        let chain = CompanyBlockchain::new_from_blocks(blocks?)?;
+        let chain =
+            CompanyBlockchain::new_from_blocks(blocks?).map_err(|e| Error::Protocol(e.into()))?;
 
         Ok(chain)
     }
@@ -218,7 +218,7 @@ impl TryFrom<CompanyBlockDb> for CompanyBlock {
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: base58_decode(&value.data).map_err(|_| Error::EncodingError)?,
+            data: base58::decode(&value.data).map_err(|_| Error::EncodingError)?,
             public_key: value.public_key,
             signatory_node_id: value.signatory_node_id,
             previous_hash: value.previous_hash,
@@ -240,7 +240,7 @@ impl From<&CompanyBlock> for CompanyBlockDb {
             timestamp: value.timestamp,
             public_key: value.public_key,
             signatory_node_id: value.signatory_node_id.clone(),
-            data: base58_encode(&value.data.clone()),
+            data: base58::encode(&value.data.clone()),
             op_code: value.op_code.clone(),
         }
     }
@@ -251,18 +251,15 @@ mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
+        protocol::crypto::BcrKeys,
         tests::tests::{empty_address, empty_optional_address, node_id_test, private_key_test},
-        util::BcrKeys,
     };
     use bcr_ebill_core::{
-        blockchain::company::CompanyUpdateBlockData,
-        city::City,
-        company::{Company, CompanyKeys},
-        country::Country,
-        date::Date,
-        email::Email,
-        identification::Identification,
-        name::Name,
+        application::company::Company,
+        protocol::{
+            City, Country, Date, Email, Identification, Name,
+            blockchain::company::CompanyUpdateBlockData,
+        },
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -275,11 +272,8 @@ mod tests {
         })
     }
 
-    fn get_company_keys() -> CompanyKeys {
-        CompanyKeys {
-            private_key: private_key_test(),
-            public_key: node_id_test().pub_key(),
-        }
+    fn get_company_keys() -> BcrKeys {
+        BcrKeys::from_private_key(&private_key_test())
     }
 
     #[tokio::test]

@@ -8,9 +8,9 @@ use bcr_ebill_api::service::transport_service::NostrContactData;
 use bcr_ebill_api::util::validate_node_id_network;
 
 use bcr_ebill_api::service::transport_service::ContactTransportServiceApi;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::protocol::{ContactShareEvent, Event};
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::application::{ContactShareEvent, ServiceTraitBounds};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::event::Event;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::error;
 

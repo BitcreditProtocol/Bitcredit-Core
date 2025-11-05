@@ -3,9 +3,9 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    identity_proof::{IdentityProof, IdentityProofStatus},
-    timestamp::Timestamp,
+    application::ServiceTraitBounds,
+    application::identity_proof::{IdentityProof, IdentityProofStatus},
+    protocol::Timestamp,
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

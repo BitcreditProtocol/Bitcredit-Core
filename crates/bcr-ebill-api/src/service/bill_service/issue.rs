@@ -4,18 +4,23 @@ use crate::{
     util::validate_node_id_network,
 };
 use bcr_common::core::BillId;
-use bcr_ebill_core::{
-    File, PublicKey, Validate, ValidationError,
-    bill::{BillIssueData, BillKeys, BillType, BitcreditBill, validation::validate_bill_issue},
+use bcr_ebill_core::protocol::{
+    File, Name, PublicKey, Sha256Hash, Validate,
     blockchain::{
         Blockchain,
-        bill::{BillBlockchain, block::BillIssueBlockData},
+        bill::{
+            BillBlockchain, BillIssueData, BitcreditBill,
+            block::BillIssueBlockData,
+            participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+            validation::validate_bill_issue,
+        },
     },
-    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
-    hash::Sha256Hash,
-    name::Name,
-    protocol::BillChainEvent,
-    util::{BcrKeys, crypto},
+    crypto::{self, BcrKeys},
+    event::BillChainEvent,
+};
+use bcr_ebill_core::{
+    application::{ValidationError, bill::BillType},
+    protocol::ProtocolValidationError,
 };
 use log::{debug, error, info};
 
@@ -31,9 +36,9 @@ impl BillService {
     ) -> Result<File> {
         // validate file size for upload file type
         if !upload_file_type.check_file_size(file_bytes.len()) {
-            return Err(Error::Validation(ValidationError::FileIsTooBig(
-                upload_file_type.max_file_size(),
-            )));
+            return Err(Error::Validation(
+                ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
+            ));
         }
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
@@ -54,12 +59,20 @@ impl BillService {
         validate_node_id_network(&data.drawee)?;
         validate_node_id_network(&data.payee)?;
         validate_node_id_network(&data.drawer_public_data.node_id())?;
-        let bill_type = validate_bill_issue(&data)?;
+        let bill_type = match data.t {
+            0 => BillType::PromissoryNote,
+            1 => BillType::SelfDrafted,
+            2 => BillType::ThreeParties,
+            _ => return Err(Error::Validation(ValidationError::InvalidBillType)),
+        };
+        validate_bill_issue(&data)?;
 
         let drawer = match data.drawer_public_data {
             BillParticipant::Ident(ref drawer_data) => drawer_data,
             BillParticipant::Anon(_) => {
-                return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                return Err(Error::Validation(
+                    ProtocolValidationError::SignerCantBeAnon.into(),
+                ));
             }
         };
 
@@ -76,7 +89,7 @@ impl BillService {
 
                     if data.blank_issue {
                         return Err(Error::Validation(
-                            ValidationError::SelfDraftedBillCantBeBlank,
+                            ProtocolValidationError::SelfDraftedBillCantBeBlank.into(),
                         ));
                     }
 
@@ -141,17 +154,15 @@ impl BillService {
 
         let identity = self.identity_store.get_full().await?;
         let nostr_relays = identity.identity.nostr_relays.clone();
-        let keys = BcrKeys::new();
-        let public_key = keys.pub_key();
+        let bill_keys = BcrKeys::new();
+        let public_key = bill_keys.pub_key();
 
         let bill_id = BillId::new(public_key, get_config().bitcoin_network());
-        let bill_keys = BillKeys {
-            private_key: keys.get_private_key(),
-            public_key: keys.pub_key(),
-        };
 
         if data.file_upload_ids.len() > MAX_BILL_ATTACHMENTS {
-            return Err(Error::Validation(ValidationError::TooManyFiles));
+            return Err(Error::Validation(
+                ProtocolValidationError::TooManyFiles.into(),
+            ));
         }
 
         let mut bill_files: Vec<File> = vec![];
@@ -177,6 +188,7 @@ impl BillService {
             }
         }
 
+        // TODO: replace with directly creating BillIssueBlockData
         let bill = BitcreditBill {
             id: bill_id.clone(),
             country_of_issuing: data.country_of_issuing,
@@ -210,9 +222,10 @@ impl BillService {
             &block_data,
             signing_keys.signatory_keys,
             signing_keys.company_keys,
-            keys.clone(),
+            bill_keys.clone(),
             data.timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
 
         let block = chain.get_first_block();
         self.blockchain_store.add_block(&bill.id, block).await?;

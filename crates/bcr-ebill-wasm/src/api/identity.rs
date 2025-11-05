@@ -15,23 +15,21 @@ use crate::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_common::core::NodeId;
-use bcr_ebill_api::{
-    external,
-    service::{
-        Error,
-        file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-        transport_service::restore::RestoreAccountApi,
+use bcr_ebill_api::service::{
+    Error,
+    file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
+    transport_service::restore::RestoreAccountApi,
+};
+use bcr_ebill_core::{
+    application::ValidationError,
+    protocol::{
+        City, Country, Date, Email, Identification, Name, OptionalPostalAddress, Timestamp,
+        blockchain::identity::IdentityType,
     },
 };
 use bcr_ebill_core::{
-    OptionalPostalAddress, ValidationError,
-    city::City,
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    identity::{ActiveIdentityState, IdentityType, SwitchIdentityType},
-    name::Name,
+    application::identity::{ActiveIdentityState, SwitchIdentityType},
+    protocol::ProtocolValidationError,
 };
 use bcr_ebill_transport::create_restore_account_service;
 use uuid::Uuid;
@@ -47,8 +45,9 @@ async fn get_file(file_name: &Name) -> Result<(Vec<u8>, String)> {
         .open_and_decrypt_file(identity.identity, &id, file_name, &private_key)
         .await?;
 
-    let content_type = detect_content_type_for_bytes(&file_bytes)
-        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+    let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(Error::Validation(
+        ProtocolValidationError::InvalidContentType.into(),
+    ))?;
     Ok((file_bytes, content_type))
 }
 
@@ -150,7 +149,7 @@ impl Identity {
         let res: Result<IdentityWeb> = async {
             let identity: NewIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
 
             get_ctx()
                 .identity_service
@@ -175,13 +174,15 @@ impl Identity {
                     identity
                         .profile_picture_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     identity
                         .identity_document_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     timestamp,
@@ -204,7 +205,7 @@ impl Identity {
         let res: Result<IdentityWeb> = async {
             let identity: NewIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
 
             get_ctx()
                 .identity_service
@@ -229,13 +230,15 @@ impl Identity {
                     identity
                         .profile_picture_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     identity
                         .identity_document_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     timestamp,
@@ -277,7 +280,7 @@ impl Identity {
             {
                 return Ok(());
             }
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             get_ctx()
                 .identity_service
                 .update_identity(
@@ -303,14 +306,16 @@ impl Identity {
                     identity_payload
                         .profile_picture_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     !has_profile_picture_file_upload_id,
                     identity_payload
                         .identity_document_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     !has_identity_document_file_upload_id,
@@ -449,7 +454,7 @@ impl Identity {
                 .map(|plaintext_block| {
                     plaintext_block
                         .to_json_text()
-                        .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+                        .map_err(|e| WasmError::Service(Error::Protocol(e.into())))
                 })
                 .collect();
 

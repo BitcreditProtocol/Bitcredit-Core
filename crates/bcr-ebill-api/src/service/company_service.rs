@@ -7,38 +7,40 @@ use crate::service::transport_service::{BcrMetadata, NostrContactData, Transport
 use crate::util::{self, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::blockchain::Blockchain;
-use bcr_ebill_core::blockchain::company::{
+use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::application::contact::Contact;
+use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
+use bcr_ebill_core::protocol::Country;
+use bcr_ebill_core::protocol::Date;
+use bcr_ebill_core::protocol::Email;
+use bcr_ebill_core::protocol::Identification;
+use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::Blockchain;
+use bcr_ebill_core::protocol::blockchain::bill::ContactType;
+use bcr_ebill_core::protocol::blockchain::company::{
     CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain,
     CompanyCreateBlockData, CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
 };
-use bcr_ebill_core::blockchain::identity::{
+use bcr_ebill_core::protocol::blockchain::identity::IdentityType;
+use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
     IdentityRemoveSignatoryBlockData,
 };
-use bcr_ebill_core::city::City;
-use bcr_ebill_core::company::{Company, CompanyKeys};
-use bcr_ebill_core::contact::{Contact, ContactType};
-use bcr_ebill_core::country::Country;
-use bcr_ebill_core::date::Date;
-use bcr_ebill_core::email::Email;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::identification::Identification;
-use bcr_ebill_core::identity::IdentityType;
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::crypto::DeriveKeypair;
-use bcr_ebill_core::util::{BcrKeys, base58_encode, crypto};
-use bcr_ebill_core::{File, OptionalPostalAddress, PostalAddress};
-use bcr_ebill_core::{
-    PublicKey, SecretKey, ServiceTraitBounds, ValidationError,
-    protocol::{CompanyChainEvent, IdentityChainEvent},
+use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
+use bcr_ebill_core::protocol::{City, ProtocolValidationError};
+use bcr_ebill_core::protocol::{File, OptionalPostalAddress, PostalAddress};
+use bcr_ebill_core::protocol::{
+    PublicKey, SecretKey,
+    event::{CompanyChainEvent, IdentityChainEvent},
 };
 use bcr_ebill_persistence::ContactStoreApi;
 use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bitcoin::base58;
 use log::{debug, error, info};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -58,7 +60,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     async fn get_company_by_id(&self, id: &NodeId) -> Result<Company>;
 
     /// Get a company and it's keys by id
-    async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, CompanyKeys)>;
+    async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, BcrKeys)>;
 
     /// Create a new company
     async fn create_company(
@@ -128,7 +130,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     ) -> Result<Vec<CompanyBlockPlaintextWrapper>>;
 
     /// Publishes this company's contact to the nostr profile
-    async fn publish_contact(&self, company: &Company, keys: &CompanyKeys) -> Result<()>;
+    async fn publish_contact(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
 }
 
 /// The company service is responsible for managing the companies
@@ -190,7 +192,7 @@ impl CompanyService {
             // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
-                    ValidationError::FileIsTooBig(upload_file_type.max_file_size()),
+                    ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
                 ));
             }
             let file = self
@@ -224,13 +226,13 @@ impl CompanyService {
         &self,
         company: &Company,
         chain: &CompanyBlockchain,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
         new_signatory: Option<NodeId>,
     ) -> Result<()> {
         self.transport_service
             .block_transport()
             .send_company_chain_events(CompanyChainEvent::new(
-                company,
+                &company.id,
                 chain,
                 keys,
                 new_signatory,
@@ -240,19 +242,15 @@ impl CompanyService {
         Ok(())
     }
 
-    async fn on_company_contact_change(&self, company: &Company, keys: &CompanyKeys) -> Result<()> {
+    async fn on_company_contact_change(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         debug!("Company change");
         self.publish_contact(company, keys).await
     }
 }
 
 /// Derives a company contact encryption key, encrypts the contact data with it and returns the BCR metadata.
-fn get_bcr_data(
-    company: &Company,
-    keys: &CompanyKeys,
-    relays: Vec<url::Url>,
-) -> Result<BcrMetadata> {
-    let derived_keys = keys.derive_keypair()?;
+fn get_bcr_data(company: &Company, keys: &BcrKeys, relays: Vec<url::Url>) -> Result<BcrMetadata> {
+    let derived_keys = keys.derive_company_keypair()?;
     let contact = Contact {
         t: ContactType::Company,
         node_id: company.id.clone(),
@@ -269,7 +267,7 @@ fn get_bcr_data(
         is_logical: false,
     };
     let payload = serde_json::to_string(&contact)?;
-    let encrypted = base58_encode(&crypto::encrypt_ecies(
+    let encrypted = base58::encode(&crypto::encrypt_ecies(
         payload.as_bytes(),
         &derived_keys.public_key(),
     )?);
@@ -347,7 +345,7 @@ impl CompanyServiceApi for CompanyService {
         Ok(companies)
     }
 
-    async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, CompanyKeys)> {
+    async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, BcrKeys)> {
         validate_node_id_network(id)?;
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
@@ -377,23 +375,16 @@ impl CompanyServiceApi for CompanyService {
         timestamp: Timestamp,
     ) -> Result<Company> {
         debug!("creating company");
-        let keys = BcrKeys::new();
-        let private_key = keys.get_private_key();
-        let public_key = keys.pub_key();
+        let company_keys = BcrKeys::new();
 
-        let id = NodeId::new(public_key, get_config().bitcoin_network());
-
-        let company_keys = CompanyKeys {
-            private_key,
-            public_key,
-        };
+        let id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
 
         let full_identity = self.identity_store.get_full().await?;
         let nostr_relays = full_identity.identity.nostr_relays.clone();
         // company can only be created by identified identity
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::IdentityCantBeAnon,
+                ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
 
@@ -447,7 +438,8 @@ impl CompanyServiceApi for CompanyService {
             &full_identity.key_pair,
             &company_keys,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         let create_company_block = company_chain.get_first_block();
 
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
@@ -455,21 +447,21 @@ impl CompanyServiceApi for CompanyService {
             &previous_block,
             &IdentityCreateCompanyBlockData {
                 company_id: id.clone(),
-                company_key: company_keys.private_key,
+                company_key: company_keys.get_private_key(),
                 block_hash: create_company_block.hash.clone(),
             },
             &full_identity.key_pair,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
 
         self.company_blockchain_store
             .add_block(&id, create_company_block)
             .await?;
 
-        let bcr_keys: BcrKeys = company_keys.clone().try_into()?;
         self.transport_service
             .block_transport()
-            .add_company_transport(&company, &bcr_keys)
+            .add_company_transport(&company, &company_keys)
             .await?;
 
         let company_chain = self.company_blockchain_store.get_chain(&id).await?;
@@ -480,7 +472,7 @@ impl CompanyServiceApi for CompanyService {
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
-                &full_identity.identity,
+                &full_identity.identity.node_id,
                 &new_block,
                 &full_identity.key_pair,
             ))
@@ -538,7 +530,7 @@ impl CompanyServiceApi for CompanyService {
         // company can only be edited by identified identity
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::IdentityCantBeAnon,
+                ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
         let node_id = full_identity.identity.node_id;
@@ -686,7 +678,8 @@ impl CompanyServiceApi for CompanyService {
             &full_identity.key_pair,
             &company_keys,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         self.company_blockchain_store
             .add_block(id, &new_block)
             .await?;
@@ -731,7 +724,7 @@ impl CompanyServiceApi for CompanyService {
         // only non-anon identities can add signatories
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::IdentityCantBeAnon,
+                ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
         let contacts = self.contact_store.get_map().await?;
@@ -748,7 +741,8 @@ impl CompanyServiceApi for CompanyService {
         let company_keys = self.store.get_key_pair(id).await?;
         if company.signatories.contains(&signatory_node_id) {
             return Err(super::Error::Validation(
-                ValidationError::SignatoryAlreadySignatory(signatory_node_id.to_string()),
+                ProtocolValidationError::SignatoryAlreadySignatory(signatory_node_id.to_string())
+                    .into(),
             ));
         }
         company.signatories.push(signatory_node_id.clone());
@@ -766,7 +760,8 @@ impl CompanyServiceApi for CompanyService {
             &company_keys,
             &signatory_node_id.pub_key(),
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
 
         let previous_identity_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_identity_block = IdentityBlock::create_block_for_add_signatory(
@@ -779,7 +774,8 @@ impl CompanyServiceApi for CompanyService {
             },
             &full_identity.key_pair,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         self.company_blockchain_store
             .add_block(id, &new_block)
             .await?;
@@ -798,7 +794,7 @@ impl CompanyServiceApi for CompanyService {
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
-                &full_identity.identity,
+                &full_identity.identity.node_id,
                 &new_identity_block,
                 &full_identity.key_pair,
             ))
@@ -835,20 +831,20 @@ impl CompanyServiceApi for CompanyService {
         // only non-anon identities can remove signatories
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::IdentityCantBeAnon,
+                ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
         if company.signatories.len() == 1 {
             return Err(super::Error::Validation(
-                ValidationError::CantRemoveLastSignatory,
+                ProtocolValidationError::CantRemoveLastSignatory.into(),
             ));
         }
         if !company.signatories.contains(&signatory_node_id) {
-            return Err(super::Error::Validation(ValidationError::NotASignatory(
-                signatory_node_id.to_string(),
-            )));
+            return Err(super::Error::Validation(
+                ProtocolValidationError::NotASignatory(signatory_node_id.to_string()).into(),
+            ));
         }
 
         company.signatories.retain(|i| i != &signatory_node_id);
@@ -869,7 +865,8 @@ impl CompanyServiceApi for CompanyService {
             &full_identity.key_pair,
             &company_keys,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
 
         let previous_identity_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_identity_block = IdentityBlock::create_block_for_remove_signatory(
@@ -882,7 +879,8 @@ impl CompanyServiceApi for CompanyService {
             },
             &full_identity.key_pair,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
 
         self.company_blockchain_store
             .add_block(id, &new_block)
@@ -897,7 +895,7 @@ impl CompanyServiceApi for CompanyService {
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
-                &full_identity.identity,
+                &full_identity.identity.node_id,
                 &new_identity_block,
                 &full_identity.key_pair,
             ))
@@ -967,8 +965,8 @@ impl CompanyServiceApi for CompanyService {
 
     async fn share_contact_details(&self, share_to: &NodeId, company_id: NodeId) -> Result<()> {
         let company_keys = self.store.get_key_pair(&company_id).await?;
-        let derived_keys = company_keys.derive_keypair()?;
-        let keys = BcrKeys::from_private_key(&derived_keys.secret_key())?;
+        let derived_keys = company_keys.derive_company_keypair()?;
+        let keys = BcrKeys::from_private_key(&derived_keys.secret_key());
         self.transport_service
             .contact_transport()
             .share_contact_details_keys(share_to, &company_id, &keys)
@@ -995,12 +993,14 @@ impl CompanyServiceApi for CompanyService {
         let chain = self.company_blockchain_store.get_chain(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
 
-        let plaintext_chain = chain.get_chain_with_plaintext_block_data(&company_keys)?;
+        let plaintext_chain = chain
+            .get_chain_with_plaintext_block_data(&company_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         Ok(plaintext_chain)
     }
 
-    async fn publish_contact(&self, company: &Company, keys: &CompanyKeys) -> Result<()> {
+    async fn publish_contact(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         debug!("Publishing our company contact to nostr profile");
         let relays = get_config().nostr_config.relays.clone();
         let bcr_data = get_bcr_data(company, keys, relays.clone())?;
@@ -1033,7 +1033,8 @@ pub mod tests {
         util::get_uuid_v4,
     };
     use bcr_ebill_core::{
-        blockchain::identity::IdentityBlockchain, country::Country, identity::IdentityWithAll,
+        application::identity::IdentityWithAll, protocol::Country,
+        protocol::blockchain::identity::IdentityBlockchain,
     };
     use mockall::predicate::eq;
     use nostr::hashes::sha256::Hash as Sha256HexHash;
@@ -1087,7 +1088,7 @@ pub mod tests {
         )
     }
 
-    pub fn get_baseline_company_data() -> (NodeId, (Company, CompanyKeys)) {
+    pub fn get_baseline_company_data() -> (NodeId, (Company, BcrKeys)) {
         (
             node_id_test(),
             (
@@ -1105,10 +1106,7 @@ pub mod tests {
                     signatories: vec![node_id_test()],
                     active: true,
                 },
-                CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                BcrKeys::from_private_key(&private_key_test()),
             ),
         )
     }

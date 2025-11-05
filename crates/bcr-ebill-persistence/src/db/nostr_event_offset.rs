@@ -5,7 +5,7 @@ use super::{
 use crate::constants::{DB_NODE_ID, DB_TABLE};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::{DateTimeUtc, ServiceTraitBounds, timestamp::Timestamp};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::{NostrEventOffset, NostrEventOffsetStoreApi};

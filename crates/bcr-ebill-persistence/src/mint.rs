@@ -3,10 +3,10 @@ use async_trait::async_trait;
 
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    mint::{MintOffer, MintRequest, MintRequestStatus},
-    sum::Sum,
-    timestamp::Timestamp,
+    application::ServiceTraitBounds,
+    protocol::Sum,
+    protocol::Timestamp,
+    protocol::mint::{MintOffer, MintRequest, MintRequestStatus},
 };
 use uuid::Uuid;
 

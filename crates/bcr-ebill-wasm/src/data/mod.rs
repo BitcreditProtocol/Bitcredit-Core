@@ -4,9 +4,11 @@ use bcr_ebill_api::service::file_upload_service::{
     UploadFileHandler, detect_content_type_for_bytes,
 };
 use bcr_ebill_core::{
-    File, GeneralSearchFilterItemType, GeneralSearchResult, OptionalPostalAddress, PostalAddress,
-    UploadFileResult, ValidationError, address::Address, city::City, country::Country, date::Date,
-    hash::Sha256Hash, name::Name, timestamp::Timestamp, zip::Zip,
+    application::GeneralSearchFilterItemType, application::GeneralSearchResult,
+    application::UploadFileResult, application::ValidationError, protocol::Address, protocol::City,
+    protocol::Country, protocol::Date, protocol::File, protocol::Name,
+    protocol::OptionalPostalAddress, protocol::PostalAddress, protocol::Sha256Hash,
+    protocol::Timestamp, protocol::Zip,
 };
 use bcr_ebill_persistence::notification::NotificationFilter;
 use bill::LightBitcreditBillWeb;

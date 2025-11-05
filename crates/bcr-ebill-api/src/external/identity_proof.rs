@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds, ValidationError,
-    identity_proof::{IdentityProofStamp, IdentityProofStatus},
-    util::crypto,
+    application::ServiceTraitBounds, application::ValidationError,
+    application::identity_proof::IdentityProofStatus, protocol::IdentityProofStamp,
+    protocol::crypto,
 };
 use borsh_derive::BorshSerialize;
 use log::error;
@@ -176,7 +176,7 @@ fn create_proxy_req(
 pub mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_core::util::BcrKeys;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
     use bitcoin::XOnlyPublicKey;
     use nostr::key::SecretKey;
     use secp256k1::schnorr::Signature;
@@ -226,7 +226,6 @@ pub mod tests {
         let node_id = node_id_test();
         let relay_url = url::Url::parse("wss://bcr-relay-dev.minibill.tech").unwrap();
         let private_key = BcrKeys::from_private_key(&private_key_test())
-            .unwrap()
             .get_nostr_keys()
             .secret_key()
             .to_owned();

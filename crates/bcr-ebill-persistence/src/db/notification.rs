@@ -14,12 +14,12 @@ use crate::{
     constants::{DB_ACTIVE, DB_IDS, DB_NOTIFICATION_TYPE, DB_TABLE},
     notification::{NotificationFilter, NotificationStoreApi},
 };
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::bill_events::ActionType};
 use bcr_ebill_core::{
-    DateTimeUtc,
-    notification::{Notification, NotificationType},
-    timestamp::Timestamp,
+    application::notification::{Notification, NotificationType},
+    protocol::DateTimeUtc,
+    protocol::Timestamp,
 };
-use bcr_ebill_core::{ServiceTraitBounds, notification::ActionType};
 
 #[derive(Clone)]
 pub struct SurrealNotificationStore {
@@ -304,7 +304,7 @@ struct SentBlockNotificationDb {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::timestamp::Timestamp;
+    use bcr_ebill_core::protocol::Timestamp;
     use serde_json::json;
     use uuid::Uuid;
 

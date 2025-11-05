@@ -1,8 +1,9 @@
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    block_id::BlockId,
-    identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
-    timestamp::Timestamp,
+    application::identity_proof::{IdentityProof, IdentityProofStatus},
+    protocol::BlockId,
+    protocol::IdentityProofStamp,
+    protocol::Timestamp,
 };
 use serde::Serialize;
 use tsify::Tsify;

@@ -1,7 +1,8 @@
 use bcr_common::core::NodeId;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::blockchain::company::{CompanyBlock, CompanyBlockchain};
-use bcr_ebill_core::company::{Company, CompanyKeys};
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::protocol::blockchain::company::{CompanyBlock, CompanyBlockchain};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use std::collections::HashMap;
 
 use super::Result;
@@ -20,7 +21,7 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
     async fn get(&self, id: &NodeId) -> Result<Company>;
 
     /// Returns all companies
-    async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>>;
+    async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
 
     /// Inserts the company with the given id
     async fn insert(&self, data: &Company) -> Result<()>;
@@ -32,10 +33,10 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
     async fn remove(&self, id: &NodeId) -> Result<()>;
 
     /// Saves the key pair for the given company id
-    async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()>;
+    async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
 
     /// Gets the key pair for the given company id
-    async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys>;
+    async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

@@ -5,11 +5,13 @@ use crate::service::transport_service::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    bill::BitcreditBill,
-    contact::{BillIdentParticipant, BillParticipant},
-    notification::ActionType,
-    protocol::BillChainEvent,
+    application::ServiceTraitBounds,
+    protocol::blockchain::bill::{
+        BitcreditBill,
+        participant::{BillIdentParticipant, BillParticipant},
+    },
+    protocol::event::ActionType,
+    protocol::event::BillChainEvent,
 };
 use std::sync::Arc;
 

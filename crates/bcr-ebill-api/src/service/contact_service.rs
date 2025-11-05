@@ -2,19 +2,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
+use bcr_ebill_core::protocol::{
+    City, Country, Date, Email, File, Identification, Name, OptionalPostalAddress, PostalAddress,
+    PublicKey, SecretKey, Sha256Hash,
+    blockchain::bill::{block::ContactType, participant::BillParticipant},
+    crypto,
+};
 use bcr_ebill_core::{
-    File, OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
-    ValidationError,
-    city::City,
-    contact::{BillParticipant, Contact, ContactType, validation::validate_create_contact},
-    country::Country,
-    date::Date,
-    email::Email,
-    hash::Sha256Hash,
-    identification::Identification,
-    name::Name,
-    nostr_contact::{NostrContact, NostrPublicKey, TrustLevel},
-    util::crypto,
+    application::{
+        ServiceTraitBounds, ValidationError,
+        contact::{Contact, validation::validate_create_contact},
+        nostr_contact::{NostrContact, NostrPublicKey, TrustLevel},
+    },
+    protocol::ProtocolValidationError,
 };
 use bcr_ebill_persistence::{
     ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
@@ -185,7 +185,7 @@ impl ContactService {
             // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
-                    ValidationError::FileIsTooBig(upload_file_type.max_file_size()),
+                    ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
                 ));
             }
             let file = self
@@ -580,7 +580,7 @@ impl ContactServiceApi for ContactService {
         // can't de-anonymize to an anonymous contact
         if t == ContactType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::InvalidContactType,
+                ProtocolValidationError::InvalidContactType.into(),
             ));
         }
 
@@ -741,7 +741,7 @@ pub mod tests {
             init_test_cfg, node_id_test, node_id_test_other,
         },
     };
-    use bcr_ebill_core::{nostr_contact::HandshakeStatus, util::BcrKeys};
+    use bcr_ebill_core::{application::nostr_contact::HandshakeStatus, protocol::crypto::BcrKeys};
     use std::collections::HashMap;
 
     pub fn get_baseline_contact() -> Contact {
@@ -1289,7 +1289,10 @@ pub mod tests {
         )
         .await;
         assert!(result.is_err());
-        if let Err(Error::Validation(ValidationError::InvalidContactType)) = result {
+        if let Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidContactType,
+        ))) = result
+        {
             // fine
         } else {
             panic!("wrong error");

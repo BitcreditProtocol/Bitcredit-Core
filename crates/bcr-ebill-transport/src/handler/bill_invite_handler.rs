@@ -3,10 +3,13 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds, ValidationError,
-    bill::BillKeys,
-    blockchain::BlockchainType,
-    protocol::{ChainInvite, Event, EventEnvelope},
+    application::ServiceTraitBounds,
+    protocol::{
+        ProtocolValidationError,
+        blockchain::BlockchainType,
+        crypto::BcrKeys,
+        event::{ChainInvite, Event, EventEnvelope},
+    },
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, warn};
@@ -40,12 +43,9 @@ impl NotificationHandlerApi for BillInviteEventHandler {
     ) -> Result<()> {
         debug!("incoming bill chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
-            let keys = BillKeys {
-                private_key: decoded.data.keys.private_key.to_owned(),
-                public_key: decoded.data.keys.public_key.to_owned(),
-            };
+            let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key);
             let chain_id =
-                BillId::from_str(&decoded.data.chain_id).map_err(ValidationError::from)?;
+                BillId::from_str(&decoded.data.chain_id).map_err(ProtocolValidationError::from)?;
 
             let mut inserted_chain: Vec<EventContainer> = Vec::new();
             if let Ok(chain_data) = self.processor.resolve_chain(&chain_id, &keys).await {
@@ -63,12 +63,9 @@ impl NotificationHandlerApi for BillInviteEventHandler {
                             .processor
                             .process_chain_data(
                                 &BillId::from_str(&decoded.data.chain_id)
-                                    .map_err(ValidationError::from)?,
+                                    .map_err(ProtocolValidationError::from)?,
                                 blocks,
-                                Some(BillKeys {
-                                    public_key: decoded.data.keys.public_key.to_owned(),
-                                    private_key: decoded.data.keys.private_key.to_owned(),
-                                }),
+                                Some(BcrKeys::from_private_key(&decoded.data.keys.private_key)),
                             )
                             .await
                             .is_ok()
@@ -161,8 +158,10 @@ mod tests {
     };
 
     use super::*;
-    use bcr_ebill_core::protocol::BillBlockEvent;
-    use bcr_ebill_core::{blockchain::Blockchain, timestamp::Timestamp, util::crypto::BcrKeys};
+    use bcr_ebill_core::protocol::event::BillBlockEvent;
+    use bcr_ebill_core::{
+        protocol::Timestamp, protocol::blockchain::Blockchain, protocol::crypto::BcrKeys,
+    };
     use mockall::predicate::{always, eq};
 
     #[test]
@@ -235,8 +234,8 @@ mod tests {
             .withf(|bill_id, blocks, keys| {
                 bill_id == &bill_id_test()
                     && blocks.len() == 1
-                    && keys.clone().unwrap().public_key.to_string()
-                        == get_bill_keys().public_key.to_string()
+                    && keys.clone().unwrap().pub_key().to_string()
+                        == get_bill_keys().pub_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
 
@@ -286,8 +285,8 @@ mod tests {
             .withf(|bill_id, blocks, keys| {
                 bill_id == &bill_id_test()
                     && blocks.len() == 3
-                    && keys.clone().unwrap().public_key.to_string()
-                        == get_bill_keys().public_key.to_string()
+                    && keys.clone().unwrap().pub_key().to_string()
+                        == get_bill_keys().pub_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
 
@@ -337,8 +336,8 @@ mod tests {
             .withf(|bill_id, blocks, keys| {
                 bill_id == &bill_id_test()
                     && blocks.len() == 3
-                    && keys.clone().unwrap().public_key.to_string()
-                        == get_bill_keys().public_key.to_string()
+                    && keys.clone().unwrap().pub_key().to_string()
+                        == get_bill_keys().pub_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
 
@@ -382,8 +381,7 @@ mod tests {
     // valid chains. From there on len even gives one valid and N - 2 invalid (shorter) chains.
     // Uneven give two valid (equal len) and N - 1 invalid chains.
     fn generate_test_chain(len: usize, invalid_blocks: bool) -> (BcrKeys, Vec<nostr::Event>) {
-        let keys = BcrKeys::from_private_key(&private_key_test())
-            .expect("failed to generate keys from private key");
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut result = Vec::new();
 
         let root = generate_test_event(&keys, None, None, 1);

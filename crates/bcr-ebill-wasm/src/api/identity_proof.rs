@@ -7,7 +7,7 @@ use crate::{
     data::identity_proof::IdentityProofWeb,
 };
 use bcr_ebill_api::service::Error;
-use bcr_ebill_core::{ValidationError, identity_proof::IdentityProofStamp};
+use bcr_ebill_core::protocol::{IdentityProofStamp, ProtocolValidationError};
 
 use super::Result;
 use url::Url;
@@ -61,8 +61,8 @@ impl IdentityProof {
     pub async fn add(&self, url: &str, stamp: &str) -> JsValue {
         let res: Result<IdentityProofWeb> = async {
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-            let parsed_url =
-                Url::parse(url).map_err(|_| Error::Validation(ValidationError::InvalidUrl))?;
+            let parsed_url = Url::parse(url)
+                .map_err(|_| Error::Validation(ProtocolValidationError::InvalidUrl.into()))?;
             let parsed_stamp = IdentityProofStamp::from_str(stamp)?;
             let identity_proof: IdentityProofWeb = get_ctx()
                 .identity_proof_service

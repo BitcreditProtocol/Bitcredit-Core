@@ -5,8 +5,11 @@ use async_trait::async_trait;
 use super::Result;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    notification::{ActionType, Notification, NotificationType},
+    application::{
+        ServiceTraitBounds,
+        notification::{Notification, NotificationType},
+    },
+    protocol::event::bill_events::ActionType,
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

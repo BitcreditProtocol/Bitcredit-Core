@@ -6,27 +6,32 @@ use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
 use crate::{Error, bill::BillStoreApi};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::bill::{
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::bill::{
     BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCurrentWaitingState,
-    BillData, BillHistory, BillHistoryBlock, BillMintStatus, BillParticipants, BillPaymentStatus,
-    BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
-    BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
-    BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy, PaidData, PaymentState,
+    BillData, BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus,
+    BillSellStatus, BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
+    BillWaitingForSellState, BillWaitingStatePaymentData, BitcreditBillResult, Endorsement,
+    InMempoolData, LightSignedBy, PaidData, PaymentState,
 };
-use bcr_ebill_core::block_id::BlockId;
-use bcr_ebill_core::city::City;
-use bcr_ebill_core::contact::{
-    BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
+use bcr_ebill_core::application::contact::{
     LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
     LightBillParticipant,
 };
-use bcr_ebill_core::country::Country;
-use bcr_ebill_core::date::Date;
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::sum::Sum;
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{BitcoinAddress, PublicKey, SecretKey, ServiceTraitBounds};
-use bcr_ebill_core::{bill::BillKeys, blockchain::bill::BillOpCode};
+use bcr_ebill_core::protocol::BlockId;
+use bcr_ebill_core::protocol::City;
+use bcr_ebill_core::protocol::Country;
+use bcr_ebill_core::protocol::Date;
+use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::Sum;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::bill::participant::{
+    BillAnonParticipant, BillIdentParticipant, BillParticipant, BillSignatory, SignedBy,
+};
+use bcr_ebill_core::protocol::blockchain::bill::{BillHistory, BillHistoryBlock};
+use bcr_ebill_core::protocol::blockchain::bill::{BillOpCode, ContactType};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::{BitcoinAddress, SecretKey};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
@@ -172,18 +177,17 @@ impl BillStoreApi for SurrealBillStore {
         Ok(ids.into_iter().map(|b| b.bill_id).collect())
     }
 
-    async fn save_keys(&self, id: &BillId, key_pair: &BillKeys) -> Result<()> {
-        let entity: BillKeysDb = key_pair.into();
-        let _: Option<BillKeysDb> = self
+    async fn save_keys(&self, id: &BillId, key_pair: &BcrKeys) -> Result<()> {
+        let entity: KeyDb = key_pair.into();
+        let _: Option<KeyDb> = self
             .db
             .create(Self::KEYS_TABLE, Some(id.to_string()), entity)
             .await?;
         Ok(())
     }
 
-    async fn get_keys(&self, id: &BillId) -> Result<BillKeys> {
-        let result: Option<BillKeysDb> =
-            self.db.select_one(Self::KEYS_TABLE, id.to_string()).await?;
+    async fn get_keys(&self, id: &BillId) -> Result<BcrKeys> {
+        let result: Option<KeyDb> = self.db.select_one(Self::KEYS_TABLE, id.to_string()).await?;
         match result {
             None => Err(Error::NoSuchEntity("bill".to_string(), id.to_string())),
             Some(c) => Ok(c.into()),
@@ -984,6 +988,18 @@ pub struct LightSignedByDb {
     pub signatory: Option<LightBillIdentParticipantDb>,
 }
 
+impl From<LightSignedByDb> for SignedBy {
+    fn from(value: LightSignedByDb) -> Self {
+        Self {
+            data: value.data.into(),
+            signatory: value.signatory.map(|s| BillSignatory {
+                node_id: s.node_id,
+                name: s.name,
+            }),
+        }
+    }
+}
+
 impl From<LightSignedByDb> for LightSignedBy {
     fn from(value: LightSignedByDb) -> Self {
         Self {
@@ -998,6 +1014,22 @@ impl From<&LightSignedBy> for LightSignedByDb {
         Self {
             data: (&value.data).into(),
             signatory: value.signatory.as_ref().map(|s| s.into()),
+        }
+    }
+}
+
+impl From<&SignedBy> for LightSignedByDb {
+    fn from(value: &SignedBy) -> Self {
+        Self {
+            data: (&value.data).into(),
+            signatory: value
+                .signatory
+                .as_ref()
+                .map(|s| LightBillIdentParticipantDb {
+                    t: ContactType::Person, // signatory is always person
+                    name: s.name.to_owned(),
+                    node_id: s.node_id.to_owned(),
+                }),
         }
     }
 }
@@ -1278,28 +1310,23 @@ impl From<InMempoolDataDb> for InMempoolData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BillKeysDb {
+pub struct KeyDb {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
-    pub public_key: PublicKey,
     pub private_key: SecretKey,
 }
 
-impl From<BillKeysDb> for BillKeys {
-    fn from(value: BillKeysDb) -> Self {
-        Self {
-            public_key: value.public_key,
-            private_key: value.private_key,
-        }
+impl From<KeyDb> for BcrKeys {
+    fn from(value: KeyDb) -> Self {
+        BcrKeys::from_private_key(&value.private_key)
     }
 }
 
-impl From<&BillKeys> for BillKeysDb {
-    fn from(value: &BillKeys) -> Self {
+impl From<&BcrKeys> for KeyDb {
+    fn from(value: &BcrKeys) -> Self {
         Self {
             id: None,
-            public_key: value.public_key,
-            private_key: value.private_key,
+            private_key: value.get_private_key(),
         }
     }
 }
@@ -1312,35 +1339,33 @@ pub mod tests {
     use crate::{
         bill::{BillChainStoreApi, BillStoreApi},
         db::{bill_chain::SurrealBillChainStore, get_memory_db, surreal::SurrealWrapper},
+        protocol::crypto::BcrKeys,
         tests::tests::{
             bill_id_test, bill_id_test_other, bill_identified_participant_only_node_id,
             cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys, node_id_test,
             node_id_test_other, private_key_test,
         },
-        util::BcrKeys,
     };
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{
-        BitcoinAddress,
-        bill::{BillKeys, PaidData, PaymentState},
-        block_id::BlockId,
-        blockchain::bill::{
-            BillBlock, BillOpCode,
-            block::{
-                BillIssueBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
-                BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestRecourseBlockData,
-                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+        application::bill::{PaidData, PaymentState},
+        protocol::{
+            BitcoinAddress, BlockId, Currency, Date, Sha256Hash, Sum, Timestamp,
+            blockchain::bill::{
+                BillBlock, BillOpCode,
+                block::{
+                    BillIssueBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
+                    BillRecourseBlockData, BillRecourseReasonBlockData,
+                    BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
+                    BillRequestToPayBlockData, BillSellBlockData,
+                },
+                participant::BillParticipant,
+            },
+            constants::{
+                ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+                RECOURSE_DEADLINE_SECONDS,
             },
         },
-        constants::{
-            ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
-            RECOURSE_DEADLINE_SECONDS,
-        },
-        contact::BillParticipant,
-        date::Date,
-        hash::Sha256Hash,
-        sum::{Currency, Sum},
-        timestamp::Timestamp,
     };
     use chrono::Months;
     use std::str::FromStr;
@@ -1384,9 +1409,9 @@ pub mod tests {
             id.to_owned(),
             Sha256Hash::new("prevhash"),
             &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
@@ -1421,9 +1446,9 @@ pub mod tests {
                         payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
                             + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
-                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     None,
-                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     Timestamp::new(1731593928).unwrap(),
                 )
                 .unwrap(),
@@ -1434,10 +1459,7 @@ pub mod tests {
         store
             .save_keys(
                 &bill_id_test(),
-                &BillKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
@@ -1472,16 +1494,16 @@ pub mod tests {
         let res = store
             .save_keys(
                 &bill_id_test(),
-                &BillKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await;
         assert!(res.is_ok());
         let get_res = store.get_keys(&bill_id_test()).await;
         assert!(get_res.is_ok());
-        assert_eq!(get_res.as_ref().unwrap().private_key, private_key_test());
+        assert_eq!(
+            get_res.as_ref().unwrap().get_private_key(),
+            private_key_test()
+        );
     }
 
     #[tokio::test]
@@ -1643,9 +1665,9 @@ pub mod tests {
                         payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
                             + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
-                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     None,
-                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     Timestamp::new(1731593928).unwrap(),
                 )
                 .unwrap(),
@@ -1721,9 +1743,9 @@ pub mod tests {
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: now + 2 * DAY_IN_SECS,
             },
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             now,
         )
         .unwrap();
@@ -1762,9 +1784,9 @@ pub mod tests {
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
                     },
-                    &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                    &BcrKeys::from_private_key(&private_key_test()),
                     None,
-                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     now,
                 )
                 .unwrap(),
@@ -1828,9 +1850,9 @@ pub mod tests {
                 signing_address: Some(empty_address()),
                 buying_deadline_timestamp: now_minus_one_month + 2 * DAY_IN_SECS,
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             now_minus_one_month,
         )
         .unwrap();
@@ -1934,9 +1956,9 @@ pub mod tests {
                 signing_address: Some(empty_address()),
                 acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             ts,
         )
         .expect("block could not be created")
@@ -1956,9 +1978,9 @@ pub mod tests {
                 signing_address: Some(empty_address()),
                 payment_deadline_timestamp: ts + 2 * PAYMENT_DEADLINE_SECONDS,
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             ts,
         )
         .expect("block could not be created")
@@ -2002,9 +2024,9 @@ pub mod tests {
                 signing_address: Some(empty_address()),
                 recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             now,
         )
         .unwrap();
@@ -2039,9 +2061,9 @@ pub mod tests {
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
                     },
-                    &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                    &BcrKeys::from_private_key(&private_key_test()),
                     None,
-                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     now,
                 )
                 .unwrap(),
@@ -2100,9 +2122,9 @@ pub mod tests {
                 signing_address: Some(empty_address()),
                 recourse_deadline_timestamp: now_minus_one_month + 2 * RECOURSE_DEADLINE_SECONDS,
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             now_minus_one_month,
         )
         .unwrap();

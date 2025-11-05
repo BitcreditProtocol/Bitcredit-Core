@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::protocol::{Event, EventEnvelope, IdentityBlockEvent};
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType};
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::blockchain::BlockchainType};
 use bcr_ebill_persistence::identity::IdentityStoreApi;
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, trace, warn};
@@ -121,12 +121,12 @@ impl IdentityChainEventHandler {
 mod tests {
 
     use bcr_ebill_core::{
-        blockchain::{
+        application::identity::IdentityWithAll,
+        protocol::Name,
+        protocol::blockchain::{
             Blockchain,
             identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData},
         },
-        identity::IdentityWithAll,
-        name::Name,
     };
     use mockall::predicate::always;
 

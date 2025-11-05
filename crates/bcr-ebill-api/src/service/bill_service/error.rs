@@ -1,5 +1,8 @@
 use crate::{external, service::transport_service};
-use bcr_ebill_core::{blockchain, util::crypto};
+use bcr_ebill_core::{
+    application::ValidationError,
+    protocol::{ProtocolValidationError, crypto},
+};
 use thiserror::Error;
 
 /// Generic error type
@@ -8,10 +11,6 @@ pub enum Error {
     /// errors stemming from resources that were not found
     #[error("not found")]
     NotFound,
-
-    /// errors that stem from interacting with a blockchain
-    #[error("Blockchain error: {0}")]
-    Blockchain(#[from] blockchain::Error),
 
     /// all errors originating from the persistence layer
     #[error("Persistence error: {0}")]
@@ -33,5 +32,11 @@ pub enum Error {
 
     /// errors that stem from bill validation errors
     #[error("bill validation error {0}")]
-    Validation(#[from] bcr_ebill_core::ValidationError),
+    Validation(#[from] ValidationError),
+}
+
+impl From<ProtocolValidationError> for Error {
+    fn from(value: ProtocolValidationError) -> Self {
+        Self::Validation(ValidationError::Protocol(value))
+    }
 }

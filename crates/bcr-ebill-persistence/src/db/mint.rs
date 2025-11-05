@@ -4,10 +4,10 @@ use super::{BillIdDb, Result, surreal::Bindings};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    mint::{MintOffer, MintOfferRecoveryData, MintRequest, MintRequestStatus},
-    sum::Sum,
-    timestamp::Timestamp,
+    application::ServiceTraitBounds,
+    protocol::Sum,
+    protocol::Timestamp,
+    protocol::mint::{MintOffer, MintOfferRecoveryData, MintRequest, MintRequestStatus},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

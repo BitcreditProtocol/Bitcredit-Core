@@ -1,13 +1,11 @@
 use crate::{Result, handler::public_chain_helpers::EventContainer};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    bill::BillKeys,
-    blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
-    company::CompanyKeys,
-    protocol::EventEnvelope,
+    application::ServiceTraitBounds,
+    protocol::blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
+    protocol::event::EventEnvelope,
 };
 use log::trace;
 #[cfg(test)]
@@ -62,7 +60,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// the event.
     async fn handle_event(
         &self,
-        event: bcr_ebill_core::protocol::EventEnvelope,
+        event: bcr_ebill_core::protocol::event::EventEnvelope,
         node_id: &NodeId,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()>;
@@ -79,7 +77,7 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         &self,
         bill_id: &BillId,
         blocks: Vec<BillBlock>,
-        keys: Option<BillKeys>,
+        keys: Option<BcrKeys>,
     ) -> Result<()>;
 
     /// Validates that a given bill id is relevant for us, and if so also checks that the sender
@@ -94,7 +92,7 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
     async fn resolve_chain(
         &self,
         bill_id: &BillId,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
     ) -> Result<Vec<Vec<EventContainer>>>;
 
     /// Tries to resync the chain for the given bill id. This will try to find the bill keys and
@@ -117,7 +115,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
         &self,
         node_id: &NodeId,
         blocks: Vec<CompanyBlock>,
-        keys: Option<CompanyKeys>,
+        keys: Option<BcrKeys>,
     ) -> Result<()>;
 
     /// Validates that a given bill id is relevant for us, and if so also checks that the sender
@@ -215,11 +213,10 @@ impl NotificationHandlerApi for LoggingEventHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use bcr_ebill_core::notification::BillEventType;
-    use bcr_ebill_core::protocol::Event;
+    use bcr_ebill_core::protocol::event::BillEventType;
+    use bcr_ebill_core::protocol::event::Event;
     use borsh::{BorshDeserialize, BorshSerialize};
+    use std::str::FromStr;
     use tokio::sync::Mutex;
 
     use crate::handler::test_utils::get_test_nostr_event;
@@ -330,33 +327,33 @@ mod tests {
 #[allow(dead_code)]
 #[cfg(test)]
 mod test_utils {
-
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
-    use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
-        address::Address,
-        bill::{BillKeys, BitcreditBill, BitcreditBillResult, PaymentState},
-        block_id::BlockId,
-        blockchain::{
-            bill::{BillBlock, BillBlockchain, BillOpCode, block::BillIssueBlockData},
-            company::{CompanyBlock, CompanyBlockchain},
-        },
-        city::City,
-        company::{Company, CompanyKeys},
-        contact::{BillIdentParticipant, BillParticipant, ContactType},
-        country::Country,
-        date::Date,
-        email::Email,
-        identification::Identification,
-        identity::{Identity, IdentityType, IdentityWithAll},
+    use bcr_ebill_core::application::nostr_contact::{
+        HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel,
+    };
+    use bcr_ebill_core::application::{
+        ServiceTraitBounds,
+        bill::{BitcreditBillResult, PaymentState},
+        company::Company,
+        identity::{Identity, IdentityWithAll},
         identity_proof::{IdentityProof, IdentityProofStatus},
-        name::Name,
-        nostr_contact::NostrPublicKey,
-        notification::{ActionType, Notification, NotificationType},
-        sum::Sum,
-        timestamp::Timestamp,
-        util::BcrKeys,
+        notification::{Notification, NotificationType},
+    };
+    use bcr_ebill_core::protocol::{
+        Address, BlockId, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
+        PostalAddress, PublicKey, SecretKey, Sum, Timestamp,
+        blockchain::bill::participant::{BillIdentParticipant, BillParticipant},
+        blockchain::{
+            bill::{
+                BillBlock, BillBlockchain, BillOpCode, BitcreditBill,
+                block::{BillIssueBlockData, ContactType},
+            },
+            company::{CompanyBlock, CompanyBlockchain},
+            identity::IdentityType,
+        },
+        crypto::BcrKeys,
+        event::ActionType,
     };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result,
@@ -397,7 +394,7 @@ mod test_utils {
                 notification_type: NotificationType,
             ) -> Result<Option<Notification>>;
             #[allow(unused)]
-            async fn list_by_type(&self, notification_type: bcr_ebill_core::notification::NotificationType) -> Result<Vec<Notification>>;
+            async fn list_by_type(&self, notification_type: bcr_ebill_core::application::notification::NotificationType) -> Result<Vec<Notification>>;
             async fn mark_as_done(&self, notification_id: &str) -> Result<()>;
             #[allow(unused)]
             async fn delete(&self, notification_id: &str) -> Result<()>;
@@ -455,8 +452,8 @@ mod test_utils {
             async fn clear_bill_cache(&self) -> Result<()>;
             async fn exists(&self, id: &BillId) -> Result<bool>;
             async fn get_ids(&self) -> Result<Vec<BillId>>;
-            async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
-            async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
+            async fn save_keys(&self, id: &BillId, keys: &BcrKeys) -> Result<()>;
+            async fn get_keys(&self, id: &BillId) -> Result<BcrKeys>;
             async fn is_paid(&self, id: &BillId) -> Result<bool>;
             async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()>;
             async fn get_payment_state(&self, id: &BillId) -> Result<Option<PaymentState>>;
@@ -500,15 +497,15 @@ mod test_utils {
 
         #[async_trait]
         impl NostrContactStoreApi for NostrContactStore {
-            async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
-            async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<bcr_ebill_core::nostr_contact::NostrContact>>;
-            async fn by_npub(&self, npub: &bcr_ebill_core::nostr_contact::NostrPublicKey) -> Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
-            async fn upsert(&self, data: &bcr_ebill_core::nostr_contact::NostrContact) -> Result<()>;
+            async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
+            async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>>;
+            async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
+            async fn upsert(&self, data: &NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &NodeId) -> Result<()>;
-            async fn set_handshake_status(&self, node_id: &NodeId, status: bcr_ebill_core::nostr_contact::HandshakeStatus) -> Result<()>;
-            async fn set_trust_level(&self, node_id: &NodeId, trust_level: bcr_ebill_core::nostr_contact::TrustLevel) -> Result<()>;
-            async fn get_npubs(&self, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<NostrPublicKey>>;
-            async fn search(&self, search_term: &str, levels: Vec<bcr_ebill_core::nostr_contact::TrustLevel>) -> Result<Vec<bcr_ebill_core::nostr_contact::NostrContact>>;
+            async fn set_handshake_status(&self, node_id: &NodeId, status: HandshakeStatus) -> Result<()>;
+            async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
+            async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
+            async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> Result<Vec<NostrContact>>;
 
         }
     }
@@ -528,8 +525,8 @@ mod test_utils {
             async fn get_key_pair(&self) -> Result<BcrKeys>;
             async fn get_or_create_key_pair(&self) -> Result<BcrKeys>;
             async fn get_seedphrase(&self) -> Result<String>;
-            async fn get_current_identity(&self) -> Result<bcr_ebill_core::identity::ActiveIdentityState>;
-            async fn set_current_identity(&self, identity_state: &bcr_ebill_core::identity::ActiveIdentityState) -> Result<()>;
+            async fn get_current_identity(&self) -> Result<bcr_ebill_core::application::identity::ActiveIdentityState>;
+            async fn set_current_identity(&self, identity_state: &bcr_ebill_core::application::identity::ActiveIdentityState) -> Result<()>;
             async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
         }
     }
@@ -566,9 +563,9 @@ mod test_utils {
 
         #[async_trait]
         impl IdentityChainStoreApi for IdentityChainStore {
-            async fn get_latest_block(&self) -> Result<bcr_ebill_core::blockchain::identity::IdentityBlock>;
-            async fn add_block(&self, block: &bcr_ebill_core::blockchain::identity::IdentityBlock) -> Result<()>;
-            async fn get_chain(&self) -> Result<bcr_ebill_core::blockchain::identity::IdentityBlockchain>;
+            async fn get_latest_block(&self) -> Result<bcr_ebill_core::protocol::blockchain::identity::IdentityBlock>;
+            async fn add_block(&self, block: &bcr_ebill_core::protocol::blockchain::identity::IdentityBlock) -> Result<()>;
+            async fn get_chain(&self) -> Result<bcr_ebill_core::protocol::blockchain::identity::IdentityBlockchain>;
         }
     }
 
@@ -582,12 +579,12 @@ mod test_utils {
             async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
             async fn exists(&self, id: &NodeId) -> bool;
             async fn get(&self, id: &NodeId) -> Result<Company>;
-            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>>;
+            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
             async fn insert(&self, data: &Company) -> Result<()>;
             async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
             async fn remove(&self, id: &NodeId) -> Result<()>;
-            async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()>;
-            async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys>;
+            async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
+            async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
         }
     }
 
@@ -614,19 +611,19 @@ mod test_utils {
           async fn find_chain_events(
               &self,
               chain_id: &str,
-              chain_type: bcr_ebill_core::blockchain::BlockchainType,
+              chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType,
           ) -> Result<Vec<bcr_ebill_persistence::nostr::NostrChainEvent>>;
           async fn find_latest_block_events(
               &self,
               chain_id: &str,
-              chain_type: bcr_ebill_core::blockchain::BlockchainType,
+              chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType,
           ) -> Result<Vec<bcr_ebill_persistence::nostr::NostrChainEvent>>;
           async fn find_root_event(
               &self,
               chain_id: &str,
-              chain_type: bcr_ebill_core::blockchain::BlockchainType,
+              chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType,
           ) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
-          async fn find_by_block_hash(&self, hash: &bcr_ebill_core::hash::Sha256Hash) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn find_by_block_hash(&self, hash: &bcr_ebill_core::protocol::Sha256Hash) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
           async fn add_chain_event(&self, event: bcr_ebill_persistence::nostr::NostrChainEvent) -> Result<()>;
           async fn by_event_id(&self, event_id: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
         }
@@ -661,7 +658,7 @@ mod test_utils {
             &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             get_baseline_identity().key_pair,
             None,
-            BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()),
             Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
@@ -697,15 +694,12 @@ mod test_utils {
         }
     }
 
-    pub fn get_bill_keys() -> BillKeys {
-        BillKeys {
-            private_key: private_key_test().to_owned(),
-            public_key: node_id_test().pub_key(),
-        }
+    pub fn get_bill_keys() -> BcrKeys {
+        BcrKeys::from_private_key(&private_key_test())
     }
 
     pub fn get_baseline_identity() -> IdentityWithAll {
-        let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut identity = empty_identity();
         identity.name = Name::new("drawer").unwrap();
         identity.node_id = node_id_test();
@@ -761,7 +755,7 @@ mod test_utils {
         }
     }
 
-    pub fn get_company_data() -> (NodeId, (Company, CompanyKeys)) {
+    pub fn get_company_data() -> (NodeId, (Company, BcrKeys)) {
         (
             node_id_test(),
             (
@@ -779,10 +773,7 @@ mod test_utils {
                     signatories: vec![node_id_test()],
                     active: true,
                 },
-                CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                BcrKeys::from_private_key(&private_key_test()),
             ),
         )
     }

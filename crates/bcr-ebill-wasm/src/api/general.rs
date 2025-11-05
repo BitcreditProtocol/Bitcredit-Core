@@ -3,7 +3,8 @@ use std::str::FromStr;
 use super::Result;
 use bcr_ebill_api::service::{Error, file_upload_service::detect_content_type_for_bytes};
 use bcr_ebill_core::{
-    GeneralSearchFilterItemType, ValidationError, constants::VALID_CURRENCIES, sum::Currency,
+    application::GeneralSearchFilterItemType,
+    protocol::{Currency, ProtocolValidationError, constants::VALID_CURRENCIES},
 };
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -63,18 +64,21 @@ impl General {
     pub async fn temp_file(&self, file_upload_id: &str) -> JsValue {
         let res: Result<BinaryFileResponse> = async {
             if file_upload_id.is_empty() {
-                return Err(Error::Validation(ValidationError::InvalidFileUploadId).into());
+                return Err(
+                    Error::Validation(ProtocolValidationError::InvalidFileUploadId.into()).into(),
+                );
             }
-            let parsed_id =
-                Uuid::from_str(file_upload_id).map_err(|_| ValidationError::InvalidFileUploadId)?;
+            let parsed_id = Uuid::from_str(file_upload_id)
+                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)?;
             match get_ctx()
                 .file_upload_service
                 .get_temp_file(&parsed_id)
                 .await
             {
                 Ok(Some((file_name, file_bytes))) => {
-                    let content_type = detect_content_type_for_bytes(&file_bytes)
-                        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+                    let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(
+                        Error::Validation(ProtocolValidationError::InvalidContentType.into()),
+                    )?;
 
                     Ok(BinaryFileResponse {
                         data: file_bytes,
@@ -94,7 +98,9 @@ impl General {
     pub async fn overview(&self, currency: &str) -> JsValue {
         let res: Result<OverviewResponse> = async {
             if !VALID_CURRENCIES.contains(&currency) {
-                return Err(Error::Validation(ValidationError::InvalidCurrency).into());
+                return Err(
+                    Error::Validation(ProtocolValidationError::InvalidCurrency.into()).into(),
+                );
             }
             let parsed_currency = Currency::sat();
             let result = get_ctx()

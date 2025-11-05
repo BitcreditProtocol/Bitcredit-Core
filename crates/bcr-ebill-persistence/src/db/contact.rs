@@ -13,14 +13,8 @@ use crate::{
     constants::{DB_SEARCH_TERM, DB_TABLE},
 };
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    city::City,
-    contact::{Contact, ContactType},
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    name::Name,
+    application::{ServiceTraitBounds, contact::Contact},
+    protocol::{City, Country, Date, Email, Identification, Name, blockchain::bill::ContactType},
 };
 
 #[derive(Clone)]

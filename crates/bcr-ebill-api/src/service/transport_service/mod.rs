@@ -1,5 +1,8 @@
 use crate::external;
-use bcr_ebill_core::{name::Name, util::crypto};
+use bcr_ebill_core::{
+    application::ValidationError,
+    protocol::{Name, ProtocolValidationError, crypto},
+};
 
 mod block_transport;
 pub mod chain_keys;
@@ -14,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use bcr_common::core::NodeId;
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use nostr::{
     nips::{nip01::Metadata, nip19::ToBech32},
     types::{RelayUrl, TryIntoUrl},
@@ -67,7 +70,7 @@ pub enum Error {
 
     /// errors that stem from validation in core
     #[error("Validation Error: {0}")]
-    Validation(#[from] bcr_ebill_core::ValidationError),
+    Validation(#[from] ValidationError),
 
     #[error("External API error: {0}")]
     ExternalApi(#[from] external::Error),
@@ -75,6 +78,12 @@ pub enum Error {
     /// errors if something couldn't be found
     #[error("not found")]
     NotFound,
+}
+
+impl From<ProtocolValidationError> for Error {
+    fn from(value: ProtocolValidationError) -> Self {
+        Self::Validation(ValidationError::Protocol(value))
+    }
 }
 
 impl From<serde_json::Error> for Error {

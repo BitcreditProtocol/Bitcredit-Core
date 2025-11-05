@@ -1,18 +1,16 @@
-use std::str::FromStr;
-
 use super::{FileDb, OptionalPostalAddressDb, Result, surreal::SurrealWrapper};
-use crate::{Error, identity::IdentityStoreApi, util::BcrKeys};
+use crate::{Error, identity::IdentityStoreApi, protocol::crypto::BcrKeys};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    SecretKey, ServiceTraitBounds,
-    city::City,
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
-    name::Name,
+    application::{
+        ServiceTraitBounds,
+        identity::{ActiveIdentityState, Identity, IdentityWithAll},
+    },
+    protocol::{
+        City, Country, Date, Email, Identification, Name, SecretKey,
+        blockchain::identity::IdentityType,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -101,7 +99,7 @@ impl IdentityStoreApi for SurrealIdentityStore {
                 "identity key pair".to_string(),
                 "".to_string(),
             )),
-            Some(value) => value.try_into(),
+            Some(value) => Ok(value.into()),
         }
     }
 
@@ -270,26 +268,22 @@ impl From<&Identity> for IdentityDb {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyDb {
-    pub key: String,
+    pub key: SecretKey,
     pub seed_phrase: String,
 }
 
 impl KeyDb {
     fn from_generated_keys(key_pair: &BcrKeys, seed: &str) -> Self {
         Self {
-            key: key_pair.get_private_key_string(),
+            key: key_pair.get_private_key(),
             seed_phrase: seed.to_string(),
         }
     }
 }
 
-impl TryFrom<KeyDb> for BcrKeys {
-    type Error = crate::Error;
-    fn try_from(value: KeyDb) -> Result<Self> {
-        let key_pair = BcrKeys::from_private_key(
-            &SecretKey::from_str(&value.key).map_err(|e| Error::CryptoUtil(e.into()))?,
-        )?;
-        Ok(key_pair)
+impl From<KeyDb> for BcrKeys {
+    fn from(value: KeyDb) -> Self {
+        BcrKeys::from_private_key(&value.key)
     }
 }
 

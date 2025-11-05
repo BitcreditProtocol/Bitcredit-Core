@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::TransportClientApi;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    name::Name,
-    nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+    application::ServiceTraitBounds,
+    application::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
+    protocol::Name,
 };
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use log::{error, info, warn};

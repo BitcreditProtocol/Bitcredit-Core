@@ -4,11 +4,13 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
-    ServiceTraitBounds, ValidationError,
-    blockchain::{BlockchainType, company::CompanyBlock},
-    company::CompanyKeys,
-    protocol::{ChainInvite, Event},
-    util::BcrKeys,
+    application::ServiceTraitBounds,
+    protocol::{
+        ProtocolValidationError,
+        blockchain::{BlockchainType, company::CompanyBlock},
+        crypto::BcrKeys,
+        event::{ChainInvite, Event},
+    },
 };
 use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
 use log::{debug, error, trace, warn};
@@ -18,7 +20,7 @@ use crate::{
     handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
 };
 use bcr_ebill_api::service::transport_service::Result;
-use bcr_ebill_core::protocol::EventEnvelope;
+use bcr_ebill_core::protocol::event::EventEnvelope;
 
 use super::{CompanyChainEventProcessorApi, NotificationHandlerApi};
 
@@ -44,7 +46,7 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
     ) -> Result<()> {
         debug!("incoming company chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
-            let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key)?;
+            let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key);
 
             let mut inserted_chain: Vec<EventContainer> = Vec::new();
             if let Ok(chain_data) = resolve_event_chains(
@@ -71,12 +73,9 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                             .processor
                             .process_chain_data(
                                 &NodeId::from_str(&decoded.data.chain_id)
-                                    .map_err(ValidationError::from)?,
+                                    .map_err(ProtocolValidationError::from)?,
                                 blocks,
-                                Some(CompanyKeys {
-                                    public_key: decoded.data.keys.public_key.to_owned(),
-                                    private_key: decoded.data.keys.private_key.to_owned(),
-                                }),
+                                Some(BcrKeys::from_private_key(&decoded.data.keys.private_key)),
                             )
                             .await
                             .is_ok()
@@ -172,15 +171,15 @@ mod tests {
     };
 
     use super::*;
-    use bcr_ebill_core::protocol::CompanyBlockEvent;
+    use bcr_ebill_core::protocol::event::CompanyBlockEvent;
     use bcr_ebill_core::{
-        blockchain::{
+        application::company::Company,
+        protocol::Timestamp,
+        protocol::blockchain::{
             Blockchain,
             company::{CompanyBlockchain, CompanyCreateBlockData},
         },
-        company::Company,
-        timestamp::Timestamp,
-        util::crypto::BcrKeys,
+        protocol::crypto::BcrKeys,
     };
     use mockall::predicate::eq;
 
@@ -249,7 +248,7 @@ mod tests {
             .withf(move |node_id, blocks, keys| {
                 node_id == &node_id_test()
                     && blocks.len() == 1
-                    && keys.clone().unwrap().public_key.to_string()
+                    && keys.clone().unwrap().pub_key().to_string()
                         == keys_clone.get_key_pair().public_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
@@ -263,10 +262,7 @@ mod tests {
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
         let invite = Event::new_company_invite(ChainInvite::company(
             node_id_test().to_string(),
-            CompanyKeys {
-                public_key: keys.get_key_pair().public_key(),
-                private_key: keys.get_private_key(),
-            },
+            BcrKeys::from_private_key(&keys.get_private_key()),
         ))
         .try_into()
         .expect("failed to create envelope");
@@ -301,8 +297,8 @@ mod tests {
             .withf(|node_id, blocks, keys| {
                 node_id == &node_id_test()
                     && blocks.len() == 3
-                    && keys.clone().unwrap().public_key.to_string()
-                        == get_bill_keys().public_key.to_string()
+                    && keys.clone().unwrap().pub_key().to_string()
+                        == get_bill_keys().pub_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
 
@@ -315,10 +311,7 @@ mod tests {
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
         let invite = Event::new_company_invite(ChainInvite::company(
             node_id_test().to_string(),
-            CompanyKeys {
-                public_key: keys.get_key_pair().public_key(),
-                private_key: keys.get_private_key(),
-            },
+            BcrKeys::from_private_key(&keys.get_private_key()),
         ))
         .try_into()
         .expect("failed to create envelope");
@@ -353,8 +346,8 @@ mod tests {
             .withf(|node_id, blocks, keys| {
                 node_id == &node_id_test()
                     && blocks.len() == 3
-                    && keys.clone().unwrap().public_key.to_string()
-                        == get_bill_keys().public_key.to_string()
+                    && keys.clone().unwrap().pub_key().to_string()
+                        == get_bill_keys().pub_key().to_string()
             })
             .returning(|_, _, _| Ok(()));
 
@@ -375,10 +368,7 @@ mod tests {
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
         let invite = Event::new_company_invite(ChainInvite::company(
             node_id_test().to_string(),
-            CompanyKeys {
-                public_key: keys.get_key_pair().public_key(),
-                private_key: keys.get_private_key(),
-            },
+            BcrKeys::from_private_key(&keys.get_private_key()),
         ))
         .try_into()
         .expect("failed to create envelope");
@@ -410,8 +400,7 @@ mod tests {
     // valid chains. From there on len even gives one valid and N - 2 invalid (shorter) chains.
     // Uneven give two valid (equal len) and N - 1 invalid chains.
     fn generate_test_chain(len: usize, invalid_blocks: bool) -> (BcrKeys, Vec<nostr::Event>) {
-        let keys = BcrKeys::from_private_key(&private_key_test())
-            .expect("failed to generate keys from private key");
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut result = Vec::new();
 
         let root = generate_test_event(&keys, None, None, 1);
@@ -485,7 +474,7 @@ mod tests {
         .expect("could not create envelope")
     }
 
-    pub fn get_valid_company_chain(company: &Company, keys: &CompanyKeys) -> CompanyBlockchain {
+    pub fn get_valid_company_chain(company: &Company, keys: &BcrKeys) -> CompanyBlockchain {
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(company.to_owned()),
             &BcrKeys::new(),

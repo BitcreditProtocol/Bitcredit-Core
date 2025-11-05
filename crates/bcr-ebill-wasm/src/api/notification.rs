@@ -10,7 +10,7 @@ use crate::{
 };
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::Error;
-use bcr_ebill_core::{Field, ValidationError};
+use bcr_ebill_core::protocol::{Field, ProtocolValidationError};
 use bcr_ebill_persistence::notification::NotificationFilter;
 use log::{error, info};
 use wasm_bindgen::prelude::*;
@@ -112,7 +112,7 @@ impl Notification {
         let res: Result<()> = async {
             let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let parsed_url = url::Url::parse(relay_url)
-                .map_err(|_| Error::Validation(ValidationError::InvalidUrl))?;
+                .map_err(|_| Error::Validation(ProtocolValidationError::InvalidUrl.into()))?;
 
             // check if the given relay URL is one of the current selected identity's relays
             if !caller_public_data
@@ -120,13 +120,15 @@ impl Notification {
                 .iter()
                 .any(|nr| nr == &parsed_url)
             {
-                return Err(Error::Validation(ValidationError::InvalidRelayUrl).into());
+                return Err(
+                    Error::Validation(ProtocolValidationError::InvalidRelayUrl.into()).into(),
+                );
             }
 
             // check if there is an email set
-            let email = caller_public_data
-                .email()
-                .ok_or(Error::Validation(ValidationError::FieldEmpty(Field::Email)))?;
+            let email = caller_public_data.email().ok_or(Error::Validation(
+                ProtocolValidationError::FieldEmpty(Field::Email).into(),
+            ))?;
 
             get_ctx()
                 .transport_service

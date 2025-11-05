@@ -5,14 +5,9 @@ use super::{
 use crate::constants::{DB_SEARCH_TERM, DB_TABLE};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    PublicKey, SecretKey, ServiceTraitBounds,
-    city::City,
-    company::{Company, CompanyKeys},
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    name::Name,
+    application::ServiceTraitBounds, application::company::Company, protocol::City,
+    protocol::Country, protocol::Date, protocol::Email, protocol::Identification, protocol::Name,
+    protocol::SecretKey, protocol::crypto::BcrKeys,
 };
 
 use crate::{Error, company::CompanyStoreApi};
@@ -63,7 +58,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
         }
     }
 
-    async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>> {
+    async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::DATA_TABLE)?;
         let companies: Vec<CompanyDb> = self
@@ -73,7 +68,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
                 bindings,
             )
             .await?;
-        let company_keys: Vec<CompanyKeysDb> = self.db.select_all(Self::KEYS_TABLE).await?;
+        let company_keys: Vec<KeyDb> = self.db.select_all(Self::KEYS_TABLE).await?;
         let companies_map: HashMap<NodeId, CompanyDb> = companies
             .into_iter()
             .map(|company| {
@@ -82,7 +77,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
                 Ok((id, company))
             })
             .collect::<Result<_>>()?;
-        let companies_keys_map: HashMap<NodeId, CompanyKeysDb> = company_keys
+        let companies_keys_map: HashMap<NodeId, KeyDb> = company_keys
             .into_iter()
             .filter_map(|keys| {
                 keys.id.clone().map(|id| {
@@ -91,7 +86,7 @@ impl CompanyStoreApi for SurrealCompanyStore {
                 })
             })
             .collect::<Result<_>>()?;
-        let combined: Result<HashMap<NodeId, (Company, CompanyKeys)>> = companies_map
+        let combined: Result<HashMap<NodeId, (Company, BcrKeys)>> = companies_map
             .into_iter()
             .filter_map(|(id, company)| {
                 companies_keys_map.get(&id).map(|keys| {
@@ -125,22 +120,21 @@ impl CompanyStoreApi for SurrealCompanyStore {
 
     async fn remove(&self, id: &NodeId) -> Result<()> {
         let _: Option<CompanyDb> = self.db.delete(Self::DATA_TABLE, id.to_string()).await?;
-        let _: Option<CompanyKeysDb> = self.db.delete(Self::KEYS_TABLE, id.to_string()).await?;
+        let _: Option<KeyDb> = self.db.delete(Self::KEYS_TABLE, id.to_string()).await?;
         Ok(())
     }
 
-    async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()> {
-        let entity: CompanyKeysDb = key_pair.into();
-        let _: Option<CompanyKeysDb> = self
+    async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()> {
+        let entity: KeyDb = key_pair.into();
+        let _: Option<KeyDb> = self
             .db
             .create(Self::KEYS_TABLE, Some(id.to_string()), entity)
             .await?;
         Ok(())
     }
 
-    async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys> {
-        let result: Option<CompanyKeysDb> =
-            self.db.select_one(Self::KEYS_TABLE, id.to_string()).await?;
+    async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys> {
+        let result: Option<KeyDb> = self.db.select_one(Self::KEYS_TABLE, id.to_string()).await?;
         match result {
             None => Err(Error::NoSuchEntity("company".to_string(), id.to_string())),
             Some(c) => Ok(c.into()),
@@ -168,14 +162,6 @@ pub struct CompanyDb {
 // needed to default existing companies to active
 fn active_default() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompanyKeysDb {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<Thing>,
-    pub public_key: PublicKey,
-    pub private_key: SecretKey,
 }
 
 impl TryFrom<CompanyDb> for Company {
@@ -224,28 +210,29 @@ impl From<&Company> for CompanyDb {
     }
 }
 
-impl From<CompanyKeysDb> for CompanyKeys {
-    fn from(value: CompanyKeysDb) -> Self {
-        Self {
-            public_key: value.public_key,
-            private_key: value.private_key,
-        }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyDb {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Thing>,
+    pub private_key: SecretKey,
+}
+impl From<KeyDb> for BcrKeys {
+    fn from(value: KeyDb) -> Self {
+        BcrKeys::from_private_key(&value.private_key)
     }
 }
-
-impl From<&CompanyKeys> for CompanyKeysDb {
-    fn from(value: &CompanyKeys) -> Self {
+impl From<&BcrKeys> for KeyDb {
+    fn from(value: &BcrKeys) -> Self {
         Self {
             id: None,
-            public_key: value.public_key,
-            private_key: value.private_key,
+            private_key: value.get_private_key(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::country::Country;
+    use bcr_ebill_core::protocol::Country;
 
     use super::*;
     use crate::{
@@ -289,10 +276,7 @@ mod tests {
         store
             .save_key_pair(
                 &node_id_test(),
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
@@ -314,10 +298,7 @@ mod tests {
         store
             .save_key_pair(
                 &node_id_test(),
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
@@ -332,15 +313,12 @@ mod tests {
         store
             .save_key_pair(
                 &node_id_test(),
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
         let company_keys = store.get_key_pair(&node_id_test()).await.unwrap();
-        assert_eq!(company_keys.public_key, node_id_test().pub_key());
+        assert_eq!(company_keys.pub_key(), node_id_test().pub_key());
     }
 
     #[tokio::test]
@@ -366,10 +344,7 @@ mod tests {
         store
             .save_key_pair(
                 &node_id_test(),
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
@@ -379,10 +354,7 @@ mod tests {
         store
             .save_key_pair(
                 &company2.id,
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
@@ -393,12 +365,7 @@ mod tests {
             Name::new("first").unwrap()
         );
         assert_eq!(
-            companies
-                .get(&node_id_test())
-                .as_ref()
-                .unwrap()
-                .1
-                .public_key,
+            companies.get(&node_id_test()).as_ref().unwrap().1.pub_key(),
             node_id_test().pub_key()
         );
         assert_eq!(
@@ -406,7 +373,7 @@ mod tests {
             Name::new("some_name").unwrap()
         );
         assert_eq!(
-            companies.get(&company2.id).as_ref().unwrap().1.public_key,
+            companies.get(&company2.id).as_ref().unwrap().1.pub_key(),
             node_id_test().pub_key()
         );
     }
@@ -420,10 +387,7 @@ mod tests {
         store
             .save_key_pair(
                 &node_id_test(),
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();
@@ -436,10 +400,7 @@ mod tests {
         store
             .save_key_pair(
                 &company2.id,
-                &CompanyKeys {
-                    private_key: private_key_test(),
-                    public_key: node_id_test().pub_key(),
-                },
+                &BcrKeys::from_private_key(&private_key_test()),
             )
             .await
             .unwrap();

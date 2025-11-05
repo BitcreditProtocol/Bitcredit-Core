@@ -1,6 +1,6 @@
 use super::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::application::ServiceTraitBounds;
 
 #[allow(dead_code)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

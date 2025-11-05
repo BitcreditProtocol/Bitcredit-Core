@@ -12,7 +12,7 @@ pub mod notification;
 #[cfg(test)]
 mod tests;
 
-use bcr_ebill_core::util;
+use bcr_ebill_core::protocol;
 use thiserror::Error;
 
 /// Generic persistence result type
@@ -37,10 +37,10 @@ pub enum Error {
     NoSuchEntity(String, String),
 
     #[error("Cryptography error: {0}")]
-    CryptoUtil(#[from] util::crypto::Error),
+    CryptoUtil(#[from] protocol::crypto::Error),
 
-    #[error("Blockchain error: {0}")]
-    Blockchain(#[from] bcr_ebill_core::blockchain::Error),
+    #[error("Protocol error: {0}")]
+    Protocol(#[from] bcr_ebill_core::protocol::ProtocolError),
 
     #[error("Network does not match")]
     NetworkDoesNotMatch,

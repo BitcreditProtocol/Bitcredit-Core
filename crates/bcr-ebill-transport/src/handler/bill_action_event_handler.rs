@@ -5,12 +5,12 @@ use crate::PushApi;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::{Error, Result};
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::notification::BillEventType;
-use bcr_ebill_core::notification::{Notification, NotificationType};
-use bcr_ebill_core::protocol::BillChainEventPayload;
-use bcr_ebill_core::protocol::Event;
-use bcr_ebill_core::protocol::EventEnvelope;
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::notification::{Notification, NotificationType};
+use bcr_ebill_core::protocol::event::BillChainEventPayload;
+use bcr_ebill_core::protocol::event::BillEventType;
+use bcr_ebill_core::protocol::event::Event;
+use bcr_ebill_core::protocol::event::EventEnvelope;
 use bcr_ebill_persistence::NotificationStoreApi;
 use log::{debug, error, trace, warn};
 use std::sync::Arc;
@@ -187,7 +187,7 @@ fn event_description(event_type: &BillEventType) -> String {
 mod tests {
     use std::str::FromStr;
 
-    use bcr_ebill_core::{PublicKey, notification::ActionType, sum::Sum};
+    use bcr_ebill_core::{protocol::PublicKey, protocol::Sum, protocol::event::ActionType};
     use mockall::predicate::{always, eq};
 
     use crate::handler::{

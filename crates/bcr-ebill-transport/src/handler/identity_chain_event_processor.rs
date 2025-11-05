@@ -6,25 +6,23 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
-    blockchain::Block,
-    protocol::{ChainInvite, Event},
-    util::BcrKeys,
+    protocol::blockchain::Block,
+    protocol::crypto::BcrKeys,
+    protocol::event::{ChainInvite, Event},
 };
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    bill::BillKeys,
-    block_id::BlockId,
-    blockchain::{
+    application::ServiceTraitBounds,
+    application::identity::{Identity, IdentityWithAll},
+    application::identity_proof::{IdentityProof, IdentityProofStatus},
+    protocol::BlockId,
+    protocol::blockchain::{
         Blockchain, BlockchainType,
         bill::BillOpCode,
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
-    company::CompanyKeys,
-    identity::{Identity, IdentityWithAll},
-    identity_proof::{IdentityProof, IdentityProofStatus},
 };
 use bcr_ebill_persistence::{
     identity::{IdentityChainStoreApi, IdentityStoreApi},
@@ -277,13 +275,10 @@ impl IdentityChainEventProcessor {
                 IdentityBlockPayload::CreateCompany(payload) => {
                     info!("Received company create block. Restoring Company data");
                     let secret_key = payload.company_key;
-                    let company_keys = BcrKeys::from_private_key(&secret_key)?;
+                    let company_keys = BcrKeys::from_private_key(&secret_key);
                     let invite = ChainInvite::company(
                         payload.company_id.to_string(),
-                        CompanyKeys {
-                            public_key: company_keys.pub_key(),
-                            private_key: company_keys.get_private_key(),
-                        },
+                        BcrKeys::from_private_key(&company_keys.get_private_key()),
                     );
                     let event = Event::new_company_invite(invite);
                     self.company_invite_handler
@@ -299,13 +294,10 @@ impl IdentityChainEventProcessor {
                             payload.bill_id
                         );
                         let secret_key = bill_key;
-                        let bill_keys = BcrKeys::from_private_key(&secret_key)?;
+                        let bill_keys = BcrKeys::from_private_key(&secret_key);
                         let invite = ChainInvite::bill(
                             payload.bill_id.to_string(),
-                            BillKeys {
-                                private_key: bill_keys.get_private_key(),
-                                public_key: bill_keys.pub_key(),
-                            },
+                            BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         );
                         self.bill_invite_handler
                             .handle_event(Event::new_bill(invite).try_into()?, node_id, None)
@@ -420,20 +412,20 @@ pub mod tests {
     use std::sync::Arc;
 
     use bcr_common::core::NodeId;
-    use bcr_ebill_core::protocol::{Event, EventEnvelope, IdentityBlockEvent};
+    use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
     use bcr_ebill_core::{
-        blockchain::{
+        application::identity::Identity,
+        protocol::IdentityProofStamp,
+        protocol::Name,
+        protocol::Sha256Hash,
+        protocol::Timestamp,
+        protocol::blockchain::{
             Blockchain, BlockchainType,
             identity::{
                 IdentityBlock, IdentityBlockchain, IdentityProofBlockData, IdentityUpdateBlockData,
             },
         },
-        hash::Sha256Hash,
-        identity::Identity,
-        identity_proof::IdentityProofStamp,
-        name::Name,
-        timestamp::Timestamp,
-        util::BcrKeys,
+        protocol::crypto::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 

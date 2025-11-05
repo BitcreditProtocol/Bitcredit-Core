@@ -8,18 +8,21 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    ServiceTraitBounds, ValidationError,
-    blockchain::{
-        Block,
-        company::{CompanyBlock, CompanyIdentityProofBlockData},
-        identity::{IdentityBlock, IdentityProofBlockData},
+    application::{
+        ServiceTraitBounds, ValidationError,
+        identity_proof::{IdentityProof, IdentityProofStatus},
     },
-    company::CompanyKeys,
-    contact::{BillParticipant, ContactType},
-    identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
-    protocol::{CompanyChainEvent, IdentityChainEvent},
-    timestamp::Timestamp,
-    util::BcrKeys,
+    protocol::{
+        IdentityProofStamp, ProtocolValidationError, Timestamp,
+        blockchain::{
+            Block,
+            bill::{block::ContactType, participant::BillParticipant},
+            company::{CompanyBlock, CompanyIdentityProofBlockData},
+            identity::{IdentityBlock, IdentityProofBlockData},
+        },
+        crypto::BcrKeys,
+        event::{CompanyChainEvent, IdentityChainEvent},
+    },
 };
 use bcr_ebill_persistence::{
     company::{CompanyChainStoreApi, CompanyStoreApi},
@@ -94,7 +97,7 @@ impl IdentityProofService {
     async fn populate_company_block(
         &self,
         id: &NodeId,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
         new_signatory: Option<NodeId>,
     ) -> Result<()> {
         let company = self.company_store.get(id).await?;
@@ -102,7 +105,7 @@ impl IdentityProofService {
         self.transport_service
             .block_transport()
             .send_company_chain_events(CompanyChainEvent::new(
-                &company,
+                &company.id,
                 &chain,
                 keys,
                 new_signatory,
@@ -116,7 +119,7 @@ impl IdentityProofService {
         let identity = self.identity_store.get().await?;
         self.transport_service
             .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(&identity, block, keys))
+            .send_identity_chain_events(IdentityChainEvent::new(&identity.node_id, block, keys))
             .await?;
         Ok(())
     }
@@ -143,7 +146,9 @@ impl IdentityProofServiceApi for IdentityProofService {
         let now = Timestamp::now();
         let node_id = signer_public_data.node_id();
         if !stamp.verify_against_node_id(&node_id) {
-            return Err(Error::Validation(ValidationError::InvalidSignature));
+            return Err(Error::Validation(
+                ProtocolValidationError::InvalidSignature.into(),
+            ));
         }
 
         let signer_is_company = match signer_public_data {
@@ -155,7 +160,9 @@ impl IdentityProofServiceApi for IdentityProofService {
         let nostr_relay = match signer_public_data.nostr_relays().first() {
             Some(r) => r.to_owned(),
             None => {
-                return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+                return Err(Error::Validation(
+                    ProtocolValidationError::InvalidRelayUrl.into(),
+                ));
             }
         };
         let status = self
@@ -183,10 +190,7 @@ impl IdentityProofServiceApi for IdentityProofService {
                 .company_blockchain_store
                 .get_latest_block(&node_id)
                 .await?;
-            let company_keys = CompanyKeys {
-                private_key: signer_keys.get_private_key(),
-                public_key: signer_keys.pub_key(),
-            };
+            let company_keys = BcrKeys::from_private_key(&signer_keys.get_private_key());
             let new_block = CompanyBlock::create_block_for_identity_proof(
                 node_id.clone(),
                 &previous_block,
@@ -197,7 +201,8 @@ impl IdentityProofServiceApi for IdentityProofService {
                 &identity_keys,
                 &company_keys,
                 now,
-            )?;
+            )
+            .map_err(|e| Error::Protocol(e.into()))?;
             self.company_blockchain_store
                 .add_block(&node_id, &new_block)
                 .await?;
@@ -215,7 +220,8 @@ impl IdentityProofServiceApi for IdentityProofService {
                 },
                 signer_keys,
                 now,
-            )?;
+            )
+            .map_err(|e| Error::Protocol(e.into()))?;
             self.identity_blockchain_store.add_block(&new_block).await?;
             self.populate_identity_block(&new_block, signer_keys)
                 .await?;
@@ -273,7 +279,9 @@ impl IdentityProofServiceApi for IdentityProofService {
                 let nostr_relay = match signer_public_data.nostr_relays().first() {
                     Some(r) => r.to_owned(),
                     None => {
-                        return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+                        return Err(Error::Validation(
+                            ProtocolValidationError::InvalidRelayUrl.into(),
+                        ));
                     }
                 };
 
@@ -325,7 +333,9 @@ impl IdentityProofServiceApi for IdentityProofService {
         let nostr_relay = match full_identity.identity.nostr_relays.first() {
             Some(r) => r.to_owned(),
             None => {
-                return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+                return Err(Error::Validation(
+                    ProtocolValidationError::InvalidRelayUrl.into(),
+                ));
             }
         };
 
@@ -339,7 +349,7 @@ impl IdentityProofServiceApi for IdentityProofService {
                     .secret_key()
                     .to_owned()
             } else if let Some((_company, company_keys)) = companies.get(node_id) {
-                nostr::Keys::new(company_keys.private_key.into())
+                nostr::Keys::new(company_keys.get_private_key().into())
                     .secret_key()
                     .to_owned()
             } else {
@@ -387,8 +397,8 @@ impl IdentityProofServiceApi for IdentityProofService {
 #[cfg(test)]
 pub mod tests {
     use bcr_ebill_core::{
-        block_id::BlockId,
-        blockchain::{Blockchain, identity::IdentityBlockchain},
+        protocol::BlockId,
+        protocol::blockchain::{Blockchain, identity::IdentityBlockchain},
     };
 
     use crate::{
@@ -451,7 +461,7 @@ pub mod tests {
         let res = service
             .add(
                 &BillParticipant::Ident(signer),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 &Url::parse("https://bit.cr/").expect("valid url"),
                 &IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
             )
@@ -496,7 +506,7 @@ pub mod tests {
             .returning(|_| Ok(get_baseline_company()));
         ctx.identity_store
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test()).unwrap()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         let service = get_service(ctx);
 
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
@@ -506,7 +516,7 @@ pub mod tests {
         let res = service
             .add(
                 &BillParticipant::Ident(signer),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 &Url::parse("https://bit.cr/").expect("valid url"),
                 &IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
             )
@@ -535,7 +545,7 @@ pub mod tests {
         let res = service
             .add(
                 &BillParticipant::Ident(signer),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 &Url::parse("https://bit.cr/").expect("valid url"),
                 &IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
             )
@@ -631,7 +641,7 @@ pub mod tests {
         let res = service
             .re_check(
                 &BillParticipant::Ident(signer),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 "some_id",
             )
             .await;
@@ -663,7 +673,7 @@ pub mod tests {
         let res = service
             .re_check(
                 &BillParticipant::Ident(signer),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 "some_id",
             )
             .await;
@@ -681,7 +691,7 @@ pub mod tests {
         let res = service
             .re_check(
                 &BillParticipant::Ident(signer),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 "some_id",
             )
             .await;

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::application::ServiceTraitBounds;
 use log::trace;
 use std::sync::Arc;
 

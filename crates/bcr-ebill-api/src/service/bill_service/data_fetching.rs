@@ -1,36 +1,37 @@
 use super::service::BillService;
 use super::{Error, Result};
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::bill::validation::get_expiration_deadline_base_for_req_to_pay;
-use bcr_ebill_core::bill::{
-    BillCallerActions, BillCallerBillAction, BillMintStatus, BillShallowValidationData,
-    BillValidateActionData, BillValidationActionMode, BillWaitingStatePaymentData, PastEndorsee,
-    PaymentState, RecourseReason,
+use bcr_ebill_core::application::bill::{
+    BillCallerActions, BillCallerBillAction, BillMintStatus, BillWaitingStatePaymentData,
+    PaymentState,
 };
-use bcr_ebill_core::blockchain::Block;
-use bcr_ebill_core::contact::{BillParticipant, Contact};
-use bcr_ebill_core::date::Date;
-use bcr_ebill_core::identity::IdentityType;
-use bcr_ebill_core::sum::Sum;
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{Validate, ValidationError};
+use bcr_ebill_core::application::contact::Contact;
+use bcr_ebill_core::protocol::Sum;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::Validate;
+use bcr_ebill_core::protocol::blockchain::Block;
+use bcr_ebill_core::protocol::blockchain::bill::BillValidateActionData;
+use bcr_ebill_core::protocol::{Date, ProtocolValidationError};
 use bcr_ebill_core::{
-    bill::{
-        BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillKeys, BillParticipants,
+    application::bill::{
+        BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillParticipants,
         BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
         BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-        BitcreditBill, BitcreditBillResult,
+        BitcreditBillResult,
     },
-    blockchain::{
+    application::identity::{Identity, IdentityWithAll},
+    protocol::blockchain::{
         Blockchain,
         bill::{
-            BillBlockchain, BillOpCode, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
-            block::BillSignatoryBlockData,
+            BillBlockchain, BillOpCode, BillShallowValidationData, BillValidationActionMode,
+            BitcreditBill, OfferToSellWaitingForPayment, RecourseReason, RecourseWaitingForPayment,
+            block::{BillSignatoryBlockData, ContactType},
+            participant::{BillParticipant, PastEndorsee},
+            validation::get_expiration_deadline_base_for_req_to_pay,
         },
+        identity::IdentityType,
     },
-    contact::ContactType,
-    identity::{Identity, IdentityWithAll},
-    util::BcrKeys,
+    protocol::crypto::BcrKeys,
 };
 use log::{debug, error};
 use std::collections::HashMap;
@@ -47,12 +48,16 @@ impl BillService {
     pub(super) async fn get_last_version_bill(
         &self,
         chain: &BillBlockchain,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         identity: &Identity,
         contacts: &HashMap<NodeId, Contact>,
     ) -> Result<BitcreditBill> {
-        let bill_first_version = chain.get_first_version_bill(bill_keys)?;
-        let bill_parties = chain.get_bill_parties(bill_keys, &bill_first_version)?;
+        let bill_first_version = chain
+            .get_first_version_bill(bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let bill_parties = chain
+            .get_bill_parties(bill_keys, &bill_first_version)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         let payee = bill_parties.payee;
         let drawee_contact = self
@@ -113,7 +118,9 @@ impl BillService {
                     ContactType::Person | ContactType::Anon => (signer_keys.clone(), None, None),
                     ContactType::Company => {
                         if signatory_identity.identity.t == IdentityType::Anon {
-                            return Err(Error::Validation(ValidationError::IdentityCantBeAnon));
+                            return Err(Error::Validation(
+                                ProtocolValidationError::IdentityCantBeAnon.into(),
+                            ));
                         }
                         (
                             signatory_identity.key_pair.clone(),
@@ -139,7 +146,7 @@ impl BillService {
     pub(super) async fn calculate_full_bill(
         &self,
         chain: &BillBlockchain,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
         current_timestamp: Timestamp,
@@ -150,13 +157,20 @@ impl BillService {
         let bill = self
             .get_last_version_bill(chain, bill_keys, local_identity, &contacts)
             .await?;
-        let first_version_bill = chain.get_first_version_bill(bill_keys)?;
+        let first_version_bill = chain
+            .get_first_version_bill(bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
         let time_of_drawing = first_version_bill.signing_timestamp;
 
-        let past_endorsees =
-            chain.get_past_endorsees_for_bill(bill_keys, current_identity_node_id)?;
-        let bill_participants = chain.get_all_nodes_from_bill(bill_keys)?;
-        let bill_history = chain.get_bill_history(bill_keys)?;
+        let past_endorsees = chain
+            .get_past_endorsees_for_bill(bill_keys, current_identity_node_id)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let bill_participants = chain
+            .get_all_nodes_from_bill(bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let bill_history = chain
+            .get_bill_history(bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
         let endorsements = bill_history.get_endorsements();
         let endorsements_count = endorsements.len() as u64;
 
@@ -183,12 +197,14 @@ impl BillService {
             time_of_request_to_pay = Some(req_to_pay_block.timestamp);
             paid = self.store.is_paid(&bill.id).await?;
             rejected_to_pay = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
-            let (is_expired, payment_deadline) = chain.is_req_to_pay_block_payment_expired(
-                req_to_pay_block,
-                bill_keys,
-                current_timestamp,
-                Some(&bill.maturity_date),
-            )?;
+            let (is_expired, payment_deadline) = chain
+                .is_req_to_pay_block_payment_expired(
+                    req_to_pay_block,
+                    bill_keys,
+                    current_timestamp,
+                    Some(&bill.maturity_date),
+                )
+                .map_err(|e| Error::Protocol(e.into()))?;
             payment_deadline_timestamp = Some(payment_deadline);
             if !paid && !rejected_to_pay && is_expired {
                 // this is true, if the payment is expired (after maturity date)
@@ -231,11 +247,13 @@ impl BillService {
                 // last offer to sell was sold
                 sold = true;
             }
-            let (is_expired, buying_deadline) = chain.is_offer_to_sell_block_payment_expired(
-                last_offer_to_sell_block,
-                bill_keys,
-                current_timestamp,
-            )?;
+            let (is_expired, buying_deadline) = chain
+                .is_offer_to_sell_block_payment_expired(
+                    last_offer_to_sell_block,
+                    bill_keys,
+                    current_timestamp,
+                )
+                .map_err(|e| Error::Protocol(e.into()))?;
             buying_deadline_timestamp = Some(buying_deadline);
             if !sold && !rejected_offer_to_sell && is_expired {
                 offer_to_sell_timed_out = true;
@@ -266,11 +284,13 @@ impl BillService {
             {
                 recoursed = true
             }
-            let (is_expired, recourse_deadline) = chain.is_req_to_recourse_block_payment_expired(
-                last_req_to_recourse_block,
-                bill_keys,
-                current_timestamp,
-            )?;
+            let (is_expired, recourse_deadline) = chain
+                .is_req_to_recourse_block_payment_expired(
+                    last_req_to_recourse_block,
+                    bill_keys,
+                    current_timestamp,
+                )
+                .map_err(|e| Error::Protocol(e.into()))?;
             recourse_deadline_timestamp = Some(recourse_deadline);
             if !recoursed && !rejected_request_to_recourse && is_expired {
                 request_to_recourse_timed_out = true;
@@ -289,11 +309,9 @@ impl BillService {
             requested_to_accept = true;
             time_of_request_to_accept = Some(req_to_accept_block.timestamp);
 
-            let (is_expired, acceptance_deadline) = chain.is_req_to_accept_block_expired(
-                req_to_accept_block,
-                bill_keys,
-                current_timestamp,
-            )?;
+            let (is_expired, acceptance_deadline) = chain
+                .is_req_to_accept_block_expired(req_to_accept_block, bill_keys, current_timestamp)
+                .map_err(|e| Error::Protocol(e.into()))?;
             acceptance_deadline_timestamp = Some(acceptance_deadline);
             if !accepted && !rejected_to_accept && is_expired {
                 request_to_accept_timed_out = true;
@@ -305,10 +323,8 @@ impl BillService {
         let current_waiting_state = match last_block.op_code {
             BillOpCode::OfferToSell => {
                 offer_to_sell_waiting_for_payment_state = chain
-                    .is_last_offer_to_sell_block_waiting_for_payment(
-                        bill_keys,
-                        current_timestamp,
-                    )?;
+                    .is_last_offer_to_sell_block_waiting_for_payment(bill_keys, current_timestamp)
+                    .map_err(|e| Error::Protocol(e.into()))?;
                 if let OfferToSellWaitingForPayment::Yes(ref payment_info) =
                     offer_to_sell_waiting_for_payment_state
                 {
@@ -420,7 +436,7 @@ impl BillService {
                     }
                     let address_to_pay = self
                         .bitcoin_client
-                        .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
+                        .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
 
                     let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                         &address_to_pay,
@@ -456,7 +472,8 @@ impl BillService {
                     .is_last_request_to_recourse_block_waiting_for_payment(
                         bill_keys,
                         current_timestamp,
-                    )?;
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?;
                 if let RecourseWaitingForPayment::Yes(ref payment_info) =
                     recourse_waiting_for_payment_state
                 {
@@ -501,7 +518,7 @@ impl BillService {
                         .await;
 
                     let address_to_pay = self.bitcoin_client.get_address_to_pay(
-                        &bill_keys.public_key,
+                        &bill_keys.pub_key(),
                         &payment_info.recourser.node_id().pub_key(),
                     )?;
 
@@ -918,7 +935,7 @@ fn calculate_possible_bill_actions_for_caller(
     payee_node_id: NodeId,
     endorsee_node_id: Option<NodeId>,
     maturity_date: Date,
-    bill_keys: BillKeys,
+    bill_keys: BcrKeys,
     timestamp: Timestamp,
     signer_node_id: NodeId,
     is_paid: bool,
@@ -979,11 +996,11 @@ fn calculate_possible_bill_actions_for_caller(
 #[cfg(test)]
 pub mod tests {
     use bcr_ebill_core::{
-        blockchain::bill::{
+        protocol::blockchain::bill::{
             BillBlock,
             block::{BillParticipantBlockData, BillRejectBlockData, BillRequestToAcceptBlockData},
         },
-        constants::ACCEPT_DEADLINE_SECONDS,
+        protocol::constants::ACCEPT_DEADLINE_SECONDS,
     };
 
     use crate::{
@@ -1082,9 +1099,9 @@ pub mod tests {
                     + 1
                     + 2 * ACCEPT_DEADLINE_SECONDS,
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-            Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
+            Some(&BcrKeys::from_private_key(&private_key_test())),
+            &BcrKeys::from_private_key(&private_key_test()),
             latest_block.timestamp + 1,
         )
         .unwrap();
@@ -1154,7 +1171,7 @@ pub mod tests {
             },
             &BcrKeys::new(),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             latest_block.timestamp + 1,
         )
         .unwrap();

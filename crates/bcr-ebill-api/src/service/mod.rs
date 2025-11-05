@@ -8,6 +8,7 @@ pub mod search_service;
 pub mod transport_service;
 
 use crate::external;
+use bcr_ebill_core::{application::ValidationError, protocol::ProtocolValidationError};
 use thiserror::Error;
 
 /// Generic result type
@@ -34,19 +35,25 @@ pub enum Error {
 
     /// errors stemming from crypto utils
     #[error("Crypto util error: {0}")]
-    CryptoUtil(#[from] bcr_ebill_core::util::crypto::Error),
+    CryptoUtil(#[from] bcr_ebill_core::protocol::crypto::Error),
 
     /// errors that stem from validation in core
     #[error("Validation Error: {0}")]
-    Validation(#[from] bcr_ebill_core::ValidationError),
+    Validation(#[from] ValidationError),
 
     #[error("External API error: {0}")]
     ExternalApi(#[from] external::Error),
 
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
-    Blockchain(#[from] bcr_ebill_core::blockchain::Error),
+    Protocol(#[from] bcr_ebill_core::protocol::ProtocolError),
 
     #[error("Json error: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+impl From<ProtocolValidationError> for Error {
+    fn from(value: ProtocolValidationError) -> Self {
+        Self::Validation(ValidationError::Protocol(value))
+    }
 }

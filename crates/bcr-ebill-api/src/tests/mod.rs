@@ -6,35 +6,40 @@ pub mod tests {
     use crate::{CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig};
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
-    use bcr_ebill_core::BitcoinAddress;
-    use bcr_ebill_core::address::Address;
-    use bcr_ebill_core::bill::BillKeys;
-    use bcr_ebill_core::block_id::BlockId;
-    use bcr_ebill_core::city::City;
-    use bcr_ebill_core::country::Country;
-    use bcr_ebill_core::date::Date;
-    use bcr_ebill_core::email::Email;
-    use bcr_ebill_core::hash::Sha256Hash;
-    use bcr_ebill_core::name::Name;
-    use bcr_ebill_core::sum::Sum;
-    use bcr_ebill_core::timestamp::Timestamp;
+    use bcr_ebill_core::protocol::Address;
+    use bcr_ebill_core::protocol::BitcoinAddress;
+    use bcr_ebill_core::protocol::BlockId;
+    use bcr_ebill_core::protocol::City;
+    use bcr_ebill_core::protocol::Country;
+    use bcr_ebill_core::protocol::Date;
+    use bcr_ebill_core::protocol::Email;
+    use bcr_ebill_core::protocol::Name;
+    use bcr_ebill_core::protocol::Sha256Hash;
+    use bcr_ebill_core::protocol::Sum;
+    use bcr_ebill_core::protocol::Timestamp;
+    use bcr_ebill_core::protocol::blockchain::bill::BitcreditBill;
     use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, ServiceTraitBounds,
-        bill::{BitcreditBill, BitcreditBillResult, PaymentState},
-        blockchain::{
+        application::ServiceTraitBounds,
+        application::bill::{BitcreditBillResult, PaymentState},
+        application::company::Company,
+        application::contact::Contact,
+        application::identity::{ActiveIdentityState, Identity, IdentityWithAll},
+        application::identity_proof::{IdentityProof, IdentityProofStatus},
+        application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+        application::notification::{Notification, NotificationType},
+        protocol::blockchain::{
             BlockchainType,
-            bill::{BillBlock, BillBlockchain, BillOpCode},
+            bill::{
+                BillBlock, BillBlockchain, BillOpCode, ContactType,
+                participant::{BillIdentParticipant, BillParticipant},
+            },
             company::{CompanyBlock, CompanyBlockchain},
-            identity::{IdentityBlock, IdentityBlockchain},
+            identity::{IdentityBlock, IdentityBlockchain, IdentityType},
         },
-        company::{Company, CompanyKeys},
-        contact::{BillIdentParticipant, BillParticipant, Contact, ContactType},
-        identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll},
-        identity_proof::{IdentityProof, IdentityProofStatus},
-        mint::{MintOffer, MintRequest, MintRequestStatus},
-        nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-        notification::{ActionType, Notification, NotificationType},
-        util::crypto::BcrKeys,
+        protocol::crypto::BcrKeys,
+        protocol::event::bill_events::ActionType,
+        protocol::mint::{MintOffer, MintRequest, MintRequestStatus},
+        protocol::{OptionalPostalAddress, PostalAddress, PublicKey, SecretKey},
     };
     use bcr_ebill_persistence::identity_proof::IdentityProofStoreApi;
     use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
@@ -162,8 +167,8 @@ pub mod tests {
             async fn clear_bill_cache(&self) -> Result<()>;
             async fn exists(&self, id: &BillId) -> Result<bool>;
             async fn get_ids(&self) -> Result<Vec<BillId>>;
-            async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
-            async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
+            async fn save_keys(&self, id: &BillId, keys: &BcrKeys) -> Result<()>;
+            async fn get_keys(&self, id: &BillId) -> Result<BcrKeys>;
             async fn is_paid(&self, id: &BillId) -> Result<bool>;
             async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()>;
             async fn get_payment_state(&self, id: &BillId) -> Result<Option<PaymentState>>;
@@ -234,12 +239,12 @@ pub mod tests {
             async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
             async fn exists(&self, id: &NodeId) -> bool;
             async fn get(&self, id: &NodeId) -> Result<Company>;
-            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, CompanyKeys)>>;
+            async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
             async fn insert(&self, data: &Company) -> Result<()>;
             async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
             async fn remove(&self, id: &NodeId) -> Result<()>;
-            async fn save_key_pair(&self, id: &NodeId, key_pair: &CompanyKeys) -> Result<()>;
-            async fn get_key_pair(&self, id: &NodeId) -> Result<CompanyKeys>;
+            async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
+            async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
         }
     }
 

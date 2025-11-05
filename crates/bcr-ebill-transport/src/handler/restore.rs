@@ -6,9 +6,9 @@ use bcr_ebill_api::service::transport_service::{
     Result, restore::RestoreAccountApi, transport_client::TransportClientApi,
 };
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    blockchain::{BlockchainType, identity::IdentityBlock},
-    util::BcrKeys,
+    application::ServiceTraitBounds,
+    protocol::blockchain::{BlockchainType, identity::IdentityBlock},
+    protocol::crypto::BcrKeys,
 };
 use log::{error, info};
 use nostr::filter::Filter;
@@ -129,13 +129,13 @@ impl RestoreAccountApi for RestoreAccountService {
 #[cfg(test)]
 mod tests {
     use bcr_ebill_core::{
-        blockchain::{
+        application::identity::Identity,
+        protocol::Timestamp,
+        protocol::blockchain::{
             Blockchain,
             identity::{IdentityBlockchain, IdentityCreateBlockData},
         },
-        identity::Identity,
-        protocol::{Event, EventEnvelope, IdentityBlockEvent},
-        timestamp::Timestamp,
+        protocol::event::{Event, EventEnvelope, IdentityBlockEvent},
     };
     use mockall::predicate::{always, eq};
 
@@ -239,8 +239,7 @@ mod tests {
     }
 
     fn generate_test_chain(len: usize, invalid_blocks: bool) -> (BcrKeys, Vec<nostr::Event>) {
-        let keys = BcrKeys::from_private_key(&private_key_test())
-            .expect("failed to generate keys from private key");
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut result = Vec::new();
 
         let root = generate_test_event(&keys, None, None, 1);

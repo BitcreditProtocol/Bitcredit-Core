@@ -6,31 +6,34 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::NostrConfig;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::util::validate_node_id_network;
-use bcr_ebill_core::address::Address;
-use bcr_ebill_core::blockchain::BlockchainType;
-use bcr_ebill_core::city::City;
-use bcr_ebill_core::company::Company;
-use bcr_ebill_core::contact::{
-    BillAnonParticipant, BillIdentParticipant, BillParticipant, ContactType,
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::application::nostr_contact::TrustLevel;
+use bcr_ebill_core::protocol::Address;
+use bcr_ebill_core::protocol::City;
+use bcr_ebill_core::protocol::Country;
+use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::blockchain::BlockchainType;
+use bcr_ebill_core::protocol::blockchain::bill::{
+    block::ContactType,
+    participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
 };
-use bcr_ebill_core::country::Country;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::nostr_contact::TrustLevel;
-use bcr_ebill_core::protocol::{BillChainEventPayload, Event, EventEnvelope};
-use bcr_ebill_core::util::{BcrKeys, base58_decode, base58_encode};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event, EventEnvelope};
 use bcr_ebill_persistence::ContactStoreApi;
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
     NostrQueuedMessageStoreApi,
 };
+use bitcoin::base58;
 use log::{debug, error, warn};
 use tokio::sync::Mutex;
 use tokio_with_wasm::alias as tokio;
 
 use bcr_ebill_api::get_config;
 use bcr_ebill_api::service::transport_service::{Error, Result};
-use bcr_ebill_core::{PostalAddress, ServiceTraitBounds};
+use bcr_ebill_core::protocol::PostalAddress;
 
 /// Transport implementation for Nostr
 pub struct NostrTransportService {
@@ -186,7 +189,7 @@ impl NostrTransportService {
                         self.queue_retry_message(
                             sender,
                             node_id,
-                            base58_encode(
+                            base58::encode(
                                 &borsh::to_vec(event_to_process)
                                     .map_err(|e| Error::Message(e.to_string()))?,
                             ),
@@ -316,7 +319,7 @@ impl NostrTransportService {
             .map(|r| r.first().cloned())
         {
             if let Ok(message) =
-                borsh::from_slice::<EventEnvelope>(&base58_decode(&queued_message.payload)?)
+                borsh::from_slice::<EventEnvelope>(&base58::decode(&queued_message.payload)?)
             {
                 if let Err(e) = self
                     .send_retry_message(

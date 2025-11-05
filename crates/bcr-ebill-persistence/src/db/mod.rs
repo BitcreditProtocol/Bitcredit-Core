@@ -4,9 +4,8 @@ use crate::constants::{
     SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
 };
 use bcr_common::core::BillId;
-use bcr_ebill_core::{
-    File, OptionalPostalAddress, PostalAddress, address::Address, city::City, country::Country,
-    hash::Sha256Hash, name::Name, zip::Zip,
+use bcr_ebill_core::protocol::{
+    Address, City, Country, File, Name, OptionalPostalAddress, PostalAddress, Sha256Hash, Zip,
 };
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};

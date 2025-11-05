@@ -3,20 +3,22 @@ use super::service::BillService;
 use crate::service::bill_service::{BillAction, BillServiceApi};
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    bill::{BillKeys, BitcreditBill, PaymentState, RecourseReason},
-    blockchain::{
+    application::bill::PaymentState,
+    application::company::Company,
+    application::identity::{Identity, IdentityWithAll},
+    protocol::Timestamp,
+    protocol::blockchain::{
         Blockchain,
         bill::{
-            BillBlockchain, BillOpCode, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
+            BillBlockchain, BillOpCode, BitcreditBill, OfferToSellWaitingForPayment,
+            RecourseReason, RecourseWaitingForPayment,
             block::BillRecourseReasonBlockData,
+            participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
         },
+        identity::IdentityType,
     },
-    company::{Company, CompanyKeys},
-    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
-    identity::{Identity, IdentityType, IdentityWithAll},
-    protocol::BillChainEvent,
-    timestamp::Timestamp,
-    util::BcrKeys,
+    protocol::crypto::BcrKeys,
+    protocol::event::BillChainEvent,
 };
 use log::{debug, info};
 use std::collections::HashMap;
@@ -47,7 +49,7 @@ impl BillService {
         };
         let address_to_pay = self
             .bitcoin_client
-            .get_address_to_pay(&bill_keys.public_key, &holder_public_key.pub_key())?;
+            .get_address_to_pay(&bill_keys.pub_key(), &holder_public_key.pub_key())?;
         match self
             .bitcoin_client
             .check_payment_for_address(&address_to_pay, bill.sum.as_sat())
@@ -95,7 +97,7 @@ impl BillService {
         &self,
         identity: &Identity,
         blockchain: &BillBlockchain,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         last_version_bill: &BitcreditBill,
     ) -> Result<()> {
         let chain_event = BillChainEvent::new(
@@ -126,7 +128,7 @@ impl BillService {
         {
             // calculate payment address
             let payment_address = self.bitcoin_client.get_address_to_pay(
-                &bill_keys.public_key,
+                &bill_keys.pub_key(),
                 &payment_info.recourser.node_id().pub_key(),
             )?;
             // check if paid
@@ -209,7 +211,7 @@ impl BillService {
                         return Ok(()); // return early
                     }
 
-                    let local_companies: HashMap<NodeId, (Company, CompanyKeys)> =
+                    let local_companies: HashMap<NodeId, (Company, BcrKeys)> =
                         self.company_store.get_all().await?;
                     // If a local company is the recourser, create the recourse block as that company
                     if let Some(recourser_company) =
@@ -244,7 +246,7 @@ impl BillService {
                                     recourser_company.0.clone(),
                                 )),
                                 // signer keys (company keys)
-                                &BcrKeys::from_private_key(&recourser_company.1.private_key)?,
+                                &BcrKeys::from_private_key(&recourser_company.1.get_private_key()),
                                 now,
                             )
                             .await?;
@@ -343,7 +345,7 @@ impl BillService {
                         return Ok(()); // return early
                     }
 
-                    let local_companies: HashMap<NodeId, (Company, CompanyKeys)> =
+                    let local_companies: HashMap<NodeId, (Company, BcrKeys)> =
                         self.company_store.get_all().await?;
                     // If a local company is the seller, create the sell block as that company
                     if let Some(seller_company) =
@@ -369,7 +371,7 @@ impl BillService {
                                     // signer identity (company)
                                     &BillParticipant::Ident(BillIdentParticipant::from(seller_company.0.clone())),
                                     // signer keys (company keys)
-                                    &BcrKeys::from_private_key(&seller_company.1.private_key)?,
+                                    &BcrKeys::from_private_key(&seller_company.1.get_private_key()),
                                     now,
                                 )
                                 .await?;

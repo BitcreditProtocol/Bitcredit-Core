@@ -9,9 +9,10 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    SecretKey, ServiceTraitBounds,
-    name::Name,
-    nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+    application::ServiceTraitBounds,
+    application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+    protocol::Name,
+    protocol::SecretKey,
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -200,7 +201,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::util::BcrKeys;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
 
     use super::*;
     use crate::db::get_memory_db;

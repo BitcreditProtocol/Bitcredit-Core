@@ -11,6 +11,7 @@
 * Remove `BackupService` and `BackupStore` since it's unused
 * Remove file-based `FileUpload` - we use surreal/nostr-based everywhere
 * Refactoring & Restructuring, removing cross-crate exports (breaking for Library dependents)
+* Properly separate `protocol` parts from `application` in `bcr-ebill-core` (breaking for Library dependents, breaking DB change)
 
 # 0.4.12
 

@@ -2,10 +2,10 @@ use super::Result;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    company::Company,
-    protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
-    util::BcrKeys,
+    application::ServiceTraitBounds,
+    application::company::Company,
+    protocol::crypto::BcrKeys,
+    protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
 };
 
 #[cfg(test)]

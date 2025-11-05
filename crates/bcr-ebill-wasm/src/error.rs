@@ -2,8 +2,8 @@ use bcr_ebill_api::service::bill_service::Error as BillServiceError;
 use bcr_ebill_api::service::{
     Error as ServiceError, transport_service::Error as NotificationServiceError,
 };
-use bcr_ebill_core::ValidationError;
-use bcr_ebill_core::util::crypto;
+use bcr_ebill_core::application::ValidationError;
+use bcr_ebill_core::protocol::{ProtocolValidationError, crypto};
 use log::error;
 use serde::Serialize;
 use thiserror::Error;
@@ -35,6 +35,9 @@ pub enum WasmError {
 
     #[error("Validation error: {0}")]
     Validation(#[from] ValidationError),
+
+    #[error("Protocol Validation error: {0}")]
+    ProtocolValidation(#[from] ProtocolValidationError),
 }
 
 #[derive(Tsify, Debug, Clone, Serialize)]
@@ -84,6 +87,7 @@ enum JsErrorType {
     Crypto,
     Persistence,
     Blockchain,
+    Protocol,
     InvalidRelayUrl,
     Serialization,
     Init,
@@ -165,11 +169,12 @@ impl From<WasmError> for JsErrorData {
                 ServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),
                 ServiceError::CryptoUtil(e) => err_500(e, JsErrorType::Crypto),
                 ServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
-                ServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
+                ServiceError::Protocol(e) => err_500(e, JsErrorType::Protocol),
                 ServiceError::Json(e) => err_500(e, JsErrorType::Json),
             },
             WasmError::BillService(e) => bill_service_error_data(e),
             WasmError::Validation(e) => validation_error_data(e),
+            WasmError::ProtocolValidation(e) => protocol_validation_error_data(e),
             WasmError::NotificationService(e) => notification_service_error_data(e),
             WasmError::WasmSerialization(e) => err_500(e, JsErrorType::Serialization),
             WasmError::Crypto(e) => err_500(e, JsErrorType::Crypto),
@@ -198,132 +203,28 @@ fn bill_service_error_data(e: BillServiceError) -> JsErrorData {
         BillServiceError::NotFound => err_404(e, JsErrorType::NotFound),
         BillServiceError::Persistence(e) => err_500(e, JsErrorType::Persistence),
         BillServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),
-        BillServiceError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
+        BillServiceError::Protocol(e) => err_500(e, JsErrorType::Protocol),
         BillServiceError::Cryptography(e) => err_500(e, JsErrorType::Crypto),
         BillServiceError::Notification(e) => notification_service_error_data(e),
-        BillServiceError::Protocol(e) => err_500(e, JsErrorType::Serialization),
     }
 }
 
 fn validation_error_data(e: ValidationError) -> JsErrorData {
     match e {
-        ValidationError::FieldEmpty(_) => err_400(e, JsErrorType::FieldEmpty),
-        ValidationError::FieldInvalid(_) => err_400(e, JsErrorType::FieldInvalid),
-        ValidationError::InvalidSum => err_400(e, JsErrorType::InvalidSum),
-        ValidationError::InvalidCurrency => err_400(e, JsErrorType::InvalidCurrency),
-        ValidationError::InvalidContactType => err_400(e, JsErrorType::InvalidContactType),
-        ValidationError::InvalidIdentityType => err_400(e, JsErrorType::InvalidIdentityType),
-        ValidationError::InvalidContentType => err_400(e, JsErrorType::InvalidContentType),
-        ValidationError::InvalidDate => err_400(e, JsErrorType::InvalidDate),
-        ValidationError::InvalidCountry => err_400(e, JsErrorType::InvalidCountry),
-        ValidationError::InvalidTimestamp => err_400(e, JsErrorType::InvalidTimestamp),
-        ValidationError::DeadlineBeforeMinimum => err_400(e, JsErrorType::DeadlineBeforeMinimum),
-        ValidationError::SelfDraftedBillCantBeBlank => {
-            err_400(e, JsErrorType::SelfDraftedBillCantBeBlank)
-        }
-        ValidationError::IdentityCantBeAnon => err_400(e, JsErrorType::IdentityCantBeAnon),
-        ValidationError::SignerCantBeAnon => err_400(e, JsErrorType::SignerCantBeAnon),
+        ValidationError::Protocol(e) => protocol_validation_error_data(e),
         ValidationError::RequestToMintForBillAndMintAlreadyActive => {
             err_400(e, JsErrorType::RequestToMintForBillAndMintAlreadyActive)
         }
         ValidationError::ContactIsAnonymous(_) => err_400(e, JsErrorType::ContactIsAnonymous),
         ValidationError::InvalidContact(_) => err_400(e, JsErrorType::InvalidContact),
         ValidationError::InvalidMint(_) => err_400(e, JsErrorType::InvalidMint),
-        ValidationError::MaturityDateInThePast => err_400(e, JsErrorType::MaturityDateInThePast),
-        ValidationError::IssueDateAfterMaturityDate => {
-            err_400(e, JsErrorType::IssueDateAfterMaturityDate)
-        }
-        ValidationError::InvalidFileUploadId => err_400(e, JsErrorType::InvalidFileUploadId),
-        ValidationError::InvalidNodeId => err_400(e, JsErrorType::InvalidNodeId),
-        ValidationError::InvalidBillId => err_400(e, JsErrorType::InvalidBillId),
         ValidationError::InvalidBillType => err_400(e, JsErrorType::InvalidBillType),
-        ValidationError::DraweeCantBePayee => err_400(e, JsErrorType::DraweeCantBePayee),
-        ValidationError::EndorserCantBeEndorsee => err_400(e, JsErrorType::EndorserCantBeEndorsee),
-        ValidationError::BuyerCantBeSeller => err_400(e, JsErrorType::BuyerCantBeSeller),
-        ValidationError::RecourserCantBeRecoursee => {
-            err_400(e, JsErrorType::RecourserCantBeRecoursee)
-        }
-        ValidationError::BillAlreadyAccepted => err_400(e, JsErrorType::BillAlreadyAccepted),
-        ValidationError::BillWasRejectedToAccept => {
-            err_400(e, JsErrorType::BillWasRejectedToAccept)
-        }
-        ValidationError::BillAcceptanceExpired => err_400(e, JsErrorType::BillAcceptanceExpired),
-        ValidationError::BillWasRejectedToPay => err_400(e, JsErrorType::BillWasRejectedToPay),
-        ValidationError::BillPaymentExpired => err_400(e, JsErrorType::BillPaymentExpired),
-        ValidationError::BillWasRecoursedToTheEnd => {
-            err_400(e, JsErrorType::BillWasRecoursedToTheEnd)
-        }
-        ValidationError::BillWasNotOfferedToSell => {
-            err_400(e, JsErrorType::BillWasNotOfferedToSell)
-        }
-        ValidationError::BillWasNotRequestedToPay => {
-            err_400(e, JsErrorType::BillWasNotRequestedToPay)
-        }
-        ValidationError::BillWasNotRequestedToRecourse => {
-            err_400(e, JsErrorType::BillWasNotRequestedToRecourse)
-        }
-        ValidationError::BillIsNotOfferToSellWaitingForPayment => {
-            err_400(e, JsErrorType::BillIsNotOfferToSellWaitingForPayment)
-        }
-        ValidationError::BillIsOfferedToSellAndWaitingForPayment => {
-            err_400(e, JsErrorType::BillIsOfferedToSellAndWaitingForPayment)
-        }
-        ValidationError::BillIsInRecourseAndWaitingForPayment => {
-            err_400(e, JsErrorType::BillIsInRecourseAndWaitingForPayment)
-        }
-        ValidationError::BillRequestToAcceptDidNotExpireAndWasNotRejected => err_400(
-            e,
-            JsErrorType::BillRequestToAcceptDidNotExpireAndWasNotRejected,
-        ),
-        ValidationError::BillRequestToPayDidNotExpireAndWasNotRejected => err_400(
-            e,
-            JsErrorType::BillRequestToPayDidNotExpireAndWasNotRejected,
-        ),
-        ValidationError::BillIsNotRequestedToRecourseAndWaitingForPayment => err_400(
-            e,
-            JsErrorType::BillIsNotRequestedToRecourseAndWaitingForPayment,
-        ),
-        ValidationError::BillSellDataInvalid => err_400(e, JsErrorType::BillSellDataInvalid),
-        ValidationError::BillAlreadyPaid => err_400(e, JsErrorType::BillAlreadyPaid),
-        ValidationError::BillNotAccepted => err_400(e, JsErrorType::BillNotAccepted),
-        ValidationError::BillAlreadyRequestedToAccept => {
-            err_400(e, JsErrorType::BillAlreadyRequestedToAccept)
-        }
-        ValidationError::BillIsRequestedToPayAndWaitingForPayment => {
-            err_400(e, JsErrorType::BillIsRequestedToPayAndWaitingForPayment)
-        }
-        ValidationError::BillRecourseDataInvalid => {
-            err_400(e, JsErrorType::BillRecourseDataInvalid)
-        }
-        ValidationError::RecourseeNotPastHolder => err_400(e, JsErrorType::RecourseeNotPastHolder),
-        ValidationError::CallerIsNotDrawee => err_400(e, JsErrorType::CallerIsNotDrawee),
-        ValidationError::CallerIsNotBuyer => err_400(e, JsErrorType::CallerIsNotBuyer),
-        ValidationError::CallerIsNotRecoursee => err_400(e, JsErrorType::CallerIsNotRecoursee),
-        ValidationError::RequestAlreadyRejected => err_400(e, JsErrorType::RequestAlreadyRejected),
-        ValidationError::CallerIsNotHolder => err_400(e, JsErrorType::CallerIsNotHolder),
         ValidationError::CallerMustBeSignatory => err_400(e, JsErrorType::CallerMustBeSignatory),
         ValidationError::SignatoryNotInContacts(_) => {
             err_400(e, JsErrorType::SignatoryNotInContacts)
         }
-        ValidationError::SignatoryAlreadySignatory(_) => {
-            err_400(e, JsErrorType::SignatoryAlreadySignatory)
-        }
-        ValidationError::CantRemoveLastSignatory => {
-            err_400(e, JsErrorType::CantRemoveLastSignatory)
-        }
-        ValidationError::NotASignatory(_) => err_400(e, JsErrorType::NotASignatory),
-        ValidationError::FileIsTooBig(_) => err_400(e, JsErrorType::FileIsTooBig),
-        ValidationError::FileIsEmpty => err_400(e, JsErrorType::FileIsEmpty),
-        ValidationError::TooManyFiles => err_400(e, JsErrorType::TooManyFiles),
-        ValidationError::InvalidFileName(_) => err_400(e, JsErrorType::InvalidFileName),
         ValidationError::UnknownNodeId(_) => err_400(e, JsErrorType::UnknownNodeId),
         ValidationError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
-        ValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
-        ValidationError::InvalidSignature => err_400(e, JsErrorType::InvalidSignature),
-        ValidationError::InvalidHash => err_400(e, JsErrorType::InvalidHash),
-        ValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
-        ValidationError::InvalidBillAction => err_400(e, JsErrorType::InvalidBillAction),
-        ValidationError::InvalidMintRequestId => err_400(e, JsErrorType::InvalidMintRequestId),
         ValidationError::InvalidIdentityProofStatus(_) => {
             err_400(e, JsErrorType::InvalidIdentityProofStatus)
         }
@@ -345,6 +246,142 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
             err_400(e, JsErrorType::AcceptMintRequestNotOffered)
         }
         ValidationError::AcceptMintOfferExpired => err_400(e, JsErrorType::AcceptMintOfferExpired),
+    }
+}
+
+fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
+    match e {
+        ProtocolValidationError::FieldEmpty(_) => err_400(e, JsErrorType::FieldEmpty),
+        ProtocolValidationError::FieldInvalid(_) => err_400(e, JsErrorType::FieldInvalid),
+        ProtocolValidationError::InvalidSum => err_400(e, JsErrorType::InvalidSum),
+        ProtocolValidationError::InvalidCurrency => err_400(e, JsErrorType::InvalidCurrency),
+        ProtocolValidationError::InvalidContactType => err_400(e, JsErrorType::InvalidContactType),
+        ProtocolValidationError::InvalidIdentityType => {
+            err_400(e, JsErrorType::InvalidIdentityType)
+        }
+        ProtocolValidationError::InvalidContentType => err_400(e, JsErrorType::InvalidContentType),
+        ProtocolValidationError::InvalidDate => err_400(e, JsErrorType::InvalidDate),
+        ProtocolValidationError::InvalidCountry => err_400(e, JsErrorType::InvalidCountry),
+        ProtocolValidationError::InvalidTimestamp => err_400(e, JsErrorType::InvalidTimestamp),
+        ProtocolValidationError::DeadlineBeforeMinimum => {
+            err_400(e, JsErrorType::DeadlineBeforeMinimum)
+        }
+        ProtocolValidationError::SelfDraftedBillCantBeBlank => {
+            err_400(e, JsErrorType::SelfDraftedBillCantBeBlank)
+        }
+        ProtocolValidationError::IdentityCantBeAnon => err_400(e, JsErrorType::IdentityCantBeAnon),
+        ProtocolValidationError::SignerCantBeAnon => err_400(e, JsErrorType::SignerCantBeAnon),
+        ProtocolValidationError::MaturityDateInThePast => {
+            err_400(e, JsErrorType::MaturityDateInThePast)
+        }
+        ProtocolValidationError::IssueDateAfterMaturityDate => {
+            err_400(e, JsErrorType::IssueDateAfterMaturityDate)
+        }
+        ProtocolValidationError::InvalidFileUploadId => {
+            err_400(e, JsErrorType::InvalidFileUploadId)
+        }
+        ProtocolValidationError::InvalidNodeId => err_400(e, JsErrorType::InvalidNodeId),
+        ProtocolValidationError::InvalidBillId => err_400(e, JsErrorType::InvalidBillId),
+        ProtocolValidationError::DraweeCantBePayee => err_400(e, JsErrorType::DraweeCantBePayee),
+        ProtocolValidationError::EndorserCantBeEndorsee => {
+            err_400(e, JsErrorType::EndorserCantBeEndorsee)
+        }
+        ProtocolValidationError::BuyerCantBeSeller => err_400(e, JsErrorType::BuyerCantBeSeller),
+        ProtocolValidationError::RecourserCantBeRecoursee => {
+            err_400(e, JsErrorType::RecourserCantBeRecoursee)
+        }
+        ProtocolValidationError::BillAlreadyAccepted => {
+            err_400(e, JsErrorType::BillAlreadyAccepted)
+        }
+        ProtocolValidationError::BillWasRejectedToAccept => {
+            err_400(e, JsErrorType::BillWasRejectedToAccept)
+        }
+        ProtocolValidationError::BillAcceptanceExpired => {
+            err_400(e, JsErrorType::BillAcceptanceExpired)
+        }
+        ProtocolValidationError::BillWasRejectedToPay => {
+            err_400(e, JsErrorType::BillWasRejectedToPay)
+        }
+        ProtocolValidationError::BillPaymentExpired => err_400(e, JsErrorType::BillPaymentExpired),
+        ProtocolValidationError::BillWasRecoursedToTheEnd => {
+            err_400(e, JsErrorType::BillWasRecoursedToTheEnd)
+        }
+        ProtocolValidationError::BillWasNotOfferedToSell => {
+            err_400(e, JsErrorType::BillWasNotOfferedToSell)
+        }
+        ProtocolValidationError::BillWasNotRequestedToPay => {
+            err_400(e, JsErrorType::BillWasNotRequestedToPay)
+        }
+        ProtocolValidationError::BillWasNotRequestedToRecourse => {
+            err_400(e, JsErrorType::BillWasNotRequestedToRecourse)
+        }
+        ProtocolValidationError::BillIsNotOfferToSellWaitingForPayment => {
+            err_400(e, JsErrorType::BillIsNotOfferToSellWaitingForPayment)
+        }
+        ProtocolValidationError::BillIsOfferedToSellAndWaitingForPayment => {
+            err_400(e, JsErrorType::BillIsOfferedToSellAndWaitingForPayment)
+        }
+        ProtocolValidationError::BillIsInRecourseAndWaitingForPayment => {
+            err_400(e, JsErrorType::BillIsInRecourseAndWaitingForPayment)
+        }
+        ProtocolValidationError::BillRequestToAcceptDidNotExpireAndWasNotRejected => err_400(
+            e,
+            JsErrorType::BillRequestToAcceptDidNotExpireAndWasNotRejected,
+        ),
+        ProtocolValidationError::BillRequestToPayDidNotExpireAndWasNotRejected => err_400(
+            e,
+            JsErrorType::BillRequestToPayDidNotExpireAndWasNotRejected,
+        ),
+        ProtocolValidationError::BillIsNotRequestedToRecourseAndWaitingForPayment => err_400(
+            e,
+            JsErrorType::BillIsNotRequestedToRecourseAndWaitingForPayment,
+        ),
+        ProtocolValidationError::BillSellDataInvalid => {
+            err_400(e, JsErrorType::BillSellDataInvalid)
+        }
+        ProtocolValidationError::BillAlreadyPaid => err_400(e, JsErrorType::BillAlreadyPaid),
+        ProtocolValidationError::BillNotAccepted => err_400(e, JsErrorType::BillNotAccepted),
+        ProtocolValidationError::BillAlreadyRequestedToAccept => {
+            err_400(e, JsErrorType::BillAlreadyRequestedToAccept)
+        }
+        ProtocolValidationError::BillIsRequestedToPayAndWaitingForPayment => {
+            err_400(e, JsErrorType::BillIsRequestedToPayAndWaitingForPayment)
+        }
+        ProtocolValidationError::BillRecourseDataInvalid => {
+            err_400(e, JsErrorType::BillRecourseDataInvalid)
+        }
+        ProtocolValidationError::RecourseeNotPastHolder => {
+            err_400(e, JsErrorType::RecourseeNotPastHolder)
+        }
+        ProtocolValidationError::CallerIsNotDrawee => err_400(e, JsErrorType::CallerIsNotDrawee),
+        ProtocolValidationError::CallerIsNotBuyer => err_400(e, JsErrorType::CallerIsNotBuyer),
+        ProtocolValidationError::CallerIsNotRecoursee => {
+            err_400(e, JsErrorType::CallerIsNotRecoursee)
+        }
+        ProtocolValidationError::RequestAlreadyRejected => {
+            err_400(e, JsErrorType::RequestAlreadyRejected)
+        }
+        ProtocolValidationError::CallerIsNotHolder => err_400(e, JsErrorType::CallerIsNotHolder),
+        ProtocolValidationError::SignatoryAlreadySignatory(_) => {
+            err_400(e, JsErrorType::SignatoryAlreadySignatory)
+        }
+        ProtocolValidationError::CantRemoveLastSignatory => {
+            err_400(e, JsErrorType::CantRemoveLastSignatory)
+        }
+        ProtocolValidationError::NotASignatory(_) => err_400(e, JsErrorType::NotASignatory),
+        ProtocolValidationError::FileIsTooBig(_) => err_400(e, JsErrorType::FileIsTooBig),
+        ProtocolValidationError::FileIsEmpty => err_400(e, JsErrorType::FileIsEmpty),
+        ProtocolValidationError::TooManyFiles => err_400(e, JsErrorType::TooManyFiles),
+        ProtocolValidationError::InvalidFileName(_) => err_400(e, JsErrorType::InvalidFileName),
+        ProtocolValidationError::Blockchain(e) => err_500(e, JsErrorType::Blockchain),
+        ProtocolValidationError::InvalidRelayUrl => err_400(e, JsErrorType::InvalidRelayUrl),
+        ProtocolValidationError::InvalidSignature => err_400(e, JsErrorType::InvalidSignature),
+        ProtocolValidationError::InvalidHash => err_400(e, JsErrorType::InvalidHash),
+        ProtocolValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
+        ProtocolValidationError::InvalidBillAction => err_400(e, JsErrorType::InvalidBillAction),
+        ProtocolValidationError::InvalidMintRequestId => {
+            err_400(e, JsErrorType::InvalidMintRequestId)
+        }
     }
 }
 

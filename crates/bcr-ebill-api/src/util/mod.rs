@@ -1,13 +1,17 @@
 use bcr_common::core::BillId;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::ValidationError;
+use bcr_ebill_core::application::ValidationError;
+use bcr_ebill_core::protocol::ProtocolValidationError;
+use uuid::Uuid;
 
 #[cfg(not(test))]
-pub(crate) use bcr_ebill_core::util::get_uuid_v4;
+pub fn get_uuid_v4() -> Uuid {
+    Uuid::new_v4()
+}
 
 use log::warn;
 #[cfg(test)]
-use uuid::{Uuid, uuid};
+use uuid::uuid;
 
 use crate::get_config;
 
@@ -43,7 +47,7 @@ pub fn update_optional_field<T: Clone + PartialEq>(
 pub fn validate_node_id_network(node_id: &NodeId) -> Result<(), ValidationError> {
     if node_id.network() != get_config().bitcoin_network() {
         warn!("Detected node id of wrong network {node_id}");
-        return Err(ValidationError::InvalidNodeId);
+        return Err(ProtocolValidationError::InvalidNodeId.into());
     }
 
     Ok(())
@@ -52,7 +56,7 @@ pub fn validate_node_id_network(node_id: &NodeId) -> Result<(), ValidationError>
 pub fn validate_bill_id_network(bill_id: &BillId) -> Result<(), ValidationError> {
     if bill_id.network() != get_config().bitcoin_network() {
         warn!("Detected bill id of wrong network {bill_id}");
-        return Err(ValidationError::InvalidBillId);
+        return Err(ProtocolValidationError::InvalidBillId.into());
     }
 
     Ok(())
@@ -60,7 +64,7 @@ pub fn validate_bill_id_network(bill_id: &BillId) -> Result<(), ValidationError>
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::country::Country;
+    use bcr_ebill_core::protocol::Country;
 
     use super::*;
 

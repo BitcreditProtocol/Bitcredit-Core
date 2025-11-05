@@ -1,13 +1,8 @@
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::Error;
 use bcr_ebill_core::{
-    city::City,
-    contact::{Contact, ContactType},
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    name::Name,
+    application::{ValidationError, contact::Contact},
+    protocol::{City, Country, Date, Email, Identification, Name, blockchain::bill::ContactType},
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -80,7 +75,7 @@ impl TryFrom<u64> for ContactTypeWeb {
 
     fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
         Ok(ContactType::try_from(value)
-            .map_err(Self::Error::Validation)?
+            .map_err(|e| Self::Error::Validation(ValidationError::Protocol(e)))?
             .into())
     }
 }

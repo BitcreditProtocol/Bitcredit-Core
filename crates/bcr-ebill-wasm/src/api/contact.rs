@@ -16,15 +16,14 @@ use bcr_ebill_api::service;
 use bcr_ebill_api::service::file_upload_service::{
     UploadFileHandler, detect_content_type_for_bytes,
 };
-use bcr_ebill_core::ValidationError;
-use bcr_ebill_core::city::City;
-use bcr_ebill_core::contact::ContactType;
-use bcr_ebill_core::country::Country;
-use bcr_ebill_core::date::Date;
-use bcr_ebill_core::email::Email;
-use bcr_ebill_core::identification::Identification;
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::{OptionalPostalAddress, PostalAddress};
+use bcr_ebill_core::protocol::Country;
+use bcr_ebill_core::protocol::Date;
+use bcr_ebill_core::protocol::Email;
+use bcr_ebill_core::protocol::Identification;
+use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::blockchain::bill::ContactType;
+use bcr_ebill_core::protocol::{City, ProtocolValidationError};
+use bcr_ebill_core::protocol::{OptionalPostalAddress, PostalAddress};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
@@ -32,7 +31,7 @@ use wasm_bindgen::prelude::*;
 pub struct Contact;
 
 async fn get_file(node_id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
-    let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
+    let parsed_node_id = NodeId::from_str(node_id).map_err(ProtocolValidationError::from)?;
     let contact = get_ctx()
         .contact_service
         .get_contact(&parsed_node_id)
@@ -50,7 +49,7 @@ async fn get_file(node_id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> 
         .open_and_decrypt_file(contact, &parsed_node_id, file_name, &private_key)
         .await?;
     let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(
-        service::Error::Validation(ValidationError::InvalidContentType),
+        service::Error::Validation(ProtocolValidationError::InvalidContentType.into()),
     )?;
     Ok((file_bytes, content_type))
 }
@@ -157,7 +156,8 @@ impl Contact {
     #[wasm_bindgen(unchecked_return_type = "TSResult<ContactWeb>")]
     pub async fn detail(&self, node_id: &str) -> JsValue {
         let res: Result<ContactWeb> = async {
-            let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
+            let parsed_node_id =
+                NodeId::from_str(node_id).map_err(ProtocolValidationError::from)?;
             let contact: ContactWeb = get_ctx()
                 .contact_service
                 .get_contact(&parsed_node_id)
@@ -172,7 +172,8 @@ impl Contact {
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn remove(&self, node_id: &str) -> JsValue {
         let res: Result<()> = async {
-            let parsed_node_id = NodeId::from_str(node_id).map_err(ValidationError::from)?;
+            let parsed_node_id =
+                NodeId::from_str(node_id).map_err(ProtocolValidationError::from)?;
             get_ctx().contact_service.delete(&parsed_node_id).await?;
             Ok(())
         }
@@ -219,13 +220,15 @@ impl Contact {
                     contact_payload
                         .avatar_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     contact_payload
                         .proof_document_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                 )
@@ -275,13 +278,15 @@ impl Contact {
                     contact_payload
                         .avatar_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     contact_payload
                         .proof_document_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                 )
@@ -333,14 +338,16 @@ impl Contact {
                     contact_payload
                         .avatar_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     !has_avatar_file_upload_id,
                     contact_payload
                         .proof_document_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     !has_proof_document_file_upload_id,

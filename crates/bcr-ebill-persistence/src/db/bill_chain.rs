@@ -12,17 +12,18 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::BillId;
 use bcr_ebill_core::{
-    PublicKey, ServiceTraitBounds,
-    block_id::BlockId,
-    blockchain::{
+    application::ServiceTraitBounds,
+    protocol::BlockId,
+    protocol::PublicKey,
+    protocol::SchnorrSignature,
+    protocol::Sha256Hash,
+    protocol::Timestamp,
+    protocol::blockchain::{
         Block,
         bill::{BillBlock, BillBlockchain, BillOpCode},
     },
-    hash::Sha256Hash,
-    signature::SchnorrSignature,
-    timestamp::Timestamp,
-    util::{base58_decode, base58_encode},
 };
+use bitcoin::base58;
 use serde::{Deserialize, Serialize};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
@@ -174,7 +175,8 @@ impl BillChainStoreApi for SurrealBillChainStore {
             })?;
 
         let blocks: Result<Vec<BillBlock>> = result.into_iter().map(|b| b.try_into()).collect();
-        let chain = BillBlockchain::new_from_blocks(blocks?)?;
+        let chain =
+            BillBlockchain::new_from_blocks(blocks?).map_err(|e| Error::Protocol(e.into()))?;
 
         Ok(chain)
     }
@@ -204,7 +206,7 @@ impl TryFrom<BillBlockDb> for BillBlock {
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: base58_decode(&value.data).map_err(|_| Error::EncodingError)?,
+            data: base58::decode(&value.data).map_err(|_| Error::EncodingError)?,
             public_key: value.public_key,
             previous_hash: value.previous_hash,
             signature: value.signature,
@@ -224,7 +226,7 @@ impl From<&BillBlock> for BillBlockDb {
             signature: value.signature.clone(),
             timestamp: value.timestamp,
             public_key: value.public_key,
-            data: base58_encode(&value.data.clone()),
+            data: base58::encode(&value.data.clone()),
             op_code: value.op_code.clone(),
         }
     }
@@ -237,14 +239,16 @@ mod tests {
         db::{bill::tests::get_first_block, get_memory_db},
         tests::tests::{bill_id_test, empty_address, get_bill_keys, node_id_test},
     };
-    use bcr_ebill_core::{
+    use bcr_ebill_core::protocol::{
+        Name,
         blockchain::{
             Blockchain,
-            bill::block::{BillAcceptBlockData, BillIdentParticipantBlockData},
+            bill::{
+                ContactType,
+                block::{BillAcceptBlockData, BillIdentParticipantBlockData},
+            },
         },
-        contact::ContactType,
-        name::Name,
-        util::BcrKeys,
+        crypto::BcrKeys,
     };
 
     async fn get_store() -> SurrealBillChainStore {
@@ -282,7 +286,7 @@ mod tests {
             },
             &BcrKeys::new(),
             None,
-            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             Timestamp::new(1731593928).unwrap(),
         )
         .unwrap();

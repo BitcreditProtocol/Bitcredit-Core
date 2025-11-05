@@ -4,13 +4,17 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    contact::Contact,
-    nostr_contact::NostrContact,
-    protocol::{ContactShareEvent, Event, EventEnvelope},
-    util::{base58_decode, crypto::decrypt_ecies},
+    application::ContactShareEvent,
+    application::ServiceTraitBounds,
+    application::contact::Contact,
+    application::nostr_contact::NostrContact,
+    protocol::{
+        crypto::decrypt_ecies,
+        event::{Event, EventEnvelope},
+    },
 };
 use bcr_ebill_persistence::{ContactStoreApi, nostr::NostrContactStoreApi};
+use bitcoin::base58;
 use log::{debug, warn};
 
 use crate::EventType;
@@ -45,7 +49,7 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                 && let Some(bcr_metadata) = contact_data.get_bcr_metadata()
             {
                 let decrypted = decrypt_ecies(
-                    &base58_decode(&bcr_metadata.contact_data)?,
+                    &base58::decode(&bcr_metadata.contact_data)?,
                     &decoded.data.private_key,
                 )?;
                 let contact = serde_json::from_slice::<Contact>(&decrypted)?;
@@ -113,13 +117,11 @@ mod tests {
     use super::*;
     use bcr_ebill_api::service::transport_service::{BcrMetadata, NostrContactData};
     use bcr_ebill_core::{
-        contact::ContactType,
-        name::Name,
-        util::{
-            base58_encode,
-            crypto::{BcrKeys, encrypt_ecies},
-        },
+        protocol::Name,
+        protocol::blockchain::bill::block::ContactType,
+        protocol::crypto::{BcrKeys, encrypt_ecies},
     };
+    use bitcoin::base58;
     use mockall::predicate::{always, eq};
 
     #[tokio::test]
@@ -177,7 +179,7 @@ mod tests {
     fn get_contact_data(keys: BcrKeys) -> NostrContactData {
         let contact = get_contact();
         let payload = serde_json::to_vec(&contact).unwrap();
-        let encypted = base58_encode(&encrypt_ecies(payload.as_slice(), &keys.pub_key()).unwrap());
+        let encypted = base58::encode(&encrypt_ecies(payload.as_slice(), &keys.pub_key()).unwrap());
 
         NostrContactData::new(
             &Name::new("My Name").unwrap(),

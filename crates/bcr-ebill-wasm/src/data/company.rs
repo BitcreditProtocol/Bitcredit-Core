@@ -1,14 +1,8 @@
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    ValidationError,
-    city::City,
-    company::Company,
-    contact::{Contact, ContactType},
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    name::Name,
+    application::ValidationError, application::company::Company, application::contact::Contact,
+    protocol::City, protocol::Country, protocol::Date, protocol::Email, protocol::Identification,
+    protocol::Name, protocol::blockchain::bill::block::ContactType,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
