@@ -87,7 +87,10 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
             })?;
 
         match result.first() {
-            None => Err(Error::NoIdentityBlock),
+            None => Err(Error::NoSuchEntity(
+                "identity block".to_string(),
+                "".to_string(),
+            )),
             Some(block) => block.to_owned().try_into(),
         }
     }
@@ -95,7 +98,7 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
     async fn add_block(&self, block: &IdentityBlock) -> Result<()> {
         let entity: IdentityBlockDb = block.into();
         match self.get_latest_block().await {
-            Err(Error::NoIdentityBlock) => {
+            Err(Error::NoSuchEntity(_, _)) => {
                 // if there is no latest block, ensure it's a valid first block
                 if block.id.is_first() && block.verify() && block.validate_hash() {
                     // Atomically ensure it's the first block
@@ -117,8 +120,8 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
                     })?;
                     Ok(())
                 } else {
-                    return Err(Error::AddIdentityBlock(format!(
-                        "First Block validation error: block id: {}",
+                    return Err(Error::InsertFailed(format!(
+                        "First Identity Block validation error: block id: {}",
                         block.id
                     )));
                 }
@@ -126,8 +129,8 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
             Ok(latest_block) => {
                 // if there is a latest block, ensure it's a valid follow-up block
                 if !block.validate_with_previous(&latest_block) {
-                    return Err(Error::AddIdentityBlock(format!(
-                        "Block validation error: block id: {}, latest block id: {}",
+                    return Err(Error::InsertFailed(format!(
+                        "Identity Block validation error: block id: {}, latest block id: {}",
                         block.id, latest_block.id
                     )));
                 }
@@ -195,7 +198,7 @@ impl TryFrom<IdentityBlockDb> for IdentityBlock {
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: base58_decode(&value.data)?,
+            data: base58_decode(&value.data).map_err(|_| Error::EncodingError)?,
             public_key: value.public_key,
             previous_hash: value.previous_hash,
             signature: value.signature,

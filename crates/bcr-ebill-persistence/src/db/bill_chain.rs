@@ -87,7 +87,10 @@ impl BillChainStoreApi for SurrealBillChainStore {
             })?;
 
         match result.first() {
-            None => Err(Error::NoBillBlock),
+            None => Err(Error::NoSuchEntity(
+                "bill block".to_string(),
+                id.to_string(),
+            )),
             Some(block) => block.to_owned().try_into(),
         }
     }
@@ -95,7 +98,7 @@ impl BillChainStoreApi for SurrealBillChainStore {
     async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()> {
         let entity: BillBlockDb = block.into();
         match self.get_latest_block(id).await {
-            Err(Error::NoBillBlock) => {
+            Err(Error::NoSuchEntity(_, _)) => {
                 // if there is no latest block, ensure it's a valid first block
                 if block.id.is_first() && block.verify() && block.validate_hash() {
                     // Atomically ensure it's the first block
@@ -117,8 +120,8 @@ impl BillChainStoreApi for SurrealBillChainStore {
                     })?;
                     Ok(())
                 } else {
-                    return Err(Error::AddBillBlock(format!(
-                        "First Block validation error: block id: {}",
+                    return Err(Error::InsertFailed(format!(
+                        "First Bill Block validation error: block id: {}",
                         block.id
                     )));
                 }
@@ -126,8 +129,8 @@ impl BillChainStoreApi for SurrealBillChainStore {
             Ok(latest_block) => {
                 // if there is a latest block, ensure it's a valid follow-up block
                 if !block.validate_with_previous(&latest_block) {
-                    return Err(Error::AddBillBlock(format!(
-                        "Block validation error: block id: {}, latest block id: {}",
+                    return Err(Error::InsertFailed(format!(
+                        "Bill Block validation error: block id: {}, latest block id: {}",
                         block.id, latest_block.id
                     )));
                 }
@@ -201,7 +204,7 @@ impl TryFrom<BillBlockDb> for BillBlock {
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: base58_decode(&value.data)?,
+            data: base58_decode(&value.data).map_err(|_| Error::EncodingError)?,
             public_key: value.public_key,
             previous_hash: value.previous_hash,
             signature: value.signature,

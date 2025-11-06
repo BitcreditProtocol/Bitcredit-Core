@@ -102,8 +102,8 @@ impl From<crypto::Error> for Error {
     }
 }
 
-impl From<bcr_ebill_core::util::Error> for Error {
-    fn from(e: bcr_ebill_core::util::Error) -> Self {
+impl From<bitcoin::base58::InvalidCharacterError> for Error {
+    fn from(e: bitcoin::base58::InvalidCharacterError) -> Self {
         Error::Crypto(format!("Failed base58 operation: {e}"))
     }
 }

@@ -2,16 +2,15 @@ use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ValidationError;
 use crate::block_id::BlockId;
 use crate::hash::Sha256Hash;
 use crate::signature::SchnorrSignature;
 use crate::timestamp::Timestamp;
 use crate::util::crypto;
-use crate::{ValidationError, util};
 use borsh::{BorshDeserialize, BorshSerialize, to_vec};
 use log::{error, warn};
 use std::fmt::Display;
-use std::string::FromUtf8Error;
 
 pub mod bill;
 pub mod company;
@@ -31,10 +30,6 @@ pub enum Error {
     #[error("Blockchain is invalid")]
     BlockchainInvalid,
 
-    /// If there is an error deserializing and decrypting blocks
-    #[error("Could not parse and decrypt blockchain")]
-    BlockchainParse,
-
     /// If certain block is not valid and can't be added
     #[error("Block is invalid")]
     BlockInvalid,
@@ -47,26 +42,13 @@ pub enum Error {
     #[error("Block's signature does not match the signer")]
     BlockSignatureDoesNotMatchSigner,
 
-    /// If an invalid operation is passed to a function (e.g. a non-reject op)
-    #[error("Invalid operation")]
-    InvalidOperation,
-
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Secp256k1Cryptography error: {0}")]
     Secp256k1Cryptography(#[from] crypto::Error),
 
     /// Errors stemming from base58 decoding
     #[error("Base 58 Decode error: {0}")]
-    Base58Decode(#[from] util::Error),
-
-    /// Errors stemming from converting from utf-8 strings
-    #[error("UTF-8 error: {0}")]
-    Utf8(#[from] FromUtf8Error),
-
-    /// Errors stemming from dealing with invalid block data, e.g. if within an Endorse block,
-    /// there is no endorsee
-    #[error("Invalid block data error: {0}")]
-    InvalidBlockdata(String),
+    Base58Decode(#[from] bitcoin::base58::InvalidCharacterError),
 
     /// The given blockchain type string could not be converted to a valid type
     #[error("Invalid blockchain type: {0}")]

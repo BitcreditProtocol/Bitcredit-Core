@@ -113,7 +113,9 @@ impl FileUploadServiceApi for FileUploadService {
             .file_upload_store
             .read_temp_upload_file(file_upload_id)
             .await
-            .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+            .map_err(|_| {
+                crate::service::Error::Validation(ValidationError::NoFileForFileUploadId)
+            })?;
         let (file_name, file_bytes) = file;
         return Ok(Some((file_name, file_bytes)));
     }
@@ -250,11 +252,7 @@ mod tests {
         let mut storage = MockFileUploadStoreApiMock::new();
         storage
             .expect_write_temp_upload_file()
-            .returning(|_, _, _| {
-                Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                    "test error",
-                )))
-            });
+            .returning(|_, _, _| Err(bcr_ebill_persistence::Error::EncodingError));
         let mut file = MockUploadFileHandler::new();
         file.expect_name()
             .returning(|| Some(String::from("invoice")));

@@ -28,7 +28,7 @@ pub enum Error {
 
     /// Errors stemming from decoding base58
     #[error("Decode base58 error: {0}")]
-    Decode(#[from] super::Error),
+    Decode(#[from] bitcoin::base58::InvalidCharacterError),
 
     /// Errors stemming from parsing the recovery id
     #[error("Parse recovery id error: {0}")]

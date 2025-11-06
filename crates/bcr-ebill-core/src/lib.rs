@@ -259,10 +259,6 @@ pub enum ValidationError {
     #[error("Invalid currency")]
     InvalidCurrency,
 
-    /// error returned if the bitcoin address
-    #[error("Invalid payment address")]
-    InvalidPaymentAddress,
-
     /// error returned if the file upload id was invalid
     #[error("Invalid file upload id")]
     InvalidFileUploadId,
@@ -345,11 +341,6 @@ pub enum ValidationError {
     #[error("Caller is not the buyer and can't reject to buy")]
     CallerIsNotBuyer,
 
-    /// error returned if the caller of a reject operation trys to reject a request that is already
-    /// expired
-    #[error("The request already expired")]
-    RequestAlreadyExpired,
-
     /// error returned if the operation was already rejected
     #[error("The request was already rejected")]
     RequestAlreadyRejected,
@@ -362,10 +353,6 @@ pub enum ValidationError {
     /// sense as the drawer is identified already
     #[error("A self-drafted bill can't be blank")]
     SelfDraftedBillCantBeBlank,
-
-    /// error returned if the bill was not requested to accept, e.g. when rejecting to accept
-    #[error("Bill was not requested to accept")]
-    BillWasNotRequestedToAccept,
 
     /// error returned if the bill was not requested to pay, e.g. when rejecting to pay
     #[error("Bill was not requested to pay")]
@@ -420,10 +407,6 @@ pub enum ValidationError {
     #[error("Bill is in recourse and waiting for payment")]
     BillIsInRecourseAndWaitingForPayment,
 
-    /// error returned if the bill was requested to pay
-    #[error("Bill was requested to pay")]
-    BillWasRequestedToPay,
-
     /// error returned if the signatory is not a signatory of the company
     #[error("Caller must be signatory for company")]
     CallerMustBeSignatory,
@@ -443,10 +426,6 @@ pub enum ValidationError {
     /// error returned if the signatory to be removed is not a signatory
     #[error("Node id {0} is not a signatory.")]
     NotASignatory(String),
-
-    /// error returned if the given secp256k1 key is not valid
-    #[error("Not a valid secp256k1 key: {0}")]
-    InvalidSecp256k1Key(String),
 
     /// error returned if the file is too big
     #[error("Maximum file size for this file type is {0} bytes")]
@@ -492,10 +471,6 @@ pub enum ValidationError {
     #[error("Invalid relay url")]
     InvalidRelayUrl,
 
-    /// error returned if the string wasn't valid base58
-    #[error("Invalid base58")]
-    InvalidBase58,
-
     /// error returned if the string is not a valid signature
     #[error("Invalid signature")]
     InvalidSignature,
@@ -519,6 +494,54 @@ pub enum ValidationError {
     /// error returned if the mint request id was invalid
     #[error("Invalid mint request id")]
     InvalidMintRequestId,
+
+    /// errors stemming from trying to do invalid operations
+    #[error("invalid operation")]
+    InvalidOperation,
+
+    /// error returned if the given file upload id is not a temp file we have
+    #[error("No file found for file upload id")]
+    NoFileForFileUploadId,
+
+    /// errors that stem from drawee identity not being in the contacts
+    #[error("Can not get drawee identity from contacts.")]
+    DraweeNotInContacts,
+
+    /// errors that stem from payee identity not being in the contacts
+    #[error("Can not get payee identity from contacts.")]
+    PayeeNotInContacts,
+
+    /// errors that stem from buyer identity not being in the contacts
+    #[error("Can not get buyer identity from contacts.")]
+    BuyerNotInContacts,
+
+    /// errors that stem from endorsee identity not being in the contacts
+    #[error("Can not get endorsee identity from contacts.")]
+    EndorseeNotInContacts,
+
+    /// errors that stem from mint identity not being in the contacts
+    #[error("Can not get mint identity from contacts.")]
+    MintNotInContacts,
+
+    /// errors that stem from recoursee identity not being in the contacts
+    #[error("Can not get recoursee identity from contacts.")]
+    RecourseeNotInContacts,
+
+    /// errors that stem from trying to cancel a mint request that's not pending
+    #[error("Mint request can only be cancelled if it's pending.")]
+    CancelMintRequestNotPending,
+
+    /// errors that stem from trying to reject a mint request that's not offered
+    #[error("Mint request can only be rejected if it's offered.")]
+    RejectMintRequestNotOffered,
+
+    /// errors that stem from trying to accept a mint request that's not offered
+    #[error("Mint request can only be accepted if it's offered.")]
+    AcceptMintRequestNotOffered,
+
+    /// errors that stem from trying to accept a mint request that's expired
+    #[error("Mint request can only be accepted if it's not expired.")]
+    AcceptMintOfferExpired,
 }
 
 impl From<bcr_common::core::Error> for ValidationError {

@@ -70,7 +70,7 @@ impl BillService {
                     let public_data_drawee = match self.contact_store.get(&data.drawee).await {
                         Ok(Some(drawee)) => drawee.try_into()?,
                         Ok(None) | Err(_) => {
-                            return Err(Error::DraweeNotInContacts);
+                            return Err(Error::Validation(ValidationError::DraweeNotInContacts));
                         }
                     };
 
@@ -91,7 +91,7 @@ impl BillService {
                     let mut public_data_payee = match self.contact_store.get(&data.payee).await {
                         Ok(Some(payee)) => payee.try_into()?,
                         Ok(None) | Err(_) => {
-                            return Err(Error::PayeeNotInContacts);
+                            return Err(Error::Validation(ValidationError::PayeeNotInContacts));
                         }
                     };
 
@@ -113,14 +113,14 @@ impl BillService {
                     let public_data_drawee = match self.contact_store.get(&data.drawee).await {
                         Ok(Some(drawee)) => drawee.try_into()?,
                         Ok(None) | Err(_) => {
-                            return Err(Error::DraweeNotInContacts);
+                            return Err(Error::Validation(ValidationError::DraweeNotInContacts));
                         }
                     };
 
                     let mut public_data_payee = match self.contact_store.get(&data.payee).await {
                         Ok(Some(payee)) => payee.try_into()?,
                         Ok(None) | Err(_) => {
-                            return Err(Error::PayeeNotInContacts);
+                            return Err(Error::Validation(ValidationError::PayeeNotInContacts));
                         }
                     };
 
@@ -162,7 +162,7 @@ impl BillService {
                     .file_upload_store
                     .read_temp_upload_file(file_upload_id)
                     .await
-                    .map_err(|_| Error::NoFileForFileUploadId)?;
+                    .map_err(|_| Error::Validation(ValidationError::NoFileForFileUploadId))?;
                 bill_files.push(
                     self.encrypt_and_save_uploaded_file(
                         file_name,

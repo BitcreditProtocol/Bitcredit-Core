@@ -184,7 +184,9 @@ impl CompanyService {
                 .file_upload_store
                 .read_temp_upload_file(upload_id)
                 .await
-                .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+                .map_err(|_| {
+                    crate::service::Error::Validation(ValidationError::NoFileForFileUploadId)
+                })?;
             // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
@@ -981,7 +983,7 @@ impl CompanyServiceApi for CompanyService {
         // if dev mode is off - we return an error
         if !get_config().dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
-            return Err(Error::InvalidOperation);
+            return Err(Error::Validation(ValidationError::InvalidOperation));
         }
         validate_node_id_network(id)?;
 

@@ -232,7 +232,12 @@ mod tests {
         // no chain keys so we should be done here
         store
             .expect_get_key_pair()
-            .returning(move || Err(bcr_ebill_persistence::Error::NoIdentity))
+            .returning(move || {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "identity key pair".to_string(),
+                    "".to_string(),
+                ))
+            })
             .once();
 
         processor.expect_process_chain_data().never();

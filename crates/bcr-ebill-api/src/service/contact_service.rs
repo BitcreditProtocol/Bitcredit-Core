@@ -179,7 +179,9 @@ impl ContactService {
                 .file_upload_store
                 .read_temp_upload_file(upload_id)
                 .await
-                .map_err(|_| crate::service::Error::NoFileForFileUploadId)?;
+                .map_err(|_| {
+                    crate::service::Error::Validation(ValidationError::NoFileForFileUploadId)
+                })?;
             // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
