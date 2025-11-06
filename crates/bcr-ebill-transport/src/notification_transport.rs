@@ -278,3 +278,462 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //     #[tokio::test]
+    // async fn test_send_request_to_action_timed_out_event() {
+    //     init_test_cfg();
+    //     let recipients = vec![
+    //         BillParticipant::Ident(get_identity_public_data(
+    //             &node_id_test(),
+    //             &Email::new("part1@example.com").unwrap(),
+    //             vec![],
+    //         )),
+    //         BillParticipant::Ident(get_identity_public_data(
+    //             &node_id_test_other(),
+    //             &Email::new("part2@example.com").unwrap(),
+    //             vec![],
+    //         )),
+    //         BillParticipant::Ident(get_identity_public_data(
+    //             &node_id_test_other2(),
+    //             &Email::new("part3@example.com").unwrap(),
+    //             vec![],
+    //         )),
+    //     ];
+    //
+    //     let mut mock = MockNotificationJsonTransport::new();
+    //
+    //     // resolves node_id
+    //     mock.expect_get_sender_node_id().returning(node_id_test);
+    //     mock.expect_get_sender_keys()
+    //         .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
+    //
+    //     // expect to send payment timeout event to all recipients
+    //     mock.expect_send_private_event()
+    //         .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
+    //         .returning(|_, _| Ok(()))
+    //         .times(3);
+    //
+    //     // expect to send acceptance timeout event to all recipients
+    //     mock.expect_send_private_event()
+    //         .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceTimeout))
+    //         .returning(|_, _| Ok(()))
+    //         .times(3);
+    //
+    //     let service = expect_service(|mock, mock_contact_store, _, _, _, _, _, _| {
+    //         // no participant should receive events
+    //         mock_contact_store.expect_get().never();
+    //         mock.expect_get_sender_node_id().returning(node_id_test);
+    //
+    //         // expect to not send rejected event for non rejectable actions
+    //         mock.expect_send_private_event().never();
+    //     });
+    //
+    //     service
+    //         .send_request_to_action_timed_out_event(
+    //             &node_id_test(),
+    //             &bill_id_test(),
+    //             Some(Sum::new_sat(100).expect("sat works")),
+    //             ActionType::PayBill,
+    //             recipients.clone(),
+    //             &node_id_test(),
+    //             &node_id_test(),
+    //             &None,
+    //         )
+    //         .await
+    //         .expect("failed to send event");
+    //
+    //     service
+    //         .send_request_to_action_timed_out_event(
+    //             &node_id_test(),
+    //             &bill_id_test(),
+    //             Some(Sum::new_sat(100).expect("sat works")),
+    //             ActionType::AcceptBill,
+    //             recipients.clone(),
+    //             &node_id_test(),
+    //             &node_id_test(),
+    //             &None,
+    //         )
+    //         .await
+    //         .expect("failed to send event");
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
+    //     init_test_cfg();
+    //     let recipients = vec![
+    //         BillParticipant::Ident(get_identity_public_data(
+    //             &node_id_test(),
+    //             &Email::new("part1@example.com").unwrap(),
+    //             vec![],
+    //         )),
+    //         BillParticipant::Ident(get_identity_public_data(
+    //             &node_id_test_other(),
+    //             &Email::new("part2@example.com").unwrap(),
+    //             vec![],
+    //         )),
+    //         BillParticipant::Ident(get_identity_public_data(
+    //             &node_id_test_other2(),
+    //             &Email::new("part3@example.com").unwrap(),
+    //             vec![],
+    //         )),
+    //     ];
+    //
+    //     let mut mock = MockNotificationJsonTransport::new();
+    //     mock.expect_get_sender_node_id().returning(node_id_test);
+    //
+    //     // expect to never send timeout event on non expiring events
+    //     mock.expect_send_private_event().never();
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock)],
+    //         Arc::new(MockNotificationStore::new()),
+    //         Arc::new(MockEmailNotificationStore::new()),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(MockEmailClient::new()),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //
+    //     service
+    //         .send_request_to_action_timed_out_event(
+    //             &node_id_test(),
+    //             &bill_id_test(),
+    //             Some(Sum::new_sat(100).expect("sat works")),
+    //             ActionType::CheckBill,
+    //             recipients.clone(),
+    //             &node_id_test(),
+    //             &node_id_test(),
+    //             &None,
+    //         )
+    //         .await
+    //         .expect("failed to send event");
+    // }
+    //
+
+    //
+    // #[tokio::test]
+    // async fn get_client_notifications() {
+    //     init_test_cfg();
+    //     let mut mock_store = MockNotificationStore::new();
+    //     let result =
+    //         Notification::new_bill_notification(&bill_id_test(), &node_id_test(), "desc", None);
+    //     let returning = result.clone();
+    //     let filter = NotificationFilter {
+    //         active: Some(true),
+    //         ..Default::default()
+    //     };
+    //     mock_store
+    //         .expect_list()
+    //         .with(eq(filter.clone()))
+    //         .returning(move |_| Ok(vec![returning.clone()]));
+    //
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(mock_store),
+    //         Arc::new(MockEmailNotificationStore::new()),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(MockEmailClient::new()),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //
+    //     let res = service
+    //         .get_client_notifications(filter)
+    //         .await
+    //         .expect("could not get notifications");
+    //     assert!(!res.is_empty());
+    //     assert_eq!(res[0].id, result.id);
+    // }
+    //
+    // #[tokio::test]
+    // async fn wrong_network_failures() {
+    //     init_test_cfg();
+    //     let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+    //     let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
+    //     let filter = NotificationFilter {
+    //         node_ids: vec![mainnet_node_id.clone()],
+    //         ..Default::default()
+    //     };
+    //
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(MockNotificationStore::new()),
+    //         Arc::new(MockEmailNotificationStore::new()),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(MockEmailClient::new()),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //
+    //     assert!(service.get_client_notifications(filter).await.is_err());
+    //     assert!(service.resolve_contact(&mainnet_node_id).await.is_err());
+    //     assert!(
+    //         service
+    //             .check_bill_notification_sent(&mainnet_bill_id, 0, ActionType::CheckBill)
+    //             .await
+    //             .is_err()
+    //     );
+    //     assert!(
+    //         service
+    //             .mark_bill_notification_sent(&mainnet_bill_id, 0, ActionType::CheckBill)
+    //             .await
+    //             .is_err()
+    //     );
+    //     assert!(
+    //         service
+    //             .get_active_bill_notification(&mainnet_bill_id)
+    //             .await
+    //             .is_none()
+    //     );
+    // }
+    //
+    // #[tokio::test]
+    // async fn get_mark_notification_done() {
+    //     init_test_cfg();
+    //     let mut mock_store = MockNotificationStore::new();
+    //     mock_store
+    //         .expect_mark_as_done()
+    //         .with(eq("notification_id"))
+    //         .returning(|_| Ok(()));
+    //
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(mock_store),
+    //         Arc::new(MockEmailNotificationStore::new()),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(MockEmailClient::new()),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //
+    //     service
+    //         .mark_notification_as_done("notification_id")
+    //         .await
+    //         .expect("could not mark notification as done");
+    // }
+    //     #[tokio::test]
+    // async fn test_send_email_notification() {
+    //     init_test_cfg();
+    //
+    //    let (service, _) = expect_service(
+    //        |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
+    //     let node_id = node_id_test_other();
+    //     let identity = get_identity_public_data(
+    //         &node_id,
+    //         &Email::new("test@example.com").unwrap(),
+    //         vec![&url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //     // Set up mocks
+    //     let mut mock_contact_store = MockContactStore::new();
+    //     mock_contact_store
+    //         .expect_get()
+    //         .returning(move |_| Ok(Some(as_contact(&identity))));
+    //
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //     mock_transport
+    //         .expect_send_private_event()
+    //         .returning(|_, _| Ok(()));
+    //     mock_transport
+    //         .expect_get_sender_keys()
+    //         .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
+    //
+    //     let mut mock_email_client = MockEmailClient::new();
+    //     mock_email_client
+    //         .expect_send_bill_notification()
+    //         .returning(|_, _, _, _, _| Ok(()))
+    //         .times(1);
+    //        },
+    //    );
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(MockNotificationStore::new()),
+    //         Arc::new(MockEmailNotificationStore::new()),
+    //         Arc::new(mock_contact_store),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(mock_email_client),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //     let event = Event::new(
+    //         EventType::Bill,
+    //         BillChainEventPayload {
+    //             event_type: BillEventType::BillAccepted,
+    //             bill_id: bill_id_test(),
+    //             action_type: Some(ActionType::CheckBill),
+    //             sum: None,
+    //         },
+    //     );
+    //     service
+    //         .send_email_notification(&node_id_test(), &node_id_test_other(), &event)
+    //         .await;
+    // }
+    // #[tokio::test]
+    // async fn test_register_email_notifications() {
+    //     init_test_cfg();
+    //     let mut mock_email_notification_store = MockEmailNotificationStore::new();
+    //     mock_email_notification_store
+    //         .expect_add_email_preferences_link_for_node_id()
+    //         .returning(|_, _| Ok(()))
+    //         .times(1);
+    //     let mut mock_email_client = MockEmailClient::new();
+    //     mock_email_client
+    //         .expect_start()
+    //         .returning(|_, _| Ok("challenge".to_string()));
+    //     mock_email_client
+    //         .expect_register()
+    //         .returning(|_, _, _, _| Ok(url::Url::parse("http://bit.cr/").unwrap()));
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(MockNotificationStore::new()),
+    //         Arc::new(mock_email_notification_store),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(mock_email_client),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //
+    //     let result = service
+    //         .register_email_notifications(
+    //             &url::Url::parse("ws://test.relay").unwrap(),
+    //             &Email::new("test@example.com").unwrap(),
+    //             &node_id_test(),
+    //             &BcrKeys::new(),
+    //         )
+    //         .await;
+    //     assert!(result.is_ok());
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_get_email_notifications_preferences_link() {
+    //     init_test_cfg();
+    //     let mut mock_email_notification_store = MockEmailNotificationStore::new();
+    //     mock_email_notification_store
+    //         .expect_get_email_preferences_link_for_node_id()
+    //         .returning(|_| Ok(Some(url::Url::parse("http://bit.cr/").unwrap())))
+    //         .times(1);
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(MockNotificationStore::new()),
+    //         Arc::new(mock_email_notification_store),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(MockEmailClient::new()),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //
+    //     let result = service
+    //         .get_email_notifications_preferences_link(&node_id_test())
+    //         .await;
+    //     assert!(result.is_ok());
+    //     assert_eq!(
+    //         result.as_ref().unwrap(),
+    //         &url::Url::parse("http://bit.cr/").unwrap()
+    //     );
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_get_email_notifications_preferences_link_no_entry() {
+    //     init_test_cfg();
+    //     let mut mock_email_notification_store = MockEmailNotificationStore::new();
+    //     mock_email_notification_store
+    //         .expect_get_email_preferences_link_for_node_id()
+    //         .returning(|_| Ok(None))
+    //         .times(1);
+    //     let mut mock_transport = MockNotificationJsonTransport::new();
+    //     mock_transport
+    //         .expect_get_sender_node_id()
+    //         .returning(node_id_test);
+    //
+    //     let service = NostrTransportService::new(
+    //         vec![Arc::new(mock_transport)],
+    //         Arc::new(MockNotificationStore::new()),
+    //         Arc::new(mock_email_notification_store),
+    //         Arc::new(MockContactStore::new()),
+    //         Arc::new(MockNostrContactStore::new()),
+    //         Arc::new(MockNostrQueuedMessageStore::new()),
+    //         Arc::new(MockNostrChainEventStore::new()),
+    //         Arc::new(MockEmailClient::new()),
+    //         Arc::new(MockBillChainEventProcessorApi::new()),
+    //         Arc::new(MockCompanyChainEventProcessorApi::new()),
+    //         Arc::new(MockIdentityChainEventProcessorApi::new()),
+    //         Arc::new(MockNostrContactProcessorApi::new()),
+    //         vec![url::Url::parse("ws://test.relay").unwrap()],
+    //     );
+    //     let result = service
+    //         .get_email_notifications_preferences_link(&node_id_test())
+    //         .await;
+    //     assert!(result.is_err());
+    //     assert!(matches!(result, Err(Error::NotFound)));
+    // }
+}

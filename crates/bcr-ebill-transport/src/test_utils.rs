@@ -30,7 +30,7 @@ use bcr_ebill_core::{
     notification::{ActionType, BillEventType, Notification},
 };
 use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi};
-use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
 use bcr_ebill_persistence::{
     ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
     SurrealDbConfig,
@@ -45,8 +45,16 @@ use serde::Serialize;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use bcr_ebill_api::service::transport_service::{NostrContactData, Result};
-use bcr_ebill_core::protocol::Event;
+use bcr_ebill_api::service::transport_service::{
+    BlockTransportServiceApi, ContactTransportServiceApi, NostrContactData,
+    NotificationTransportServiceApi, Result,
+};
+use bcr_ebill_core::{
+    company::Company,
+    protocol::{
+        BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, IdentityChainEvent,
+    },
+};
 
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 
@@ -386,6 +394,110 @@ pub async fn get_mock_nostr_client() -> NostrClient {
     NostrClient::new(&config)
         .await
         .expect("could not create mock nostr client")
+}
+
+mockall::mock! {
+    pub BlockTransportService {}
+
+    impl ServiceTraitBounds for BlockTransportService {}
+
+    #[async_trait]
+    impl BlockTransportServiceApi for BlockTransportService {
+        /// Adds a new transport client for a company if it does not already exist
+        async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
+        /// Sent when an identity chain is created or updated
+        async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
+        /// Sent when a company chain is created or updated
+        async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
+        /// Sent when: A bill chain is created or updated
+        async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;
+        /// Resync bill chain
+        async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
+        /// Resync company chain
+        async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
+        /// Resync identity chain
+        async fn resync_identity_chain(&self) -> Result<()>;
+    }
+}
+
+mockall::mock! {
+    pub ContactTransportService {}
+
+    impl ServiceTraitBounds for ContactTransportService {}
+
+    #[async_trait]
+    impl ContactTransportServiceApi for ContactTransportService {
+        async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
+        async fn publish_contact(&self, node_id: &NodeId, contact: &NostrContactData) -> Result<()>;
+        async fn share_contact_details_keys(
+            &self,
+            recipient: &NodeId,
+            contact_id: &NodeId,
+            keys: &BcrKeys,
+        ) -> Result<()>;
+        async fn ensure_nostr_contact(&self, node_id: &NodeId);
+    }
+}
+
+mockall::mock! {
+    pub NotificationTransportService {}
+
+    impl ServiceTraitBounds for NotificationTransportService {}
+
+    #[async_trait]
+    impl NotificationTransportServiceApi for NotificationTransportService {
+        async fn get_client_notifications(
+            &self,
+            filter: NotificationFilter,
+        ) -> Result<Vec<Notification>>;
+        async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
+        async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
+        async fn get_active_bill_notifications(
+            &self,
+            bill_ids: &[BillId],
+        ) -> HashMap<BillId, Notification>;
+        async fn get_active_notification_status_for_node_ids(
+            &self,
+            node_ids: &[NodeId],
+        ) -> Result<HashMap<NodeId, bool>>;
+        async fn send_request_to_action_timed_out_event(
+            &self,
+            sender_node_id: &NodeId,
+            bill_id: &BillId,
+            sum: Option<Sum>,
+            timed_out_action: ActionType,
+            recipients: Vec<BillParticipant>,
+            holder: &NodeId,
+            drawee: &NodeId,
+            recoursee: &Option<NodeId>,
+        ) -> Result<()>;
+        async fn check_bill_notification_sent(
+            &self,
+            bill_id: &BillId,
+            block_height: i32,
+            action: ActionType,
+        ) -> Result<bool>;
+        async fn mark_bill_notification_sent(
+            &self,
+            bill_id: &BillId,
+            block_height: i32,
+            action: ActionType,
+        ) -> Result<()>;
+        async fn register_email_notifications(
+            &self,
+            relay_url: &url::Url,
+            email: &Email,
+            node_id: &NodeId,
+            caller_keys: &BcrKeys,
+        ) -> Result<()>;
+        async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
+        async fn send_email_notification(
+            &self,
+            sender: &NodeId,
+            receiver: &NodeId,
+            event: &Event<BillChainEventPayload>,
+        );
+    }
 }
 
 mockall::mock! {
