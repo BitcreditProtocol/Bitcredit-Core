@@ -524,50 +524,6 @@ mod tests {
         )
     }
 
-    // fn expect_service(
-    //     expect: impl Fn(
-    //         &mut MockNotificationJsonTransport,
-    //         &mut MockContactStore,
-    //         &mut MockNostrContactStore,
-    //         &mut MockNostrQueuedMessageStore,
-    //         &mut MockNostrChainEventStore,
-    //         &mut MockNotificationTransportService,
-    //         &mut MockContactTransportService,
-    //         &mut MockBlockTransportService,
-    //     ),
-    // ) -> TransportService {
-    //     let (
-    //         mut transport,
-    //         mut contact_store,
-    //         mut nostr_contact_store,
-    //         mut queued_message_store,
-    //         mut chain_events,
-    //         mut notification_transport,
-    //         mut contact_transport,
-    //         mut block_transport,
-    //     ) = get_mocks();
-    //     expect(
-    //         &mut transport,
-    //         &mut contact_store,
-    //         &mut nostr_contact_store,
-    //         &mut queued_message_store,
-    //         &mut chain_events,
-    //         &mut notification_transport,
-    //         &mut contact_transport,
-    //         &mut block_transport,
-    //     );
-    //     get_transport(
-    //         transport,
-    //         contact_store,
-    //         nostr_contact_store,
-    //         queued_message_store,
-    //         chain_events,
-    //         notification_transport,
-    //         contact_transport,
-    //         block_transport,
-    //     )
-    // }
-
     fn expect_service<T>(
         expect: impl Fn(
             &mut MockNotificationJsonTransport,
