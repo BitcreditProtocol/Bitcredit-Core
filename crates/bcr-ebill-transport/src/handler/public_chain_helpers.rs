@@ -1,6 +1,6 @@
 use std::{cmp::Reverse, sync::Arc};
 
-use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
     blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
     hash::Sha256Hash,
@@ -21,7 +21,7 @@ use bcr_ebill_api::service::transport_service::{Error, Result};
 /// the Nostr chain structure. This does not look into the actual blockchain, but will build the
 /// chains just from Nostr metadata.
 pub async fn resolve_event_chains(
-    transport: Arc<dyn NotificationJsonTransportApi>,
+    transport: Arc<dyn TransportClientApi>,
     chain_id: &str,
     chain_type: BlockchainType,
     keys: &BcrKeys,

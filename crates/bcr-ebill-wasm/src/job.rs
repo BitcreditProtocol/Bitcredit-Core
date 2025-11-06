@@ -77,7 +77,7 @@ async fn run_check_bill_timeouts() {
 
 async fn run_process_nostr_message_queue_job() {
     info!("Running process Nostr message queue Job");
-    if let Err(e) = get_ctx().notification_service.send_retry_messages().await {
+    if let Err(e) = get_ctx().transport_service.send_retry_messages().await {
         error!("Error while running process Nostr message queue Job: {e}");
     }
     info!("Finished running process Nostr message queue Job");

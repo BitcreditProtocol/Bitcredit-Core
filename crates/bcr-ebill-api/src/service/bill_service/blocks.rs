@@ -523,7 +523,8 @@ impl BillService {
             timestamp,
         )?;
         self.identity_blockchain_store.add_block(&new_block).await?;
-        self.notification_service
+        self.transport_service
+            .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
                 &identity.identity,
                 &new_block,
@@ -555,7 +556,8 @@ impl BillService {
             timestamp,
         )?;
         self.identity_blockchain_store.add_block(&new_block).await?;
-        self.notification_service
+        self.transport_service
+            .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
                 &identity.identity,
                 &new_block,
@@ -599,7 +601,8 @@ impl BillService {
 
         let chain = self.company_blockchain_store.get_chain(company_id).await?;
         let company = self.company_store.get(company_id).await?;
-        self.notification_service
+        self.transport_service
+            .block_transport()
             .send_company_chain_events(CompanyChainEvent::new(
                 &company,
                 &chain,

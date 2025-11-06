@@ -1,6 +1,5 @@
 use crate::{
-    external::identity_proof::IdentityProofApi,
-    service::transport_service::NotificationServiceApi,
+    external::identity_proof::IdentityProofApi, service::transport_service::TransportServiceApi,
 };
 
 use super::{Error, Result};
@@ -66,7 +65,7 @@ pub struct IdentityProofService {
     identity_proof_client: Arc<dyn IdentityProofApi>,
     identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
     company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
-    notification_service: Arc<dyn NotificationServiceApi>,
+    transport_service: Arc<dyn TransportServiceApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
 }
@@ -77,7 +76,7 @@ impl IdentityProofService {
         identity_proof_client: Arc<dyn IdentityProofApi>,
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
         company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
-        notification_service: Arc<dyn NotificationServiceApi>,
+        transport_service: Arc<dyn TransportServiceApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
     ) -> Self {
@@ -86,7 +85,7 @@ impl IdentityProofService {
             identity_proof_client,
             identity_blockchain_store,
             company_blockchain_store,
-            notification_service,
+            transport_service,
             identity_store,
             company_store,
         }
@@ -100,7 +99,8 @@ impl IdentityProofService {
     ) -> Result<()> {
         let company = self.company_store.get(id).await?;
         let chain = self.company_blockchain_store.get_chain(id).await?;
-        self.notification_service
+        self.transport_service
+            .block_transport()
             .send_company_chain_events(CompanyChainEvent::new(
                 &company,
                 &chain,
@@ -114,7 +114,8 @@ impl IdentityProofService {
 
     async fn populate_identity_block(&self, block: &IdentityBlock, keys: &BcrKeys) -> Result<()> {
         let identity = self.identity_store.get().await?;
-        self.notification_service
+        self.transport_service
+            .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(&identity, block, keys))
             .await?;
         Ok(())
@@ -396,7 +397,7 @@ pub mod tests {
             company_service::tests::{
                 get_baseline_company, get_valid_company_block, get_valid_company_chain,
             },
-            transport_service::MockNotificationServiceApi,
+            transport_service::MockTransportServiceApi,
         },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockIdentityChainStoreApiMock,
@@ -437,10 +438,11 @@ pub mod tests {
         ctx.identity_store
             .expect_get()
             .returning(|| Ok(empty_identity()));
-        ctx.notification_service
-            .expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .times(1);
+        ctx.transport_service.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .times(1);
+        });
         let service = get_service(ctx);
 
         let mut signer = bill_identified_participant_only_node_id(node_id_test());
@@ -484,10 +486,11 @@ pub mod tests {
         ctx.identity_store
             .expect_get()
             .returning(|| Ok(empty_identity()));
-        ctx.notification_service
-            .expect_send_company_chain_events()
-            .returning(|_| Ok(()))
-            .times(1);
+        ctx.transport_service.expect_on_block_transport(|t| {
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .times(1);
+        });
         ctx.company_store
             .expect_get()
             .returning(|_| Ok(get_baseline_company()));
@@ -690,7 +693,7 @@ pub mod tests {
         pub identity_proof_client: MockIdentityProofApi,
         pub identity_blockchain_store: MockIdentityChainStoreApiMock,
         pub company_blockchain_store: MockCompanyChainStoreApiMock,
-        pub notification_service: MockNotificationServiceApi,
+        pub transport_service: MockTransportServiceApi,
         pub identity_store: MockIdentityStoreApiMock,
         pub company_store: MockCompanyStoreApiMock,
     }
@@ -701,7 +704,7 @@ pub mod tests {
             identity_proof_client: MockIdentityProofApi::new(),
             identity_blockchain_store: MockIdentityChainStoreApiMock::new(),
             company_blockchain_store: MockCompanyChainStoreApiMock::new(),
-            notification_service: MockNotificationServiceApi::new(),
+            transport_service: MockTransportServiceApi::new(),
             identity_store: MockIdentityStoreApiMock::new(),
             company_store: MockCompanyStoreApiMock::new(),
         }
@@ -713,7 +716,7 @@ pub mod tests {
             identity_proof_client: Arc::new(ctx.identity_proof_client),
             identity_blockchain_store: Arc::new(ctx.identity_blockchain_store),
             company_blockchain_store: Arc::new(ctx.company_blockchain_store),
-            notification_service: Arc::new(ctx.notification_service),
+            transport_service: Arc::new(ctx.transport_service),
             identity_store: Arc::new(ctx.identity_store),
             company_store: Arc::new(ctx.company_store),
         }

@@ -7,7 +7,7 @@ use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::service::file_upload_service::UploadFileType;
-use crate::service::transport_service::NotificationServiceApi;
+use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
@@ -63,7 +63,7 @@ pub struct BillService {
     pub file_upload_store: Arc<dyn FileUploadStoreApi>,
     pub file_upload_client: Arc<dyn FileStorageClientApi>,
     pub bitcoin_client: Arc<dyn BitcoinClientApi>,
-    pub notification_service: Arc<dyn NotificationServiceApi>,
+    pub transport_service: Arc<dyn TransportServiceApi>,
     pub identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
     pub company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     pub contact_store: Arc<dyn ContactStoreApi>,
@@ -83,7 +83,7 @@ impl BillService {
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
         bitcoin_client: Arc<dyn BitcoinClientApi>,
-        notification_service: Arc<dyn NotificationServiceApi>,
+        transport_service: Arc<dyn TransportServiceApi>,
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
         company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
@@ -100,7 +100,7 @@ impl BillService {
             file_upload_store,
             file_upload_client,
             bitcoin_client,
-            notification_service,
+            transport_service,
             identity_blockchain_store,
             company_blockchain_store,
             contact_store,
@@ -273,7 +273,8 @@ impl BillService {
         } {
             // did we already send the notification
             let sent = self
-                .notification_service
+                .transport_service
+                .notification_transport()
                 .check_bill_notification_sent(
                     bill_id,
                     chain.block_height() as i32,
@@ -311,7 +312,8 @@ impl BillService {
                     .flatten()
                     .collect::<Vec<BillParticipant>>();
 
-                self.notification_service
+                self.transport_service
+                    .notification_transport()
                     .send_request_to_action_timed_out_event(
                         &identity.node_id, // TODO(company-notifications): how to handle jobs as company participant?
                         bill_id,
@@ -325,7 +327,8 @@ impl BillService {
                     .await?;
 
                 // remember we have sent the notification
-                self.notification_service
+                self.transport_service
+                    .notification_transport()
                     .mark_bill_notification_sent(bill_id, chain.block_height() as i32, action)
                     .await?;
             }
@@ -655,7 +658,8 @@ impl BillService {
         identity: &Identity,
     ) -> BillParticipant {
         let relays = match self
-            .notification_service
+            .transport_service
+            .contact_transport()
             .resolve_contact(mint_node_id)
             .await
         {
@@ -901,7 +905,8 @@ impl BillServiceApi for BillService {
 
         // fetch active notifications for bills
         let active_notifications = self
-            .notification_service
+            .transport_service
+            .notification_transport()
             .get_active_bill_notifications(&bill_ids)
             .await;
         for bill in bills.iter_mut() {
@@ -1597,7 +1602,7 @@ impl BillServiceApi for BillService {
 
         // Send notifications
         if let Err(e) = self
-            .notification_service
+            .transport_service
             .send_request_to_mint_event(
                 &signer_public_data.node_id(),
                 &mint_anon_participant,

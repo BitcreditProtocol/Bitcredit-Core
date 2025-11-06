@@ -464,7 +464,8 @@ impl Identity {
     pub async fn sync_identity_chain(&self) -> JsValue {
         let res: Result<()> = async {
             get_ctx()
-                .notification_service
+                .transport_service
+                .block_transport()
                 .resync_identity_chain()
                 .await?;
             Ok(())

@@ -187,7 +187,7 @@ pub async fn initialize_api(
 
         // before first run we ensure if we have a connection to the transports
         // as there could be jobs that require a connection
-        get_ctx().notification_service.connect().await;
+        get_ctx().transport_service.connect().await;
 
         run_jobs(); // initial run
         let mut interval = tokio::time::interval(Duration::from_secs(
@@ -212,12 +212,13 @@ pub async fn initialize_api(
 
         info!("Connecting to Nostr transport..");
         // before subscription we ensure if we have a connection to the transports
-        ctx.notification_service.connect().await;
+        ctx.transport_service.connect().await;
 
         // and ensure that the metadata of our personal identity is published
         if let Ok(full_identity) = ctx.identity_service.get_full_identity().await {
             match ctx
-                .notification_service
+                .transport_service
+                .contact_transport()
                 .resolve_contact(&full_identity.identity.node_id)
                 .await
             {
@@ -243,7 +244,12 @@ pub async fn initialize_api(
                 if let Ok((company, keys)) =
                     ctx.company_service.get_company_and_keys_by_id(&c.id).await
                 {
-                    match ctx.notification_service.resolve_contact(&company.id).await {
+                    match ctx
+                        .transport_service
+                        .contact_transport()
+                        .resolve_contact(&company.id)
+                        .await
+                    {
                         Ok(None) => {
                             if let Err(e) =
                                 ctx.company_service.publish_contact(&company, &keys).await
@@ -261,7 +267,8 @@ pub async fn initialize_api(
         }
 
         // and make sure the configured default mint exists
-        ctx.notification_service
+        ctx.transport_service
+            .contact_transport()
             .ensure_nostr_contact(&api_config.mint_config.default_mint_node_id)
             .await;
 

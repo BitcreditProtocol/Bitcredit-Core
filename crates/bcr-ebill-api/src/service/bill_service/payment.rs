@@ -105,7 +105,7 @@ impl BillService {
             true,
             &identity.node_id, // TODO(company-notifications): how to handle jobs as company participant?
         )?;
-        self.notification_service
+        self.transport_service
             .send_bill_is_paid_event(&chain_event)
             .await?;
         Ok(())

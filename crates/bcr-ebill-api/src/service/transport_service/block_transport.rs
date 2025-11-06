@@ -1,10 +1,13 @@
 use super::Result;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent};
+use bcr_ebill_core::{
+    ServiceTraitBounds,
+    company::Company,
+    protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
+    util::BcrKeys,
+};
 
-#[cfg(test)]
-use bcr_ebill_core::ServiceTraitBounds;
 #[cfg(test)]
 use mockall::automock;
 
@@ -13,7 +16,9 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait BlockPropagationServiceApi {
+pub trait BlockTransportServiceApi: ServiceTraitBounds {
+    /// Adds a new transport client for a company if it does not already exist
+    async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
     /// Sent when a company chain is created or updated
@@ -29,4 +34,4 @@ pub trait BlockPropagationServiceApi {
 }
 
 #[cfg(test)]
-impl ServiceTraitBounds for MockBlockPropagationServiceApi {}
+impl ServiceTraitBounds for MockBlockTransportServiceApi {}

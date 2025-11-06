@@ -390,7 +390,8 @@ impl Company {
         let res: Result<()> = async {
             let payload: ResyncCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
             get_ctx()
-                .notification_service
+                .transport_service
+                .block_transport()
                 .resync_company_chain(&payload.node_id)
                 .await?;
             Ok(())

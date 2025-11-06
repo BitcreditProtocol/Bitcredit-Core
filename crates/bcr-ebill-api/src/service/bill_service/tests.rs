@@ -109,9 +109,11 @@ async fn get_bill_balances_baseline() {
         .returning(move |_| Ok(get_genesis_chain(Some(bill3.clone()))));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification().returning(|_| None);
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let service = get_service(ctx);
 
@@ -201,9 +203,11 @@ async fn get_search_bill() {
         .expect_get_chain()
         .withf(|id| *id == bill_id_test_other2())
         .returning(move |_| Ok(get_genesis_chain(Some(bill3.clone()))));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification().returning(|_| None);
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let service = get_service(ctx);
     let res_all_comp = service
@@ -314,7 +318,7 @@ async fn issue_bill_baseline() {
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
     // should send a bill is signed event
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_signed_event()
         .returning(|_| Ok(()));
 
@@ -386,7 +390,7 @@ async fn issue_bill_baseline_anon() {
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
     // should send a bill is signed event
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_signed_event()
         .returning(|_| Ok(()));
 
@@ -532,15 +536,12 @@ async fn issue_bill_as_company() {
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
     // should send a bill is signed event
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_signed_event()
         .returning(|_| Ok(()));
 
-    // Populates identity block
-    expect_populates_identity_block(&mut ctx);
-
-    // Populates company block
-    expect_populates_company_block(&mut ctx);
+    // Populates company and identity block
+    expect_populates_company_and_identity_block(&mut ctx);
 
     let service = get_service(ctx);
 
@@ -662,10 +663,13 @@ async fn get_bills_baseline() {
     ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let service = get_service(ctx);
 
@@ -709,9 +713,10 @@ async fn get_bills_baseline_from_cache() {
     ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
-    ctx.notification_service
-        .expect_get_active_bill_notifications()
-        .returning(|_| HashMap::new());
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let service = get_service(ctx);
 
@@ -764,9 +769,10 @@ async fn get_bills_baseline_from_cache_with_payment_expiration() {
     ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
-    ctx.notification_service
-        .expect_get_active_bill_notifications()
-        .returning(|_| HashMap::new());
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let service = get_service(ctx);
 
@@ -794,10 +800,13 @@ async fn get_bills_baseline_company() {
         .returning(|| Ok(vec![bill_id_test()]));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let service = get_service(ctx);
 
@@ -855,10 +864,13 @@ async fn get_bills_req_to_pay() {
         .expect_get_ids()
         .returning(|| Ok(vec![bill_id_test()]));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(true));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
 
     let res = get_service(ctx)
         .get_bills(&get_baseline_identity().identity.node_id)
@@ -874,6 +886,10 @@ async fn get_bills_req_to_pay() {
 #[tokio::test]
 async fn get_bills_empty_for_no_bills() {
     let mut ctx = get_ctx();
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notifications()
+            .returning(|_| HashMap::new());
+    });
     ctx.bill_store.expect_get_ids().returning(|| Ok(vec![]));
     let res = get_service(ctx)
         .get_bills(&get_baseline_identity().identity.node_id)
@@ -893,10 +909,11 @@ async fn get_detail_bill_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -949,10 +966,11 @@ async fn get_detail_bill_baseline_from_cache() {
         .expect_get_bill_from_cache()
         .returning(move |_, _| Ok(Some(bill.clone())));
     ctx.bill_blockchain_store.expect_get_chain().never();
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1004,10 +1022,11 @@ async fn get_detail_bill_baseline_from_cache_with_payment_expiration() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(chain_bill.clone()))))
         .times(1);
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1045,10 +1064,11 @@ async fn get_detail_bill_baseline_error_from_cache() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1079,10 +1099,11 @@ async fn get_detail_bill_fails_for_non_participant() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1115,10 +1136,11 @@ async fn get_detail_waiting_for_offer_to_sell() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1176,10 +1198,11 @@ async fn get_detail_waiting_for_offer_to_sell_and_sell() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1235,10 +1258,11 @@ async fn get_detail_waiting_for_offer_to_sell_and_expire() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1301,10 +1325,11 @@ async fn get_detail_waiting_for_offer_to_sell_and_reject() {
             );
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1349,10 +1374,11 @@ async fn get_detail_bill_req_to_recourse() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1423,10 +1449,11 @@ async fn get_detail_bill_req_to_recourse_recoursed() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1488,10 +1515,11 @@ async fn get_detail_bill_req_to_recourse_rejected() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1549,10 +1577,11 @@ async fn get_detail_bill_req_to_recourse_expired() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1605,10 +1634,11 @@ async fn get_detail_bill_req_to_pay() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1657,11 +1687,11 @@ async fn get_detail_bill_req_to_pay_paid() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
-
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
     let res = get_service(ctx)
         .get_detail(
             &bill_id_test(),
@@ -1713,10 +1743,11 @@ async fn get_detail_bill_req_to_pay_rejected() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1768,10 +1799,11 @@ async fn get_detail_bill_req_to_pay_rejected_but_paid() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1824,10 +1856,11 @@ async fn get_detail_bill_req_to_pay_expired() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1879,10 +1912,11 @@ async fn get_detail_bill_req_to_pay_expired_but_paid() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1930,10 +1964,11 @@ async fn get_detail_bill_req_to_accept() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -1981,10 +2016,11 @@ async fn get_detail_bill_req_to_accept_accepted() {
             assert!(chain.try_add_block(accept_block(&bill_id_test(), chain.get_latest_block())));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -2036,10 +2072,11 @@ async fn get_detail_bill_req_to_accept_rejected() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -2090,10 +2127,11 @@ async fn get_detail_bill_req_to_accept_expired() {
             assert!(chain.try_add_block(req_to_pay_block));
             Ok(chain)
         });
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_detail(
@@ -2136,7 +2174,7 @@ async fn accept_bill_baseline() {
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
 
     // Should send bill accepted event
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_accepted_event()
         .returning(|_| Ok(()));
 
@@ -2190,24 +2228,29 @@ async fn accept_bill_fails_for_anon() {
     ));
 }
 
-fn expect_populates_company_block(ctx: &mut MockBillContext) {
+fn expect_populates_identity_block(ctx: &mut MockBillContext) {
+    ctx.transport_service.expect_on_block_transport(|t| {
+        t.expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+    });
+}
+
+fn expect_populates_company_and_identity_block(ctx: &mut MockBillContext) {
     ctx.company_chain_store
         .expect_get_chain()
         .returning(|_| Ok(get_valid_company_chain()));
     ctx.company_store
         .expect_get()
         .returning(|_| Ok(get_baseline_company()));
-    ctx.notification_service
-        .expect_send_company_chain_events()
-        .returning(|_| Ok(()))
-        .once();
-}
-
-fn expect_populates_identity_block(ctx: &mut MockBillContext) {
-    ctx.notification_service
-        .expect_send_identity_chain_events()
-        .returning(|_| Ok(()))
-        .once();
+    ctx.transport_service.expect_on_block_transport(|t| {
+        t.expect_send_company_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+        t.expect_send_identity_chain_events()
+            .returning(|_| Ok(()))
+            .once();
+    });
 }
 
 #[tokio::test]
@@ -2225,15 +2268,12 @@ async fn accept_bill_as_company() {
         .returning(|_, _, _| Ok(()));
 
     // Should send bill accepted event
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_accepted_event()
         .returning(|_| Ok(()));
 
-    // Populate company block via transport
-    expect_populates_company_block(&mut ctx);
-
-    // Populate identity block
-    expect_populates_identity_block(&mut ctx);
+    // Populate company and identity block via transport
+    expect_populates_company_and_identity_block(&mut ctx);
 
     let service = get_service(ctx);
 
@@ -2345,7 +2385,7 @@ async fn request_pay_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to pay event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_pay_event()
         .returning(|_| Ok(()));
 
@@ -2385,7 +2425,7 @@ async fn request_pay_anon_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to pay event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_pay_event()
         .returning(|_| Ok(()));
 
@@ -2449,7 +2489,7 @@ async fn request_acceptance_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to accept event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_accept_event()
         .returning(|_| Ok(()));
 
@@ -2487,7 +2527,7 @@ async fn request_acceptance_anon_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to accept event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_accept_event()
         .returning(|_| Ok(()));
 
@@ -2555,7 +2595,7 @@ async fn mint_bitcredit_bill_baseline() {
             Ok(chain)
         });
     // Asset request to mint event is sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
 
@@ -2603,7 +2643,7 @@ async fn mint_bitcredit_bill_anon_baseline() {
             Ok(chain)
         });
     // Asset request to mint event is sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
 
@@ -2646,7 +2686,7 @@ async fn mint_bitcredit_bill_fails_if_not_accepted() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Asset request to mint event is sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
 
@@ -2714,7 +2754,7 @@ async fn offer_to_sell_bitcredit_bill_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to sell event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_offer_to_sell_event()
         .returning(|_, _| Ok(()));
 
@@ -2759,7 +2799,7 @@ async fn offer_to_sell_bitcredit_bill_anon_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to sell event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_offer_to_sell_event()
         .returning(|_, _| Ok(()));
 
@@ -2868,7 +2908,7 @@ async fn sell_bitcredit_bill_baseline() {
             Ok(chain)
         });
     // Request to sell event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
 
@@ -2940,7 +2980,7 @@ async fn sell_bitcredit_bill_anon_baseline() {
             Ok(chain)
         });
     // Request to sell event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
 
@@ -3008,7 +3048,7 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
             Ok(chain)
         });
     // Sold event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
 
@@ -3042,7 +3082,7 @@ async fn sell_bitcredit_bill_fails_if_not_offer_to_sell_waiting_for_payment() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Request to sell event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
     let service = get_service(ctx);
@@ -3114,7 +3154,7 @@ async fn endorse_bitcredit_bill_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Bill is endorsed event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
     // Populates identity block
@@ -3171,7 +3211,7 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
             .expect_get_chain()
             .returning(move |_| Ok(chain_for_ctx.clone()));
 
-        ctx.notification_service
+        ctx.transport_service
             .expect_send_bill_is_endorsed_event()
             .returning(|_| Ok(()));
 
@@ -3252,9 +3292,10 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
         .returning(move |_| Ok(final_chain.clone()));
 
     final_ctx
-        .notification_service
-        .expect_get_active_bill_notification()
-        .returning(|_| None);
+        .transport_service
+        .expect_on_notification_transport(|t| {
+            t.expect_get_active_bill_notification().returning(|_| None);
+        });
 
     let final_service = get_service(final_ctx);
 
@@ -3319,7 +3360,7 @@ async fn endorse_bitcredit_bill_anon_baseline() {
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
     // Bill is endorsed event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
 
@@ -3541,14 +3582,14 @@ async fn check_bill_offer_to_sell_payment_baseline() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
 
     // Populates identity block and company block
-    ctx.notification_service
-        .expect_send_identity_chain_events()
-        .returning(|_| Ok(()));
+    ctx.transport_service.expect_on_block_transport(|t| {
+        t.expect_send_identity_chain_events().returning(|_| Ok(()));
+    });
 
     let service = get_service(ctx);
 
@@ -3597,14 +3638,14 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
             )));
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
 
     // Populates identity block and company block
-    ctx.notification_service
-        .expect_send_identity_chain_events()
-        .returning(|_| Ok(()));
+    ctx.transport_service.expect_on_block_transport(|t| {
+        t.expect_send_identity_chain_events().returning(|_| Ok(()));
+    });
 
     let service = get_service(ctx);
 
@@ -3689,17 +3730,17 @@ async fn check_bills_timeouts_does_nothing_if_notifications_are_already_sent() {
             chain.try_add_block(request_to_pay_block(id, chain.get_latest_block(), None));
             Ok(chain)
         });
-    // notification already sent
-    ctx.notification_service
-        .expect_check_bill_notification_sent()
-        .with(eq(bill_id_test()), eq(2), eq(ActionType::AcceptBill))
-        .returning(|_, _, _| Ok(true));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        // notification already sent
+        t.expect_check_bill_notification_sent()
+            .with(eq(bill_id_test()), eq(2), eq(ActionType::AcceptBill))
+            .returning(|_, _, _| Ok(true));
 
-    // notification already sent
-    ctx.notification_service
-        .expect_check_bill_notification_sent()
-        .with(eq(bill_id_test_other()), eq(2), eq(ActionType::PayBill))
-        .returning(|_, _, _| Ok(true));
+        // notification already sent
+        t.expect_check_bill_notification_sent()
+            .with(eq(bill_id_test_other()), eq(2), eq(ActionType::PayBill))
+            .returning(|_, _, _| Ok(true));
+    });
 
     let service = get_service(ctx);
 
@@ -3745,62 +3786,58 @@ async fn check_bills_timeouts() {
             Ok(chain)
         });
 
-    // notification not sent
-    ctx.notification_service
-        .expect_check_bill_notification_sent()
-        .with(eq(bill_id_test()), eq(2), eq(ActionType::AcceptBill))
-        .returning(|_, _, _| Ok(false));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        let recipient_check = function(|r: &Vec<BillParticipant>| r.len() >= 2);
 
-    // notification not sent
-    ctx.notification_service
-        .expect_check_bill_notification_sent()
-        .with(eq(bill_id_test_other()), eq(2), eq(ActionType::PayBill))
-        .returning(|_, _, _| Ok(false));
+        // notification not sent
+        t.expect_check_bill_notification_sent()
+            .with(eq(bill_id_test()), eq(2), eq(ActionType::AcceptBill))
+            .returning(|_, _, _| Ok(false));
+
+        // notification not sent
+        t.expect_check_bill_notification_sent()
+            .with(eq(bill_id_test_other()), eq(2), eq(ActionType::PayBill))
+            .returning(|_, _, _| Ok(false));
+
+        // send accept timeout notification
+        t.expect_send_request_to_action_timed_out_event()
+            .with(
+                always(),
+                eq(bill_id_test()),
+                always(),
+                eq(ActionType::AcceptBill),
+                recipient_check.clone(),
+                always(),
+                always(),
+                always(),
+            )
+            .returning(|_, _, _, _, _, _, _, _| Ok(()));
+
+        // send pay timeout notification
+        t.expect_send_request_to_action_timed_out_event()
+            .with(
+                always(),
+                eq(bill_id_test_other()),
+                always(),
+                eq(ActionType::PayBill),
+                recipient_check,
+                always(),
+                always(),
+                always(),
+            )
+            .returning(|_, _, _, _, _, _, _, _| Ok(()));
+        // marks accept bill timeout as sent
+        t.expect_mark_bill_notification_sent()
+            .with(eq(bill_id_test()), eq(2), eq(ActionType::AcceptBill))
+            .returning(|_, _, _| Ok(()));
+
+        // marks pay bill timeout as sent
+        t.expect_mark_bill_notification_sent()
+            .with(eq(bill_id_test_other()), eq(2), eq(ActionType::PayBill))
+            .returning(|_, _, _| Ok(()));
+    });
 
     // we should have at least two participants
-    let recipient_check = function(|r: &Vec<BillParticipant>| r.len() >= 2);
-
-    // send accept timeout notification
-    ctx.notification_service
-        .expect_send_request_to_action_timed_out_event()
-        .with(
-            always(),
-            eq(bill_id_test()),
-            always(),
-            eq(ActionType::AcceptBill),
-            recipient_check.clone(),
-            always(),
-            always(),
-            always(),
-        )
-        .returning(|_, _, _, _, _, _, _, _| Ok(()));
-
-    // send pay timeout notification
-    ctx.notification_service
-        .expect_send_request_to_action_timed_out_event()
-        .with(
-            always(),
-            eq(bill_id_test_other()),
-            always(),
-            eq(ActionType::PayBill),
-            recipient_check,
-            always(),
-            always(),
-            always(),
-        )
-        .returning(|_, _, _, _, _, _, _, _| Ok(()));
-
-    // marks accept bill timeout as sent
-    ctx.notification_service
-        .expect_mark_bill_notification_sent()
-        .with(eq(bill_id_test()), eq(2), eq(ActionType::AcceptBill))
-        .returning(|_, _, _| Ok(()));
-
-    // marks pay bill timeout as sent
-    ctx.notification_service
-        .expect_mark_bill_notification_sent()
-        .with(eq(bill_id_test_other()), eq(2), eq(ActionType::PayBill))
-        .returning(|_, _, _| Ok(()));
 
     let service = get_service(ctx);
 
@@ -3820,9 +3857,9 @@ async fn get_endorsements_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification().returning(|_| None);
+    });
 
     let service = get_service(ctx);
 
@@ -3841,9 +3878,9 @@ async fn get_endorsements_baseline() {
 #[tokio::test]
 async fn get_endorsements_multi_with_anon() {
     let mut ctx = get_ctx();
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification().returning(|_| None);
+    });
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
     let drawer = bill_identified_participant_only_node_id(NodeId::new(
@@ -3978,9 +4015,9 @@ async fn get_endorsements_multi_with_anon() {
 #[tokio::test]
 async fn get_endorsements_multi() {
     let mut ctx = get_ctx();
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification().returning(|_| None);
+    });
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
     let drawer = bill_identified_participant_only_node_id(NodeId::new(
@@ -4918,7 +4955,7 @@ async fn reject_acceptance_baseline() {
 
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::AcceptBill))
         .returning(|_, _| Ok(()));
@@ -4980,7 +5017,7 @@ async fn reject_acceptance_fails_for_anon() {
 
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::AcceptBill))
         .returning(|_, _| Ok(()));
@@ -5028,7 +5065,7 @@ async fn reject_buying_baseline() {
             Ok(chain)
         });
 
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::BuyBill))
         .returning(|_, _| Ok(()));
@@ -5080,7 +5117,7 @@ async fn reject_buying_anon_baseline() {
             Ok(chain)
         });
 
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::BuyBill))
         .returning(|_, _| Ok(()));
@@ -5145,7 +5182,7 @@ async fn reject_payment() {
 
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::PayBill))
         .returning(|_, _| Ok(()));
@@ -5210,7 +5247,7 @@ async fn reject_payment_fails_for_anon() {
 
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::PayBill))
         .returning(|_, _| Ok(()));
@@ -5277,7 +5314,7 @@ async fn reject_recourse() {
 
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::RecourseBill))
         .returning(|_, _| Ok(()));
@@ -5348,7 +5385,7 @@ async fn reject_recourse_fails_for_anon() {
 
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::RecourseBill))
         .returning(|_, _| Ok(()));
@@ -5419,7 +5456,7 @@ async fn check_bills_in_recourse_payment_baseline() {
             assert!(chain.try_add_block(req_to_recourse));
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
 
@@ -5496,7 +5533,7 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
             assert!(chain.try_add_block(req_to_recourse));
             Ok(chain)
         });
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
 
@@ -5587,7 +5624,7 @@ async fn request_recourse_accept_baseline() {
             Ok(chain)
         });
     // Request to recourse event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_recourse_action_event()
         .returning(|_, _, _| Ok(()));
 
@@ -5694,7 +5731,7 @@ async fn request_recourse_works_for_anon() {
             Ok(chain)
         });
     // Request to recourse event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_recourse_action_event()
         .returning(|_, _, _| Ok(()));
     // Populates identity block
@@ -5799,7 +5836,7 @@ async fn request_recourse_payment_baseline() {
             Ok(chain)
         });
     // Request to recourse event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_recourse_action_event()
         .returning(|_, _, _| Ok(()));
 
@@ -5879,7 +5916,7 @@ async fn recourse_bitcredit_bill_baseline() {
             Ok(chain)
         });
     // Recourse paid event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
 
@@ -5959,7 +5996,7 @@ async fn recourse_bitcredit_bill_works_for_anon() {
             Ok(chain)
         });
     // Recourse paid event should be sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
 
@@ -6273,12 +6310,12 @@ async fn req_to_mint_baseline() {
         .expect_add_request()
         .returning(|_, _, _, _, _| Ok(()));
     // Asset request to mint event is sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_request_to_mint_event()
         .returning(|_, _, _| Ok(()));
-    ctx.notification_service
-        .expect_resolve_contact()
-        .returning(|_| Ok(None));
+    ctx.transport_service.expect_on_contact_transport(|t| {
+        t.expect_resolve_contact().returning(|_| Ok(None));
+    });
 
     let service = get_service(ctx);
 
@@ -6437,12 +6474,12 @@ async fn accept_mint_offer_baseline() {
         }))
     });
     // Asset request to mint event is sent
-    ctx.notification_service
+    ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
-    ctx.notification_service
-        .expect_resolve_contact()
-        .returning(|_| Ok(None));
+    ctx.transport_service.expect_on_contact_transport(|t| {
+        t.expect_resolve_contact().returning(|_| Ok(None));
+    });
 
     let service = get_service(ctx);
     let res = service
@@ -7129,10 +7166,11 @@ async fn get_bill_history_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    ctx.notification_service
-        .expect_get_active_bill_notification()
-        .with(eq(bill_id_test()))
-        .returning(|_| None);
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
 
     let res = get_service(ctx)
         .get_bill_history(

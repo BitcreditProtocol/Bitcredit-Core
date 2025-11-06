@@ -1,9 +1,8 @@
 use super::Result;
-use super::transport_service::NotificationServiceApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
 use crate::service::file_upload_service::UploadFileType;
-use crate::service::transport_service::{BcrMetadata, NostrContactData};
+use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::validate_node_id_network;
 use crate::{get_config, util};
 
@@ -132,7 +131,7 @@ pub struct IdentityService {
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     file_upload_client: Arc<dyn FileStorageClientApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
-    notification_service: Arc<dyn NotificationServiceApi>,
+    block_transport: Arc<dyn TransportServiceApi>,
 }
 
 impl IdentityService {
@@ -141,14 +140,14 @@ impl IdentityService {
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
-        notification_service: Arc<dyn NotificationServiceApi>,
+        block_transport: Arc<dyn TransportServiceApi>,
     ) -> Self {
         Self {
             store,
             file_upload_store,
             file_upload_client,
             blockchain_store,
-            notification_service,
+            block_transport,
         }
     }
 
@@ -206,7 +205,8 @@ impl IdentityService {
         block: &IdentityBlock,
         keys: &BcrKeys,
     ) -> Result<()> {
-        self.notification_service
+        self.block_transport
+            .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(identity, block, keys))
             .await?;
         Ok(())
@@ -710,7 +710,8 @@ impl IdentityServiceApi for IdentityService {
         let identity = self.get_full_identity().await?;
         let derived_keys = identity.key_pair.derive_keypair()?;
         let keys = BcrKeys::from_private_key(&derived_keys.secret_key())?;
-        self.notification_service
+        self.block_transport
+            .contact_transport()
             .share_contact_details_keys(share_to, &identity.identity.node_id, &keys)
             .await?;
         Ok(())
@@ -741,7 +742,8 @@ impl IdentityServiceApi for IdentityService {
         let bcr_data = get_bcr_data(identity, keys)?;
         let contact_data =
             NostrContactData::new(&identity.name, identity.nostr_relays.clone(), bcr_data);
-        self.notification_service
+        self.block_transport
+            .contact_transport()
             .publish_contact(&identity.node_id, &contact_data)
             .await?;
         Ok(())
@@ -755,7 +757,7 @@ mod tests {
     use super::*;
     use crate::{
         external::file_storage::MockFileStorageClientApi,
-        service::transport_service::MockNotificationServiceApi,
+        service::transport_service::MockTransportServiceApi,
         tests::tests::{
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
             empty_identity, empty_optional_address, filled_optional_address, init_test_cfg,
@@ -769,21 +771,21 @@ mod tests {
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
-            Arc::new(MockNotificationServiceApi::new()),
+            Arc::new(MockTransportServiceApi::new()),
         )
     }
 
     fn get_service_with_chain_storage(
         mock_storage: MockIdentityStoreApiMock,
         mock_chain_storage: MockIdentityChainStoreApiMock,
-        notification: MockNotificationServiceApi,
+        transport: MockTransportServiceApi,
     ) -> IdentityService {
         IdentityService::new(
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(mock_chain_storage),
-            Arc::new(notification),
+            Arc::new(transport),
         )
     }
 
@@ -800,18 +802,18 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationServiceApi::new();
-        notification
-            .expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-        // publishes contact info to nostr
-        notification
-            .expect_publish_contact()
-            .returning(|_, _| Ok(()))
-            .once();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+        transport.expect_on_contact_transport(|t| {
+            // publishes contact info to nostr
+            t.expect_publish_contact().returning(|_, _| Ok(())).once();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .create_identity(
                 IdentityType::Ident,
@@ -845,18 +847,19 @@ mod tests {
             .returning(|| Ok(BcrKeys::new()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationServiceApi::new();
-        notification
-            .expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-        // publishes contact info to nostr
-        notification
-            .expect_publish_contact()
-            .returning(|_, _| Ok(()))
-            .once();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+        transport.expect_on_contact_transport(|t| {
+            t.expect_publish_contact().returning(|_, _| Ok(())).once();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        // publishes contact info to nostr
+
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .create_identity(
                 IdentityType::Anon,
@@ -906,18 +909,19 @@ mod tests {
             .get_latest_block()
             .clone())
         });
-        let mut notification = MockNotificationServiceApi::new();
-        notification
-            .expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-        // publishes contact info to nostr
-        notification
-            .expect_publish_contact()
-            .returning(|_, _| Ok(()))
-            .once();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        // publishes contact info to nostr
+        transport.expect_on_contact_transport(|t| {
+            t.expect_publish_contact().returning(|_, _| Ok(())).once();
+        });
+
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .deanonymize_identity(
                 IdentityType::Ident,
@@ -956,10 +960,12 @@ mod tests {
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationServiceApi::new();
-        notification.expect_send_identity_chain_events().never();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events().never();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .deanonymize_identity(
                 IdentityType::Anon,
@@ -1001,10 +1007,12 @@ mod tests {
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationServiceApi::new();
-        notification.expect_send_identity_chain_events().never();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events().never();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .deanonymize_identity(
                 IdentityType::Ident,
@@ -1053,18 +1061,18 @@ mod tests {
             .clone())
         });
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        let mut notification = MockNotificationServiceApi::new();
-        notification
-            .expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-        // publishes contact info to nostr
-        notification
-            .expect_publish_contact()
-            .returning(|_, _| Ok(()))
-            .once();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+        transport.expect_on_contact_transport(|t| {
+            // publishes contact info to nostr
+            t.expect_publish_contact().returning(|_, _| Ok(())).once();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),
@@ -1150,10 +1158,12 @@ mod tests {
             .expect_add_block()
             .returning(|_| Ok(()))
             .once();
-        let mut notification = MockNotificationServiceApi::new();
-        notification.expect_send_identity_chain_events().never();
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events().never();
+        });
 
-        let service = get_service_with_chain_storage(storage, chain_storage, notification);
+        let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),

@@ -2,7 +2,7 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::transport_service::NostrConfig;
-use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig};
 use bcr_ebill_core::BitcoinAddress;
 use bcr_ebill_core::address::Address;
@@ -394,7 +394,7 @@ mockall::mock! {
     impl ServiceTraitBounds for NotificationJsonTransport {}
 
     #[async_trait]
-    impl NotificationJsonTransportApi for NotificationJsonTransport {
+    impl TransportClientApi for NotificationJsonTransport {
         async fn connect(&self) -> Result<()>;
         fn get_sender_node_id(&self) -> NodeId;
         fn get_sender_keys(&self) -> BcrKeys;

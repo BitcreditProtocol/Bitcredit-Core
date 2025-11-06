@@ -28,7 +28,7 @@ use bcr_ebill_api::{
     service::{
         contact_service::ContactServiceApi,
         transport_service::{
-            Error, NostrConfig, NostrContactData, Result, transport::NotificationJsonTransportApi,
+            Error, NostrConfig, NostrContactData, Result, transport_client::TransportClientApi,
         },
     },
 };
@@ -303,7 +303,7 @@ impl ServiceTraitBounds for NostrClient {}
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl NotificationJsonTransportApi for NostrClient {
+impl TransportClientApi for NostrClient {
     fn get_sender_node_id(&self) -> NodeId {
         self.get_node_id()
     }
@@ -767,7 +767,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use bcr_common::core::NodeId;
-    use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
+    use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
     use bcr_ebill_core::contact::BillParticipant;
     use bcr_ebill_core::email::Email;
     use bcr_ebill_core::notification::BillEventType;

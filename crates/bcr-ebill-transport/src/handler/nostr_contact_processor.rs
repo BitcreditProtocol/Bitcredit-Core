@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::transport_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::TransportClientApi;
 use bcr_ebill_core::{
     ServiceTraitBounds,
     name::Name,
@@ -14,14 +14,14 @@ use log::{error, info, warn};
 use super::NostrContactProcessorApi;
 
 pub struct NostrContactProcessor {
-    transport: Arc<dyn NotificationJsonTransportApi>,
+    transport: Arc<dyn TransportClientApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     bitcoin_network: bitcoin::Network,
 }
 
 impl NostrContactProcessor {
     pub fn new(
-        transport: Arc<dyn NotificationJsonTransportApi>,
+        transport: Arc<dyn TransportClientApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {

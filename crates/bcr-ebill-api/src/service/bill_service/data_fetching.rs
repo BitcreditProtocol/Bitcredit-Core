@@ -899,7 +899,8 @@ impl BillService {
 
         // fetch active notification
         let active_notification = self
-            .notification_service
+            .transport_service
+            .notification_transport()
             .get_active_bill_notification(&bill.id)
             .await;
 

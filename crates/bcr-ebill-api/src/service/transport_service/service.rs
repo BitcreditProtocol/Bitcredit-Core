@@ -1,21 +1,13 @@
-use super::{NostrContactData, Result};
+use super::Result;
 use async_trait::async_trait;
-use bcr_common::core::{BillId, NodeId};
+use bcr_common::core::NodeId;
 use bcr_ebill_core::{
     ServiceTraitBounds,
-    company::Company,
-    protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
-    util::BcrKeys,
-};
-use bcr_ebill_core::{
     bill::BitcreditBill,
     contact::{BillIdentParticipant, BillParticipant},
-    email::Email,
-    notification::{ActionType, Notification},
-    sum::Sum,
+    notification::ActionType,
+    protocol::BillChainEvent,
 };
-use bcr_ebill_persistence::notification::NotificationFilter;
-use std::collections::HashMap;
 
 #[cfg(test)]
 use mockall::automock;
@@ -28,12 +20,6 @@ impl ServiceTraitBounds for MockNotificationServiceApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait NotificationServiceApi: ServiceTraitBounds {
-    /// Adds a new transport client for a company if it does not already exist
-    async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
-    /// Sent when an identity chain is created or updated
-    async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
-    /// Sent when a company chain is created or updated
-    async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
     /// Sent when: A bill is signed by: Drawer
     /// Receiver: Payer, Action: AcceptBill
     /// Receiver: Payee, Action: CheckBill
@@ -96,25 +82,6 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         rejected_action: ActionType,
     ) -> Result<()>;
 
-    /// In case a participant did not perform an action (e.g. request to accept, request
-    /// to pay) in time we notify all bill participants about the timed out action. Will
-    /// only send the event if the given action can be a timed out action.
-    /// Arguments:
-    /// * bill_id: The id of the bill affected
-    /// * timed_out_action: The action that has timed out
-    /// * recipients: The list of recipients that should receive the notification
-    async fn send_request_to_action_timed_out_event(
-        &self,
-        sender_node_id: &NodeId,
-        bill_id: &BillId,
-        sum: Option<Sum>,
-        timed_out_action: ActionType,
-        recipients: Vec<BillParticipant>,
-        holder: &NodeId,
-        drawee: &NodeId,
-        recoursee: &Option<NodeId>,
-    ) -> Result<()>;
-
     /// In case an action was rejected or timed out a holder can request a recourse action
     /// from another participant in the chain. Will only send the event if the given action
     /// can be a recourse action.
@@ -139,86 +106,6 @@ pub trait NotificationServiceApi: ServiceTraitBounds {
         bill: &BitcreditBill,
     ) -> Result<()>;
 
-    /// Returns filtered client notifications
-    async fn get_client_notifications(
-        &self,
-        filter: NotificationFilter,
-    ) -> Result<Vec<Notification>>;
-
-    /// Marks the notification with given id as done
-    async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
-
-    /// Returns the active bill notification for the given bill id
-    async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification>;
-
-    async fn get_active_bill_notifications(
-        &self,
-        bill_ids: &[BillId],
-    ) -> HashMap<BillId, Notification>;
-
-    async fn get_active_notification_status_for_node_ids(
-        &self,
-        node_ids: &[NodeId],
-    ) -> Result<HashMap<NodeId, bool>>;
-
-    /// Returns whether a notification was already sent for the given bill id and action
-    async fn check_bill_notification_sent(
-        &self,
-        bill_id: &BillId,
-        block_height: i32,
-        action: ActionType,
-    ) -> Result<bool>;
-
-    /// Stores that a notification was sent for the given bill id and action
-    async fn mark_bill_notification_sent(
-        &self,
-        bill_id: &BillId,
-        block_height: i32,
-        action: ActionType,
-    ) -> Result<()>;
-
     /// Retry sending a queued message to the given node id
     async fn send_retry_messages(&self) -> Result<()>;
-
-    /// Attempts to resolve the nostr contact for the given Node Id
-    async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
-
-    /// Publish contact data for NodeId to nostr. Will only publish if the NodeId points to a
-    /// registered nostr client and therefore is our own.
-    async fn publish_contact(&self, node_id: &NodeId, contact: &NostrContactData) -> Result<()>;
-
-    /// Register email notifications for the currently selected identity
-    async fn register_email_notifications(
-        &self,
-        relay_url: &url::Url,
-        email: &Email,
-        node_id: &NodeId,
-        caller_keys: &BcrKeys,
-    ) -> Result<()>;
-
-    /// Fetch email notifications preferences link for the currently selected identity
-    async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
-
-    /// Resync bill chain
-    async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
-
-    /// Resync company chain
-    async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
-
-    /// Resync identity chain
-    async fn resync_identity_chain(&self) -> Result<()>;
-
-    /// Shares derived keys for private contact information via DM.
-    async fn share_contact_details_keys(
-        &self,
-        recipient: &NodeId,
-        contact_id: &NodeId,
-        keys: &BcrKeys,
-    ) -> Result<()>;
-
-    /// Connects to all relays
-    async fn connect(&self);
-
-    /// Ensures that the given node id is in our nostr contacts
-    async fn ensure_nostr_contact(&self, node_id: &NodeId);
 }

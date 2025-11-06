@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::{
-    Result, restore::RestoreAccountApi, transport::NotificationJsonTransportApi,
+    Result, restore::RestoreAccountApi, transport_client::TransportClientApi,
 };
 use bcr_ebill_core::{
     ServiceTraitBounds,
@@ -22,7 +22,7 @@ use super::{
 
 #[allow(dead_code)]
 pub struct RestoreAccountService {
-    nostr: Arc<dyn NotificationJsonTransportApi>,
+    nostr: Arc<dyn TransportClientApi>,
     identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
     dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
     keys: BcrKeys,
@@ -32,7 +32,7 @@ pub struct RestoreAccountService {
 #[allow(dead_code)]
 impl RestoreAccountService {
     pub async fn new(
-        nostr: Arc<dyn NotificationJsonTransportApi>,
+        nostr: Arc<dyn TransportClientApi>,
         identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
         dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
         keys: BcrKeys,

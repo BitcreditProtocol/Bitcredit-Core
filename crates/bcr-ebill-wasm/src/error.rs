@@ -169,7 +169,7 @@ impl From<WasmError> for JsErrorData {
                     err_400(e, JsErrorType::NoFileForFileUploadId)
                 }
                 ServiceError::NotFound => err_404(e, JsErrorType::NotFound),
-                ServiceError::NotificationService(e) => notification_service_error_data(e),
+                ServiceError::TransportService(e) => notification_service_error_data(e),
                 ServiceError::BillService(e) => bill_service_error_data(e),
                 ServiceError::Validation(e) => validation_error_data(e),
                 ServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),

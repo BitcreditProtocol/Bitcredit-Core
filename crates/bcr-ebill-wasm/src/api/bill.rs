@@ -1037,7 +1037,8 @@ impl Bill {
         let res: Result<()> = async {
             let payload: ResyncBillPayload = serde_wasm_bindgen::from_value(payload)?;
             get_ctx()
-                .notification_service
+                .transport_service
+                .block_transport()
                 .resync_bill_chain(&payload.bill_id)
                 .await?;
             Ok(())
