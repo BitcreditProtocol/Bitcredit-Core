@@ -13,12 +13,12 @@ use nostr::{Event, Filter, types::RelayUrl};
 use super::{NostrContactData, Result};
 
 #[cfg(test)]
-impl ServiceTraitBounds for MockNotificationJsonTransportApi {}
+impl ServiceTraitBounds for MockTransportClientApi {}
 
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait NotificationJsonTransportApi: ServiceTraitBounds {
+pub trait TransportClientApi: ServiceTraitBounds {
     /// Returns the senders node id for this instance.
     fn get_sender_node_id(&self) -> NodeId;
     /// Returns the senders keys for this instance.

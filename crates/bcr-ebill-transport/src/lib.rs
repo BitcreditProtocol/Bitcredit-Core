@@ -1,16 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::notification_service::{Error, Result};
+use bcr_ebill_api::service::transport_service::{Error, Result, TransportServiceApi};
 use bcr_ebill_api::{
     Config, DbContext,
     external::email::EmailClientApi,
     get_config, get_db_context,
     service::{
         contact_service::ContactServiceApi,
-        notification_service::{
-            NostrConfig, NotificationServiceApi, transport::NotificationJsonTransportApi,
-        },
+        transport_service::{NostrConfig, transport_client::TransportClientApi},
     },
 };
 use bcr_ebill_core::protocol::EventType;
@@ -24,16 +22,20 @@ use handler::{
     NostrContactProcessor, NotificationHandlerApi,
 };
 use log::{debug, error};
-use notification_service::NotificationService;
+pub use nostr_transport::NostrTransportService;
 
+mod block_transport;
 pub mod chain_keys;
+mod contact_transport;
 pub mod handler;
 mod nostr;
-pub mod notification_service;
+mod nostr_transport;
+mod notification_transport;
 pub mod push_notification;
 #[cfg(test)]
 pub mod test_utils;
-pub mod transport;
+mod transport;
+pub mod transport_service;
 
 pub use async_broadcast::Receiver;
 pub use handler::RestoreAccountService;
@@ -41,7 +43,11 @@ pub use nostr::{NostrClient, NostrConsumer};
 pub use push_notification::{PushApi, PushService};
 pub use transport::bcr_nostr_tag;
 
+use crate::block_transport::BlockTransportService;
+use crate::contact_transport::ContactTransportService;
 use crate::handler::{ContactShareEventHandler, DirectMessageEventProcessor};
+use crate::notification_transport::NotificationTransportService;
+use crate::transport_service::TransportService;
 
 /// Creates new nostr clients configured with the current identity user and all local companies.
 pub async fn create_nostr_clients(
@@ -94,13 +100,13 @@ pub async fn create_nostr_clients(
     Ok(clients)
 }
 
-/// Creates a new notification service that will send events via the given Nostr json transport.
-pub async fn create_notification_service(
+/// Creates a new transport service that will send events via the given Nostr transport.
+pub async fn create_transport_service(
     clients: Vec<Arc<NostrClient>>,
     db_context: DbContext,
     email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<url::Url>,
-) -> Result<Arc<dyn NotificationServiceApi>> {
+) -> Result<Arc<dyn TransportServiceApi>> {
     let transport = match clients.iter().find(|c| c.is_primary()) {
         Some(client) => client.clone(),
         None => panic!("Cant create Nostr consumer as there is no nostr client available"),
@@ -148,24 +154,44 @@ pub async fn create_notification_service(
         get_config().bitcoin_network(),
     ));
 
-    #[allow(clippy::arc_with_non_send_sync)]
-    Ok(Arc::new(NotificationService::new(
+    let nostr_transport = Arc::new(NostrTransportService::new(
         clients
             .iter()
-            .map(|c| c.clone() as Arc<dyn NotificationJsonTransportApi>)
+            .map(|c| c.clone() as Arc<dyn TransportClientApi>)
             .collect(),
-        db_context.notification_store.clone(),
-        db_context.email_notification_store.clone(),
         db_context.contact_store,
-        db_context.nostr_contact_store,
+        db_context.nostr_contact_store.clone(),
         db_context.queued_message_store.clone(),
         db_context.nostr_chain_event_store.clone(),
-        email_client,
-        bill_processor,
-        company_processor,
-        identity_processor,
-        nostr_contact_processor,
         nostr_relays,
+    ));
+
+    let block_transport = Arc::new(BlockTransportService::new(
+        nostr_transport.clone(),
+        bill_processor.clone(),
+        company_processor.clone(),
+        identity_processor.clone(),
+    ));
+
+    let contact_transport = Arc::new(ContactTransportService::new(
+        nostr_transport.clone(),
+        db_context.nostr_contact_store.clone(),
+        nostr_contact_processor.clone(),
+    ));
+
+    let notification_transport = Arc::new(NotificationTransportService::new(
+        nostr_transport.clone(),
+        db_context.notification_store.clone(),
+        db_context.email_notification_store.clone(),
+        email_client,
+    ));
+
+    #[allow(clippy::arc_with_non_send_sync)]
+    Ok(Arc::new(TransportService::new(
+        nostr_transport.clone(),
+        notification_transport,
+        contact_transport,
+        block_transport,
     )))
 }
 

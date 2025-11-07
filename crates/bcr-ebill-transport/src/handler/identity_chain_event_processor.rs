@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
     blockchain::Block,
     protocol::{ChainInvite, Event},
@@ -42,7 +42,7 @@ pub struct IdentityChainEventProcessor {
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
-    transport: Arc<dyn NotificationJsonTransportApi>,
+    transport: Arc<dyn TransportClientApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -152,7 +152,7 @@ impl IdentityChainEventProcessor {
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
-        transport: Arc<dyn NotificationJsonTransportApi>,
+        transport: Arc<dyn TransportClientApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {

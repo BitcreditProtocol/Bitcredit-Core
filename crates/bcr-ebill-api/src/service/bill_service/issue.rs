@@ -255,7 +255,7 @@ impl BillService {
 
         // send notification and blocks to all required recipients
         if let Err(e) = self
-            .notification_service
+            .transport_service
             .send_bill_is_signed_event(&BillChainEvent::new(
                 &bill,
                 &chain,

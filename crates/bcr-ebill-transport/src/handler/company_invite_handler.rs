@@ -2,7 +2,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::notification_service::transport::NotificationJsonTransportApi;
+use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
     ServiceTraitBounds, ValidationError,
     blockchain::{BlockchainType, company::CompanyBlock},
@@ -17,14 +17,14 @@ use crate::{
     EventType,
     handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
 };
-use bcr_ebill_api::service::notification_service::Result;
+use bcr_ebill_api::service::transport_service::Result;
 use bcr_ebill_core::protocol::EventEnvelope;
 
 use super::{CompanyChainEventProcessorApi, NotificationHandlerApi};
 
 #[derive(Clone)]
 pub struct CompanyInviteEventHandler {
-    transport: Arc<dyn NotificationJsonTransportApi>,
+    transport: Arc<dyn TransportClientApi>,
     processor: Arc<dyn CompanyChainEventProcessorApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
@@ -111,7 +111,7 @@ impl ServiceTraitBounds for CompanyInviteEventHandler {}
 
 impl CompanyInviteEventHandler {
     pub fn new(
-        transport: Arc<dyn NotificationJsonTransportApi>,
+        transport: Arc<dyn TransportClientApi>,
         processor: Arc<dyn CompanyChainEventProcessorApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     ) -> Self {

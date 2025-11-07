@@ -15,7 +15,7 @@ use crate::{
     EventType,
     handler::public_chain_helpers::{BlockData, EventContainer},
 };
-use bcr_ebill_api::service::notification_service::Result;
+use bcr_ebill_api::service::transport_service::Result;
 
 use super::{BillChainEventProcessorApi, NotificationHandlerApi};
 

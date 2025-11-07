@@ -28,7 +28,7 @@ use crate::{
     Config,
     external::file_storage::FileStorageClientApi,
     get_config,
-    service::{file_upload_service::UploadFileType, notification_service::NotificationServiceApi},
+    service::{file_upload_service::UploadFileType, transport_service::TransportServiceApi},
     util::{self, validate_node_id_network},
 };
 
@@ -140,7 +140,7 @@ pub struct ContactService {
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     // we still need this for fetching new contacts from nostr when we get keys externally
     #[allow(dead_code)]
-    notification_service: Arc<dyn NotificationServiceApi>,
+    transport_service: Arc<dyn TransportServiceApi>,
     config: Config,
 }
 
@@ -151,7 +151,7 @@ impl ContactService {
         file_upload_client: Arc<dyn FileStorageClientApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
-        notification_service: Arc<dyn NotificationServiceApi>,
+        transport_service: Arc<dyn TransportServiceApi>,
         config: &Config,
     ) -> Self {
         Self {
@@ -160,7 +160,7 @@ impl ContactService {
             file_upload_client,
             identity_store,
             nostr_contact_store,
-            notification_service,
+            transport_service,
             config: config.clone(),
         }
     }
@@ -733,7 +733,7 @@ pub mod tests {
         get_config,
         service::{
             Error, bill_service::test_utils::get_baseline_identity,
-            notification_service::MockNotificationServiceApi,
+            transport_service::MockTransportServiceApi,
         },
         tests::tests::{
             MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
@@ -780,7 +780,7 @@ pub mod tests {
         mock_file_upload_client: MockFileStorageClientApi,
         mock_identity_storage: MockIdentityStoreApiMock,
         mock_nostr_contact_store: MockNostrContactStore,
-        mock_notification_service: MockNotificationServiceApi,
+        mock_transport_service: MockTransportServiceApi,
     ) -> ContactService {
         ContactService::new(
             Arc::new(mock_storage),
@@ -788,7 +788,7 @@ pub mod tests {
             Arc::new(mock_file_upload_client),
             Arc::new(mock_identity_storage),
             Arc::new(mock_nostr_contact_store),
-            Arc::new(mock_notification_service),
+            Arc::new(mock_transport_service),
             get_config(),
         )
     }
@@ -799,7 +799,7 @@ pub mod tests {
         MockFileStorageClientApi,
         MockIdentityStoreApiMock,
         MockNostrContactStore,
-        MockNotificationServiceApi,
+        MockTransportServiceApi,
     ) {
         (
             MockContactStoreApiMock::new(),
@@ -807,7 +807,7 @@ pub mod tests {
             MockFileStorageClientApi::new(),
             MockIdentityStoreApiMock::new(),
             MockNostrContactStore::new(),
-            MockNotificationServiceApi::new(),
+            MockTransportServiceApi::new(),
         )
     }
 
@@ -819,7 +819,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             nostr_contact,
-            notification,
+            transport,
         ) = get_storages();
         store.expect_get_map().returning(|| {
             let mut contact = get_baseline_contact();
@@ -834,7 +834,7 @@ pub mod tests {
             file_upload_client,
             identity_store,
             nostr_contact,
-            notification,
+            transport,
         )
         .get_contacts()
         .await;

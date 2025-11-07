@@ -3,8 +3,7 @@ use crate::{
     external::{self, court::MockCourtClientApi, file_storage::MockFileStorageClientApi},
     service::{
         company_service::tests::get_valid_company_block,
-        contact_service::tests::get_baseline_contact,
-        notification_service::MockNotificationServiceApi,
+        contact_service::tests::get_baseline_contact, transport_service::MockTransportServiceApi,
     },
     tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
@@ -62,7 +61,7 @@ pub struct MockBillContext {
     pub company_store: MockCompanyStoreApiMock,
     pub file_upload_store: MockFileUploadStoreApiMock,
     pub file_upload_client: MockFileStorageClientApi,
-    pub notification_service: MockNotificationServiceApi,
+    pub transport_service: MockTransportServiceApi,
     pub mint_store: MockMintStore,
     pub mint_client: MockMintClientApi,
     pub court_client: MockCourtClientApi,
@@ -291,9 +290,6 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.bill_store
         .expect_invalidate_bill_in_cache()
         .returning(|_| Ok(()));
-    ctx.notification_service
-        .expect_get_active_bill_notifications()
-        .returning(|_| HashMap::new());
     ctx.bill_store
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
@@ -314,7 +310,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         Arc::new(ctx.file_upload_store),
         Arc::new(ctx.file_upload_client),
         Arc::new(bitcoin_client),
-        Arc::new(ctx.notification_service),
+        Arc::new(ctx.transport_service),
         Arc::new(ctx.identity_chain_store),
         Arc::new(ctx.company_chain_store),
         Arc::new(ctx.contact_store),
@@ -337,7 +333,7 @@ pub fn get_ctx() -> MockBillContext {
         company_chain_store: MockCompanyChainStoreApiMock::new(),
         contact_store: MockContactStoreApiMock::new(),
         company_store: MockCompanyStoreApiMock::new(),
-        notification_service: MockNotificationServiceApi::new(),
+        transport_service: MockTransportServiceApi::new(),
         mint_store: MockMintStore::new(),
         mint_client: MockMintClientApi::new(),
         court_client: MockCourtClientApi::new(),

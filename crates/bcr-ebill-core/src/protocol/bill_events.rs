@@ -18,6 +18,7 @@ use super::{
     blockchain_event::{BillBlockEvent, ChainInvite},
 };
 
+#[derive(Clone)]
 pub struct BillChainEvent {
     pub bill: BitcreditBill,
     chain: BillBlockchain,

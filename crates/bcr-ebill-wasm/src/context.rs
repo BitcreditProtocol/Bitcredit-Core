@@ -13,14 +13,14 @@ use bcr_ebill_api::{
         file_upload_service::{FileUploadService, FileUploadServiceApi},
         identity_proof_service::{IdentityProofService, IdentityProofServiceApi},
         identity_service::{IdentityService, IdentityServiceApi},
-        notification_service::NotificationServiceApi,
         search_service::{SearchService, SearchServiceApi},
+        transport_service::TransportServiceApi,
     },
 };
 use bcr_ebill_transport::{
     NostrConsumer,
     chain_keys::{ChainKeyService, ChainKeyServiceApi},
-    create_nostr_clients, create_nostr_consumer, create_notification_service,
+    create_nostr_clients, create_nostr_consumer, create_transport_service,
     push_notification::{PushApi, PushService},
 };
 use std::sync::Arc;
@@ -35,7 +35,7 @@ pub struct Context {
     pub company_service: Arc<dyn CompanyServiceApi>,
     pub file_upload_service: Arc<dyn FileUploadServiceApi>,
     pub nostr_consumer: NostrConsumer,
-    pub notification_service: Arc<dyn NotificationServiceApi>,
+    pub transport_service: Arc<dyn TransportServiceApi>,
     pub push_service: Arc<dyn PushApi>,
     pub chain_key_service: Arc<dyn ChainKeyServiceApi>,
     pub cfg: Config,
@@ -53,7 +53,7 @@ impl Context {
 
         let nostr_clients =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
-        let notification_service = create_notification_service(
+        let transport_service = create_transport_service(
             nostr_clients.clone(),
             db.clone(),
             email_client,
@@ -67,7 +67,7 @@ impl Context {
             file_upload_client.clone(),
             db.identity_store.clone(),
             db.nostr_contact_store.clone(),
-            notification_service.clone(),
+            transport_service.clone(),
             &cfg,
         ));
 
@@ -78,7 +78,7 @@ impl Context {
             db.file_upload_store.clone(),
             file_upload_client.clone(),
             bitcoin_client,
-            notification_service.clone(),
+            transport_service.clone(),
             db.identity_chain_store.clone(),
             db.company_chain_store.clone(),
             db.contact_store.clone(),
@@ -94,7 +94,7 @@ impl Context {
             db.file_upload_store.clone(),
             file_upload_client.clone(),
             db.identity_chain_store.clone(),
-            notification_service.clone(),
+            transport_service.clone(),
         );
 
         let identity_proof_service = IdentityProofService::new(
@@ -102,7 +102,7 @@ impl Context {
             identity_proof_client,
             db.identity_chain_store.clone(),
             db.company_chain_store.clone(),
-            notification_service.clone(),
+            transport_service.clone(),
             db.identity_store.clone(),
             db.company_store.clone(),
         );
@@ -116,7 +116,7 @@ impl Context {
             db.nostr_contact_store.clone(),
             db.identity_chain_store,
             db.company_chain_store,
-            notification_service.clone(),
+            transport_service.clone(),
         );
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 
@@ -151,7 +151,7 @@ impl Context {
             company_service: Arc::new(company_service),
             file_upload_service: Arc::new(file_upload_service),
             nostr_consumer,
-            notification_service,
+            transport_service,
             push_service,
             chain_key_service,
             cfg,

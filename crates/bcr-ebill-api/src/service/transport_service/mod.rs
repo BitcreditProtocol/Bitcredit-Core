@@ -1,10 +1,13 @@
 use crate::external;
 use bcr_ebill_core::{name::Name, util::crypto};
 
+mod block_transport;
 pub mod chain_keys;
+mod contact_transport;
+mod notification_transport;
 pub mod restore;
-mod service;
-pub mod transport;
+mod transport;
+pub mod transport_client;
 
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -18,9 +21,25 @@ use nostr::{
 };
 use std::time::Duration;
 
+pub use block_transport::BlockTransportServiceApi;
 #[cfg(test)]
-pub use service::MockNotificationServiceApi;
-pub use service::NotificationServiceApi;
+pub use block_transport::MockBlockTransportServiceApi;
+
+pub use contact_transport::ContactTransportServiceApi;
+#[cfg(test)]
+pub use contact_transport::MockContactTransportServiceApi;
+
+#[cfg(test)]
+pub use notification_transport::MockNotificationTransportServiceApi;
+pub use notification_transport::NotificationTransportServiceApi;
+
+#[cfg(test)]
+pub use transport::MockTransportServiceApi;
+pub use transport::TransportServiceApi;
+
+#[cfg(test)]
+pub use transport_client::MockTransportClientApi;
+pub use transport_client::TransportClientApi;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

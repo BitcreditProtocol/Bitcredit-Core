@@ -33,7 +33,8 @@ impl Notification {
         let res: Result<Vec<NotificationStatusWeb>> = async {
             let node_ids_parsed: Vec<NodeId> = serde_wasm_bindgen::from_value(node_ids)?;
             let notification_status = get_ctx()
-                .notification_service
+                .transport_service
+                .notification_transport()
                 .get_active_notification_status_for_node_ids(&node_ids_parsed)
                 .await?;
             let web: Vec<NotificationStatusWeb> = notification_status
@@ -79,7 +80,8 @@ impl Notification {
             );
 
             let notifications = get_ctx()
-                .notification_service
+                .transport_service
+                .notification_transport()
                 .get_client_notifications(filter)
                 .await?;
 
@@ -94,7 +96,8 @@ impl Notification {
     pub async fn mark_as_done(&self, notification_id: &str) -> JsValue {
         let res: Result<()> = async {
             get_ctx()
-                .notification_service
+                .transport_service
+                .notification_transport()
                 .mark_notification_as_done(notification_id)
                 .await?;
             Ok(())
@@ -126,7 +129,8 @@ impl Notification {
                 .ok_or(Error::Validation(ValidationError::FieldEmpty(Field::Email)))?;
 
             get_ctx()
-                .notification_service
+                .transport_service
+                .notification_transport()
                 .register_email_notifications(
                     &parsed_url,
                     &email,
@@ -145,7 +149,8 @@ impl Notification {
     pub async fn get_email_notifications_preferences_link(&self) -> JsValue {
         let res: Result<String> = async {
             let preferences_link = get_ctx()
-                .notification_service
+                .transport_service
+                .notification_transport()
                 .get_email_notifications_preferences_link(&get_current_identity_node_id().await?)
                 .await?;
             Ok(preferences_link.to_string())

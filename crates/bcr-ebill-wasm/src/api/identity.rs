@@ -20,7 +20,7 @@ use bcr_ebill_api::{
     service::{
         Error,
         file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-        notification_service::restore::RestoreAccountApi,
+        transport_service::restore::RestoreAccountApi,
     },
 };
 use bcr_ebill_core::{
@@ -464,7 +464,8 @@ impl Identity {
     pub async fn sync_identity_chain(&self) -> JsValue {
         let res: Result<()> = async {
             get_ctx()
-                .notification_service
+                .transport_service
+                .block_transport()
                 .resync_identity_chain()
                 .await?;
             Ok(())

@@ -1,6 +1,6 @@
 use bcr_ebill_api::service::bill_service::Error as BillServiceError;
 use bcr_ebill_api::service::{
-    Error as ServiceError, notification_service::Error as NotificationServiceError,
+    Error as ServiceError, transport_service::Error as NotificationServiceError,
 };
 use bcr_ebill_core::ValidationError;
 use bcr_ebill_core::util::crypto;
@@ -159,7 +159,7 @@ impl From<WasmError> for JsErrorData {
         match error {
             WasmError::Service(e) => match e {
                 ServiceError::NotFound => err_404(e, JsErrorType::NotFound),
-                ServiceError::NotificationService(e) => notification_service_error_data(e),
+                ServiceError::TransportService(e) => notification_service_error_data(e),
                 ServiceError::BillService(e) => bill_service_error_data(e),
                 ServiceError::Validation(e) => validation_error_data(e),
                 ServiceError::ExternalApi(e) => err_500(e, JsErrorType::ExternalApi),

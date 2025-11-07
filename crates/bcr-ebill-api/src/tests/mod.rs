@@ -2,7 +2,7 @@
 #[allow(clippy::module_inception)]
 pub mod tests {
     use crate::CourtConfig;
-    use crate::service::notification_service::{self, chain_keys::ChainKeyServiceApi};
+    use crate::service::transport_service::{self, chain_keys::ChainKeyServiceApi};
     use crate::{CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig};
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
@@ -220,7 +220,7 @@ pub mod tests {
 
         #[async_trait]
         impl ChainKeyServiceApi for ChainKeyService {
-            async fn get_chain_keys(&self, chain_id: &str, chain_type: BlockchainType) -> notification_service::Result<Option<BcrKeys>>;
+            async fn get_chain_keys(&self, chain_id: &str, chain_type: BlockchainType) -> transport_service::Result<Option<BcrKeys>>;
         }
     }
 
