@@ -37,13 +37,14 @@ use bcr_ebill_persistence::{
 };
 use nostr_relay_builder::MockRelay;
 
+use crate::NostrTransportService;
 use crate::chain_keys::ChainKeyServiceApi;
 use crate::handler::NotificationHandlerApi;
 
 use super::nostr::NostrClient;
 use serde::Serialize;
 use std::str::FromStr;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use bcr_ebill_api::service::transport_service::{
     BlockTransportServiceApi, ContactTransportServiceApi, NostrContactData,
@@ -396,6 +397,41 @@ pub async fn get_mock_nostr_client() -> NostrClient {
         .expect("could not create mock nostr client")
 }
 
+pub fn as_contact(id: &BillIdentParticipant) -> Contact {
+    Contact {
+        t: id.t.clone(),
+        node_id: id.node_id.clone(),
+        name: id.name.to_owned(),
+        email: id.email.clone(),
+        postal_address: Some(id.postal_address.clone()),
+        nostr_relays: id.nostr_relays.clone(),
+        identification_number: None,
+        avatar_file: None,
+        proof_document_file: None,
+        date_of_birth_or_registration: None,
+        country_of_birth_or_registration: None,
+        city_of_birth_or_registration: None,
+        is_logical: false,
+    }
+}
+
+pub fn get_nostr_transport(
+    mock_transport: MockNotificationJsonTransport,
+    contact_store: MockContactStore,
+    nostr_contact_store: MockNostrContactStore,
+    queued_message_store: MockNostrQueuedMessageStore,
+    chain_events: MockNostrChainEventStore,
+) -> NostrTransportService {
+    NostrTransportService::new(
+        vec![Arc::new(mock_transport)],
+        Arc::new(contact_store),
+        Arc::new(nostr_contact_store),
+        Arc::new(queued_message_store),
+        Arc::new(chain_events),
+        vec![url::Url::parse("ws://test.relay").unwrap()],
+    )
+}
+
 mockall::mock! {
     pub BlockTransportService {}
 
@@ -403,19 +439,12 @@ mockall::mock! {
 
     #[async_trait]
     impl BlockTransportServiceApi for BlockTransportService {
-        /// Adds a new transport client for a company if it does not already exist
         async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
-        /// Sent when an identity chain is created or updated
         async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
-        /// Sent when a company chain is created or updated
         async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
-        /// Sent when: A bill chain is created or updated
         async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;
-        /// Resync bill chain
         async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
-        /// Resync company chain
         async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
-        /// Resync identity chain
         async fn resync_identity_chain(&self) -> Result<()>;
     }
 }

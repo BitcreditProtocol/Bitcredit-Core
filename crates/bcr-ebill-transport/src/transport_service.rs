@@ -435,6 +435,7 @@ mod tests {
     use crate::Error;
     use crate::test_utils::{
         MockBlockTransportService, MockContactTransportService, MockNotificationTransportService,
+        get_nostr_transport,
     };
     use bcr_ebill_core::bill::BillKeys;
     use bcr_ebill_core::blockchain::Blockchain;
@@ -570,23 +571,6 @@ mod tests {
                 block_transport,
             ),
             value,
-        )
-    }
-
-    fn get_nostr_transport(
-        mock_transport: MockNotificationJsonTransport,
-        contact_store: MockContactStore,
-        nostr_contact_store: MockNostrContactStore,
-        queued_message_store: MockNostrQueuedMessageStore,
-        chain_events: MockNostrChainEventStore,
-    ) -> NostrTransportService {
-        NostrTransportService::new(
-            vec![Arc::new(mock_transport)],
-            Arc::new(contact_store),
-            Arc::new(nostr_contact_store),
-            Arc::new(queued_message_store),
-            Arc::new(chain_events),
-            vec![url::Url::parse("ws://test.relay").unwrap()],
         )
     }
 
@@ -2154,5 +2138,97 @@ mod tests {
 
         let result = service.send_retry_messages().await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_failed_to_send_is_added_to_retry_queue() {
+        init_test_cfg();
+        // given a payer and payee with a new bill
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        let (service, _) = expect_service(
+            |mock,
+             mock_contact_store,
+             _,
+             queue_mock,
+             _,
+             notification_transport,
+             _,
+             block_transport| {
+                let payer = payer.clone();
+                let payee = payee.clone();
+
+                // sending the block events succeeds
+                block_transport
+                    .expect_send_bill_chain_events()
+                    .returning(|_| Ok(()))
+                    .once();
+
+                mock_contact_store
+                    .expect_get()
+                    .returning(move |_| Ok(Some(as_contact(&payer))));
+
+                mock_contact_store
+                    .expect_get()
+                    .returning(move |_| Ok(Some(as_contact(&payee))));
+
+                // get the correct transport node
+                mock.expect_get_sender_node_id()
+                    .returning(node_id_test)
+                    .once();
+
+                // one dm succeeds
+                mock.expect_send_private_event()
+                    .returning(|_, _| Ok(()))
+                    .once();
+
+                // now a chain invite should be sent but fails
+                mock.expect_send_private_event()
+                    .withf(move |_, e| {
+                        let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
+                            e.clone().try_into();
+                        r.is_err()
+                    })
+                    .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
+
+                queue_mock
+                    .expect_add_message()
+                    .returning(|_, _| Ok(()))
+                    .once();
+
+                notification_transport
+                    .expect_send_email_notification()
+                    .returning(|_, _, _| ())
+                    .once();
+            },
+        );
+
+        let event = BillChainEvent::new(
+            &bill,
+            &chain,
+            &BillKeys {
+                private_key: private_key_test(),
+                public_key: node_id_test().pub_key(),
+            },
+            true,
+            &node_id_test(),
+        )
+        .unwrap();
+
+        service
+            .send_bill_is_signed_event(&event)
+            .await
+            .expect("failed to send event");
     }
 }

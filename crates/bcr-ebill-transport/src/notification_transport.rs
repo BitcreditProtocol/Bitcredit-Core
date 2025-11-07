@@ -286,7 +286,7 @@ mod tests {
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
     use bcr_ebill_core::{
-        contact::{BillIdentParticipant, BillParticipant, Contact},
+        contact::BillParticipant,
         email::Email,
         notification::{ActionType, BillEventType, Notification},
         protocol::{BillChainEventPayload, Event, EventEnvelope, EventType, Result},
@@ -297,14 +297,13 @@ mod tests {
     use mockall::predicate::eq;
 
     use crate::{
-        NostrTransportService,
         notification_transport::NotificationTransportService,
         test_utils::{
             MockContactStore, MockEmailClient, MockEmailNotificationStore,
             MockNostrChainEventStore, MockNostrContactStore, MockNostrQueuedMessageStore,
-            MockNotificationJsonTransport, MockNotificationStore, bill_id_test,
-            get_identity_public_data, init_test_cfg, node_id_test, node_id_test_other,
-            node_id_test_other2, private_key_test,
+            MockNotificationJsonTransport, MockNotificationStore, as_contact, bill_id_test,
+            get_identity_public_data, get_nostr_transport, init_test_cfg, node_id_test,
+            node_id_test_other, node_id_test_other2, private_key_test,
         },
     };
 
@@ -679,23 +678,6 @@ mod tests {
         )
     }
 
-    fn get_nostr_transport(
-        mock_transport: MockNotificationJsonTransport,
-        contact_store: MockContactStore,
-        nostr_contact_store: MockNostrContactStore,
-        queued_message_store: MockNostrQueuedMessageStore,
-        chain_events: MockNostrChainEventStore,
-    ) -> NostrTransportService {
-        NostrTransportService::new(
-            vec![Arc::new(mock_transport)],
-            Arc::new(contact_store),
-            Arc::new(nostr_contact_store),
-            Arc::new(queued_message_store),
-            Arc::new(chain_events),
-            vec![url::Url::parse("ws://test.relay").unwrap()],
-        )
-    }
-
     fn expect_service(
         expect: impl Fn(
             &mut MockNotificationJsonTransport,
@@ -739,23 +721,7 @@ mod tests {
             email_client,
         )
     }
-    fn as_contact(id: &BillIdentParticipant) -> Contact {
-        Contact {
-            t: id.t.clone(),
-            node_id: id.node_id.clone(),
-            name: id.name.to_owned(),
-            email: id.email.clone(),
-            postal_address: Some(id.postal_address.clone()),
-            nostr_relays: id.nostr_relays.clone(),
-            identification_number: None,
-            avatar_file: None,
-            proof_document_file: None,
-            date_of_birth_or_registration: None,
-            country_of_birth_or_registration: None,
-            city_of_birth_or_registration: None,
-            is_logical: false,
-        }
-    }
+
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
         let valid_event_type = event.event_type == EventType::Bill;
         let event: Result<Event<BillChainEventPayload>> = event.clone().try_into();

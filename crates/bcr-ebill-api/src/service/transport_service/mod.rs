@@ -6,7 +6,6 @@ pub mod chain_keys;
 mod contact_transport;
 mod notification_transport;
 pub mod restore;
-mod service;
 mod transport;
 pub mod transport_client;
 
@@ -21,10 +20,6 @@ use nostr::{
     types::{RelayUrl, TryIntoUrl},
 };
 use std::time::Duration;
-
-#[cfg(test)]
-pub use service::MockNotificationServiceApi;
-pub use service::NotificationServiceApi;
 
 pub use block_transport::BlockTransportServiceApi;
 #[cfg(test)]
