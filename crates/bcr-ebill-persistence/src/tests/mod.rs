@@ -5,23 +5,26 @@ pub mod tests {
 
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
-        address::Address,
-        bill::{
-            BillAcceptanceStatus, BillCallerActions, BillData, BillHistory, BillKeys,
-            BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus,
-            BillSellStatus, BillStatus, BitcreditBill, BitcreditBillResult,
+        application::{
+            bill::{
+                BillAcceptanceStatus, BillCallerActions, BillData, BillMintStatus,
+                BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
+                BillStatus, BitcreditBillResult,
+            },
+            identity::Identity,
         },
-        city::City,
-        contact::{BillIdentParticipant, BillParticipant, ContactType},
-        country::Country,
-        date::Date,
-        email::Email,
-        identity::{Identity, IdentityType},
-        name::Name,
-        sum::Sum,
-        timestamp::Timestamp,
-        util::BcrKeys,
+        protocol::{
+            Address, City, Country, Date, Email, Name, OptionalPostalAddress, PostalAddress,
+            PublicKey, SecretKey, Sum, Timestamp,
+            blockchain::{
+                bill::{
+                    BillHistory, BitcreditBill, ContactType,
+                    participant::{BillIdentParticipant, BillParticipant},
+                },
+                identity::IdentityType,
+            },
+            crypto::BcrKeys,
+        },
     };
 
     pub fn empty_address() -> PostalAddress {
@@ -177,11 +180,8 @@ pub mod tests {
         }
     }
 
-    pub fn get_bill_keys() -> BillKeys {
-        BillKeys {
-            private_key: private_key_test(),
-            public_key: node_id_test().pub_key(),
-        }
+    pub fn get_bill_keys() -> BcrKeys {
+        BcrKeys::from_private_key(&private_key_test())
     }
 
     pub fn private_key_test() -> SecretKey {

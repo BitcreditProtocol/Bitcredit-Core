@@ -8,27 +8,27 @@ use crate::{get_config, util};
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::blockchain::Blockchain;
-use bcr_ebill_core::blockchain::identity::{
+use bcr_ebill_core::application::identity::validation::validate_create_identity;
+use bcr_ebill_core::application::identity::{ActiveIdentityState, Identity, IdentityWithAll};
+use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
+use bcr_ebill_core::protocol::Country;
+use bcr_ebill_core::protocol::Date;
+use bcr_ebill_core::protocol::Email;
+use bcr_ebill_core::protocol::Identification;
+use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::Blockchain;
+use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityBlock, IdentityBlockPlaintextWrapper, IdentityBlockchain, IdentityCreateBlockData,
-    IdentityUpdateBlockData,
+    IdentityType, IdentityUpdateBlockData,
 };
-use bcr_ebill_core::city::City;
-use bcr_ebill_core::country::Country;
-use bcr_ebill_core::date::Date;
-use bcr_ebill_core::email::Email;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::identification::Identification;
-use bcr_ebill_core::identity::validation::validate_create_identity;
-use bcr_ebill_core::identity::{ActiveIdentityState, Identity, IdentityType, IdentityWithAll};
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::crypto::{self, DeriveKeypair};
-use bcr_ebill_core::util::{BcrKeys, base58_encode};
-use bcr_ebill_core::{File, OptionalPostalAddress, Validate};
-use bcr_ebill_core::{ServiceTraitBounds, ValidationError, protocol::IdentityChainEvent};
+use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
+use bcr_ebill_core::protocol::{City, ProtocolValidationError};
+use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::IdentityChainEvent};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
+use bitcoin::base58;
 use log::{debug, error, info};
 use secp256k1::{PublicKey, SecretKey};
 use std::sync::Arc;
@@ -171,7 +171,7 @@ impl IdentityService {
             // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
-                    ValidationError::FileIsTooBig(upload_file_type.max_file_size()),
+                    ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
                 ));
             }
             let file = self
@@ -209,7 +209,7 @@ impl IdentityService {
     ) -> Result<()> {
         self.block_transport
             .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(identity, block, keys))
+            .send_identity_chain_events(IdentityChainEvent::new(&identity.node_id, block, keys))
             .await?;
         Ok(())
     }
@@ -222,11 +222,11 @@ impl IdentityService {
 
 /// Derives a child key, encrypts the contact data with it and returns the bcr metadata
 fn get_bcr_data(identity: &Identity, keys: &BcrKeys) -> Result<BcrMetadata> {
-    let derived_keys = keys.derive_keypair()?;
+    let derived_keys = keys.derive_identity_keypair()?;
     let contact = identity.as_contact(None);
     debug!("Publishing identity contact data: {contact:?}");
     let payload = serde_json::to_string(&contact)?;
-    let encrypted = base58_encode(&crypto::encrypt_ecies(
+    let encrypted = base58::encode(&crypto::encrypt_ecies(
         payload.as_bytes(),
         &derived_keys.public_key(),
     )?);
@@ -401,7 +401,8 @@ impl IdentityServiceApi for IdentityService {
         };
         block_data.validate()?;
         let new_block =
-            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)?;
+            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)
+                .map_err(|e| Error::Protocol(e.into()))?;
         self.blockchain_store.add_block(&new_block).await?;
         self.store.save(&identity).await?;
         self.populate_block(&identity, &new_block, &keys).await?;
@@ -502,7 +503,8 @@ impl IdentityServiceApi for IdentityService {
         // create new identity chain and persist it
         let block_data: IdentityCreateBlockData = identity.clone().into();
         block_data.validate()?;
-        let identity_chain = IdentityBlockchain::new(&block_data, &keys, timestamp)?;
+        let identity_chain = IdentityBlockchain::new(&block_data, &keys, timestamp)
+            .map_err(|e| Error::Protocol(e.into()))?;
         let first_block = identity_chain.get_first_block();
         self.blockchain_store.add_block(first_block).await?;
 
@@ -537,14 +539,14 @@ impl IdentityServiceApi for IdentityService {
         // can't de-anonymize to an anonymous identity
         if t == IdentityType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::IdentityCantBeAnon,
+                ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
 
         // if the existing identity is not anon, the action is not valid
         if existing_identity.t != IdentityType::Anon {
             return Err(super::Error::Validation(
-                ValidationError::InvalidIdentityType,
+                ProtocolValidationError::InvalidIdentityType.into(),
             ));
         }
 
@@ -607,7 +609,8 @@ impl IdentityServiceApi for IdentityService {
         };
         block_data.validate()?;
         let new_block =
-            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)?;
+            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)
+                .map_err(|e| Error::Protocol(e.into()))?;
         self.blockchain_store.add_block(&new_block).await?;
         self.store.save(&identity).await?;
         self.populate_block(&identity, &new_block, &keys).await?;
@@ -710,8 +713,8 @@ impl IdentityServiceApi for IdentityService {
 
     async fn share_contact_details(&self, share_to: &NodeId) -> Result<()> {
         let identity = self.get_full_identity().await?;
-        let derived_keys = identity.key_pair.derive_keypair()?;
-        let keys = BcrKeys::from_private_key(&derived_keys.secret_key())?;
+        let derived_keys = identity.key_pair.derive_identity_keypair()?;
+        let keys = BcrKeys::from_private_key(&derived_keys.secret_key());
         self.block_transport
             .contact_transport()
             .share_contact_details_keys(share_to, &identity.identity.node_id, &keys)
@@ -734,7 +737,9 @@ impl IdentityServiceApi for IdentityService {
         let chain = self.blockchain_store.get_chain().await?;
         let keys = self.store.get_key_pair().await?;
 
-        let plaintext_chain = chain.get_chain_with_plaintext_block_data(&keys)?;
+        let plaintext_chain = chain
+            .get_chain_with_plaintext_block_data(&keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         Ok(plaintext_chain)
     }
@@ -987,7 +992,9 @@ mod tests {
         assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
-            crate::service::Error::Validation(ValidationError::IdentityCantBeAnon)
+            crate::service::Error::Validation(ValidationError::Protocol(
+                ProtocolValidationError::IdentityCantBeAnon
+            ))
         ));
     }
 
@@ -1034,7 +1041,9 @@ mod tests {
         assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
-            crate::service::Error::Validation(ValidationError::InvalidIdentityType)
+            crate::service::Error::Validation(ValidationError::Protocol(
+                ProtocolValidationError::InvalidIdentityType
+            ))
         ));
     }
 
@@ -1262,8 +1271,7 @@ mod tests {
                 "f31e0373f6fa9f4835d49a278cd48f47ea115af7480edf435275a3c2dbb1f982",
             )
             .unwrap(),
-        )
-        .unwrap();
+        );
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_save_key_pair()

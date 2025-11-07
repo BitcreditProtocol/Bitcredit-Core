@@ -8,7 +8,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds, blockchain::BlockchainType, hash::Sha256Hash, timestamp::Timestamp,
+    application::ServiceTraitBounds, protocol::Sha256Hash, protocol::Timestamp,
+    protocol::blockchain::BlockchainType,
 };
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};
@@ -223,7 +224,7 @@ impl From<NostrChainEventDb> for NostrChainEvent {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::{timestamp::Timestamp, util::BcrKeys};
+    use bcr_ebill_core::{protocol::Timestamp, protocol::crypto::BcrKeys};
     use nostr::event::EventBuilder;
 
     use super::*;

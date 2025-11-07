@@ -16,37 +16,37 @@ use crate::{
     util::get_uuid_v4,
 };
 use bcr_ebill_core::{
-    DateTimeUtc, File, ValidationError,
-    bill::{
-        BillAcceptanceStatus, BillCallerBillAction, BillCurrentWaitingState, BillPaymentStatus,
-        BillRecourseStatus, BillSellStatus, BillWaitingForPaymentState,
-        BillWaitingStatePaymentData, PastPaymentStatus, RecourseReason,
-    },
-    block_id::BlockId,
-    blockchain::{
-        Block, Blockchain,
+    application::{
+        ValidationError,
         bill::{
-            BillBlock, BillOpCode,
-            block::{
-                BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
-                BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
-                BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
-                BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
-            },
+            BillAcceptanceStatus, BillCallerBillAction, BillCurrentWaitingState, BillPaymentStatus,
+            BillRecourseStatus, BillSellStatus, BillWaitingForPaymentState,
+            BillWaitingStatePaymentData,
         },
     },
-    city::City,
-    constants::{
-        ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
+    protocol::{
+        BlockId, City, Country, Currency, Date, DateTimeUtc, File, Name, ProtocolValidationError,
+        Sha256Hash, Sum,
+        blockchain::{
+            Block, Blockchain,
+            bill::{
+                BillBlock, BillOpCode, PastPaymentStatus, RecourseReason,
+                block::{
+                    BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
+                    BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
+                    BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
+                    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
+                },
+                participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+            },
+        },
+        constants::{
+            ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+            RECOURSE_DEADLINE_SECONDS,
+        },
+        event::ActionType,
+        mint::{MintOffer, MintRequest, MintRequestStatus},
     },
-    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
-    country::Country,
-    date::Date,
-    hash::Sha256Hash,
-    mint::{MintOffer, MintRequest, MintRequestStatus},
-    name::Name,
-    notification::ActionType,
-    sum::{Currency, Sum},
 };
 use cashu::nut02 as cdk02;
 use mockall::predicate::{always, eq, function};
@@ -464,7 +464,9 @@ async fn issue_bill_fails_for_anon_drawer() {
     assert!(result.is_err());
     assert!(matches!(
         result.as_ref().unwrap_err(),
-        Error::Validation(ValidationError::SignerCantBeAnon)
+        Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::SignerCantBeAnon
+        ))
     ));
 }
 
@@ -504,7 +506,9 @@ async fn issue_bill_fails_for_self_drafted_blank() {
     assert!(result.is_err());
     assert!(matches!(
         result.as_ref().unwrap_err(),
-        Error::Validation(ValidationError::SelfDraftedBillCantBeBlank)
+        Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::SelfDraftedBillCantBeBlank
+        ))
     ));
 }
 
@@ -565,7 +569,7 @@ async fn issue_bill_as_company() {
             city_of_payment: City::new("Vienna").unwrap(),
             file_upload_ids: vec![get_uuid_v4()],
             drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
-            drawer_keys: BcrKeys::from_private_key(&drawer.1.1.private_key).unwrap(),
+            drawer_keys: BcrKeys::from_private_key(&drawer.1.1.get_private_key()),
             timestamp: Timestamp::new(1731593928).unwrap(),
             blank_issue: false,
         })
@@ -617,7 +621,7 @@ async fn get_bill_keys_calls_storage() {
             .get_bill_keys(&bill_id_test())
             .await
             .unwrap()
-            .private_key,
+            .get_private_key(),
         private_key_test(),
     );
     assert_eq!(
@@ -625,7 +629,7 @@ async fn get_bill_keys_calls_storage() {
             .get_bill_keys(&bill_id_test())
             .await
             .unwrap()
-            .public_key,
+            .pub_key(),
         node_id_test().pub_key(),
     );
 }
@@ -850,9 +854,9 @@ async fn get_bills_req_to_pay() {
                     signing_address: Some(empty_address()),
                     payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -2224,7 +2228,9 @@ async fn accept_bill_fails_for_anon() {
     assert!(res.is_err());
     assert!(matches!(
         res.as_ref().unwrap_err(),
-        Error::Validation(ValidationError::SignerCantBeAnon)
+        Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::SignerCantBeAnon
+        ))
     ));
 }
 
@@ -2282,7 +2288,7 @@ async fn accept_bill_as_company() {
             &bill_id_test(),
             BillAction::Accept,
             &BillParticipant::Ident(BillIdentParticipant::from(company.1.0)),
-            &BcrKeys::from_private_key(&company.1.1.private_key).unwrap(),
+            &BcrKeys::from_private_key(&company.1.1.get_private_key()),
             Timestamp::new(1731593928).unwrap(),
         )
         .await;
@@ -2292,10 +2298,7 @@ async fn accept_bill_as_company() {
     // company is accepter
     assert!(
         res.as_ref().unwrap().blocks()[1]
-            .get_nodes_from_block(&BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            })
+            .get_nodes_from_block(&BcrKeys::from_private_key(&private_key_test()))
             .unwrap()[0]
             == company.0
     );
@@ -2345,7 +2348,7 @@ async fn accept_bill_fails_if_already_accepted() {
             BillOpCode::Accept,
             &keys,
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             Timestamp::new(1731593928).unwrap(),
             Sha256Hash::new("plain text hash"),
         )
@@ -2900,7 +2903,7 @@ async fn sell_bitcredit_bill_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -2972,7 +2975,7 @@ async fn sell_bitcredit_bill_anon_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -3040,7 +3043,7 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -3432,7 +3435,9 @@ async fn endorse_bitcredit_bill_fails_if_waiting_for_offer_to_sell() {
     match res {
         Ok(_) => panic!("expected an error"),
         Err(e) => match e {
-            Error::Validation(ValidationError::BillIsOfferedToSellAndWaitingForPayment) => (),
+            Error::Validation(ValidationError::Protocol(
+                ProtocolValidationError::BillIsOfferedToSellAndWaitingForPayment,
+            )) => (),
             _ => panic!("expected a different error"),
         },
     };
@@ -3933,9 +3938,9 @@ async fn get_endorsements_multi_with_anon() {
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 1,
             )
             .unwrap();
@@ -3955,9 +3960,9 @@ async fn get_endorsements_multi_with_anon() {
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 2,
             )
             .unwrap();
@@ -3976,9 +3981,9 @@ async fn get_endorsements_multi_with_anon() {
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 3,
             )
             .unwrap();
@@ -4071,9 +4076,9 @@ async fn get_endorsements_multi() {
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 1,
             )
             .unwrap();
@@ -4093,9 +4098,9 @@ async fn get_endorsements_multi() {
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 2,
             )
             .unwrap();
@@ -4114,9 +4119,9 @@ async fn get_endorsements_multi() {
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 3,
             )
             .unwrap();
@@ -4288,9 +4293,9 @@ async fn get_past_endorsees_multi_with_anon() {
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 1,
             )
             .unwrap();
@@ -4310,9 +4315,9 @@ async fn get_past_endorsees_multi_with_anon() {
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 2,
             )
             .unwrap();
@@ -4331,9 +4336,9 @@ async fn get_past_endorsees_multi_with_anon() {
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 3,
             )
             .unwrap();
@@ -4351,9 +4356,9 @@ async fn get_past_endorsees_multi_with_anon() {
                     signing_timestamp: now + 4,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 4,
             )
             .unwrap();
@@ -4375,9 +4380,9 @@ async fn get_past_endorsees_multi_with_anon() {
                     signing_timestamp: now + 5,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 5,
             )
             .unwrap();
@@ -4524,9 +4529,9 @@ async fn get_past_endorsees_multi() {
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 1,
             )
             .unwrap();
@@ -4546,9 +4551,9 @@ async fn get_past_endorsees_multi() {
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 2,
             )
             .unwrap();
@@ -4567,9 +4572,9 @@ async fn get_past_endorsees_multi() {
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 3,
             )
             .unwrap();
@@ -4587,9 +4592,9 @@ async fn get_past_endorsees_multi() {
                     signing_timestamp: now + 4,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 4,
             )
             .unwrap();
@@ -4611,9 +4616,9 @@ async fn get_past_endorsees_multi() {
                     signing_timestamp: now + 5,
                     signing_address: Some(empty_address()),
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 5,
             )
             .unwrap();
@@ -4945,9 +4950,9 @@ async fn reject_acceptance_baseline() {
                     signing_address: Some(empty_address()),
                     acceptance_deadline_timestamp: now + 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 1,
             )
             .unwrap();
@@ -5007,9 +5012,9 @@ async fn reject_acceptance_fails_for_anon() {
                     signing_address: Some(empty_address()),
                     acceptance_deadline_timestamp: now + 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now + 1,
             )
             .unwrap();
@@ -5035,7 +5040,9 @@ async fn reject_acceptance_fails_for_anon() {
     assert!(res.is_err());
     assert!(matches!(
         res.as_ref().unwrap_err(),
-        Error::Validation(ValidationError::SignerCantBeAnon)
+        Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::SignerCantBeAnon
+        ))
     ));
 }
 
@@ -5172,9 +5179,9 @@ async fn reject_payment() {
                     signing_address: Some(empty_address()),
                     payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -5237,9 +5244,9 @@ async fn reject_payment_fails_for_anon() {
                     signing_address: Some(empty_address()),
                     payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -5265,7 +5272,9 @@ async fn reject_payment_fails_for_anon() {
     assert!(res.is_err());
     assert!(matches!(
         res.as_ref().unwrap_err(),
-        Error::Validation(ValidationError::SignerCantBeAnon)
+        Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::SignerCantBeAnon
+        ))
     ));
 }
 
@@ -5304,9 +5313,9 @@ async fn reject_recourse() {
                     signing_address: Some(empty_address()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -5375,9 +5384,9 @@ async fn reject_recourse_fails_for_anon() {
                     signing_address: Some(empty_address()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -5404,7 +5413,9 @@ async fn reject_recourse_fails_for_anon() {
     assert!(res.is_err());
     assert!(matches!(
         res.as_ref().unwrap_err(),
-        Error::Validation(ValidationError::SignerCantBeAnon)
+        Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::SignerCantBeAnon
+        ))
     ));
 }
 
@@ -5447,9 +5458,9 @@ async fn check_bills_in_recourse_payment_baseline() {
                     signing_address: Some(empty_address()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -5524,9 +5535,9 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
                     signing_address: Some(empty_address()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
-                Some(&BcrKeys::from_private_key(&private_key_test()).unwrap()),
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
                 now,
             )
             .unwrap();
@@ -5582,7 +5593,7 @@ async fn request_recourse_accept_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5600,7 +5611,7 @@ async fn request_recourse_accept_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5616,7 +5627,7 @@ async fn request_recourse_accept_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5688,7 +5699,7 @@ async fn request_recourse_works_for_anon() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5707,7 +5718,7 @@ async fn request_recourse_works_for_anon() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5723,7 +5734,7 @@ async fn request_recourse_works_for_anon() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5793,7 +5804,7 @@ async fn request_recourse_payment_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5812,7 +5823,7 @@ async fn request_recourse_payment_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5828,7 +5839,7 @@ async fn request_recourse_payment_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5908,7 +5919,7 @@ async fn recourse_bitcredit_bill_baseline() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -5988,7 +5999,7 @@ async fn recourse_bitcredit_bill_works_for_anon() {
                 },
                 &BcrKeys::new(),
                 None,
-                &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+                &BcrKeys::from_private_key(&private_key_test()),
                 Timestamp::new(1731593927).unwrap(),
             )
             .unwrap();
@@ -6843,7 +6854,9 @@ async fn wrong_network_failures() {
         service
             .get_combined_bitcoin_key_for_bill(&mainnet_bill_id, &participant, &BcrKeys::new())
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -6853,7 +6866,9 @@ async fn wrong_network_failures() {
                 &BcrKeys::new()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -6864,7 +6879,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -6875,42 +6892,56 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service.get_bill_keys(&mainnet_bill_id).await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
 
     assert!(matches!(
         service
             .check_payment_for_bill(&mainnet_bill_id, &identity.identity)
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
             .check_offer_to_sell_payment_for_bill(&mainnet_bill_id, &identity)
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
             .check_recourse_payment_for_bill(&mainnet_bill_id, &identity)
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
             .get_past_endorsees(&mainnet_bill_id, &node_id_test())
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
             .get_past_endorsees(&bill_id_test(), &mainnet_node_id)
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -6921,7 +6952,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -6932,7 +6965,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -6943,7 +6978,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -6954,7 +6991,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -6966,7 +7005,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -6978,7 +7019,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -6990,37 +7033,49 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
             .get_mint_state(&mainnet_bill_id, &node_id_test())
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
             .get_mint_state(&bill_id_test(), &mainnet_node_id)
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
             .cancel_request_to_mint(&get_uuid_v4(), &mainnet_node_id)
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
             .check_mint_state(&mainnet_bill_id, &node_id_test())
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
             .check_mint_state(&bill_id_test(), &mainnet_node_id)
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -7031,13 +7086,17 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
             .reject_mint_offer(&get_uuid_v4(), &mainnet_node_id)
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     // issue
     assert!(matches!(
@@ -7060,7 +7119,9 @@ async fn wrong_network_failures() {
                 blank_issue: false,
             })
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -7082,7 +7143,9 @@ async fn wrong_network_failures() {
                 blank_issue: false,
             })
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -7104,7 +7167,9 @@ async fn wrong_network_failures() {
                 blank_issue: false,
             })
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     // execute bill action
     assert!(matches!(
@@ -7117,7 +7182,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -7129,7 +7196,9 @@ async fn wrong_network_failures() {
                 Timestamp::new(1731593928).unwrap()
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
     assert!(matches!(
         service
@@ -7140,7 +7209,9 @@ async fn wrong_network_failures() {
                 &node_id_test_other(),
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidBillId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidBillId
+        )))
     ));
     assert!(matches!(
         service
@@ -7151,7 +7222,9 @@ async fn wrong_network_failures() {
                 &node_id_test_other(),
             )
             .await,
-        Err(Error::Validation(ValidationError::InvalidNodeId))
+        Err(Error::Validation(ValidationError::Protocol(
+            ProtocolValidationError::InvalidNodeId
+        )))
     ));
 }
 

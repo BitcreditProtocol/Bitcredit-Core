@@ -11,17 +11,16 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    PublicKey, ServiceTraitBounds,
-    block_id::BlockId,
-    blockchain::{
-        Block,
-        identity::{IdentityBlock, IdentityBlockchain, IdentityOpCode},
+    application::ServiceTraitBounds,
+    protocol::{
+        BlockId, PublicKey, SchnorrSignature, Sha256Hash, Timestamp,
+        blockchain::{
+            Block,
+            identity::{IdentityBlock, IdentityBlockchain, IdentityOpCode},
+        },
     },
-    hash::Sha256Hash,
-    signature::SchnorrSignature,
-    timestamp::Timestamp,
-    util::{base58_decode, base58_encode},
 };
+use bitcoin::base58;
 use serde::{Deserialize, Serialize};
 
 const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
@@ -173,7 +172,7 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
                 e
             })?;
         let blocks: Result<Vec<IdentityBlock>> = result.into_iter().map(|b| b.try_into()).collect();
-        Ok(IdentityBlockchain::new_from_blocks(blocks?)?)
+        Ok(IdentityBlockchain::new_from_blocks(blocks?).map_err(|e| Error::Protocol(e.into()))?)
     }
 }
 
@@ -198,7 +197,7 @@ impl TryFrom<IdentityBlockDb> for IdentityBlock {
             plaintext_hash: value.plaintext_hash,
             hash: value.hash,
             timestamp: value.timestamp,
-            data: base58_decode(&value.data).map_err(|_| Error::EncodingError)?,
+            data: base58::decode(&value.data).map_err(|_| Error::EncodingError)?,
             public_key: value.public_key,
             previous_hash: value.previous_hash,
             signature: value.signature,
@@ -217,7 +216,7 @@ impl From<&IdentityBlock> for IdentityBlockDb {
             signature: value.signature.clone(),
             timestamp: value.timestamp,
             public_key: value.public_key,
-            data: base58_encode(&value.data.clone()),
+            data: base58::encode(&value.data.clone()),
             op_code: value.op_code.clone(),
         }
     }
@@ -228,10 +227,10 @@ mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
+        protocol::crypto::BcrKeys,
         tests::tests::{empty_identity, empty_optional_address},
-        util::BcrKeys,
     };
-    use bcr_ebill_core::blockchain::identity::IdentityUpdateBlockData;
+    use bcr_ebill_core::protocol::blockchain::identity::IdentityUpdateBlockData;
 
     async fn get_store() -> SurrealIdentityChainStore {
         let mem_db = get_memory_db("test", "identity_chain")

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    ServiceTraitBounds, blockchain::bill::BillToShareWithExternalParty, util::BcrKeys,
+    application::ServiceTraitBounds, protocol::blockchain::bill::BillToShareWithExternalParty,
+    protocol::crypto::BcrKeys,
 };
 use bitcoin::hashes::{Hash, sha256::Hash as Sha256};
 use borsh::to_vec;
@@ -33,8 +34,8 @@ use mockall::automock;
 pub struct ReceiveBillRequest {
     pub content: BillToShareWithExternalParty,
     #[borsh(
-        serialize_with = "bcr_ebill_core::util::borsh::serialize_pubkey",
-        deserialize_with = "bcr_ebill_core::util::borsh::deserialize_pubkey"
+        serialize_with = "bcr_ebill_core::protocol::serialization::serialize_pubkey",
+        deserialize_with = "bcr_ebill_core::protocol::serialization::deserialize_pubkey"
     )]
     pub public_key: PublicKey,
 }

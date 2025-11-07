@@ -1,15 +1,15 @@
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::{Error, Result};
 use bcr_ebill_core::{
-    PublicKey,
-    city::City,
-    country::Country,
-    date::Date,
-    email::Email,
-    identification::Identification,
-    identity::{Identity, IdentityType, SwitchIdentityType},
-    name::Name,
-    nostr_contact::NostrPublicKey,
+    application::{
+        ValidationError,
+        identity::{Identity, SwitchIdentityType},
+        nostr_contact::NostrPublicKey,
+    },
+    protocol::{
+        City, Country, Date, Email, Identification, Name, PublicKey,
+        blockchain::identity::IdentityType,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -61,7 +61,7 @@ impl TryFrom<u64> for IdentityTypeWeb {
 
     fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
         Ok(IdentityType::try_from(value)
-            .map_err(Self::Error::Validation)?
+            .map_err(|e| Self::Error::Validation(ValidationError::Protocol(e)))?
             .into())
     }
 }

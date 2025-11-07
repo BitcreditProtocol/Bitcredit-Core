@@ -7,12 +7,14 @@ use super::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::bill::BillsFilterRole;
-use bcr_ebill_core::sum::Currency;
+use bcr_ebill_core::application::bill::BillsFilterRole;
+use bcr_ebill_core::protocol::Currency;
 use log::debug;
 use std::sync::Arc;
 
-use bcr_ebill_core::{GeneralSearchFilterItemType, GeneralSearchResult, ServiceTraitBounds};
+use bcr_ebill_core::application::{
+    GeneralSearchFilterItemType, GeneralSearchResult, ServiceTraitBounds,
+};
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]

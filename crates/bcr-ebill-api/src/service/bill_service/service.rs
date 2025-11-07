@@ -11,35 +11,37 @@ use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::bill::{
-    BillCombinedBitcoinKey, BillHistory, BillIssueData, BillKeys, BillRole, BillValidateActionData,
-    BillValidationActionMode, BillsBalance, BillsBalanceOverview, BillsFilterRole, BitcreditBill,
-    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastEndorsee,
-    PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult,
-    PastPaymentStatus, PaymentState,
+use bcr_ebill_core::application::bill::{
+    BillCombinedBitcoinKey, BillRole, BillsBalance, BillsBalanceOverview, BillsFilterRole,
+    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentDataPayment,
+    PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PaymentState,
 };
-use bcr_ebill_core::blockchain::Blockchain;
-use bcr_ebill_core::blockchain::bill::block::{
+use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
+use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::bill::block::{
     BillIdentParticipantBlockData, BillParticipantBlockData, BillRequestRecourseBlockData,
+    ContactType,
 };
-use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
-use bcr_ebill_core::blockchain::bill::{
-    BillBlockchain, BillOpCode, create_bill_to_share_with_external_party,
+use bcr_ebill_core::protocol::blockchain::bill::chain::BillBlockPlaintextWrapper;
+use bcr_ebill_core::protocol::blockchain::bill::{
+    BillBlockchain, BillHistory, BillIssueData, BillOpCode, BillValidateActionData,
+    BillValidationActionMode, BitcreditBill, PastPaymentStatus,
+    create_bill_to_share_with_external_party,
+    participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant, PastEndorsee},
 };
-use bcr_ebill_core::company::{Company, CompanyKeys};
-use bcr_ebill_core::contact::{
-    BillAnonParticipant, BillIdentParticipant, BillParticipant, Contact, ContactType,
-    LightBillParticipant,
+use bcr_ebill_core::protocol::blockchain::{Blockchain, identity::IdentityType};
+use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
+use bcr_ebill_core::protocol::event::ActionType;
+use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
+use bcr_ebill_core::protocol::{Currency, Sum};
+use bcr_ebill_core::protocol::{Email, ProtocolValidationError};
+use bcr_ebill_core::{
+    application::ServiceTraitBounds, application::ValidationError, protocol::File,
+    protocol::Validate,
 };
-use bcr_ebill_core::email::Email;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::identity::{Identity, IdentityType, IdentityWithAll};
-use bcr_ebill_core::mint::{MintRequest, MintRequestState, MintRequestStatus};
-use bcr_ebill_core::notification::ActionType;
-use bcr_ebill_core::sum::{Currency, Sum};
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::{BcrKeys, crypto};
-use bcr_ebill_core::{File, ServiceTraitBounds, Validate, ValidationError};
 use bcr_ebill_persistence::ContactStoreApi;
 use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
@@ -117,7 +119,7 @@ impl BillService {
         &self,
         bill_id: &BillId,
         chain: &BillBlockchain,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         local_identity: &Identity,
         current_identity_node_id: &NodeId,
         current_timestamp: Timestamp,
@@ -226,7 +228,9 @@ impl BillService {
         let bill_keys = self.store.get_keys(bill_id).await?;
         let contacts = self.contact_store.get_map().await?;
         let mut recoursee = None;
-        let bill_data = chain.get_first_version_bill(&bill_keys)?;
+        let bill_data = chain
+            .get_first_version_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         let latest_block = chain.get_latest_block();
         if let Some(action) = match latest_block.op_code {
@@ -237,14 +241,16 @@ impl BillService {
                         &bill_keys,
                         now,
                         Some(&bill_data.maturity_date),
-                    )?
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?
                     .0 =>
             {
                 Some(ActionType::PayBill)
             }
             BillOpCode::OfferToSell
                 if chain
-                    .is_offer_to_sell_block_payment_expired(latest_block, &bill_keys, now)?
+                    .is_offer_to_sell_block_payment_expired(latest_block, &bill_keys, now)
+                    .map_err(|e| Error::Protocol(e.into()))?
                     .0 =>
             {
                 Some(ActionType::PayBill)
@@ -252,14 +258,16 @@ impl BillService {
 
             BillOpCode::RequestToAccept
                 if chain
-                    .is_req_to_accept_block_expired(latest_block, &bill_keys, now)?
+                    .is_req_to_accept_block_expired(latest_block, &bill_keys, now)
+                    .map_err(|e| Error::Protocol(e.into()))?
                     .0 =>
             {
                 Some(ActionType::AcceptBill)
             }
             BillOpCode::RequestRecourse
                 if chain
-                    .is_req_to_recourse_block_payment_expired(latest_block, &bill_keys, now)?
+                    .is_req_to_recourse_block_payment_expired(latest_block, &bill_keys, now)
+                    .map_err(|e| Error::Protocol(e.into()))?
                     .0 =>
             {
                 if let Ok(recourse_block) =
@@ -292,7 +300,9 @@ impl BillService {
                         identity.clone(),
                     ))),
                 };
-                let participants = chain.get_all_nodes_from_bill(&bill_keys)?;
+                let participants = chain
+                    .get_all_nodes_from_bill(&bill_keys)
+                    .map_err(|e| Error::Protocol(e.into()))?;
                 let mut recipient_options: Vec<Option<BillParticipant>> = vec![current_identity];
                 let bill = self
                     .get_last_version_bill(&chain, &bill_keys, &identity, &contacts)
@@ -385,12 +395,12 @@ impl BillService {
                                             // check if requester is a company
                                             let local_companies: HashMap<
                                                 NodeId,
-                                                (Company, CompanyKeys),
+                                                (Company, BcrKeys),
                                             > = self.company_store.get_all().await?;
                                             if let Some(requester_company) =
                                                 local_companies.get(&mint_request.requester_node_id)
                                             {
-                                                requester_company.1.private_key
+                                                requester_company.1.get_private_key()
                                             } else {
                                                 // requester is neither identity, nor company
                                                 log::warn!(
@@ -938,7 +948,8 @@ impl BillServiceApi for BillService {
 
         // if caller is not part of the bill, they can't access it
         if !chain
-            .get_all_nodes_from_bill(&bill_keys)?
+            .get_all_nodes_from_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?
             .iter()
             .any(|p| p == &caller_public_data.node_id())
         {
@@ -948,7 +959,7 @@ impl BillServiceApi for BillService {
 
         // The first key is always the bill key
         let private_descriptor = self.bitcoin_client.get_combined_private_descriptor(
-            &BcrKeys::from_private_key(&bill_keys.private_key)?
+            &BcrKeys::from_private_key(&bill_keys.get_private_key())
                 .get_bitcoin_private_key(get_config().bitcoin_network()),
             &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
         )?;
@@ -984,7 +995,7 @@ impl BillServiceApi for BillService {
         Ok(res)
     }
 
-    async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BillKeys> {
+    async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BcrKeys> {
         validate_bill_id_network(bill_id)?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
@@ -1139,7 +1150,7 @@ impl BillServiceApi for BillService {
         let identity = self.identity_store.get_full().await?;
         let bill_ids_waiting_for_offer_to_sell_payment =
             self.store.get_bill_ids_waiting_for_sell_payment().await?;
-        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let now = Timestamp::now();
 
         for bill_id in bill_ids_waiting_for_offer_to_sell_payment {
             if let Err(e) = self
@@ -1160,7 +1171,7 @@ impl BillServiceApi for BillService {
         validate_bill_id_network(bill_id)?;
         let bill_ids_waiting_for_offer_to_sell_payment =
             self.store.get_bill_ids_waiting_for_sell_payment().await?;
-        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let now = Timestamp::now();
 
         if bill_ids_waiting_for_offer_to_sell_payment
             .iter()
@@ -1186,7 +1197,7 @@ impl BillServiceApi for BillService {
             .store
             .get_bill_ids_waiting_for_recourse_payment()
             .await?;
-        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let now = Timestamp::now();
 
         for bill_id in bill_ids_waiting_for_recourse_payment {
             if let Err(e) = self
@@ -1209,7 +1220,7 @@ impl BillServiceApi for BillService {
             .store
             .get_bill_ids_waiting_for_recourse_payment()
             .await?;
-        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let now = Timestamp::now();
 
         if bill_ids_waiting_for_recourse_payment
             .iter()
@@ -1269,7 +1280,9 @@ impl BillServiceApi for BillService {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
+        let bill_participants = chain
+            .get_all_nodes_from_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
         // active identity is not part of the bill
         if !bill_participants
             .iter()
@@ -1279,7 +1292,9 @@ impl BillServiceApi for BillService {
             return Err(Error::NotFound);
         }
 
-        let res = chain.get_past_endorsees_for_bill(&bill_keys, current_identity_node_id)?;
+        let res = chain
+            .get_past_endorsees_for_bill(&bill_keys, current_identity_node_id)
+            .map_err(|e| Error::Protocol(e.into()))?;
         Ok(res)
     }
 
@@ -1304,8 +1319,12 @@ impl BillServiceApi for BillService {
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
         let is_paid = self.store.is_paid(bill_id).await?;
-        let bill = chain.get_first_version_bill(&bill_keys)?;
-        let bill_parties = chain.get_bill_parties(&bill_keys, &bill)?;
+        let bill = chain
+            .get_first_version_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let bill_parties = chain
+            .get_bill_parties(&bill_keys, &bill)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         let holder = match bill_parties.endorsee {
             None => &bill_parties.payee,
@@ -1313,7 +1332,7 @@ impl BillServiceApi for BillService {
         };
 
         let descriptor_to_spend = self.bitcoin_client.get_combined_private_descriptor(
-            &BcrKeys::from_private_key(&bill_keys.private_key)?
+            &BcrKeys::from_private_key(&bill_keys.get_private_key())
                 .get_bitcoin_private_key(get_config().bitcoin_network()),
             &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
         )?;
@@ -1325,7 +1344,7 @@ impl BillServiceApi for BillService {
         {
             let address_to_pay = self
                 .bitcoin_client
-                .get_address_to_pay(&bill_keys.public_key, &holder.node_id().pub_key())?;
+                .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
                 &address_to_pay,
                 &bill.sum,
@@ -1337,12 +1356,14 @@ impl BillServiceApi for BillService {
 
             // we check for the payment expiration, not the request expiration
             // if the request expired, but the payment deadline hasn't, it's not a past payment
-            let (is_expired, payment_deadline) = chain.is_req_to_pay_block_payment_expired(
-                req_to_pay,
-                &bill_keys,
-                timestamp,
-                Some(&bill.maturity_date),
-            )?;
+            let (is_expired, payment_deadline) = chain
+                .is_req_to_pay_block_payment_expired(
+                    req_to_pay,
+                    &bill_keys,
+                    timestamp,
+                    Some(&bill.maturity_date),
+                )
+                .map_err(|e| Error::Protocol(e.into()))?;
 
             let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
 
@@ -1383,11 +1404,13 @@ impl BillServiceApi for BillService {
         }
 
         // OfferToSell
-        let past_sell_payments = chain.get_past_sell_payments_for_node_id(
-            &bill_keys,
-            &caller_public_data.node_id(),
-            timestamp,
-        )?;
+        let past_sell_payments = chain
+            .get_past_sell_payments_for_node_id(
+                &bill_keys,
+                &caller_public_data.node_id(),
+                timestamp,
+            )
+            .map_err(|e| Error::Protocol(e.into()))?;
         for past_sell_payment in past_sell_payments {
             let address_to_pay = past_sell_payment.0.payment_address;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
@@ -1414,14 +1437,16 @@ impl BillServiceApi for BillService {
         }
 
         // Recourse
-        let past_recourse_payments = chain.get_past_recourse_payments_for_node_id(
-            &bill_keys,
-            &caller_public_data.node_id(),
-            timestamp,
-        )?;
+        let past_recourse_payments = chain
+            .get_past_recourse_payments_for_node_id(
+                &bill_keys,
+                &caller_public_data.node_id(),
+                timestamp,
+            )
+            .map_err(|e| Error::Protocol(e.into()))?;
         for past_sell_payment in past_recourse_payments {
             let address_to_pay = self.bitcoin_client.get_address_to_pay(
-                &bill_keys.public_key,
+                &bill_keys.pub_key(),
                 &past_sell_payment.0.recourser.node_id().pub_key(),
             )?;
             let link_to_pay = self.bitcoin_client.generate_link_to_pay(
@@ -1548,7 +1573,7 @@ impl BillServiceApi for BillService {
             Some(relay_url) => {
                 self.upload_bill_files_for_node_id(
                     bill_id,
-                    &bill_keys.private_key,
+                    &bill_keys.get_private_key(),
                     &mint_anon_participant.node_id(),
                     relay_url,
                     &bill.files,
@@ -1572,7 +1597,8 @@ impl BillServiceApi for BillService {
             &mint_anon_participant.node_id().pub_key(),
             signer_keys,
             &file_urls_for_mint,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         let mint_request_id = self
             .mint_client
             .enquire_mint_quote(&mint_cfg.default_mint_url, bill_to_share, signer_keys)
@@ -1862,7 +1888,9 @@ impl BillServiceApi for BillService {
 
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
-        let bill_participant_node_ids = chain.get_all_nodes_from_bill(&bill_keys)?;
+        let bill_participant_node_ids = chain
+            .get_all_nodes_from_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         // if currently active identity is not part of the bill, we can't access it
         if !bill_participant_node_ids
@@ -1872,7 +1900,9 @@ impl BillServiceApi for BillService {
             return Err(Error::NotFound);
         }
 
-        let plaintext_chain = chain.get_chain_with_plaintext_block_data(&bill_keys)?;
+        let plaintext_chain = chain
+            .get_chain_with_plaintext_block_data(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
 
         Ok(plaintext_chain)
     }
@@ -1893,7 +1923,9 @@ impl BillServiceApi for BillService {
         );
         let blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
-        let participants = blockchain.get_all_nodes_from_bill(&bill_keys)?;
+        let participants = blockchain
+            .get_all_nodes_from_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
         // Can only share bills we are part of
         if !participants.contains(&signer_public_data.node_id()) {
             return Err(Error::NotFound);
@@ -1911,7 +1943,7 @@ impl BillServiceApi for BillService {
             Some(relay_url) => {
                 self.upload_bill_files_for_node_id(
                     bill_id,
-                    &bill_keys.private_key,
+                    &bill_keys.get_private_key(),
                     court_node_id,
                     relay_url,
                     &bill.files,
@@ -1920,7 +1952,9 @@ impl BillServiceApi for BillService {
             }
             None => {
                 warn!("caller does not have a nostr relay",);
-                return Err(Error::Validation(ValidationError::InvalidRelayUrl));
+                return Err(Error::Validation(
+                    ProtocolValidationError::InvalidRelayUrl.into(),
+                ));
             }
         };
 
@@ -1932,7 +1966,8 @@ impl BillServiceApi for BillService {
             &court_node_id.pub_key(),
             signer_keys,
             &file_urls_for_court,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
 
         self.court_client
             .share_with_court(&court_url, bill_to_share, signer_keys)

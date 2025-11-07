@@ -6,14 +6,16 @@ use bcr_ebill_api::service::transport_service::{
     BlockTransportServiceApi, ContactTransportServiceApi, NotificationTransportServiceApi,
     TransportServiceApi,
 };
-use bcr_ebill_core::bill::BitcreditBill;
-use bcr_ebill_core::contact::{BillIdentParticipant, BillParticipant};
-use bcr_ebill_core::protocol::{BillChainEvent, BillChainEventPayload, Event};
+use bcr_ebill_core::protocol::blockchain::bill::BitcreditBill;
+use bcr_ebill_core::protocol::blockchain::bill::participant::{
+    BillIdentParticipant, BillParticipant,
+};
+use bcr_ebill_core::protocol::event::{BillChainEvent, BillChainEventPayload, Event};
 
 use super::nostr_transport::NostrTransportService;
 use bcr_ebill_api::service::transport_service::Result;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::notification::{ActionType, BillEventType};
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::protocol::event::{ActionType, BillEventType};
 use std::sync::Arc;
 
 pub struct TransportService {
@@ -437,26 +439,27 @@ mod tests {
         MockBlockTransportService, MockContactTransportService, MockNotificationTransportService,
         get_nostr_transport,
     };
-    use bcr_ebill_core::bill::BillKeys;
-    use bcr_ebill_core::blockchain::Blockchain;
-    use bcr_ebill_core::blockchain::bill::block::{
+    use bcr_ebill_core::application::contact::Contact;
+    use bcr_ebill_core::protocol::Timestamp;
+    use bcr_ebill_core::protocol::blockchain::Blockchain;
+    use bcr_ebill_core::protocol::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
         BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestToAcceptBlockData,
         BillRequestToPayBlockData,
     };
-    use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
-    use bcr_ebill_core::constants::{
+    use bcr_ebill_core::protocol::blockchain::bill::{BillBlock, BillBlockchain};
+    use bcr_ebill_core::protocol::constants::{
         ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
     };
-    use bcr_ebill_core::contact::Contact;
-    use bcr_ebill_core::protocol::{ChainInvite, EventEnvelope, EventType, Result};
-    use bcr_ebill_core::timestamp::Timestamp;
+    use bcr_ebill_core::protocol::event::{ChainInvite, EventEnvelope, EventType};
     use bcr_ebill_core::{
-        email::Email,
-        sum::{Currency, Sum},
-        util::{BcrKeys, base58_encode},
+        protocol::Email,
+        protocol::Result,
+        protocol::crypto::BcrKeys,
+        protocol::{Currency, Sum},
     };
     use bcr_ebill_persistence::nostr::NostrQueuedMessage;
+    use bitcoin::base58;
     use mockall::predicate::eq;
     use std::sync::Arc;
 
@@ -646,10 +649,7 @@ mod tests {
         let event = BillChainEvent::new(
             &bill,
             &chain,
-            &BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            },
+            &BcrKeys::from_private_key(&private_key_test()),
             true,
             &node_id_test(),
         )
@@ -790,10 +790,7 @@ mod tests {
         let event = BillChainEvent::new(
             &bill,
             &chain,
-            &BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            },
+            &BcrKeys::from_private_key(&private_key_test()),
             true,
             &node_id_test(),
         )
@@ -879,10 +876,7 @@ mod tests {
         let event = BillChainEvent::new(
             &bill,
             &chain,
-            &BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            },
+            &BcrKeys::from_private_key(&private_key_test()),
             true,
             &node_id_test(),
         )
@@ -1005,10 +999,7 @@ mod tests {
         let event = BillChainEvent::new(
             &bill,
             &chain,
-            &BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            },
+            &BcrKeys::from_private_key(&private_key_test()),
             true,
             &node_id_test(),
         )
@@ -1050,7 +1041,7 @@ mod tests {
 
             mock.expect_get_sender_node_id().returning(node_id_test);
             mock.expect_get_sender_keys()
-                .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
+                .returning(|| BcrKeys::from_private_key(&private_key_test()));
 
             let clone2 = p.clone();
             mock.expect_send_private_event()
@@ -1085,10 +1076,7 @@ mod tests {
         BillChainEvent::new(
             bill,
             chain,
-            &BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            },
+            &BcrKeys::from_private_key(&private_key_test()),
             new_blocks,
             &node_id_test(),
         )
@@ -1724,7 +1712,7 @@ mod tests {
                 let node_id = node_id_test_other();
                 let message_id = "test_message_id";
                 let sender_id = node_id_test();
-                let payload = base58_encode(
+                let payload = base58::encode(
                     &borsh::to_vec(&EventEnvelope {
                         version: "1.0".to_string(),
                         event_type: EventType::Bill,
@@ -1785,7 +1773,7 @@ mod tests {
                 let node_id = node_id_test_other();
                 let message_id = "test_message_id";
                 let sender_id = node_id_test();
-                let payload = base58_encode(
+                let payload = base58::encode(
                     &borsh::to_vec(&EventEnvelope {
                         version: "1.0".to_string(),
                         event_type: EventType::Bill,
@@ -1851,7 +1839,7 @@ mod tests {
                 let message_id1 = "test_message_id_1";
                 let message_id2 = "test_message_id_2";
 
-                let payload1 = base58_encode(
+                let payload1 = base58::encode(
                     &borsh::to_vec(&EventEnvelope {
                         version: "1.0".to_string(),
                         event_type: EventType::Bill,
@@ -1860,7 +1848,7 @@ mod tests {
                     .unwrap(),
                 );
 
-                let payload2 = base58_encode(
+                let payload2 = base58::encode(
                     &borsh::to_vec(&EventEnvelope {
                         version: "1.0".to_string(),
                         event_type: EventType::Bill,
@@ -1956,7 +1944,7 @@ mod tests {
             let message_id = "test_message_id";
             let sender = node_id_test();
             // Invalid payload that can't be deserialized to EventEnvelope
-            let invalid_payload = base58_encode(&borsh::to_vec(&"invalid data").unwrap());
+            let invalid_payload = base58::encode(&borsh::to_vec(&"invalid data").unwrap());
 
             let queued_message = NostrQueuedMessage {
                 id: message_id.to_string(),
@@ -1994,7 +1982,7 @@ mod tests {
                 let node_id = node_id_test_other();
                 let message_id = "test_message_id";
                 let sender = node_id_test();
-                let payload = base58_encode(
+                let payload = base58::encode(
                     &borsh::to_vec(&EventEnvelope {
                         version: "1.0".to_string(),
                         event_type: EventType::Bill,
@@ -2062,7 +2050,7 @@ mod tests {
                 let node_id = node_id_test_other();
                 let message_id = "test_message_id";
                 let sender = node_id_test();
-                let payload = base58_encode(
+                let payload = base58::encode(
                     &borsh::to_vec(&EventEnvelope {
                         version: "1.0".to_string(),
                         event_type: EventType::Bill,
@@ -2217,10 +2205,7 @@ mod tests {
         let event = BillChainEvent::new(
             &bill,
             &chain,
-            &BillKeys {
-                private_key: private_key_test(),
-                public_key: node_id_test().pub_key(),
-            },
+            &BcrKeys::from_private_key(&private_key_test()),
             true,
             &node_id_test(),
         )

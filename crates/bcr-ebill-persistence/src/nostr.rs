@@ -2,11 +2,11 @@ use super::Result;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    blockchain::BlockchainType,
-    hash::Sha256Hash,
-    nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-    timestamp::Timestamp,
+    application::ServiceTraitBounds,
+    application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+    protocol::Sha256Hash,
+    protocol::Timestamp,
+    protocol::blockchain::BlockchainType,
 };
 use nostr::event::Event;
 use serde::{Deserialize, Serialize};

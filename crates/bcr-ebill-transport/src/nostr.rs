@@ -9,11 +9,10 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    blockchain::BlockchainType,
-    contact::BillParticipant,
-    timestamp::Timestamp,
-    util::{BcrKeys, base58_encode},
+    protocol::Timestamp, protocol::blockchain::BlockchainType,
+    protocol::blockchain::bill::participant::BillParticipant, protocol::crypto::BcrKeys,
 };
+use bitcoin::base58;
 use log::{debug, error, info, trace, warn};
 use nostr::{nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
@@ -32,7 +31,7 @@ use bcr_ebill_api::{
         },
     },
 };
-use bcr_ebill_core::{ServiceTraitBounds, protocol::EventEnvelope};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
 
 use tokio::task::JoinSet;
@@ -241,7 +240,7 @@ impl NostrClient {
         event: EventEnvelope,
     ) -> Result<()> {
         let public_key = recipient.node_id().npub();
-        let message = base58_encode(&borsh::to_vec(&event)?);
+        let message = base58::encode(&borsh::to_vec(&event)?);
         let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
@@ -265,7 +264,7 @@ impl NostrClient {
         event: EventEnvelope,
     ) -> Result<()> {
         let public_key = recipient.node_id().npub();
-        let message = base58_encode(&borsh::to_vec(&event)?);
+        let message = base58::encode(&borsh::to_vec(&event)?);
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -768,12 +767,12 @@ mod tests {
 
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
-    use bcr_ebill_core::contact::BillParticipant;
-    use bcr_ebill_core::email::Email;
-    use bcr_ebill_core::notification::BillEventType;
-    use bcr_ebill_core::protocol::{Event, EventType};
-    use bcr_ebill_core::timestamp::Timestamp;
-    use bcr_ebill_core::util::BcrKeys;
+    use bcr_ebill_core::protocol::Email;
+    use bcr_ebill_core::protocol::Timestamp;
+    use bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
+    use bcr_ebill_core::protocol::event::BillEventType;
+    use bcr_ebill_core::protocol::event::{Event, EventType};
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
     use tokio::time;

@@ -1,10 +1,12 @@
 use crate::get_config;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    BitcoinAddress, PublicKey, ServiceTraitBounds,
-    bill::{InMempoolData, PaidData, PaymentState},
-    sum::Sum,
-    timestamp::Timestamp,
+    application::ServiceTraitBounds,
+    application::bill::{InMempoolData, PaidData, PaymentState},
+    protocol::BitcoinAddress,
+    protocol::PublicKey,
+    protocol::Sum,
+    protocol::Timestamp,
 };
 use bitcoin::{Network, secp256k1::Scalar};
 use log::debug;

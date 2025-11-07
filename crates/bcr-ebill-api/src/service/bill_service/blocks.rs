@@ -1,29 +1,29 @@
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    Validate, ValidationError,
-    bill::{BillKeys, BitcreditBill, RecourseReason},
-    blockchain::{
-        self, Blockchain,
-        bill::{
-            BillBlock, BillBlockchain,
-            block::{
-                BillAcceptBlockData, BillEndorseBlockData, BillMintBlockData,
-                BillOfferToSellBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
-                BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
-                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+    application::identity::IdentityWithAll,
+    protocol::{
+        ProtocolValidationError, Timestamp, Validate,
+        blockchain::{
+            self, Blockchain,
+            bill::{
+                BillBlock, BillBlockchain, BitcreditBill, RecourseReason,
+                block::{
+                    BillAcceptBlockData, BillEndorseBlockData, BillMintBlockData,
+                    BillOfferToSellBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
+                    BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
+                    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+                    ContactType,
+                },
+                participant::BillParticipant,
+            },
+            company::{CompanyBlock, CompanySignCompanyBillBlockData},
+            identity::{
+                IdentityBlock, IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
             },
         },
-        company::{CompanyBlock, CompanySignCompanyBillBlockData},
-        identity::{
-            IdentityBlock, IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
-        },
+        crypto::BcrKeys,
+        event::{CompanyChainEvent, IdentityChainEvent},
     },
-    company::CompanyKeys,
-    contact::{BillParticipant, ContactType},
-    identity::IdentityWithAll,
-    protocol::{CompanyChainEvent, IdentityChainEvent},
-    timestamp::Timestamp,
-    util::BcrKeys,
 };
 
 use crate::util::validate_node_id_network;
@@ -35,7 +35,7 @@ impl BillService {
         &self,
         bill: &BitcreditBill,
         blockchain: &mut BillBlockchain,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         bill_action: &BillAction,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
@@ -73,11 +73,14 @@ impl BillService {
                         &block_data,
                         &signing_keys.signatory_keys,
                         signing_keys.company_keys.as_ref(), // company keys
-                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         timestamp,
-                    )?
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                    return Err(Error::Validation(
+                        ProtocolValidationError::SignerCantBeAnon.into(),
+                    ));
                 }
             }
             // can req to accept as anon
@@ -101,9 +104,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can req to pay as anon
             BillAction::RequestToPay(currency, payment_deadline_timestamp) => {
@@ -127,9 +131,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to req recourse
             BillAction::RequestRecourse(
@@ -168,9 +173,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to recourse
             BillAction::Recourse(recoursee, sum, recourse_reason) => {
@@ -200,9 +206,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to mint
             BillAction::Mint(mint, sum) => {
@@ -227,15 +234,16 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, buying_deadline_timestamp) => {
                 validate_node_id_network(&buyer.node_id())?;
                 let address_to_pay = self.bitcoin_client.get_address_to_pay(
-                    &bill_keys.public_key,
+                    &bill_keys.pub_key(),
                     &signer_public_data.node_id().pub_key(),
                 )?;
                 let block_data = BillOfferToSellBlockData {
@@ -260,9 +268,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to sell
             BillAction::Sell(buyer, sum, payment_address) => {
@@ -288,9 +297,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to endorse
             BillAction::Endorse(endorsee) => {
@@ -314,9 +324,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // has to be ident to reject acceptance
             BillAction::RejectAcceptance => {
@@ -334,11 +345,14 @@ impl BillService {
                         &block_data,
                         &signing_keys.signatory_keys,
                         signing_keys.company_keys.as_ref(),
-                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         timestamp,
-                    )?
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                    return Err(Error::Validation(
+                        ProtocolValidationError::SignerCantBeAnon.into(),
+                    ));
                 }
             }
             // can be anon to reject buying
@@ -361,9 +375,10 @@ impl BillService {
                     &block_data,
                     &signing_keys.signatory_keys,
                     signing_keys.company_keys.as_ref(),
-                    &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                     timestamp,
-                )?
+                )
+                .map_err(|e| Error::Protocol(e.into()))?
             }
             // has to be ident to reject payment
             BillAction::RejectPayment => {
@@ -381,11 +396,14 @@ impl BillService {
                         &block_data,
                         &signing_keys.signatory_keys,
                         signing_keys.company_keys.as_ref(),
-                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         timestamp,
-                    )?
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                    return Err(Error::Validation(
+                        ProtocolValidationError::SignerCantBeAnon.into(),
+                    ));
                 }
             }
             // has to be ident to reject recourse
@@ -404,11 +422,14 @@ impl BillService {
                         &block_data,
                         &signing_keys.signatory_keys,
                         signing_keys.company_keys.as_ref(),
-                        &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                        &BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         timestamp,
-                    )?
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?
                 } else {
-                    return Err(Error::Validation(ValidationError::SignerCantBeAnon));
+                    return Err(Error::Validation(
+                        ProtocolValidationError::SignerCantBeAnon.into(),
+                    ));
                 }
             }
         };
@@ -441,7 +462,7 @@ impl BillService {
             self.blockchain_store.add_block(bill_id, &new_block).await?;
             Ok(())
         } else {
-            Err(Error::Blockchain(blockchain::Error::BlockchainInvalid))
+            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
         }
     }
 
@@ -453,7 +474,7 @@ impl BillService {
         identity: &IdentityWithAll,
         signer_keys: &BcrKeys,
         timestamp: Timestamp,
-        bill_keys: Option<BillKeys>,
+        bill_keys: Option<BcrKeys>,
     ) -> Result<()> {
         match signer_public_data {
             BillParticipant::Ident(identified) => {
@@ -470,10 +491,7 @@ impl BillService {
                             bill_id,
                             block,
                             identity,
-                            &CompanyKeys {
-                                private_key: signer_keys.get_private_key(),
-                                public_key: signer_keys.pub_key(),
-                            },
+                            &BcrKeys::from_private_key(&signer_keys.get_private_key()),
                             timestamp,
                             bill_keys,
                         )
@@ -507,7 +525,7 @@ impl BillService {
         block: &BillBlock,
         identity: &IdentityWithAll,
         timestamp: Timestamp,
-        bill_keys: Option<BillKeys>,
+        bill_keys: Option<BcrKeys>,
     ) -> Result<()> {
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_sign_person_bill(
@@ -517,16 +535,17 @@ impl BillService {
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
                 operation: block.op_code.clone(),
-                bill_key: bill_keys.map(|k| k.private_key),
+                bill_key: bill_keys.map(|k| k.get_private_key()),
             },
             &identity.key_pair,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         self.identity_blockchain_store.add_block(&new_block).await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
-                &identity.identity,
+                &identity.identity.node_id,
                 &new_block,
                 &identity.key_pair,
             ))
@@ -554,12 +573,13 @@ impl BillService {
             },
             &identity.key_pair,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         self.identity_blockchain_store.add_block(&new_block).await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
-                &identity.identity,
+                &identity.identity.node_id,
                 &new_block,
                 &identity.key_pair,
             ))
@@ -573,9 +593,9 @@ impl BillService {
         bill_id: &BillId,
         block: &BillBlock,
         signatory_identity: &IdentityWithAll,
-        company_keys: &CompanyKeys,
+        company_keys: &BcrKeys,
         timestamp: Timestamp,
-        bill_keys: Option<BillKeys>,
+        bill_keys: Option<BcrKeys>,
     ) -> Result<()> {
         let previous_block = self
             .company_blockchain_store
@@ -589,12 +609,13 @@ impl BillService {
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
                 operation: block.op_code.clone(),
-                bill_key: bill_keys.map(|k| k.private_key),
+                bill_key: bill_keys.map(|k| k.get_private_key()),
             },
             &signatory_identity.key_pair,
             company_keys,
             timestamp,
-        )?;
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
         self.company_blockchain_store
             .add_block(company_id, &new_block)
             .await?;
@@ -604,7 +625,7 @@ impl BillService {
         self.transport_service
             .block_transport()
             .send_company_chain_events(CompanyChainEvent::new(
-                &company,
+                &company.id,
                 &chain,
                 company_keys,
                 None,

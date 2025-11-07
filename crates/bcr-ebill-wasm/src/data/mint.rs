@@ -1,7 +1,7 @@
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus},
-    timestamp::Timestamp,
+    protocol::Timestamp,
+    protocol::mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus},
 };
 use serde::Serialize;
 use tsify::Tsify;

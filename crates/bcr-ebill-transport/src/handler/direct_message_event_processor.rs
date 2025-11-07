@@ -8,7 +8,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_persistence::NostrEventOffsetStoreApi;
 use nostr::signer::NostrSigner;
 

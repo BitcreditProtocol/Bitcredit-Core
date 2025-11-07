@@ -7,11 +7,11 @@ use crate::nostr_transport::NostrTransportService;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::BlockTransportServiceApi;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::blockchain::BlockchainType;
-use bcr_ebill_core::company::Company;
-use bcr_ebill_core::protocol::{BillChainEvent, CompanyChainEvent, IdentityChainEvent};
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::protocol::blockchain::BlockchainType;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent};
 use log::{debug, error};
 
 use bcr_ebill_api::service::transport_service::Result;
@@ -49,7 +49,7 @@ impl BlockTransportServiceApi for BlockTransportService {
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()> {
         debug!(
             "sending identity chain events for node: {}",
-            events.identity.node_id
+            events.identity_id
         );
         if let Some(node) = self
             .nostr_transport
@@ -104,7 +104,7 @@ impl BlockTransportServiceApi for BlockTransportService {
     async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()> {
         debug!(
             "sending company chain events for company id: {}",
-            events.company.id
+            events.company_id
         );
         if let Some(node) = self
             .nostr_transport
@@ -126,7 +126,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                         &event.data.node_id.to_string(),
                         BlockchainType::Company,
                         event.data.block.timestamp,
-                        events.keys.clone().try_into()?,
+                        events.keys.clone(),
                         event.clone().try_into()?,
                         previous_event.clone().map(|e| e.payload),
                         root_event.clone().map(|e| e.payload),
@@ -186,7 +186,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                         &block_event.data.bill_id.to_string(),
                         BlockchainType::Bill,
                         block_event.data.block.timestamp,
-                        events.bill_keys.clone().try_into()?,
+                        events.bill_keys.clone(),
                         block_event.clone().try_into()?,
                         previous_event.clone().map(|e| e.payload),
                         root_event.clone().map(|e| e.payload),

@@ -1,20 +1,22 @@
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::SecretKey;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::bill::{
-    BillAction, BillCombinedBitcoinKey, BillHistory, BillIssueData, BillKeys, BillsBalanceOverview,
-    BillsFilterRole, BitcreditBill, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
-    PastEndorsee, PastPaymentResult,
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::bill::{
+    BillCombinedBitcoinKey, BillsBalanceOverview, BillsFilterRole, BitcreditBillResult,
+    Endorsement, LightBitcreditBillResult, PastPaymentResult,
 };
-use bcr_ebill_core::blockchain::bill::BillBlockchain;
-use bcr_ebill_core::blockchain::bill::chain::BillBlockPlaintextWrapper;
-use bcr_ebill_core::contact::BillParticipant;
-use bcr_ebill_core::identity::{Identity, IdentityWithAll};
-use bcr_ebill_core::mint::MintRequestState;
-use bcr_ebill_core::sum::Currency;
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::crypto::BcrKeys;
+use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+use bcr_ebill_core::protocol::Currency;
+use bcr_ebill_core::protocol::SecretKey;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::bill::chain::BillBlockPlaintextWrapper;
+use bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant;
+use bcr_ebill_core::protocol::blockchain::bill::{
+    BillAction, BillBlockchain, BillHistory, BillIssueData, BitcreditBill,
+    participant::PastEndorsee,
+};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::mint::MintRequestState;
 
 use uuid::Uuid;
 
@@ -87,13 +89,13 @@ pub trait BillServiceApi: ServiceTraitBounds {
     ) -> Result<BitcreditBillResult>;
 
     /// Gets the keys for a given bill
-    async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BillKeys>;
+    async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BcrKeys>;
 
     /// opens and decrypts the attached file from the given bill
     async fn open_and_decrypt_attached_file(
         &self,
         bill_id: &BillId,
-        file: &bcr_ebill_core::File,
+        file: &bcr_ebill_core::protocol::File,
         bill_private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
 

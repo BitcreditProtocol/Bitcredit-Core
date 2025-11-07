@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::protocol::{CompanyBlockEvent, Event, EventEnvelope};
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::{ServiceTraitBounds, blockchain::BlockchainType};
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::blockchain::BlockchainType};
 use bcr_ebill_persistence::{
     NostrChainEventStoreApi, company::CompanyStoreApi, nostr::NostrChainEvent,
 };
@@ -121,13 +121,13 @@ impl CompanyChainEventHandler {
 mod tests {
 
     use bcr_ebill_core::{
-        blockchain::{
+        application::company::Company,
+        protocol::Name,
+        protocol::blockchain::{
             Blockchain,
             company::{CompanyBlockchain, CompanyUpdateBlockData},
         },
-        company::{Company, CompanyKeys},
-        name::Name,
-        util::BcrKeys,
+        protocol::crypto::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
@@ -256,7 +256,7 @@ mod tests {
     fn create_company_chain(
         node_id: NodeId,
         company: Company,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
     ) -> CompanyBlockchain {
         let blocks = vec![get_company_create_block(node_id, company, keys)];
         CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain")

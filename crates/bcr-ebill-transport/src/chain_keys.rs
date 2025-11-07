@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::Result;
 use bcr_ebill_core::{
-    ServiceTraitBounds, ValidationError, blockchain::BlockchainType, util::BcrKeys,
+    application::ServiceTraitBounds,
+    protocol::{ProtocolValidationError, blockchain::BlockchainType, crypto::BcrKeys},
 };
 use bcr_ebill_persistence::{
     bill::BillStoreApi, company::CompanyStoreApi, identity::IdentityStoreApi,
@@ -60,10 +61,10 @@ impl ChainKeyServiceApi for ChainKeyService {
             BlockchainType::Bill => {
                 match self
                     .bill_store
-                    .get_keys(&BillId::from_str(chain_id).map_err(ValidationError::from)?)
+                    .get_keys(&BillId::from_str(chain_id).map_err(ProtocolValidationError::from)?)
                     .await
                 {
-                    Ok(keys) => Some(keys.try_into()?),
+                    Ok(keys) => Some(keys),
                     Err(e) => {
                         warn!("failed to get bill keys for {chain_id} with {e}");
                         None
@@ -73,10 +74,12 @@ impl ChainKeyServiceApi for ChainKeyService {
             BlockchainType::Company => {
                 match self
                     .company_store
-                    .get_key_pair(&NodeId::from_str(chain_id).map_err(ValidationError::from)?)
+                    .get_key_pair(
+                        &NodeId::from_str(chain_id).map_err(ProtocolValidationError::from)?,
+                    )
                     .await
                 {
-                    Ok(keys) => Some(keys.try_into()?),
+                    Ok(keys) => Some(keys),
                     Err(e) => {
                         warn!("failed to get company keys for {chain_id} with {e}");
                         None

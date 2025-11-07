@@ -5,13 +5,13 @@ use crate::transport::root_and_reply_id;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::Result;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::blockchain::BlockchainType;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::protocol::BillBlockEvent;
-use bcr_ebill_core::protocol::Event;
-use bcr_ebill_core::protocol::EventEnvelope;
-use bcr_ebill_core::timestamp::Timestamp;
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::BlockchainType;
+use bcr_ebill_core::protocol::event::BillBlockEvent;
+use bcr_ebill_core::protocol::event::Event;
+use bcr_ebill_core::protocol::event::EventEnvelope;
 use bcr_ebill_persistence::NostrChainEventStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use bcr_ebill_persistence::nostr::NostrChainEvent;
@@ -130,26 +130,22 @@ mod tests {
     use std::str::FromStr;
 
     use bcr_common::core::BillId;
-    use bcr_ebill_core::{
-        OptionalPostalAddress, PostalAddress, PublicKey, SecretKey,
-        address::Address,
-        bill::{BillKeys, BitcreditBill},
+    use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+    use bcr_ebill_core::protocol::{
+        Address, City, Country, Date, Email, Name, OptionalPostalAddress, PostalAddress, PublicKey,
+        SecretKey, Sum,
         blockchain::{
             Blockchain,
             bill::{
-                BillBlock, BillBlockchain,
-                block::{BillEndorseBlockData, BillIssueBlockData, BillParticipantBlockData},
+                BillBlock, BillBlockchain, BitcreditBill,
+                block::{
+                    BillEndorseBlockData, BillIssueBlockData, BillParticipantBlockData, ContactType,
+                },
+                participant::{BillIdentParticipant, BillParticipant},
             },
+            identity::IdentityType,
         },
-        city::City,
-        contact::{BillIdentParticipant, BillParticipant, ContactType},
-        country::Country,
-        date::Date,
-        email::Email,
-        identity::{Identity, IdentityType, IdentityWithAll},
-        name::Name,
-        sum::Sum,
-        util::BcrKeys,
+        crypto::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
@@ -193,9 +189,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -270,9 +266,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -343,7 +339,7 @@ mod tests {
             &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
             get_baseline_identity().key_pair,
             None,
-            BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            BcrKeys::from_private_key(&private_key_test()),
             Timestamp::new(1731593928).unwrap(),
         )
         .unwrap()
@@ -379,15 +375,12 @@ mod tests {
         }
     }
 
-    pub fn get_bill_keys() -> BillKeys {
-        BillKeys {
-            private_key: private_key_test(),
-            public_key: node_id_test().pub_key(),
-        }
+    pub fn get_bill_keys() -> BcrKeys {
+        BcrKeys::from_private_key(&private_key_test())
     }
 
     fn get_baseline_identity() -> IdentityWithAll {
-        let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut identity = empty_identity();
         identity.name = Name::new("drawer").unwrap();
         identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);

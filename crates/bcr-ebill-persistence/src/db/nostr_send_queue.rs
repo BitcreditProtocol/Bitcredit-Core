@@ -5,7 +5,7 @@ use super::{
 use crate::constants::{DB_IDS, DB_LIMIT, DB_TABLE};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::{DateTimeUtc, ServiceTraitBounds, timestamp::Timestamp};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::Timestamp};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
@@ -144,7 +144,7 @@ impl From<QueuedMessageDb> for NostrQueuedMessage {
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::util::base58_encode;
+    use bitcoin::base58;
 
     use super::*;
     use crate::{db::get_memory_db, tests::tests::node_id_test};
@@ -258,7 +258,7 @@ mod tests {
             id: id.to_string(),
             sender_id: node_id_test(),
             node_id: node_id_test(),
-            payload: base58_encode(&borsh::to_vec(r#"{"foo": "bar"}"#).unwrap()),
+            payload: base58::encode(&borsh::to_vec(r#"{"foo": "bar"}"#).unwrap()),
         }
     }
 }

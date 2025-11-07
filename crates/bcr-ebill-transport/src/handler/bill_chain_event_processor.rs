@@ -3,16 +3,17 @@ use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::Validate;
-use bcr_ebill_core::bill::BillKeys;
-use bcr_ebill_core::bill::{BillValidateActionData, BillValidationActionMode};
-use bcr_ebill_core::block_id::BlockId;
-use bcr_ebill_core::blockchain::bill::BillOpCode;
-use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
-use bcr_ebill_core::blockchain::bill::{BillBlock, BillBlockchain};
-use bcr_ebill_core::blockchain::{Block, Blockchain, BlockchainType};
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::protocol::BlockId;
+use bcr_ebill_core::protocol::Validate;
+use bcr_ebill_core::protocol::blockchain::bill::BillOpCode;
+use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::protocol::blockchain::bill::{BillBlock, BillBlockchain};
+use bcr_ebill_core::protocol::blockchain::bill::{
+    BillValidateActionData, BillValidationActionMode,
+};
+use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use log::{debug, error, info, warn};
@@ -29,7 +30,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         &self,
         bill_id: &BillId,
         blocks: Vec<BillBlock>,
-        keys: Option<BillKeys>,
+        keys: Option<BcrKeys>,
     ) -> Result<()> {
         // check that incoming bills are of the same network that we use
         if bill_id.network() != self.bitcoin_network {
@@ -79,9 +80,9 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
     async fn resolve_chain(
         &self,
         bill_id: &BillId,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
     ) -> Result<Vec<Vec<EventContainer>>> {
-        let bcr_keys = BcrKeys::from_private_key(&bill_keys.private_key)?;
+        let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
         resolve_event_chains(
             self.transport.clone(),
             &bill_id.to_string(),
@@ -98,7 +99,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         ) {
             (Ok(existing_chain), Ok(bill_keys)) => {
                 debug!("starting bill chain resync for {bill_id}");
-                let bcr_keys = BcrKeys::from_private_key(&bill_keys.private_key)?;
+                let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
                 if let Ok(chain_data) = resolve_event_chains(
                     self.transport.clone(),
                     &bill_id.to_string(),
@@ -249,7 +250,7 @@ impl BillChainEventProcessor {
         bill_id: &BillId,
         chain: &mut BillBlockchain,
         bill_first_version: &BillIssueBlockData,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         block: BillBlock,
         is_paid: bool,
     ) -> Result<bool> {
@@ -267,7 +268,7 @@ impl BillChainEventProcessor {
             return Ok(false);
         }
         // validate plaintext hash
-        if !block.validate_plaintext_hash(&bill_keys.private_key) {
+        if !block.validate_plaintext_hash(&bill_keys.get_private_key()) {
             error!("Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash");
             return Err(Error::Blockchain(format!(
                 "Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash"
@@ -336,13 +337,13 @@ impl BillChainEventProcessor {
         Ok(true) // block was added
     }
 
-    async fn add_new_chain(&self, blocks: Vec<BillBlock>, keys: &BillKeys) -> Result<()> {
+    async fn add_new_chain(&self, blocks: Vec<BillBlock>, keys: &BcrKeys) -> Result<()> {
         let (bill_id, bill_first_version, chain) = self.get_valid_chain(blocks, keys)?;
         debug!("adding new chain for bill {bill_id}");
         // issue block was validated in get_valid_chain
         let issue_block = chain.get_first_block().to_owned();
         // validate plaintext hash
-        if !issue_block.validate_plaintext_hash(&keys.private_key) {
+        if !issue_block.validate_plaintext_hash(&keys.get_private_key()) {
             error!("Newly received chain issue block has invalid plaintext hash");
             return Err(Error::Blockchain(
                 "Newly received chain issue block has invalid plaintext hash".to_string(),
@@ -392,7 +393,7 @@ impl BillChainEventProcessor {
     fn get_valid_chain(
         &self,
         blocks: Vec<BillBlock>,
-        keys: &BillKeys,
+        keys: &BcrKeys,
     ) -> Result<(BillId, BillIssueBlockData, BillBlockchain)> {
         // cheap integrity checks first
         match BillBlockchain::new_from_blocks(blocks) {
@@ -459,7 +460,7 @@ impl BillChainEventProcessor {
         Ok(())
     }
 
-    async fn save_keys(&self, bill_id: &BillId, keys: &BillKeys) -> Result<()> {
+    async fn save_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
         if let Err(e) = self.bill_store.save_keys(bill_id, keys).await {
             error!("Failed to save keys to bill store: {e}");
             return Err(Error::Persistence(
@@ -474,15 +475,15 @@ impl BillChainEventProcessor {
 mod tests {
     use bcr_common::core::NodeId;
     use bcr_ebill_core::{
-        blockchain::bill::block::{
+        protocol::Timestamp,
+        protocol::blockchain::bill::block::{
             BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
             BillRejectBlockData, BillRequestToAcceptBlockData,
         },
-        constants::ACCEPT_DEADLINE_SECONDS,
-        contact::BillIdentParticipant,
-        protocol::{BillBlockEvent, Event, EventEnvelope},
-        timestamp::Timestamp,
-        util::BcrKeys,
+        protocol::blockchain::bill::participant::BillIdentParticipant,
+        protocol::constants::ACCEPT_DEADLINE_SECONDS,
+        protocol::crypto::BcrKeys,
+        protocol::event::{BillBlockEvent, Event, EventEnvelope},
     };
     use mockall::predicate::{always, eq};
 
@@ -662,9 +663,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -676,12 +677,9 @@ mod tests {
             .expect_invalidate_bill_in_cache()
             .returning(|_| Ok(()));
         bill_store.expect_is_paid().returning(|_| Ok(false));
-        bill_store.expect_get_keys().returning(|_| {
-            Ok(BillKeys {
-                private_key: private_key_test().to_owned(),
-                public_key: node_id_test().pub_key(),
-            })
-        });
+        bill_store
+            .expect_get_keys()
+            .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
         bill_chain_store
             .expect_get_chain()
             .with(eq(bill_id_test()))
@@ -716,7 +714,7 @@ mod tests {
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         endorsee.node_id = node_id_test_other();
-        let bcr_keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
         let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
         let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
         let chain = get_genesis_chain(Some(bill.clone()));
@@ -789,12 +787,9 @@ mod tests {
             .expect_invalidate_bill_in_cache()
             .returning(|_| Ok(()));
         bill_store.expect_is_paid().returning(|_| Ok(false));
-        bill_store.expect_get_keys().returning(move |_| {
-            Ok(BillKeys {
-                private_key: bcr_keys.get_private_key().to_owned(),
-                public_key: bcr_keys.pub_key(),
-            })
-        });
+        bill_store
+            .expect_get_keys()
+            .returning(move |_| Ok(BcrKeys::from_private_key(&private_key_test())));
 
         let expected_bill_id = bill_id.clone();
         // on chain recovery we ask for the existing chain two times
@@ -891,9 +886,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: empty_address(),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -1002,9 +997,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: empty_address(),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -1012,12 +1007,9 @@ mod tests {
         let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
 
         let chain_clone = chain.clone();
-        bill_store.expect_get_keys().returning(|_| {
-            Ok(BillKeys {
-                private_key: private_key_test().to_owned(),
-                public_key: node_id_test().pub_key(),
-            })
-        });
+        bill_store
+            .expect_get_keys()
+            .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
 
         bill_store.expect_is_paid().returning(|_| Ok(false));
         bill_chain_store
@@ -1065,9 +1057,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();
@@ -1075,12 +1067,9 @@ mod tests {
         let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
 
         let chain_clone = chain.clone();
-        bill_store.expect_get_keys().returning(|_| {
-            Ok(BillKeys {
-                private_key: private_key_test().to_owned(),
-                public_key: node_id_test().pub_key(),
-            })
-        });
+        bill_store
+            .expect_get_keys()
+            .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
 
         bill_store.expect_is_paid().returning(|_| Ok(false));
         bill_chain_store
@@ -1129,9 +1118,9 @@ mod tests {
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
             },
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             None,
-            &BcrKeys::from_private_key(&private_key_test()).unwrap(),
+            &BcrKeys::from_private_key(&private_key_test()),
             chain.get_latest_block().timestamp + 1000,
         )
         .unwrap();

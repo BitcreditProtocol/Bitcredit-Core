@@ -4,11 +4,14 @@ use super::Result;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    bill::{BillKeys, BitcreditBillResult, PaymentState},
-    block_id::BlockId,
-    blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
-    timestamp::Timestamp,
+    application::ServiceTraitBounds,
+    application::bill::{BitcreditBillResult, PaymentState},
+    protocol::BlockId,
+    protocol::Timestamp,
+    protocol::{
+        blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
+        crypto::BcrKeys,
+    },
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -42,9 +45,9 @@ pub trait BillStoreApi: ServiceTraitBounds {
     /// Gets all bill ids
     async fn get_ids(&self) -> Result<Vec<BillId>>;
     /// Saves the keys
-    async fn save_keys(&self, id: &BillId, keys: &BillKeys) -> Result<()>;
+    async fn save_keys(&self, id: &BillId, keys: &BcrKeys) -> Result<()>;
     /// Get bill keys
-    async fn get_keys(&self, id: &BillId) -> Result<BillKeys>;
+    async fn get_keys(&self, id: &BillId) -> Result<BcrKeys>;
     /// Check if the given bill was paid
     async fn is_paid(&self, id: &BillId) -> Result<bool>;
     /// Set payment state for given bill

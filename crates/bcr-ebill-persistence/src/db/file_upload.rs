@@ -5,7 +5,7 @@ use super::{
 use crate::constants::{DB_FILE_UPLOAD_ID, DB_TABLE};
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bcr_ebill_core::{ServiceTraitBounds, name::Name};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::Name};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -97,15 +97,13 @@ impl FileUploadStoreApi for FileUploadStore {
 
 #[cfg(test)]
 pub mod tests {
-    use bcr_ebill_core::util::get_uuid_v4;
-
     use super::*;
     use crate::db::get_memory_db;
 
     #[tokio::test]
     async fn test_temp_file() {
         let temp_store = get_temp_store().await;
-        let some_id = get_uuid_v4();
+        let some_id = Uuid::new_v4();
         temp_store
             .write_temp_upload_file(&some_id, &Name::new("file_name.jpg").unwrap(), &[])
             .await

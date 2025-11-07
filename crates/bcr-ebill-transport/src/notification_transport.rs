@@ -9,14 +9,14 @@ use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_api::util::{validate_bill_id_network, validate_node_id_network};
-use bcr_ebill_core::ServiceTraitBounds;
-use bcr_ebill_core::notification::{ActionType, Notification, NotificationType};
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::notification::{Notification, NotificationType};
 use bcr_ebill_core::{
-    contact::BillParticipant,
-    email::Email,
-    protocol::{BillChainEventPayload, Event},
-    sum::Sum,
-    util::BcrKeys,
+    protocol::Email,
+    protocol::Sum,
+    protocol::blockchain::bill::participant::BillParticipant,
+    protocol::crypto::BcrKeys,
+    protocol::event::{ActionType, BillChainEventPayload, Event},
 };
 use bcr_ebill_persistence::NotificationStoreApi;
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
@@ -286,12 +286,14 @@ mod tests {
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
     use bcr_ebill_core::{
-        contact::BillParticipant,
-        email::Email,
-        notification::{ActionType, BillEventType, Notification},
-        protocol::{BillChainEventPayload, Event, EventEnvelope, EventType, Result},
-        sum::Sum,
-        util::BcrKeys,
+        application::notification::Notification,
+        protocol::Email,
+        protocol::blockchain::bill::participant::BillParticipant,
+        protocol::crypto::BcrKeys,
+        protocol::event::{
+            ActionType, BillChainEventPayload, BillEventType, Event, EventEnvelope, EventType,
+        },
+        protocol::{Result, Sum},
     };
     use bcr_ebill_persistence::notification::NotificationFilter;
     use mockall::predicate::eq;
@@ -334,7 +336,7 @@ mod tests {
             // resolves node_id
             mock.expect_get_sender_node_id().returning(node_id_test);
             mock.expect_get_sender_keys()
-                .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
+                .returning(|| BcrKeys::from_private_key(&private_key_test()));
 
             // expect to send payment timeout event to all recipients
             mock.expect_send_private_event()
@@ -537,7 +539,7 @@ mod tests {
                     .returning(|_, _| Ok(()));
                 mock_transport
                     .expect_get_sender_keys()
-                    .returning(|| BcrKeys::from_private_key(&private_key_test()).unwrap());
+                    .returning(|| BcrKeys::from_private_key(&private_key_test()));
 
                 mock_email_client
                     .expect_send_bill_notification()

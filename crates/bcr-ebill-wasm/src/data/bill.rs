@@ -1,27 +1,29 @@
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    BitcoinAddress,
-    bill::{
-        BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
-        BillCurrentWaitingState, BillData, BillHistory, BillHistoryBlock, BillMintStatus,
-        BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus,
-        BillWaitingForPaymentState, BillWaitingForRecourseState, BillWaitingForSellState,
-        BillWaitingStatePaymentData, BillsFilterRole, BitcreditBillResult, Endorsement,
-        LightBitcreditBillResult, LightSignedBy, PastEndorsee, PastPaymentDataPayment,
-        PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PastPaymentStatus,
+    application::{
+        bill::{
+            BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
+            BillCurrentWaitingState, BillData, BillMintStatus, BillParticipants, BillPaymentStatus,
+            BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
+            BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
+            BillsFilterRole, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
+            LightSignedBy, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
+            PastPaymentResult,
+        },
+        contact::{
+            LightBillAnonParticipant, LightBillIdentParticipant,
+            LightBillIdentParticipantWithAddress, LightBillParticipant,
+        },
     },
-    block_id::BlockId,
-    blockchain::bill::BillOpCode,
-    city::City,
-    contact::{
-        BillAnonParticipant, BillIdentParticipant, BillParticipant, LightBillAnonParticipant,
-        LightBillIdentParticipant, LightBillIdentParticipantWithAddress, LightBillParticipant,
+    protocol::{
+        BitcoinAddress, BlockId, City, Country, Date, Email, Name, Timestamp,
+        blockchain::bill::{
+            BillHistory, BillHistoryBlock, BillOpCode, PastPaymentStatus,
+            participant::{
+                BillAnonParticipant, BillIdentParticipant, BillParticipant, PastEndorsee, SignedBy,
+            },
+        },
     },
-    country::Country,
-    date::Date,
-    email::Email,
-    name::Name,
-    timestamp::Timestamp,
 };
 
 use serde::{Deserialize, Serialize};
@@ -224,6 +226,19 @@ impl From<LightSignedBy> for LightSignedByWeb {
     }
 }
 
+impl From<SignedBy> for LightSignedByWeb {
+    fn from(val: SignedBy) -> Self {
+        LightSignedByWeb {
+            data: LightBillParticipant::from(val.data).into(),
+            signatory: val.signatory.map(|s| LightBillIdentParticipantWeb {
+                t: ContactTypeWeb::Person,
+                name: s.name,
+                node_id: s.node_id,
+            }),
+        }
+    }
+}
+
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct EndorsementWeb {
@@ -306,7 +321,9 @@ impl From<BillHistoryBlock> for BillHistoryBlockWeb {
         Self {
             block_id: value.block_id,
             block_type: value.block_type.into(),
-            pay_to_the_order_of: value.pay_to_the_order_of.map(|pttoo| pttoo.into()),
+            pay_to_the_order_of: value
+                .pay_to_the_order_of
+                .map(|pttoo| LightBillParticipant::from(pttoo).into()),
             signed: value.signed.into(),
             signing_timestamp: value.signing_timestamp,
             signing_address: value.signing_address.map(|sa| sa.into()),

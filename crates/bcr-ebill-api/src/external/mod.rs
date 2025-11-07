@@ -4,7 +4,6 @@ pub mod email;
 pub mod file_storage;
 pub mod identity_proof;
 pub mod mint;
-pub mod time;
 
 use thiserror::Error;
 

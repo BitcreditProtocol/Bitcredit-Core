@@ -4,30 +4,38 @@ use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_api::service::transport_service::NostrConfig;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig};
-use bcr_ebill_core::BitcoinAddress;
-use bcr_ebill_core::address::Address;
-use bcr_ebill_core::bill::{BillKeys, BitcreditBill};
-use bcr_ebill_core::blockchain::bill::BillBlockchain;
-use bcr_ebill_core::blockchain::bill::block::BillIssueBlockData;
-use bcr_ebill_core::city::City;
-use bcr_ebill_core::country::Country;
-use bcr_ebill_core::date::Date;
-use bcr_ebill_core::email::Email;
-use bcr_ebill_core::hash::Sha256Hash;
-use bcr_ebill_core::identification::Identification;
-use bcr_ebill_core::name::Name;
-use bcr_ebill_core::protocol::{EventEnvelope, EventType};
-use bcr_ebill_core::sum::Sum;
-use bcr_ebill_core::timestamp::Timestamp;
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::protocol::Address;
+use bcr_ebill_core::protocol::BitcoinAddress;
+use bcr_ebill_core::protocol::City;
+use bcr_ebill_core::protocol::Country;
+use bcr_ebill_core::protocol::Date;
+use bcr_ebill_core::protocol::Email;
+use bcr_ebill_core::protocol::Identification;
+use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::Sum;
+use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::bill::BillBlockchain;
+use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::event::{EventEnvelope, EventType};
 use bcr_ebill_core::{
-    OptionalPostalAddress, PostalAddress, ServiceTraitBounds,
-    blockchain::BlockchainType,
-    contact::BillParticipant,
-    contact::{BillIdentParticipant, Contact, ContactType},
-    identity::{Identity, IdentityType, IdentityWithAll},
-    nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-    notification::{ActionType, BillEventType, Notification},
+    application::ServiceTraitBounds,
+    application::contact::Contact,
+    application::identity::{Identity, IdentityWithAll},
+    application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+    application::notification::Notification,
+    protocol::blockchain::BlockchainType,
+    protocol::blockchain::{
+        bill::{
+            BitcreditBill,
+            block::ContactType,
+            participant::{BillIdentParticipant, BillParticipant},
+        },
+        identity::IdentityType,
+    },
+    protocol::event::{ActionType, BillEventType},
+    protocol::{OptionalPostalAddress, PostalAddress},
 };
 use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi};
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
@@ -50,13 +58,11 @@ use bcr_ebill_api::service::transport_service::{
     BlockTransportServiceApi, ContactTransportServiceApi, NostrContactData,
     NotificationTransportServiceApi, Result,
 };
-use bcr_ebill_core::{
-    company::Company,
-    protocol::{
-        BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, IdentityChainEvent,
-    },
-};
 
+use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::protocol::event::{
+    BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, IdentityChainEvent,
+};
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 
 use async_trait::async_trait;
@@ -237,7 +243,7 @@ pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
         get_baseline_identity().key_pair,
         None,
-        BcrKeys::from_private_key(&private_key_test()).unwrap(),
+        BcrKeys::from_private_key(&private_key_test()),
         Timestamp::new(1731593928).unwrap(),
     )
     .unwrap()
@@ -273,15 +279,12 @@ pub fn empty_bitcredit_bill() -> BitcreditBill {
     }
 }
 
-pub fn get_bill_keys() -> BillKeys {
-    BillKeys {
-        private_key: private_key_test(),
-        public_key: node_id_test().pub_key(),
-    }
+pub fn get_bill_keys() -> BcrKeys {
+    BcrKeys::from_private_key(&private_key_test())
 }
 
 pub fn get_baseline_identity() -> IdentityWithAll {
-    let keys = BcrKeys::from_private_key(&private_key_test()).unwrap();
+    let keys = BcrKeys::from_private_key(&private_key_test());
     let mut identity = empty_identity();
     identity.name = Name::new("drawer").unwrap();
     identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
@@ -543,7 +546,7 @@ mockall::mock! {
         async fn send_public_chain_event(
             &self,
             id: &str,
-            blockchain: bcr_ebill_core::blockchain::BlockchainType,
+            blockchain: bcr_ebill_core::protocol::blockchain::BlockchainType,
             block_time: Timestamp,
             keys: BcrKeys,
             event: EventEnvelope,
@@ -585,15 +588,15 @@ mockall::mock! {
         async fn get_latest_by_references(
             &self,
             reference: &[String],
-            notification_type: bcr_ebill_core::notification::NotificationType,
+            notification_type: bcr_ebill_core::application::notification::NotificationType,
         ) -> bcr_ebill_persistence::Result<HashMap<String, Notification>>;
         async fn get_latest_by_reference(
             &self,
             reference: &str,
-            notification_type: bcr_ebill_core::notification::NotificationType,
+            notification_type: bcr_ebill_core::application::notification::NotificationType,
         ) -> bcr_ebill_persistence::Result<Option<Notification>>;
         #[allow(unused)]
-        async fn list_by_type(&self, notification_type: bcr_ebill_core::notification::NotificationType) -> bcr_ebill_persistence::Result<Vec<Notification>>;
+        async fn list_by_type(&self, notification_type: bcr_ebill_core::application::notification::NotificationType) -> bcr_ebill_persistence::Result<Vec<Notification>>;
         async fn mark_as_done(&self, notification_id: &str) -> bcr_ebill_persistence::Result<()>;
         #[allow(unused)]
         async fn delete(&self, notification_id: &str) -> bcr_ebill_persistence::Result<()>;
@@ -739,9 +742,9 @@ mockall::mock! {
         avatar_file_upload_id: Option<Uuid>,
         proof_document_file_upload_id: Option<Uuid>,
     ) -> bcr_ebill_api::service::Result<Contact>;
-    async fn is_known_npub(&self, npub: &bcr_ebill_core::nostr_contact::NostrPublicKey) -> bcr_ebill_api::service::Result<bool>;
-    async fn get_nostr_npubs(&self) -> bcr_ebill_api::service::Result<Vec<bcr_ebill_core::nostr_contact::NostrPublicKey>>;
-    async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<bcr_ebill_core::nostr_contact::NostrContact>>;
+    async fn is_known_npub(&self, npub: &bcr_ebill_core::application::nostr_contact::NostrPublicKey) -> bcr_ebill_api::service::Result<bool>;
+    async fn get_nostr_npubs(&self) -> bcr_ebill_api::service::Result<Vec<bcr_ebill_core::application::nostr_contact::NostrPublicKey>>;
+    async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<bcr_ebill_core::application::nostr_contact::NostrContact>>;
     async fn open_and_decrypt_file(
         &self,
         contact: Contact,

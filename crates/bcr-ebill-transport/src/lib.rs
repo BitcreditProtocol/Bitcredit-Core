@@ -11,8 +11,8 @@ use bcr_ebill_api::{
         transport_service::{NostrConfig, transport_client::TransportClientApi},
     },
 };
-use bcr_ebill_core::protocol::EventType;
-use bcr_ebill_core::util::BcrKeys;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::event::EventType;
 use bcr_ebill_persistence::{company::CompanyStoreApi, identity::IdentityStoreApi};
 use chain_keys::ChainKeyServiceApi;
 use handler::{
@@ -77,14 +77,12 @@ pub async fn create_nostr_clients(
     };
 
     for (_, (_company, keys)) in companies.iter() {
-        if let Ok(k) = BcrKeys::try_from(keys) {
-            configs.push(NostrConfig::new(
-                k.clone(),
-                config.nostr_config.relays.clone(),
-                false,
-                NodeId::new(k.pub_key(), get_config().bitcoin_network()),
-            ));
-        }
+        configs.push(NostrConfig::new(
+            keys.clone(),
+            config.nostr_config.relays.clone(),
+            false,
+            NodeId::new(keys.pub_key(), get_config().bitcoin_network()),
+        ));
     }
 
     // init all the clients

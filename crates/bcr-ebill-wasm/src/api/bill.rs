@@ -3,26 +3,27 @@ use std::str::FromStr;
 use super::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_api::{
-    external,
-    service::{
-        Error,
-        bill_service::Error as BillServiceError,
-        file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-    },
+use bcr_ebill_api::service::{
+    Error,
+    bill_service::Error as BillServiceError,
+    file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
 };
 use bcr_ebill_core::{
-    ValidationError,
-    bill::{BillAction, BillIssueData, BillsFilterRole, LightBitcreditBillResult, RecourseReason},
-    city::City,
-    contact::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
-    country::Country,
-    date::Date,
-    identity::IdentityType,
-    name::Name,
-    sum::{Currency, Sum},
-    timestamp::Timestamp,
-    util::BcrKeys,
+    application::{
+        ValidationError,
+        bill::{BillsFilterRole, LightBitcreditBillResult},
+    },
+    protocol::{
+        City, Country, Currency, Date, Name, ProtocolValidationError, Sum, Timestamp,
+        blockchain::{
+            bill::{
+                BillAction, BillIssueData, RecourseReason,
+                participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+            },
+            identity::IdentityType,
+        },
+        crypto::BcrKeys,
+    },
 };
 use log::error;
 use uuid::Uuid;
@@ -53,7 +54,7 @@ use crate::{
 use super::identity::get_current_identity;
 
 async fn get_attachment(bill_id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
-    let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
+    let parsed_bill_id = BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
     let current_timestamp = Timestamp::now();
     let identity = get_ctx().identity_service.get_identity().await?;
     // get bill
@@ -82,11 +83,12 @@ async fn get_attachment(bill_id: &str, file_name: &Name) -> Result<(Vec<u8>, Str
         .await?;
     let file_bytes = get_ctx()
         .bill_service
-        .open_and_decrypt_attached_file(&parsed_bill_id, file, &keys.private_key)
+        .open_and_decrypt_attached_file(&parsed_bill_id, file, &keys.get_private_key())
         .await?;
 
-    let content_type = detect_content_type_for_bytes(&file_bytes)
-        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+    let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(Error::Validation(
+        ProtocolValidationError::InvalidContentType.into(),
+    ))?;
     Ok((file_bytes, content_type))
 }
 
@@ -103,7 +105,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<EndorsementsResponse>")]
     pub async fn endorsements(&self, id: &str) -> JsValue {
         let res: Result<EndorsementsResponse> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let result = get_ctx()
@@ -126,7 +128,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<PastPaymentsResponse>")]
     pub async fn past_payments(&self, id: &str) -> JsValue {
         let res: Result<PastPaymentsResponse> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let result = get_ctx()
                 .bill_service
@@ -148,7 +150,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<PastEndorseesResponse>")]
     pub async fn past_endorsees(&self, id: &str) -> JsValue {
         let res: Result<PastEndorseesResponse> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let result = get_ctx()
                 .bill_service
                 .get_past_endorsees(&bill_id, &get_current_identity_node_id().await?)
@@ -164,7 +166,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BillCombinedBitcoinKeyWeb>")]
     pub async fn bitcoin_key(&self, id: &str) -> JsValue {
         let res: Result<BillCombinedBitcoinKeyWeb> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let combined_key = get_ctx()
                 .bill_service
@@ -308,7 +310,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BillNumbersToWordsForSum>")]
     pub async fn numbers_to_words_for_sum(&self, id: &str) -> JsValue {
         let res: Result<BillNumbersToWordsForSum> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let bill = get_ctx()
@@ -334,7 +336,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BitcreditBillWeb>")]
     pub async fn detail(&self, id: &str) -> JsValue {
         let res: Result<BitcreditBillWeb> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let bill_detail = get_ctx()
@@ -356,7 +358,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn check_payment_for_bill(&self, id: &str) -> JsValue {
         let res: Result<()> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let identity = get_ctx().identity_service.get_full_identity().await?;
             if let Err(e) = get_ctx()
                 .bill_service
@@ -428,7 +430,8 @@ impl Bill {
 
         for file_upload_id in bill_payload.file_upload_ids.iter() {
             parsed_file_upload_ids.push(
-                Uuid::from_str(file_upload_id).map_err(|_| ValidationError::InvalidFileUploadId)?,
+                Uuid::from_str(file_upload_id)
+                    .map_err(|_| ProtocolValidationError::InvalidFileUploadId)?,
             );
         }
 
@@ -440,8 +443,10 @@ impl Bill {
                 city_of_issuing: City::new(bill_payload.city_of_issuing)?,
                 issue_date: Date::new(bill_payload.issue_date)?,
                 maturity_date: Date::new(bill_payload.maturity_date)?,
-                drawee: NodeId::from_str(&bill_payload.drawee).map_err(ValidationError::from)?,
-                payee: NodeId::from_str(&bill_payload.payee).map_err(ValidationError::from)?,
+                drawee: NodeId::from_str(&bill_payload.drawee)
+                    .map_err(ProtocolValidationError::from)?,
+                payee: NodeId::from_str(&bill_payload.payee)
+                    .map_err(ProtocolValidationError::from)?,
                 sum: Sum::new_sat_from_str(&bill_payload.sum)?,
                 country_of_payment: Country::parse(&bill_payload.country_of_payment)?,
                 city_of_payment: City::new(bill_payload.city_of_payment)?,
@@ -463,7 +468,7 @@ impl Bill {
     ) -> JsValue {
         let res: Result<BillIdResponse> = async {
             let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let bill_id = self.issue_bill(bill_payload, timestamp, false).await?;
             Ok(BillIdResponse { id: bill_id })
         }
@@ -478,7 +483,7 @@ impl Bill {
     ) -> JsValue {
         let res: Result<BillIdResponse> = async {
             let bill_payload: BitcreditBillPayload = serde_wasm_bindgen::from_value(payload)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let bill_id = self.issue_bill(bill_payload, timestamp, true).await?;
             Ok(BillIdResponse { id: bill_id })
         }
@@ -532,7 +537,7 @@ impl Bill {
             };
 
             let sum = Sum::new_sat_from_str(&offer_to_sell_payload.sum)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let deadline_ts = Date::new(&offer_to_sell_payload.buying_deadline)?.to_timestamp();
             self.offer_to_sell_bill(
                 offer_to_sell_payload,
@@ -570,7 +575,7 @@ impl Bill {
             };
 
             let sum = Sum::new_sat_from_str(&offer_to_sell_payload.sum)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let deadline_ts = parse_deadline_string(&offer_to_sell_payload.buying_deadline)?;
             self.offer_to_sell_bill(
                 offer_to_sell_payload,
@@ -617,7 +622,7 @@ impl Bill {
                 .contact_service
                 .get_identity_by_node_id(
                     &NodeId::from_str(&endorse_bill_payload.endorsee)
-                        .map_err(ValidationError::from)?,
+                        .map_err(ProtocolValidationError::from)?,
                 )
                 .await
             {
@@ -629,7 +634,7 @@ impl Bill {
                     .into());
                 }
             };
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             self.endorse(endorse_bill_payload, public_data_endorsee, timestamp)
                 .await
         }
@@ -650,7 +655,7 @@ impl Bill {
                 .contact_service
                 .get_identity_by_node_id(
                     &NodeId::from_str(&endorse_bill_payload.endorsee)
-                        .map_err(ValidationError::from)?,
+                        .map_err(ProtocolValidationError::from)?,
                 )
                 .await
             {
@@ -662,7 +667,7 @@ impl Bill {
                     .into());
                 }
             };
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             self.endorse(
                 endorse_bill_payload,
                 BillParticipant::Anon(public_data_endorsee_blank),
@@ -683,7 +688,7 @@ impl Bill {
             let request_to_pay_bill_payload: RequestToPayBitcreditBillPayload =
                 serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -716,7 +721,7 @@ impl Bill {
             let request_to_accept_bill_payload: RequestToAcceptBitcreditBillPayload =
                 serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -747,7 +752,7 @@ impl Bill {
             let accept_bill_payload: AcceptBitcreditBillPayload =
                 serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -776,14 +781,14 @@ impl Bill {
         let res: Result<()> = async {
             let request_to_mint_bill_payload: RequestToMintBitcreditBillPayload =
                 serde_wasm_bindgen::from_value(payload)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
             get_ctx()
                 .bill_service
                 .request_to_mint(
                     &request_to_mint_bill_payload.bill_id,
                     &NodeId::from_str(&request_to_mint_bill_payload.mint_node)
-                        .map_err(ValidationError::from)?,
+                        .map_err(ProtocolValidationError::from)?,
                     &signer_public_data,
                     &signer_keys,
                     timestamp,
@@ -799,7 +804,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<MintRequestStateResponse>")]
     pub async fn mint_state(&self, id: &str) -> JsValue {
         let res: Result<MintRequestStateResponse> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let result = get_ctx()
                 .bill_service
                 .get_mint_state(&bill_id, &get_current_identity_node_id().await?)
@@ -815,7 +820,7 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn check_mint_state(&self, id: &str) -> JsValue {
         let res: Result<()> = async {
-            let bill_id = BillId::from_str(id).map_err(ValidationError::from)?;
+            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             get_ctx()
                 .bill_service
                 .check_mint_state(&bill_id, &get_current_identity_node_id().await?)
@@ -830,7 +835,7 @@ impl Bill {
     pub async fn cancel_request_to_mint(&self, mint_request_id: &str) -> JsValue {
         let res: Result<()> = async {
             let parsed_id = Uuid::from_str(mint_request_id)
-                .map_err(|_| ValidationError::InvalidMintRequestId)?;
+                .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
             get_ctx()
                 .bill_service
                 .cancel_request_to_mint(&parsed_id, &get_current_identity_node_id().await?)
@@ -844,10 +849,10 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn accept_mint_offer(&self, mint_request_id: &str) -> JsValue {
         let res: Result<()> = async {
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
             let parsed_id = Uuid::from_str(mint_request_id)
-                .map_err(|_| ValidationError::InvalidMintRequestId)?;
+                .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
             get_ctx()
                 .bill_service
                 .accept_mint_offer(&parsed_id, &signer_public_data, &signer_keys, timestamp)
@@ -862,7 +867,7 @@ impl Bill {
     pub async fn reject_mint_offer(&self, mint_request_id: &str) -> JsValue {
         let res: Result<()> = async {
             let parsed_id = Uuid::from_str(mint_request_id)
-                .map_err(|_| ValidationError::InvalidMintRequestId)?;
+                .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
             get_ctx()
                 .bill_service
                 .reject_mint_offer(&parsed_id, &get_current_identity_node_id().await?)
@@ -881,7 +886,7 @@ impl Bill {
         let res: Result<()> = async {
             let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -909,7 +914,7 @@ impl Bill {
         let res: Result<()> = async {
             let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -937,7 +942,7 @@ impl Bill {
         let res: Result<()> = async {
             let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -965,7 +970,7 @@ impl Bill {
         let res: Result<()> = async {
             let reject_payload: RejectActionBillPayload = serde_wasm_bindgen::from_value(payload)?;
 
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
             get_ctx()
@@ -1060,7 +1065,8 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<string[]>")]
     pub async fn dev_mode_get_full_bill_chain(&self, bill_id: &str) -> JsValue {
         let res: Result<Vec<String>> = async {
-            let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
+            let parsed_bill_id =
+                BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
             let plaintext_chain = get_ctx()
                 .bill_service
                 .dev_mode_get_full_bill_chain(
@@ -1073,7 +1079,7 @@ impl Bill {
                 .map(|plaintext_block| {
                     plaintext_block
                         .to_json_text()
-                        .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+                        .map_err(|e| WasmError::Service(Error::Protocol(e.into())))
                 })
                 .collect();
 
@@ -1109,7 +1115,8 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BillHistoryResponse>")]
     pub async fn bill_history(&self, bill_id: &str) -> JsValue {
         let res: Result<BillHistoryResponse> = async {
-            let parsed_bill_id = BillId::from_str(bill_id).map_err(ValidationError::from)?;
+            let parsed_bill_id =
+                BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
             let res: BillHistoryResponse = get_ctx()
@@ -1135,7 +1142,7 @@ async fn request_recourse(
     recoursee_node_id: &NodeId,
     recourse_deadline_timestamp: Timestamp,
 ) -> Result<()> {
-    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
     // we fetch the nostr contact first to know where we have to send
@@ -1165,9 +1172,10 @@ async fn request_recourse(
     {
         Some(found_pe) => found_pe.pay_to_the_order_of.clone(),
         None => {
-            return Err(
-                BillServiceError::Validation(ValidationError::RecourseeNotPastHolder).into(),
-            );
+            return Err(BillServiceError::Validation(
+                ProtocolValidationError::RecourseeNotPastHolder.into(),
+            )
+            .into());
         }
     };
     public_data_recoursee.nostr_relays = nostr_contact.relays;
@@ -1211,7 +1219,10 @@ pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant
                         ),
                         Err(_) => {
                             // only non-anon bill issuers can sign a bill
-                            return Err(Error::Validation(ValidationError::SignerCantBeAnon).into());
+                            return Err(Error::Validation(
+                                ProtocolValidationError::SignerCantBeAnon.into(),
+                            )
+                            .into());
                         }
                     }
                 }
@@ -1227,9 +1238,9 @@ pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant
                 .get_company_and_keys_by_id(&company_node_id)
                 .await?;
             if !company.signatories.contains(&local_node_id) {
-                return Err(Error::Validation(ValidationError::NotASignatory(
-                    local_node_id.to_string(),
-                ))
+                return Err(Error::Validation(
+                    ProtocolValidationError::NotASignatory(local_node_id.to_string()).into(),
+                )
                 .into());
             }
             let mut as_ident = BillIdentParticipant::from(company);
@@ -1237,7 +1248,7 @@ pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant
             as_ident.nostr_relays = identity.identity.nostr_relays;
             (
                 BillParticipant::Ident(as_ident),
-                BcrKeys::from_private_key(&keys.private_key).map_err(Error::CryptoUtil)?,
+                BcrKeys::from_private_key(&keys.get_private_key()),
             )
         }
     };

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_core::email::Email;
-use bcr_ebill_core::{ServiceTraitBounds, notification::BillEventType};
+use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::protocol::{Email, event::bill_events::BillEventType};
 use borsh_derive::BorshSerialize;
 use nostr::hashes::Hash;
 use nostr::util::SECP256K1;

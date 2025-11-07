@@ -1,7 +1,7 @@
 use super::Result;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::{ServiceTraitBounds, util::BcrKeys};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::crypto::BcrKeys};
 
 use super::NostrContactData;
 

@@ -1,5 +1,5 @@
 use bcr_common::core::NodeId;
-use bcr_ebill_core::notification::{Notification, NotificationType};
+use bcr_ebill_core::application::notification::{Notification, NotificationType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tsify::Tsify;

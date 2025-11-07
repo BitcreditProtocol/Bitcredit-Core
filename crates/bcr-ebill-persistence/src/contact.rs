@@ -1,5 +1,5 @@
 use bcr_common::core::NodeId;
-use bcr_ebill_core::{ServiceTraitBounds, contact::Contact};
+use bcr_ebill_core::{application::ServiceTraitBounds, application::contact::Contact};
 use std::collections::HashMap;
 
 use super::Result;

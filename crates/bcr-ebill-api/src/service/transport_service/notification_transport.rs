@@ -2,13 +2,14 @@ use super::Result;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    contact::BillParticipant,
-    email::Email,
-    notification::{ActionType, Notification},
-    protocol::{BillChainEventPayload, Event},
-    sum::Sum,
-    util::BcrKeys,
+    application::ServiceTraitBounds,
+    application::notification::Notification,
+    protocol::Email,
+    protocol::Sum,
+    protocol::blockchain::bill::participant::BillParticipant,
+    protocol::crypto::BcrKeys,
+    protocol::event::ActionType,
+    protocol::event::{BillChainEventPayload, Event},
 };
 use bcr_ebill_persistence::notification::NotificationFilter;
 use std::collections::HashMap;

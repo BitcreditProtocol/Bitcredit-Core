@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use async_trait::async_trait;
-use bcr_ebill_core::ServiceTraitBounds;
+use bcr_ebill_core::application::ServiceTraitBounds;
 use nostr::hashes::{
     Hash,
     sha256::{self, Hash as Sha256HexHash},

@@ -1,6 +1,6 @@
 use super::Result;
 use async_trait::async_trait;
-use bcr_ebill_core::{ServiceTraitBounds, name::Name};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::Name};
 use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

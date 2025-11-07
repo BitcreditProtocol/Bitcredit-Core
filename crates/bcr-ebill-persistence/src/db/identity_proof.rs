@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    block_id::BlockId,
-    identity_proof::{IdentityProof, IdentityProofStamp, IdentityProofStatus},
-    timestamp::Timestamp,
+    application::{
+        ServiceTraitBounds,
+        identity_proof::{IdentityProof, IdentityProofStatus},
+    },
+    protocol::{BlockId, IdentityProofStamp, Timestamp},
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;

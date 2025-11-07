@@ -3,16 +3,13 @@ use std::str::FromStr;
 use super::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_common::core::NodeId;
-use bcr_ebill_api::{
-    external,
-    service::{
-        Error,
-        file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-    },
+use bcr_ebill_api::service::{
+    Error,
+    file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
 };
-use bcr_ebill_core::{
-    OptionalPostalAddress, PostalAddress, ValidationError, city::City, country::Country,
-    date::Date, email::Email, identification::Identification, name::Name,
+use bcr_ebill_core::protocol::{
+    City, Country, Date, Email, Identification, Name, OptionalPostalAddress, PostalAddress,
+    ProtocolValidationError, Timestamp,
 };
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -35,7 +32,7 @@ use crate::{
 };
 
 async fn get_file(id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
-    let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
+    let parsed_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
     let company = get_ctx()
         .company_service
         .get_company_by_id(&parsed_id)
@@ -52,8 +49,9 @@ async fn get_file(id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
         .open_and_decrypt_file(company, &parsed_id, file_name, &private_key)
         .await?;
 
-    let content_type = detect_content_type_for_bytes(&file_bytes)
-        .ok_or(Error::Validation(ValidationError::InvalidContentType))?;
+    let content_type = detect_content_type_for_bytes(&file_bytes).ok_or(Error::Validation(
+        ProtocolValidationError::InvalidContentType.into(),
+    ))?;
     Ok((file_bytes, content_type))
 }
 
@@ -142,7 +140,7 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "TSResult<ListSignatoriesResponse>")]
     pub async fn list_signatories(&self, id: &str) -> JsValue {
         let res: Result<ListSignatoriesResponse> = async {
-            let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
+            let parsed_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
             let signatories = get_ctx()
                 .company_service
                 .list_signatories(&parsed_id)
@@ -160,7 +158,7 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "TSResult<CompanyWeb>")]
     pub async fn detail(&self, id: &str) -> JsValue {
         let res: Result<CompanyWeb> = async {
-            let parsed_id = NodeId::from_str(id).map_err(ValidationError::from)?;
+            let parsed_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
             let company = get_ctx()
                 .company_service
                 .get_company_by_id(&parsed_id)
@@ -178,7 +176,7 @@ impl Company {
     ) -> JsValue {
         let res: Result<CompanyWeb> = async {
             let company_payload: CreateCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
 
             let created_company = get_ctx()
                 .company_service
@@ -208,13 +206,15 @@ impl Company {
                     company_payload
                         .proof_of_registration_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     company_payload
                         .logo_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     timestamp,
@@ -247,7 +247,7 @@ impl Company {
             {
                 return Ok(());
             }
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             get_ctx()
                 .company_service
                 .edit_company(
@@ -277,14 +277,16 @@ impl Company {
                     company_payload
                         .logo_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     !has_logo_file_upload_id,
                     company_payload
                         .proof_of_registration_file_upload_id
                         .map(|s| {
-                            Uuid::from_str(&s).map_err(|_| ValidationError::InvalidFileUploadId)
+                            Uuid::from_str(&s)
+                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
                     !has_proof_of_registration_file_upload_id,
@@ -304,7 +306,7 @@ impl Company {
     ) -> JsValue {
         let res: Result<()> = async {
             let company_payload: AddSignatoryPayload = serde_wasm_bindgen::from_value(payload)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             get_ctx()
                 .company_service
                 .add_signatory(
@@ -326,7 +328,7 @@ impl Company {
     ) -> JsValue {
         let res: Result<()> = async {
             let company_payload: RemoveSignatoryPayload = serde_wasm_bindgen::from_value(payload)?;
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = Timestamp::now();
             get_ctx()
                 .company_service
                 .remove_signatory(
@@ -361,7 +363,8 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "TSResult<string[]>")]
     pub async fn dev_mode_get_full_company_chain(&self, company_id: &str) -> JsValue {
         let res: Result<Vec<String>> = async {
-            let parsed_company_id = NodeId::from_str(company_id).map_err(ValidationError::from)?;
+            let parsed_company_id =
+                NodeId::from_str(company_id).map_err(ProtocolValidationError::from)?;
             let plaintext_chain = get_ctx()
                 .company_service
                 .dev_mode_get_full_company_chain(&parsed_company_id)
@@ -371,7 +374,7 @@ impl Company {
                 .map(|plaintext_block| {
                     plaintext_block
                         .to_json_text()
-                        .map_err(|e| WasmError::Service(Error::Blockchain(e)))
+                        .map_err(|e| WasmError::Service(Error::Protocol(e.into())))
                 })
                 .collect();
 

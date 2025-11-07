@@ -9,24 +9,25 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
-    blockchain::Block,
-    protocol::{ChainInvite, Event},
-    util::BcrKeys,
+    protocol::blockchain::Block,
+    protocol::{
+        crypto::BcrKeys,
+        event::{ChainInvite, Event},
+    },
 };
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    bill::BillKeys,
-    block_id::BlockId,
-    blockchain::{
+    application::ServiceTraitBounds,
+    application::company::Company,
+    application::identity_proof::{IdentityProof, IdentityProofStatus},
+    protocol::BlockId,
+    protocol::blockchain::{
         Blockchain, BlockchainType,
         bill::BillOpCode,
         company::{CompanyBlock, CompanyBlockPayload, CompanyBlockchain},
     },
-    company::{Company, CompanyKeys},
-    identity_proof::{IdentityProof, IdentityProofStatus},
 };
 use bcr_ebill_persistence::{
     company::{CompanyChainStoreApi, CompanyStoreApi},
@@ -55,7 +56,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         &self,
         company_id: &NodeId,
         blocks: Vec<CompanyBlock>,
-        keys: Option<CompanyKeys>,
+        keys: Option<BcrKeys>,
     ) -> Result<()> {
         // check that incoming company blocks are of the same network that we use
         if company_id.network() != self.bitcoin_network {
@@ -117,12 +118,11 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         ) {
             (Ok(mut existing_chain), Ok(company_keys)) => {
                 debug!("starting company chain resync for company {company_id}");
-                let bcr_keys: BcrKeys = company_keys.try_into()?;
                 if let Ok(chain_data) = resolve_event_chains(
                     self.transport.clone(),
                     &company_id.to_string(),
                     BlockchainType::Company,
-                    &bcr_keys,
+                    &company_keys,
                 )
                 .await
                 {
@@ -205,7 +205,7 @@ impl CompanyChainEventProcessor {
     async fn add_new_chain(
         &self,
         blocks: Vec<CompanyBlock>,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
         identity: &NodeId,
     ) -> Result<()> {
         let (company_id, mut company, mut chain, we_are_signatory) =
@@ -319,7 +319,7 @@ impl CompanyChainEventProcessor {
     async fn add_company_block(
         &self,
         company_id: &NodeId,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
         company: &mut Company,
         chain: &mut CompanyBlockchain,
         block: &CompanyBlock,
@@ -372,13 +372,10 @@ impl CompanyChainEventProcessor {
                         && payload.operation == BillOpCode::Issue
                     {
                         info!("Adding detected company bill {}", payload.bill_id);
-                        let bill_keys = BcrKeys::from_private_key(&bill_key)?;
+                        let bill_keys = BcrKeys::from_private_key(&bill_key);
                         let invite = ChainInvite::bill(
                             payload.bill_id.to_string(),
-                            BillKeys {
-                                private_key: bill_keys.get_private_key(),
-                                public_key: bill_keys.pub_key(),
-                            },
+                            BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         );
                         // we want to process all blocks for the company even if we don't have all
                         // the bills.
@@ -440,7 +437,7 @@ impl CompanyChainEventProcessor {
     fn get_valid_chain(
         &self,
         blocks: Vec<CompanyBlock>,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
         identity: &NodeId,
     ) -> Result<(NodeId, Company, CompanyBlockchain, bool)> {
         match CompanyBlockchain::new_from_blocks(blocks.clone()) {
@@ -503,7 +500,7 @@ impl CompanyChainEventProcessor {
         Ok(())
     }
 
-    async fn save_keys(&self, node_id: &NodeId, keys: &CompanyKeys) -> Result<()> {
+    async fn save_keys(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()> {
         if let Err(e) = self.company_store.save_key_pair(node_id, keys).await {
             error!("Failed to save keys to company store: {e}");
             return Err(Error::Persistence(
@@ -521,9 +518,14 @@ pub mod tests {
     use std::sync::Arc;
 
     use bcr_common::core::NodeId;
-    use bcr_ebill_core::protocol::{CompanyBlockEvent, Event, EventEnvelope};
+    use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
-        blockchain::{
+        application::company::Company,
+        protocol::IdentityProofStamp,
+        protocol::Name,
+        protocol::Sha256Hash,
+        protocol::Timestamp,
+        protocol::blockchain::{
             Blockchain, BlockchainType,
             company::{
                 CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain,
@@ -531,12 +533,7 @@ pub mod tests {
                 CompanyUpdateBlockData, SignatoryType,
             },
         },
-        company::{Company, CompanyKeys},
-        hash::Sha256Hash,
-        identity_proof::IdentityProofStamp,
-        name::Name,
-        timestamp::Timestamp,
-        util::BcrKeys,
+        protocol::crypto::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
@@ -865,7 +862,7 @@ pub mod tests {
             mut transport,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
-        let bcr_keys: BcrKeys = keys.clone().try_into().unwrap();
+        let bcr_keys: BcrKeys = keys.clone();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
             company.clone(),
@@ -1384,7 +1381,7 @@ pub mod tests {
     pub fn get_company_create_block(
         node_id: NodeId,
         company: Company,
-        keys: &CompanyKeys,
+        keys: &BcrKeys,
     ) -> CompanyBlock {
         CompanyBlock::create_block_for_create(
             node_id,
@@ -1401,7 +1398,7 @@ pub mod tests {
         node_id: NodeId,
         previous_block: &CompanyBlock,
         keys: &BcrKeys,
-        company_keys: &CompanyKeys,
+        company_keys: &BcrKeys,
         data: &CompanyUpdateBlockData,
     ) -> CompanyBlock {
         CompanyBlock::create_block_for_update(
@@ -1419,7 +1416,7 @@ pub mod tests {
         node_id: NodeId,
         previous_block: &CompanyBlock,
         keys: &BcrKeys,
-        company_keys: &CompanyKeys,
+        company_keys: &BcrKeys,
         data: &CompanyAddSignatoryBlockData,
     ) -> CompanyBlock {
         CompanyBlock::create_block_for_add_signatory(
@@ -1438,7 +1435,7 @@ pub mod tests {
         node_id: NodeId,
         previous_block: &CompanyBlock,
         keys: &BcrKeys,
-        company_keys: &CompanyKeys,
+        company_keys: &BcrKeys,
         data: &CompanyRemoveSignatoryBlockData,
     ) -> CompanyBlock {
         CompanyBlock::create_block_for_remove_signatory(
@@ -1456,7 +1453,7 @@ pub mod tests {
         node_id: NodeId,
         previous_block: &CompanyBlock,
         keys: &BcrKeys,
-        company_keys: &CompanyKeys,
+        company_keys: &BcrKeys,
         data: &CompanyIdentityProofBlockData,
     ) -> CompanyBlock {
         CompanyBlock::create_block_for_identity_proof(

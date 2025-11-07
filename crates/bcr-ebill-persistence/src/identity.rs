@@ -2,10 +2,10 @@ use super::Result;
 use async_trait::async_trait;
 
 use bcr_ebill_core::{
-    ServiceTraitBounds,
-    blockchain::identity::{IdentityBlock, IdentityBlockchain},
-    identity::{ActiveIdentityState, Identity, IdentityWithAll},
-    util::crypto::BcrKeys,
+    application::ServiceTraitBounds,
+    application::identity::{ActiveIdentityState, Identity, IdentityWithAll},
+    protocol::blockchain::identity::{IdentityBlock, IdentityBlockchain},
+    protocol::crypto::BcrKeys,
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

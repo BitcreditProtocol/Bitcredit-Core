@@ -3,19 +3,21 @@ use std::collections::HashMap;
 use super::{BillAction, Result, service::BillService};
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    bill::{BillKeys, RecourseReason},
-    blockchain::bill::BillBlockchain,
-    contact::Contact,
-    identity::Identity,
-    notification::ActionType,
-    protocol::BillChainEvent,
+    application::contact::Contact,
+    application::identity::Identity,
+    protocol::{
+        blockchain::bill::{BillBlockchain, RecourseReason},
+        crypto::BcrKeys,
+        event::ActionType,
+        event::BillChainEvent,
+    },
 };
 
 impl BillService {
     pub(super) async fn notify_for_block_action(
         &self,
         blockchain: &BillBlockchain,
-        bill_keys: &BillKeys,
+        bill_keys: &BcrKeys,
         bill_action: &BillAction,
         identity: &Identity,
         contacts: &HashMap<NodeId, Contact>,

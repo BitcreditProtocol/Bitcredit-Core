@@ -2,11 +2,13 @@ use std::{cmp::Reverse, sync::Arc};
 
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
-    blockchain::{BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
-    hash::Sha256Hash,
-    protocol::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
-    timestamp::Timestamp,
-    util::BcrKeys,
+    protocol::Sha256Hash,
+    protocol::Timestamp,
+    protocol::blockchain::{
+        BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock,
+    },
+    protocol::crypto::BcrKeys,
+    protocol::event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 use nostr::{
