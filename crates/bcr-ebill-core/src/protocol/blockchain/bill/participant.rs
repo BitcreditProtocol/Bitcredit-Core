@@ -39,7 +39,7 @@ impl BillParticipant {
     pub fn email(&self) -> Option<Email> {
         match self {
             BillParticipant::Ident(data) => data.email.to_owned(),
-            BillParticipant::Anon(data) => data.email.to_owned(),
+            BillParticipant::Anon(_) => None,
         }
     }
 
@@ -66,8 +66,6 @@ impl BillParticipant {
 pub struct BillAnonParticipant {
     /// The node id of the participant
     pub node_id: NodeId,
-    /// email address of the participant
-    pub email: Option<Email>,
     /// The preferred Nostr relay to deliver Nostr messages to
     pub nostr_relays: Vec<url::Url>,
 }
@@ -76,7 +74,6 @@ impl From<BillIdentParticipant> for BillAnonParticipant {
     fn from(value: BillIdentParticipant) -> Self {
         Self {
             node_id: value.node_id,
-            email: value.email,
             nostr_relays: value.nostr_relays,
         }
     }
@@ -170,7 +167,6 @@ impl From<BillParticipantBlockData> for BillParticipant {
             }),
             BillParticipantBlockData::Anon(data) => Self::Anon(BillAnonParticipant {
                 node_id: data.node_id,
-                email: None,
                 nostr_relays: vec![],
             }),
         }

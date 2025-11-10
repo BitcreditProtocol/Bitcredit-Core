@@ -189,7 +189,6 @@ impl TryFrom<Contact> for BillParticipant {
             }
             ContactType::Anon => Ok(BillParticipant::Anon(BillAnonParticipant {
                 node_id: value.node_id.clone(),
-                email: value.email,
                 nostr_relays: value.nostr_relays,
             })),
         }
@@ -232,7 +231,6 @@ impl BillAnonParticipant {
     pub fn new(identity: Identity) -> Self {
         Self {
             node_id: identity.node_id,
-            email: identity.email,
             nostr_relays: identity.nostr_relays,
         }
     }

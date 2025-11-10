@@ -963,8 +963,6 @@ impl From<BillParticipant> for BillParticipantWeb {
 pub struct BillAnonParticipantWeb {
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    #[tsify(type = "string | undefined")]
-    pub email: Option<Email>,
     #[tsify(type = "string[]")]
     pub nostr_relays: Vec<url::Url>,
 }
@@ -973,7 +971,6 @@ impl From<BillAnonParticipant> for BillAnonParticipantWeb {
     fn from(val: BillAnonParticipant) -> Self {
         BillAnonParticipantWeb {
             node_id: val.node_id,
-            email: val.email,
             nostr_relays: val.nostr_relays,
         }
     }

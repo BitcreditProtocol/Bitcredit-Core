@@ -121,7 +121,6 @@ impl NostrTransportService {
                     // we have no contact but a nostr contact of a participant
                     Some(BillParticipant::Anon(BillAnonParticipant {
                         node_id: node_id.to_owned(),
-                        email: None,
                         nostr_relays: nostr.relays,
                     }))
                 } else {
@@ -216,7 +215,6 @@ impl NostrTransportService {
         if let Some(transport) = self.get_node_transport(sender).await {
             let recipient = BillParticipant::Anon(BillAnonParticipant {
                 node_id: recipient.to_owned(),
-                email: None,
                 nostr_relays: relays.to_vec(),
             });
             transport.send_private_event(&recipient, message).await?;

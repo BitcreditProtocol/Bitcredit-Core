@@ -133,7 +133,6 @@ async function start(create_identity) {
       fail_on_error(await identityApi.create({
         t: 1,
         name: "Cypherpunk",
-        email: "cypher@example.com",
         postal_address: {},
       }));
 
