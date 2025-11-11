@@ -278,10 +278,8 @@ impl IdentityServiceApi for IdentityService {
             changed = true;
         }
 
-        // for anonymous identity, we only consider email and name
-        if identity.t == IdentityType::Anon {
-            util::update_optional_field(&mut identity.email, &email, &mut changed);
-        } else {
+        // for anonymous identity, we only consider name
+        if identity.t == IdentityType::Ident {
             if let Some(ref email_to_set) = email
                 && identity.email.as_ref() != Some(email_to_set)
             {
@@ -488,7 +486,7 @@ impl IdentityServiceApi for IdentityService {
                 t: t.clone(),
                 node_id: node_id.clone(),
                 name,
-                email,
+                email: None,
                 postal_address: OptionalPostalAddress::empty(),
                 date_of_birth: None,
                 country_of_birth: None,

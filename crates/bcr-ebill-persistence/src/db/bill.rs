@@ -1149,7 +1149,6 @@ impl From<BillAnonParticipantDb> for BillAnonParticipant {
     fn from(value: BillAnonParticipantDb) -> Self {
         Self {
             node_id: value.node_id,
-            email: None,
             nostr_relays: vec![],
         }
     }

@@ -337,10 +337,8 @@ impl ContactServiceApi for ContactService {
 
         let identity = self.identity_store.get_full().await?;
 
-        // for anonymous contact, we only consider email and name
-        if contact.t == ContactType::Anon {
-            util::update_optional_field(&mut contact.email, &email, &mut changed);
-        } else {
+        // for anonymous contact, we only consider name
+        if contact.t != ContactType::Anon {
             if let Some(ref email_to_set) = email {
                 contact.email = Some(email_to_set.clone());
                 changed = true;
@@ -533,7 +531,7 @@ impl ContactServiceApi for ContactService {
                     node_id: node_id.clone(),
                     t: t.clone(),
                     name,
-                    email,
+                    email: None,
                     postal_address: None,
                     date_of_birth_or_registration: None,
                     country_of_birth_or_registration: None,
@@ -1146,6 +1144,8 @@ pub mod tests {
         )
         .await;
         assert!(result.is_ok());
+        // email is not set, even if it's provided
+        assert!(result.as_ref().unwrap().email.is_none());
     }
 
     #[tokio::test]

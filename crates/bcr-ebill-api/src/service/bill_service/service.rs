@@ -153,12 +153,11 @@ impl BillService {
                 .await,
             ),
             BillParticipantBlockData::Anon(data) => {
-                let (email, nostr_relays) = self
+                let (_, nostr_relays) = self
                     .get_email_and_nostr_relay(&data.node_id, ContactType::Anon, identity, contacts)
                     .await;
                 BillParticipant::Anon(BillAnonParticipant {
                     node_id: data.node_id,
-                    email,
                     nostr_relays,
                 })
             }
@@ -685,7 +684,6 @@ impl BillService {
         };
         BillParticipant::Anon(BillAnonParticipant {
             node_id: mint_node_id.to_owned(),
-            email: None,
             nostr_relays: relays,
         })
     }
