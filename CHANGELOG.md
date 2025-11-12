@@ -13,6 +13,7 @@
 * Refactoring & Restructuring, removing cross-crate exports (breaking for Library dependents)
 * Properly separate `protocol` parts from `application` in `bcr-ebill-core` (breaking for Library dependents, breaking DB change)
 * Remove email from anon identities and contacts
+* Change document max file size to 10 MB and max files on bill to 20
 
 # 0.4.12
 
