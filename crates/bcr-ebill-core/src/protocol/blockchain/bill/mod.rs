@@ -278,6 +278,7 @@ pub struct BillHistoryBlock {
     pub block_id: BlockId,
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<BillParticipant>,
+    pub request_deadline: Option<Timestamp>,
     pub signed: SignedBy,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>,
@@ -287,6 +288,7 @@ impl BillHistoryBlock {
     pub fn new(
         block: &BillBlock,
         pay_to_the_order_of: Option<BillParticipant>,
+        request_deadline: Option<Timestamp>,
         signed: SignedBy,
         signing_address: Option<PostalAddress>,
     ) -> Self {
@@ -294,6 +296,7 @@ impl BillHistoryBlock {
             block_id: block.id(),
             block_type: block.op_code().to_owned(),
             pay_to_the_order_of,
+            request_deadline,
             signed,
             signing_timestamp: block.timestamp(),
             signing_address,

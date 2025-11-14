@@ -310,6 +310,8 @@ pub struct BillHistoryBlockWeb {
     pub block_id: BlockId,
     pub block_type: BillOpCodeWeb,
     pub pay_to_the_order_of: Option<LightBillParticipantWeb>,
+    #[tsify(type = "number | undefined")]
+    pub request_deadline: Option<Timestamp>,
     pub signed: LightSignedByWeb,
     #[tsify(type = "number")]
     pub signing_timestamp: Timestamp,
@@ -324,6 +326,7 @@ impl From<BillHistoryBlock> for BillHistoryBlockWeb {
             pay_to_the_order_of: value
                 .pay_to_the_order_of
                 .map(|pttoo| LightBillParticipant::from(pttoo).into()),
+            request_deadline: value.request_deadline,
             signed: value.signed.into(),
             signing_timestamp: value.signing_timestamp,
             signing_address: value.signing_address.map(|sa| sa.into()),
