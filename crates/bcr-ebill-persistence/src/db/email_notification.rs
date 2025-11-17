@@ -31,7 +31,7 @@ impl EmailNotificationStoreApi for SurrealEmailNotificationStore {
     ) -> Result<()> {
         let db = EmailNotificationPreferencesDb {
             node_id: node_id.to_owned(),
-            email_preferences_link: email_preferences_link.to_string(),
+            email_preferences_link: email_preferences_link.to_owned(),
         };
         let _: Option<EmailNotificationPreferencesDb> = self
             .db
@@ -47,17 +47,14 @@ impl EmailNotificationStoreApi for SurrealEmailNotificationStore {
         let result: Option<EmailNotificationPreferencesDb> =
             self.db.select_one(Self::TABLE, node_id.to_string()).await?;
 
-        Ok(match result {
-            Some(r) => url::Url::parse(&r.email_preferences_link).ok(),
-            None => None,
-        })
+        Ok(result.map(|l| l.email_preferences_link))
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EmailNotificationPreferencesDb {
     pub node_id: NodeId,
-    pub email_preferences_link: String,
+    pub email_preferences_link: url::Url,
 }
 
 #[cfg(test)]

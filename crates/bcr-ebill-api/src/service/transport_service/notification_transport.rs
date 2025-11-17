@@ -4,10 +4,8 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::notification::Notification,
-    protocol::Email,
     protocol::Sum,
     protocol::blockchain::bill::participant::BillParticipant,
-    protocol::crypto::BcrKeys,
     protocol::event::ActionType,
     protocol::event::{BillChainEventPayload, Event},
 };
@@ -78,15 +76,6 @@ pub trait NotificationTransportServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         block_height: i32,
         action: ActionType,
-    ) -> Result<()>;
-
-    /// Register email notifications for the currently selected identity
-    async fn register_email_notifications(
-        &self,
-        relay_url: &url::Url,
-        email: &Email,
-        node_id: &NodeId,
-        caller_keys: &BcrKeys,
     ) -> Result<()>;
 
     /// Fetch email notifications preferences link for the currently selected identity

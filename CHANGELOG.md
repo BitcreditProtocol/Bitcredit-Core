@@ -15,6 +15,7 @@
 * Remove email from anon identities and contacts
 * Change document max file size to 10 MB and max files on bill to 20
 * Add request deadlines to BillHistoryBlock
+* Remove `identity_proof` API and adapt and move to new email confirmation API
 
 # 0.4.12
 

@@ -12,15 +12,13 @@ use bcr_ebill_api::util::{validate_bill_id_network, validate_node_id_network};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::notification::{Notification, NotificationType};
 use bcr_ebill_core::{
-    protocol::Email,
     protocol::Sum,
     protocol::blockchain::bill::participant::BillParticipant,
-    protocol::crypto::BcrKeys,
     protocol::event::{ActionType, BillChainEventPayload, Event},
 };
 use bcr_ebill_persistence::NotificationStoreApi;
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
-use log::{error, warn};
+use log::error;
 
 use crate::NostrTransportService;
 
@@ -28,6 +26,7 @@ pub struct NotificationTransportService {
     nostr_transport: Arc<NostrTransportService>,
     notification_store: Arc<dyn NotificationStoreApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+    #[allow(unused)]
     email_client: Arc<dyn EmailClientApi>,
 }
 
@@ -199,32 +198,6 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         Ok(())
     }
 
-    /// Register email notifications for the currently selected identity
-    async fn register_email_notifications(
-        &self,
-        relay_url: &url::Url,
-        email: &Email,
-        node_id: &NodeId,
-        caller_keys: &BcrKeys,
-    ) -> Result<()> {
-        let challenge = self.email_client.start(relay_url, node_id).await?;
-
-        let preferences_link = self
-            .email_client
-            .register(
-                relay_url,
-                email,
-                caller_keys.get_nostr_keys().secret_key(),
-                &challenge,
-            )
-            .await?;
-        self.email_notification_store
-            .add_email_preferences_link_for_node_id(&preferences_link, node_id)
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?;
-        Ok(())
-    }
-
     /// Fetch email notifications preferences link for the currently selected identity
     async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url> {
         match self
@@ -243,39 +216,11 @@ impl NotificationTransportServiceApi for NotificationTransportService {
     /// ignores the request and returns a quick 200 OK.
     async fn send_email_notification(
         &self,
-        sender: &NodeId,
-        receiver: &NodeId,
-        event: &Event<BillChainEventPayload>,
+        _sender: &NodeId,
+        _receiver: &NodeId,
+        _event: &Event<BillChainEventPayload>,
     ) {
-        if let Some(node) = self.nostr_transport.get_node_transport(sender).await {
-            if let Some(identity) = self.nostr_transport.resolve_identity(receiver).await {
-                // TODO(multi-relay): don't default to first, but to notification relay of receiver
-                if let Some(nostr_relay) = identity.nostr_relays().first() {
-                    // send asynchronously and don't fail on error
-                    let email_client = self.email_client.clone();
-                    let relay_clone = nostr_relay.clone();
-                    let rcv_clone = receiver.clone();
-                    let private_key = node.get_sender_keys().get_nostr_keys().secret_key().clone();
-                    let evt_clone = event.clone();
-                    if let Err(e) = email_client
-                        .send_bill_notification(
-                            &relay_clone,
-                            evt_clone.data.event_type.to_owned(),
-                            &evt_clone.data.bill_id,
-                            &rcv_clone,
-                            &private_key,
-                        )
-                        .await
-                    {
-                        warn!("Failed to send email notification: {e}");
-                    }
-                }
-            } else {
-                warn!("Failed to find recipient in contacts for node_id: {receiver}");
-            }
-        } else {
-            warn!("No transport node found for sender node_id: {sender}");
-        }
+        // TODO: use email client and receiver's mint_url to send
     }
 }
 
@@ -303,7 +248,7 @@ mod tests {
         test_utils::{
             MockContactStore, MockEmailClient, MockEmailNotificationStore,
             MockNostrChainEventStore, MockNostrContactStore, MockNostrQueuedMessageStore,
-            MockNotificationJsonTransport, MockNotificationStore, as_contact, bill_id_test,
+            MockNotificationJsonTransport, MockNotificationStore, bill_id_test,
             get_identity_public_data, get_nostr_transport, init_test_cfg, node_id_test,
             node_id_test_other, node_id_test_other2, private_key_test,
         },
@@ -352,7 +297,7 @@ mod tests {
 
             email_client
                 .expect_send_bill_notification()
-                .returning(|_, _, _, _, _| Ok(()));
+                .returning(|_, _, _, _, _, _, _| Ok(()));
         });
 
         service
@@ -514,84 +459,6 @@ mod tests {
             .await
             .expect("could not mark notification as done");
     }
-    #[tokio::test]
-    async fn test_send_email_notification() {
-        init_test_cfg();
-
-        let service = expect_service(
-            |mock_transport, mock_contact_store, _, _, _, _, _, mock_email_client| {
-                let node_id = node_id_test_other();
-                let identity = get_identity_public_data(
-                    &node_id,
-                    &Email::new("test@example.com").unwrap(),
-                    vec![&url::Url::parse("ws://test.relay").unwrap()],
-                );
-                // Set up mocks
-                mock_contact_store
-                    .expect_get()
-                    .returning(move |_| Ok(Some(as_contact(&identity))));
-
-                mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
-                mock_transport
-                    .expect_send_private_event()
-                    .returning(|_, _| Ok(()));
-                mock_transport
-                    .expect_get_sender_keys()
-                    .returning(|| BcrKeys::from_private_key(&private_key_test()));
-
-                mock_email_client
-                    .expect_send_bill_notification()
-                    .returning(|_, _, _, _, _| Ok(()))
-                    .times(1);
-            },
-        );
-        let event = Event::new(
-            EventType::Bill,
-            BillChainEventPayload {
-                event_type: BillEventType::BillAccepted,
-                bill_id: bill_id_test(),
-                action_type: Some(ActionType::CheckBill),
-                sum: None,
-            },
-        );
-        service
-            .send_email_notification(&node_id_test(), &node_id_test_other(), &event)
-            .await;
-    }
-    #[tokio::test]
-    async fn test_register_email_notifications() {
-        init_test_cfg();
-
-        let service = expect_service(
-            |mock_transport, _, _, _, _, _, mock_email_notification_store, mock_email_client| {
-                mock_email_notification_store
-                    .expect_add_email_preferences_link_for_node_id()
-                    .returning(|_, _| Ok(()))
-                    .times(1);
-                mock_email_client
-                    .expect_start()
-                    .returning(|_, _| Ok("challenge".to_string()));
-                mock_email_client
-                    .expect_register()
-                    .returning(|_, _, _, _| Ok(url::Url::parse("http://bit.cr/").unwrap()));
-                mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
-            },
-        );
-
-        let result = service
-            .register_email_notifications(
-                &url::Url::parse("ws://test.relay").unwrap(),
-                &Email::new("test@example.com").unwrap(),
-                &node_id_test(),
-                &BcrKeys::new(),
-            )
-            .await;
-        assert!(result.is_ok());
-    }
 
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link() {
@@ -635,6 +502,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::NotFound)));
     }
+
     fn get_mocks() -> (
         MockNotificationJsonTransport,
         MockContactStore,

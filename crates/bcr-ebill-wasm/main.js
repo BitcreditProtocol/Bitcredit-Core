@@ -7,7 +7,6 @@ document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("notif").addEventListener("click", triggerNotif);
 document.getElementById("get_active_notif_status").addEventListener("click", getActiveNotif);
 document.getElementById("get_notif_list").addEventListener("click", getNotifList);
-document.getElementById("register_email_notifications").addEventListener("click", register_email_notifications);
 document.getElementById("get_email_notifications_preferences_link").addEventListener("click", get_email_notifications_preferences_link);
 
 // contacts
@@ -25,13 +24,6 @@ document.getElementById("switch_identity").addEventListener("click", switchIdent
 document.getElementById("share_contact_to").addEventListener("click", shareContact);
 document.getElementById("dev_mode_get_identity_chain").addEventListener("click", devModeGetIdentityChain);
 document.getElementById("sync_identity_chain").addEventListener("click", syncIdentityChain);
-
-// identity proofs
-document.getElementById("identity_proof_get_stamp").addEventListener("click", identityProofGetStamp);
-document.getElementById("identity_proof_create").addEventListener("click", identityProofCreate);
-document.getElementById("identity_proof_list").addEventListener("click", identityProofList);
-document.getElementById("identity_proof_archive").addEventListener("click", identityProofArchive);
-document.getElementById("identity_proof_re_check").addEventListener("click", identityProofReCheck);
 
 // bill actions
 document.getElementById("bill_fetch_detail").addEventListener("click", fetchBillDetail);
@@ -115,7 +107,6 @@ async function start(create_identity) {
 
   let notificationApi = wasm.Api.notification();
   let identityApi = wasm.Api.identity();
-  let identityProofApi = wasm.Api.identity_proof();
   let contactApi = wasm.Api.contact();
   let companyApi = wasm.Api.company();
   let billApi = wasm.Api.bill();
@@ -234,7 +225,7 @@ async function start(create_identity) {
     console.log("notifications: ", notifications);
   }
   console.log("Returning apis..");
-  return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi, identityProofApi };
+  return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi };
 }
 
 let apis = await start(generateIdentity());
@@ -242,7 +233,6 @@ let contactApi = apis.contactApi;
 let companyApi = apis.companyApi;
 let generalApi = apis.generalApi;
 let identityApi = apis.identityApi;
-let identityProofApi = apis.identityProofApi;
 let billApi = apis.billApi;
 window.billApi = billApi;
 window.identityApi = identityApi;
@@ -470,32 +460,6 @@ async function shareContact() {
   let node_id = document.getElementById("node_id_identity").value;
   console.log("sharing contact details to identity: ", node_id);
   fail_on_error(await identityApi.share_contact_details({ recipient: node_id }));
-}
-
-async function identityProofGetStamp() {
-  let stamp = success_or_fail(await identityProofApi.get_identity_stamp());
-  document.getElementById("identity_proof_stamp").value = stamp;
-}
-
-async function identityProofCreate() {
-  let stamp = document.getElementById("identity_proof_stamp").value;
-  let url = document.getElementById("identity_proof_url").value;
-  let identity_proof = success_or_fail(await identityProofApi.add(url, stamp));
-  document.getElementById("identity_proof_id").value = identity_proof.id;
-}
-async function identityProofList() {
-  let measured = measure(async () => {
-    return success_or_fail(await identityProofApi.list());
-  });
-  await measured();
-}
-async function identityProofArchive() {
-  let id = document.getElementById("identity_proof_id").value;
-  fail_on_error(await identityProofApi.archive(id));
-}
-async function identityProofReCheck() {
-  let id = document.getElementById("identity_proof_id").value;
-  success_or_fail(await identityProofApi.re_check(id));
 }
 
 async function endorseBill() {
@@ -852,13 +816,6 @@ async function getActiveNotif() {
 async function getNotifList() {
   let measured = measure(async () => {
     return success_or_fail(await notificationTriggerApi.list({}));
-  });
-  await measured();
-}
-
-async function register_email_notifications() {
-  let measured = measure(async () => {
-    return success_or_fail(await notificationTriggerApi.register_email_notifications(config.nostr_relays[0]));
   });
   await measured();
 }

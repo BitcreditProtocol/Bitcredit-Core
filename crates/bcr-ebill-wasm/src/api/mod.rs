@@ -6,7 +6,6 @@ pub mod company;
 pub mod contact;
 pub mod general;
 pub mod identity;
-pub mod identity_proof;
 pub mod notification;
 
 #[wasm_bindgen]
@@ -27,11 +26,6 @@ impl Api {
     #[wasm_bindgen]
     pub fn identity() -> identity::Identity {
         identity::Identity::new()
-    }
-
-    #[wasm_bindgen]
-    pub fn identity_proof() -> identity_proof::IdentityProof {
-        identity_proof::IdentityProof::new()
     }
 
     #[wasm_bindgen]

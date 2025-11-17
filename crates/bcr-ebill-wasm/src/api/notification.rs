@@ -1,7 +1,7 @@
 use super::Result;
 use crate::{
     TSResult,
-    api::{bill::get_signer_public_data_and_keys, identity::get_current_identity_node_id},
+    api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
         NotificationFilters,
@@ -9,8 +9,6 @@ use crate::{
     },
 };
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::Error;
-use bcr_ebill_core::protocol::{Field, ProtocolValidationError};
 use bcr_ebill_persistence::notification::NotificationFilter;
 use log::{error, info};
 use wasm_bindgen::prelude::*;
@@ -99,46 +97,6 @@ impl Notification {
                 .transport_service
                 .notification_transport()
                 .mark_notification_as_done(notification_id)
-                .await?;
-            Ok(())
-        }
-        .await;
-        TSResult::res_to_js(res)
-    }
-
-    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
-    /// Register email notifications for the currently selected identity
-    pub async fn register_email_notifications(&self, relay_url: &str) -> JsValue {
-        let res: Result<()> = async {
-            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-            let parsed_url = url::Url::parse(relay_url)
-                .map_err(|_| Error::Validation(ProtocolValidationError::InvalidUrl.into()))?;
-
-            // check if the given relay URL is one of the current selected identity's relays
-            if !caller_public_data
-                .nostr_relays()
-                .iter()
-                .any(|nr| nr == &parsed_url)
-            {
-                return Err(
-                    Error::Validation(ProtocolValidationError::InvalidRelayUrl.into()).into(),
-                );
-            }
-
-            // check if there is an email set
-            let email = caller_public_data.email().ok_or(Error::Validation(
-                ProtocolValidationError::FieldEmpty(Field::Email).into(),
-            ))?;
-
-            get_ctx()
-                .transport_service
-                .notification_transport()
-                .register_email_notifications(
-                    &parsed_url,
-                    &email,
-                    &caller_public_data.node_id(),
-                    &caller_keys,
-                )
                 .await?;
             Ok(())
         }

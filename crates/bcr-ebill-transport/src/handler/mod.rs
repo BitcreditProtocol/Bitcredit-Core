@@ -337,7 +337,6 @@ mod test_utils {
         bill::{BitcreditBillResult, PaymentState},
         company::Company,
         identity::{Identity, IdentityWithAll},
-        identity_proof::{IdentityProof, IdentityProofStatus},
         notification::{Notification, NotificationType},
     };
     use bcr_ebill_core::protocol::{
@@ -360,7 +359,6 @@ mod test_utils {
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         identity::{IdentityChainStoreApi, IdentityStoreApi},
-        identity_proof::IdentityProofStoreApi,
         nostr::NostrContactStoreApi,
         notification::NotificationFilter,
     };
@@ -528,31 +526,6 @@ mod test_utils {
             async fn get_current_identity(&self) -> Result<bcr_ebill_core::application::identity::ActiveIdentityState>;
             async fn set_current_identity(&self, identity_state: &bcr_ebill_core::application::identity::ActiveIdentityState) -> Result<()>;
             async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
-        }
-    }
-
-    mock! {
-        pub IdentityProofStore {}
-
-        impl ServiceTraitBounds for IdentityProofStore {}
-
-        #[async_trait]
-        impl IdentityProofStoreApi for IdentityProofStore {
-            async fn list_by_node_id(&self, node_id: &NodeId) -> Result<Vec<IdentityProof>>;
-            async fn add(&self, identity_proof: &IdentityProof) -> Result<()>;
-            async fn archive(&self, id: &str) -> Result<()>;
-            async fn archive_by_node_id(&self, node_id: &NodeId) -> Result<()>;
-            async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>>;
-            async fn update_status_by_id(
-                &self,
-                id: &str,
-                status: &IdentityProofStatus,
-                status_last_checked_timestamp: Timestamp,
-            ) -> Result<()>;
-            async fn get_with_status_last_checked_timestamp_before(
-                &self,
-                before_timestamp: Timestamp,
-            ) -> Result<Vec<IdentityProof>>;
         }
     }
 

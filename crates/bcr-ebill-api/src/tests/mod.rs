@@ -24,7 +24,6 @@ pub mod tests {
         application::company::Company,
         application::contact::Contact,
         application::identity::{ActiveIdentityState, Identity, IdentityWithAll},
-        application::identity_proof::{IdentityProof, IdentityProofStatus},
         application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
         application::notification::{Notification, NotificationType},
         protocol::blockchain::{
@@ -41,7 +40,6 @@ pub mod tests {
         protocol::mint::{MintOffer, MintRequest, MintRequestStatus},
         protocol::{OptionalPostalAddress, PostalAddress, PublicKey, SecretKey},
     };
-    use bcr_ebill_persistence::identity_proof::IdentityProofStoreApi;
     use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
         ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi, NotificationStoreApi, Result,
@@ -340,31 +338,6 @@ pub mod tests {
     }
 
     mockall::mock! {
-        pub IdentityProofStore {}
-
-        impl ServiceTraitBounds for IdentityProofStore {}
-
-        #[async_trait]
-        impl IdentityProofStoreApi for IdentityProofStore {
-            async fn list_by_node_id(&self, node_id: &NodeId) -> Result<Vec<IdentityProof>>;
-            async fn add(&self, identity_proof: &IdentityProof) -> Result<()>;
-            async fn archive(&self, id: &str) -> Result<()>;
-            async fn archive_by_node_id(&self, node_id: &NodeId) -> Result<()>;
-            async fn get_by_id(&self, id: &str) -> Result<Option<IdentityProof>>;
-            async fn update_status_by_id(
-                &self,
-                id: &str,
-                status: &IdentityProofStatus,
-                status_last_checked_timestamp: Timestamp,
-            ) -> Result<()>;
-            async fn get_with_status_last_checked_timestamp_before(
-                &self,
-                before_timestamp: Timestamp,
-            ) -> Result<Vec<IdentityProof>>;
-        }
-    }
-
-    mockall::mock! {
         pub NotificationStoreApiMock {}
 
         impl ServiceTraitBounds for NotificationStoreApiMock {}
@@ -459,7 +432,6 @@ pub mod tests {
             nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
             mint_store: Arc::new(MockMintStore::new()),
             nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
-            identity_proof_store: Arc::new(MockIdentityProofStore::new()),
         }
     }
 

@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
-    protocol::blockchain::Block,
     protocol::crypto::BcrKeys,
     protocol::event::{ChainInvite, Event},
 };
@@ -16,7 +15,6 @@ use std::sync::Arc;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::identity::{Identity, IdentityWithAll},
-    application::identity_proof::{IdentityProof, IdentityProofStatus},
     protocol::BlockId,
     protocol::blockchain::{
         Blockchain, BlockchainType,
@@ -24,10 +22,7 @@ use bcr_ebill_core::{
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
 };
-use bcr_ebill_persistence::{
-    identity::{IdentityChainStoreApi, IdentityStoreApi},
-    identity_proof::IdentityProofStoreApi,
-};
+use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 
 use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, NotificationHandlerApi};
 
@@ -36,7 +31,6 @@ use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, Notificati
 pub struct IdentityChainEventProcessor {
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
-    identity_proof_store: Arc<dyn IdentityProofStoreApi>,
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
@@ -146,7 +140,6 @@ impl IdentityChainEventProcessor {
     pub fn new(
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
-        identity_proof_store: Arc<dyn IdentityProofStoreApi>,
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
@@ -156,7 +149,6 @@ impl IdentityChainEventProcessor {
         Self {
             blockchain_store,
             identity_store,
-            identity_proof_store,
             company_invite_handler,
             bill_invite_handler,
             nostr_contact_processor,
@@ -307,36 +299,8 @@ impl IdentityChainEventProcessor {
                 IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
                 IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
                 IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
-                IdentityBlockPayload::IdentityProof(payload) => {
-                    let identity_proofs = self
-                        .identity_proof_store
-                        .list_by_node_id(node_id)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                    // If there is already an identity proof for this node id and block id, we don't do anything
-                    if !identity_proofs.iter().any(|ip| ip.block_id == block.id()) {
-                        debug!(
-                            "Add identity proof with block id {} for {}",
-                            block.id(),
-                            node_id
-                        );
-                        // otherwise, we add the proof to the DB with a last_checked_timestamp at creation time
-                        // so it will be checked soon
-                        let proof_to_add = IdentityProof {
-                            node_id: node_id.to_owned(),
-                            stamp: payload.stamp,
-                            url: payload.url,
-                            timestamp: block.timestamp(),
-                            status: IdentityProofStatus::Success,
-                            status_last_checked_timestamp: block.timestamp(),
-                            block_id: block.id(),
-                        };
-
-                        self.identity_proof_store
-                            .add(&proof_to_add)
-                            .await
-                            .map_err(|e| Error::Persistence(e.to_string()))?;
-                    }
+                IdentityBlockPayload::IdentityProof(_) => {
+                    // TODO: handle identity proof block
                 }
             }
 
@@ -435,8 +399,8 @@ pub mod tests {
             MockNotificationHandlerApi,
             identity_chain_event_processor::IdentityChainEventProcessor,
             test_utils::{
-                MockIdentityChainStore, MockIdentityProofStore, MockIdentityStore,
-                get_baseline_identity, node_id_test, private_key_test,
+                MockIdentityChainStore, MockIdentityStore, get_baseline_identity, node_id_test,
+                private_key_test,
             },
         },
         test_utils::MockNotificationJsonTransport,
@@ -445,19 +409,10 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (
-            chain_store,
-            store,
-            contact,
-            company_invite,
-            bill_invite,
-            identity_proof_store,
-            transport,
-        ) = create_mocks();
+        let (chain_store, store, contact, company_invite, bill_invite, transport) = create_mocks();
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -469,15 +424,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (
-            chain_store,
-            mut store,
-            contact,
-            company_invite,
-            bill_invite,
-            identity_proof_store,
-            transport,
-        ) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite, transport) =
+            create_mocks();
 
         store.expect_get().returning(move || {
             Err(bcr_ebill_persistence::Error::NoSuchEntity(
@@ -489,7 +437,6 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -504,15 +451,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_own_node_id() {
         let keys = BcrKeys::new();
-        let (
-            chain_store,
-            mut store,
-            contact,
-            company_invite,
-            bill_invite,
-            identity_proof_store,
-            transport,
-        ) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite, transport) =
+            create_mocks();
         let identity = get_baseline_identity();
         store
             .expect_get()
@@ -521,7 +461,6 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -536,15 +475,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_validate_chain_event() {
-        let (
-            chain_store,
-            mut store,
-            contact,
-            company_invite,
-            bill_invite,
-            identity_proof_store,
-            transport,
-        ) = create_mocks();
+        let (chain_store, mut store, contact, company_invite, bill_invite, transport) =
+            create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
         identity.name = Name::new("new name").unwrap();
@@ -555,7 +487,6 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -572,15 +503,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_identity_data() {
-        let (
-            mut chain_store,
-            mut store,
-            contact,
-            company_invite,
-            bill_invite,
-            identity_proof_store,
-            transport,
-        ) = create_mocks();
+        let (mut chain_store, mut store, contact, company_invite, bill_invite, transport) =
+            create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -628,7 +552,6 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -644,15 +567,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_recovers_chain_on_missing_blocks() {
-        let (
-            mut chain_store,
-            mut store,
-            contact,
-            company_invite,
-            bill_invite,
-            identity_proof_store,
-            mut transport,
-        ) = create_mocks();
+        let (mut chain_store, mut store, contact, company_invite, bill_invite, mut transport) =
+            create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -764,7 +680,6 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -811,15 +726,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_identity_proof() {
-        let (
-            mut chain_store,
-            mut store,
-            contact,
-            company_invite,
-            bill_invite,
-            mut identity_proof_store,
-            transport,
-        ) = create_mocks();
+        let (mut chain_store, mut store, contact, company_invite, bill_invite, transport) =
+            create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -830,16 +738,6 @@ pub mod tests {
             url: url::Url::parse("https://bit.cr").unwrap(),
         };
         let identity_proof_block = get_identity_proof_block(chain.get_latest_block(), &keys, &data);
-
-        // return no proofs
-        identity_proof_store
-            .expect_list_by_node_id()
-            .returning(|_| Ok(vec![]));
-        // has to add it
-        identity_proof_store
-            .expect_add()
-            .returning(|_| Ok(()))
-            .times(1);
 
         // get the current identity state
         let expected_identity = identity.clone();
@@ -870,7 +768,6 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
-            Arc::new(identity_proof_store),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -928,7 +825,6 @@ pub mod tests {
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
         MockNotificationHandlerApi,
-        MockIdentityProofStore,
         MockNotificationJsonTransport,
     ) {
         (
@@ -937,7 +833,6 @@ pub mod tests {
             MockNostrContactProcessorApi::new(),
             MockNotificationHandlerApi::new(),
             MockNotificationHandlerApi::new(),
-            MockIdentityProofStore::new(),
             MockNotificationJsonTransport::new(),
         )
     }
