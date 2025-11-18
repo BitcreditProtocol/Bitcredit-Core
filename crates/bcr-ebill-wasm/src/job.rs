@@ -11,7 +11,6 @@ pub fn run_jobs() {
             run_check_bill_offer_to_sell_payment_job(),
             run_check_bill_recourse_payment_job(),
             run_process_nostr_message_queue_job(),
-            run_identity_proof_check_job(),
         );
         run_check_bill_timeouts().await;
     });
@@ -81,16 +80,4 @@ async fn run_process_nostr_message_queue_job() {
         error!("Error while running process Nostr message queue Job: {e}");
     }
     info!("Finished running process Nostr message queue Job");
-}
-
-async fn run_identity_proof_check_job() {
-    info!("Running Identity Proof Job");
-    if let Err(e) = get_ctx()
-        .identity_proof_service
-        .re_check_outdated_identity_proofs()
-        .await
-    {
-        error!("Error while running Identity Proof Job: {e}");
-    }
-    info!("Finished running Identity Proof Job");
 }

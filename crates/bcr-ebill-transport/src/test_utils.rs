@@ -19,6 +19,7 @@ use bcr_ebill_core::protocol::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{EventEnvelope, EventType};
+use bcr_ebill_core::protocol::mint::MintSignature;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::contact::Contact,
@@ -515,13 +516,6 @@ mockall::mock! {
             block_height: i32,
             action: ActionType,
         ) -> Result<()>;
-        async fn register_email_notifications(
-            &self,
-            relay_url: &url::Url,
-            email: &Email,
-            node_id: &NodeId,
-            caller_keys: &BcrKeys,
-        ) -> Result<()>;
         async fn get_email_notifications_preferences_link(&self, node_id: &NodeId) -> Result<url::Url>;
         async fn send_email_notification(
             &self,
@@ -757,24 +751,43 @@ mockall::mock! {
 
 mockall::mock! {
     pub EmailClient {}
+
     #[async_trait]
     impl EmailClientApi for EmailClient {
-        async fn start(&self, relay_url: &url::Url, node_id: &NodeId) -> bcr_ebill_api::external::email::Result<String>;
         async fn register(
             &self,
-            relay_url: &url::Url,
+            mint_url: &url::Url,
+            node_id: &NodeId,
+            company_node_id: &Option<NodeId>,
             email: &Email,
-            private_key: &nostr::SecretKey,
-            challenge: &str,
-        ) -> bcr_ebill_api::external::email::Result<url::Url>;
+            private_key: &SecretKey,
+        ) -> bcr_ebill_api::external::email::Result<()>;
+        async fn confirm(
+            &self,
+            mint_url: &url::Url,
+            mint_node_id: &NodeId,
+            node_id: &NodeId,
+            company_node_id: &Option<NodeId>,
+            confirmation_code: &str,
+            private_key: &SecretKey,
+        ) -> bcr_ebill_api::external::email::Result<MintSignature>;
         async fn send_bill_notification(
             &self,
-            relay_url: &url::Url,
+            mint_url: &url::Url,
             kind: BillEventType,
             id: &BillId,
             receiver: &NodeId,
-            private_key: &nostr::SecretKey,
+            receiver_company_node_id: &Option<NodeId>,
+            sender: &NodeId,
+            private_key: &SecretKey,
         ) -> bcr_ebill_api::external::email::Result<()>;
+        async fn get_email_preferences_link(
+            &self,
+            mint_url: &url::Url,
+            node_id: &NodeId,
+            company_node_id: &Option<NodeId>,
+            private_key: &SecretKey,
+        ) -> bcr_ebill_api::external::email::Result<url::Url>;
     }
     impl ServiceTraitBounds for EmailClient {}
 }

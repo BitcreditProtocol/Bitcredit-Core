@@ -24,7 +24,6 @@ pub mod email_notification;
 pub mod file_upload;
 pub mod identity;
 pub mod identity_chain;
-pub mod identity_proof;
 pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
