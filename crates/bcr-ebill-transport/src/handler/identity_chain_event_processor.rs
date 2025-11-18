@@ -274,7 +274,7 @@ impl IdentityChainEventProcessor {
                     );
                     let event = Event::new_company_invite(invite);
                     self.company_invite_handler
-                        .handle_event(event.try_into()?, node_id, None)
+                        .handle_event(event.try_into()?, node_id, None, None)
                         .await?;
                 }
                 IdentityBlockPayload::SignPersonalBill(payload) => {
@@ -292,7 +292,7 @@ impl IdentityChainEventProcessor {
                             BcrKeys::from_private_key(&bill_keys.get_private_key()),
                         );
                         self.bill_invite_handler
-                            .handle_event(Event::new_bill(invite).try_into()?, node_id, None)
+                            .handle_event(Event::new_bill(invite).try_into()?, node_id, None, None)
                             .await?;
                     }
                 }

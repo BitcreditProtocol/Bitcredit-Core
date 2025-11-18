@@ -62,6 +62,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
         &self,
         event: bcr_ebill_core::protocol::event::EventEnvelope,
         node_id: &NodeId,
+        sender: Option<nostr::PublicKey>,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()>;
 }
@@ -204,6 +205,7 @@ impl NotificationHandlerApi for LoggingEventHandler {
         &self,
         event: EventEnvelope,
         identity: &NodeId,
+        _: Option<nostr::PublicKey>,
         _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         trace!("Received event: {event:?} for identity: {identity}");
@@ -247,6 +249,7 @@ mod tests {
                     "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
                 )
                 .unwrap(),
+                None,
                 Some(nostr_event),
             )
             .await
@@ -302,6 +305,7 @@ mod tests {
             &self,
             event: EventEnvelope,
             _: &NodeId,
+            _: Option<nostr::PublicKey>,
             _: Option<Box<nostr::Event>>,
         ) -> Result<()> {
             *self.called.lock().await = true;
