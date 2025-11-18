@@ -53,7 +53,7 @@ impl Context {
         let transport_service = create_transport_service(
             nostr_clients.clone(),
             db.clone(),
-            email_client,
+            email_client.clone(),
             cfg.nostr_config.relays.to_owned(),
         )
         .await?;
@@ -92,6 +92,8 @@ impl Context {
             file_upload_client.clone(),
             db.identity_chain_store.clone(),
             transport_service.clone(),
+            email_client.clone(),
+            db.email_notification_store.clone(),
         );
 
         let company_service = CompanyService::new(

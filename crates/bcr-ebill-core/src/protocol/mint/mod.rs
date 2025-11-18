@@ -1,8 +1,6 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use uuid::Uuid;
-
-use crate::protocol::{Email, Sum, Timestamp};
+use crate::protocol::{Sum, Timestamp};
 use bcr_common::core::{BillId, NodeId};
+use uuid::Uuid;
 
 /// A request to mint
 #[derive(Debug, Clone)]
@@ -74,13 +72,4 @@ pub struct MintRequestState {
     pub request: MintRequest,
     /// There might be an offer
     pub offer: Option<MintOffer>,
-}
-
-/// node_id/company_node_id => email mapping, signed by a mint
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct MintSignature {
-    pub node_id: NodeId,
-    pub company_node_id: Option<NodeId>,
-    pub email: Email,
-    pub created_at: Timestamp,
 }

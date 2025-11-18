@@ -25,7 +25,7 @@ pub use base::date::Date;
 pub use base::email::Email;
 pub use base::hash::Sha256Hash;
 pub use base::identification::Identification;
-pub use base::identity_proof::IdentityProofStamp;
+pub use base::identity_proof::{SignedEmailIdentityData, SignedIdentityProof};
 pub use base::name::Name;
 pub use base::signature::SchnorrSignature;
 pub use base::sum::Currency;

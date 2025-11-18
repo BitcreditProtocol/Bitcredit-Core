@@ -15,7 +15,7 @@ pub mod tests {
         },
         protocol::{
             Address, City, Country, Date, Email, Name, OptionalPostalAddress, PostalAddress,
-            PublicKey, SecretKey, Sum, Timestamp,
+            PublicKey, SecretKey, SignedEmailIdentityData, SignedIdentityProof, Sum, Timestamp,
             blockchain::{
                 bill::{
                     BillHistory, BitcreditBill, ContactType,
@@ -202,6 +202,17 @@ pub mod tests {
     pub fn node_id_test_other2() -> NodeId {
         NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
             .unwrap()
+    }
+
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
+        let data = SignedEmailIdentityData {
+            node_id: node_id_test(),
+            company_node_id: None,
+            email: Email::new("test@example.com").unwrap(),
+            created_at: Timestamp::new(1731593929).unwrap(),
+        };
+        let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
+        (proof, data)
     }
 
     // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY

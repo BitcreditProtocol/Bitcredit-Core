@@ -33,10 +33,8 @@ impl EmailNotificationStoreApi for SurrealEmailNotificationStore {
             node_id: node_id.to_owned(),
             email_preferences_link: email_preferences_link.to_owned(),
         };
-        let _: Option<EmailNotificationPreferencesDb> = self
-            .db
-            .create(Self::TABLE, Some(node_id.to_string()), db)
-            .await?;
+        let _: Option<EmailNotificationPreferencesDb> =
+            self.db.upsert(Self::TABLE, node_id.to_string(), db).await?;
         Ok(())
     }
 

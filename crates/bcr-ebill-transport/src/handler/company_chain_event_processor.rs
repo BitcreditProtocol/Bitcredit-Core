@@ -481,7 +481,6 @@ pub mod tests {
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
         application::company::Company,
-        protocol::IdentityProofStamp,
         protocol::Name,
         protocol::Sha256Hash,
         protocol::Timestamp,
@@ -497,13 +496,14 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
+    use crate::handler::test_utils::signed_identity_proof_test;
     use crate::{
         handler::{
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
             MockNostrContactProcessorApi, MockNotificationHandlerApi,
             test_utils::{
                 MockCompanyChainStore, MockCompanyStore, MockIdentityStore, get_company_data,
-                node_id_test, private_key_test,
+                node_id_test,
             },
         },
         test_utils::{MockNotificationJsonTransport, get_baseline_identity},
@@ -1195,9 +1195,10 @@ pub mod tests {
             &keys,
         )];
         let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let test_signed_identity = signed_identity_proof_test();
         let data = CompanyIdentityProofBlockData {
-            stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
-            url: url::Url::parse("https://bit.cr").unwrap(),
+            proof: test_signed_identity.0,
+            data: test_signed_identity.1,
         };
         let update_block = get_company_identity_proof_block(
             node_id.clone(),

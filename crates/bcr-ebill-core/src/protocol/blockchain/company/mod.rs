@@ -1,6 +1,7 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain};
+use crate::protocol::BlockId;
 use crate::protocol::City;
 use crate::protocol::Country;
 use crate::protocol::Date;
@@ -10,9 +11,9 @@ use crate::protocol::Name;
 use crate::protocol::SchnorrSignature;
 use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
+use crate::protocol::base::identity_proof::{SignedEmailIdentityData, SignedIdentityProof};
 use crate::protocol::blockchain::{Error, borsh_to_json_value};
 use crate::protocol::crypto::{self, BcrKeys};
-use crate::protocol::{BlockId, IdentityProofStamp};
 use crate::protocol::{File, OptionalPostalAddress, PostalAddress};
 use bcr_common::core::BillId;
 use bcr_common::core::NodeId;
@@ -186,12 +187,8 @@ pub struct CompanyRemoveSignatoryBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyIdentityProofBlockData {
-    pub stamp: IdentityProofStamp,
-    #[borsh(
-        serialize_with = "crate::protocol::serialization::serialize_url",
-        deserialize_with = "crate::protocol::serialization::deserialize_url"
-    )]
-    pub url: url::Url,
+    pub proof: SignedIdentityProof,
+    pub data: SignedEmailIdentityData,
 }
 
 #[derive(Debug)]
@@ -660,7 +657,8 @@ mod tests {
     use crate::protocol::{
         Country,
         tests::tests::{
-            bill_id_test, node_id_test, private_key_test, valid_address, valid_optional_address,
+            bill_id_test, node_id_test, private_key_test, signed_identity_proof_test,
+            valid_address, valid_optional_address,
         },
     };
 
@@ -800,6 +798,24 @@ mod tests {
         chain.try_add_block(remove_signatory_block.unwrap());
 
         assert_eq!(chain.blocks().len(), 5);
+        assert!(chain.is_chain_valid());
+
+        let test_signed_identity = signed_identity_proof_test();
+        let identity_proof_block = CompanyBlock::create_block_for_identity_proof(
+            id.clone(),
+            chain.get_latest_block(),
+            &CompanyIdentityProofBlockData {
+                proof: test_signed_identity.0,
+                data: test_signed_identity.1,
+            },
+            &identity_keys,
+            &company_keys,
+            Timestamp::new(1731593933).unwrap(),
+        );
+        assert!(identity_proof_block.is_ok());
+        chain.try_add_block(identity_proof_block.unwrap());
+
+        assert_eq!(chain.blocks().len(), 6);
         assert!(chain.is_chain_valid());
 
         let new_chain_from_empty_blocks = CompanyBlockchain::new_from_blocks(vec![]);

@@ -11,6 +11,8 @@ pub mod tests {
     use crate::protocol::Sum;
     use crate::protocol::Timestamp;
     use crate::protocol::Zip;
+    use crate::protocol::base::identity_proof::SignedEmailIdentityData;
+    use crate::protocol::base::identity_proof::SignedIdentityProof;
     use crate::protocol::blockchain::bill::BitcreditBill;
     use crate::protocol::blockchain::bill::ContactType;
     use crate::protocol::blockchain::bill::participant::BillIdentParticipant;
@@ -187,6 +189,17 @@ pub mod tests {
     pub fn node_id_regtest() -> NodeId {
         NodeId::from_str("bitcrr02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
             .unwrap()
+    }
+
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
+        let data = SignedEmailIdentityData {
+            node_id: node_id_test(),
+            company_node_id: None,
+            email: Email::new("test@example.com").unwrap(),
+            created_at: Timestamp::new(1731593929).unwrap(),
+        };
+        let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
+        (proof, data)
     }
 
     // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY

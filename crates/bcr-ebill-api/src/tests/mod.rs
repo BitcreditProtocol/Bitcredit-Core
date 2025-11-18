@@ -18,6 +18,7 @@ pub mod tests {
     use bcr_ebill_core::protocol::Sum;
     use bcr_ebill_core::protocol::Timestamp;
     use bcr_ebill_core::protocol::blockchain::bill::BitcreditBill;
+    use bcr_ebill_core::protocol::{SignedEmailIdentityData, SignedIdentityProof};
     use bcr_ebill_core::{
         application::ServiceTraitBounds,
         application::bill::{BitcreditBillResult, PaymentState},
@@ -278,6 +279,14 @@ pub mod tests {
             async fn get_current_identity(&self) -> Result<ActiveIdentityState>;
             async fn set_current_identity(&self, identity_state: &ActiveIdentityState) -> Result<()>;
             async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
+            async fn get_email_confirmations(
+                &self,
+            ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>>;
+            async fn set_email_confirmation(
+                &self,
+                proof: &SignedIdentityProof,
+                data: &SignedEmailIdentityData,
+            ) -> Result<()>;
         }
     }
 
@@ -465,7 +474,8 @@ pub mod tests {
                         num_confirmations_for_payment: 6,
                     },
                     dev_mode_config: DevModeConfig {
-                        on: false
+                        on: false,
+                        disable_mandatory_email_confirmations: false
                     },
                     court_config: CourtConfig {
                         default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap()
@@ -583,6 +593,17 @@ pub mod tests {
     pub fn node_id_test_other2() -> NodeId {
         NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
             .unwrap()
+    }
+
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
+        let data = SignedEmailIdentityData {
+            node_id: node_id_test(),
+            company_node_id: None,
+            email: Email::new("test@example.com").unwrap(),
+            created_at: Timestamp::new(1731593929).unwrap(),
+        };
+        let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
+        (proof, data)
     }
 
     // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY

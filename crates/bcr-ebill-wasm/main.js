@@ -24,6 +24,9 @@ document.getElementById("switch_identity").addEventListener("click", switchIdent
 document.getElementById("share_contact_to").addEventListener("click", shareContact);
 document.getElementById("dev_mode_get_identity_chain").addEventListener("click", devModeGetIdentityChain);
 document.getElementById("sync_identity_chain").addEventListener("click", syncIdentityChain);
+document.getElementById("confirm_email").addEventListener("click", confirmEmail);
+document.getElementById("verify_email").addEventListener("click", verifyEmail);
+document.getElementById("get_confirmations").addEventListener("click", getIdentityConfirmations);
 
 // bill actions
 document.getElementById("bill_fetch_detail").addEventListener("click", fetchBillDetail);
@@ -91,46 +94,50 @@ let config = {
   job_runner_initial_delay_seconds: 5,
   job_runner_check_interval_seconds: 600,
   transport_initial_subscription_delay_seconds: 1,
-  // default_mint_url: "http://localhost:4343",
-  default_mint_url: "https://wildcat-dev-docker.minibill.tech",
+  default_mint_url: "http://localhost:4343",
+  // default_mint_url: "https://wildcat-dev-docker.minibill.tech",
   // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
-  default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
+  default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99", // dev mint
   num_confirmations_for_payment: 1,
   dev_mode: true,
+  disable_mandatory_email_confirmations: true,
   // default_court_url: "http://localhost:8000",
   default_court_url: "https://bcr-court-dev.minibill.tech"
 };
+
 
 async function start(create_identity) {
   await wasm.default();
   await wasm.initialize_api(config);
 
-  let notificationApi = wasm.Api.notification();
-  let identityApi = wasm.Api.identity();
-  let contactApi = wasm.Api.contact();
-  let companyApi = wasm.Api.company();
-  let billApi = wasm.Api.bill();
-  let generalApi = wasm.Api.general();
+  window.notifApi = wasm.Api.notification();
+  window.identityApi = wasm.Api.identity();
+  window.contactApi = wasm.Api.contact();
+  window.companyApi = wasm.Api.company();
+  window.billApi = wasm.Api.bill();
+  window.generalApi = wasm.Api.general();
+
+  console.log("Apis initialized..");
 
   // Identity
   let identity;
   try {
-    identity = success_or_fail(await identityApi.detail());
+    identity = success_or_fail(await window.identityApi.detail());
     console.log("local identity:", identity);
   } catch (err) {
     if (create_identity) {
       await sleep(2000); // sleep to let Nostr connect before first setup
       console.log("No local identity found - creating anon identity..");
-      fail_on_error(await identityApi.create({
+      fail_on_error(await window.identityApi.create({
         t: 1,
         name: "Cypherpunk",
         postal_address: {},
       }));
 
-      identity = success_or_fail(await identityApi.detail());
+      identity = success_or_fail(await window.identityApi.detail());
 
       console.log("Deanonymizing identity..");
-      fail_on_error(await identityApi.deanonymize({
+      fail_on_error(await window.identityApi.deanonymize({
         t: 0,
         name: "Johanna Smith",
         email: "jsmith@example.com",
@@ -143,7 +150,7 @@ async function start(create_identity) {
       }));
 
       // add self to contacts
-      fail_on_error(await contactApi.create({
+      fail_on_error(await window.contactApi.create({
         t: 0,
         node_id: identity.node_id,
         name: "Self Contact",
@@ -162,19 +169,19 @@ async function start(create_identity) {
   if (identity) {
     document.getElementById("identity").innerHTML = identity.node_id;
 
-    await notificationApi.subscribe((evt) => {
+    await window.notifApi.subscribe((evt) => {
       console.log("Received event in JS: ", evt);
     });
 
-    current_identity = success_or_fail(await identityApi.active());
+    current_identity = success_or_fail(await window.identityApi.active());
     console.log(current_identity);
     document.getElementById("current_identity").innerHTML = current_identity.node_id;
 
     // Company
-    let companies = success_or_fail(await companyApi.list());
+    let companies = success_or_fail(await window.companyApi.list());
     console.log("companies:", companies.companies.length, companies);
     if (companies.companies.length == 0 && create_identity) {
-      let company = success_or_fail(await companyApi.create({
+      let company = success_or_fail(await window.companyApi.create({
         name: "hayek Ltd",
         email: "test@example.com",
         postal_address: {
@@ -185,11 +192,11 @@ async function start(create_identity) {
         }
       }));
       console.log("company: ", company);
-      fail_on_error(await companyApi.edit({ id: company.id, email: "different@example.com", postal_address: {} }));
-      let detail = success_or_fail(await companyApi.detail(company.id));
+      fail_on_error(await window.companyApi.edit({ id: company.id, email: "different@example.com", postal_address: {} }));
+      let detail = success_or_fail(await window.companyApi.detail(company.id));
       console.log("company detail: ", detail);
       // add company to contacts
-      fail_on_error(await contactApi.create({
+      fail_on_error(await window.contactApi.create({
         t: 1,
         node_id: detail.id,
         name: "Company Contact",
@@ -207,39 +214,27 @@ async function start(create_identity) {
   }
 
   // General
-  let currencies = success_or_fail(await generalApi.currencies());
+  let currencies = success_or_fail(await window.generalApi.currencies());
   console.log("currencies: ", currencies);
 
-  let status = success_or_fail(await generalApi.status());
+  let status = success_or_fail(await window.generalApi.status());
   console.log("status: ", status);
 
   if (identity) {
-    let search = success_or_fail(await generalApi.search({ filter: { search_term: "Test", currency: "SAT", item_types: ["Contact"] } }));
+    let search = success_or_fail(await window.generalApi.search({ filter: { search_term: "Test", currency: "SAT", item_types: ["Contact"] } }));
     console.log("search: ", search);
   }
 
   // Notifications
   if (current_identity) {
     let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
-    let notifications = success_or_fail(await notificationApi.list(filter));
+    let notifications = success_or_fail(await window.notifApi.list(filter));
     console.log("notifications: ", notifications);
   }
   console.log("Returning apis..");
-  return { companyApi, generalApi, identityApi, billApi, contactApi, notificationApi };
 }
 
-let apis = await start(generateIdentity());
-let contactApi = apis.contactApi;
-let companyApi = apis.companyApi;
-let generalApi = apis.generalApi;
-let identityApi = apis.identityApi;
-let billApi = apis.billApi;
-window.billApi = billApi;
-window.identityApi = identityApi;
-window.generalApi = generalApi;
-let notificationTriggerApi = apis.notificationApi;
-console.log("Apis initialized..");
-
+await start(generateIdentity());
 
 async function uploadFile(event) {
   const file = event.target.files[0];
@@ -257,7 +252,7 @@ async function uploadFile(event) {
   console.log("File Extension:", uploadedFile.extension);
   console.log("File Bytes:", uploadedFile.data);
   try {
-    let file_upload_response = success_or_fail(await contactApi.upload(uploadedFile));
+    let file_upload_response = success_or_fail(await window.contactApi.upload(uploadedFile));
     console.log("success uploading:", file_upload_response);
     document.getElementById("file_upload_id").value = file_upload_response.file_upload_id;
   } catch (err) {
@@ -266,17 +261,17 @@ async function uploadFile(event) {
 }
 
 async function getSeedPhrase() {
-  let seed_phrase = success_or_fail(await identityApi.seed_backup());
+  let seed_phrase = success_or_fail(await window.identityApi.seed_backup());
   document.getElementById("current_seed").innerHTML = seed_phrase.seed_phrase;
 }
 
 async function restoreFromSeedPhrase() {
   let seed_phrase = document.getElementById("restore_seed_phrase").value;
-  fail_on_error(await identityApi.seed_recover({ seed_phrase }));
+  fail_on_error(await window.identityApi.seed_recover({ seed_phrase }));
 }
 
 async function createCompany() {
-  let company = success_or_fail(await companyApi.create({
+  let company = success_or_fail(await window.companyApi.create({
     name: "hayek Ltd",
     email: "test@example.com",
     postal_address: {
@@ -292,7 +287,7 @@ async function createCompany() {
 async function updateCompany() {
   let company_id = document.getElementById("company_update_id").value;
   let name = document.getElementById("company_update_name").value;
-  fail_on_error(await companyApi.edit({
+  fail_on_error(await window.companyApi.edit({
     id: company_id,
     name: name,
     postal_address: {}
@@ -303,7 +298,7 @@ async function updateCompany() {
 async function addSignatory() {
   let company_id = document.getElementById("company_update_id").value;
   let signatory_node_id = document.getElementById("company_signatory_id").value;
-  fail_on_error(await companyApi.add_signatory({
+  fail_on_error(await window.companyApi.add_signatory({
     id: company_id,
     signatory_node_id: signatory_node_id,
   }));
@@ -313,7 +308,7 @@ async function addSignatory() {
 async function removeSignatory() {
   let company_id = document.getElementById("company_update_id").value;
   let signatory_node_id = document.getElementById("company_signatory_id").value;
-  fail_on_error(await companyApi.remove_signatory({
+  fail_on_error(await window.companyApi.remove_signatory({
     id: company_id,
     signatory_node_id: signatory_node_id,
   }));
@@ -324,17 +319,17 @@ async function shareCompanyContact() {
   let node_id = document.getElementById("company_update_id").value;
   let share_to_node_id = document.getElementById("company_signatory_id").value;
   console.log("sharing contact details to identity: ", node_id);
-  fail_on_error(await companyApi.share_contact_details({ recipient: share_to_node_id, company_id: node_id }));
+  fail_on_error(await window.companyApi.share_contact_details({ recipient: share_to_node_id, company_id: node_id }));
 }
 
 async function listCompanies() {
-  let companies = success_or_fail(await companyApi.list());
+  let companies = success_or_fail(await window.companyApi.list());
   console.log("companies:", companies.companies.length, companies);
 }
 
 async function listSignatories() {
   let measured = measure(async () => {
-    return success_or_fail(await companyApi.list_signatories(document.getElementById("company_update_id").value));
+    return success_or_fail(await window.companyApi.list_signatories(document.getElementById("company_update_id").value));
   });
   await measured();
 }
@@ -342,12 +337,12 @@ async function listSignatories() {
 async function triggerContact() {
   let node_id = document.getElementById("node_id_contact").value;
   try {
-    let contact = success_or_fail(await contactApi.detail(node_id));
+    let contact = success_or_fail(await window.contactApi.detail(node_id));
     console.log("contact:", contact);
   } catch (err) {
     console.log("No contact found - creating..");
     let file_upload_id = document.getElementById("file_upload_id").value || undefined;
-    fail_on_error(await contactApi.create({
+    fail_on_error(await window.contactApi.create({
       t: 0,
       node_id: node_id,
       name: "Test Contact",
@@ -361,7 +356,7 @@ async function triggerContact() {
       avatar_file_upload_id: file_upload_id,
     }));
   }
-  let contact = success_or_fail(await contactApi.detail(node_id));
+  let contact = success_or_fail(await window.contactApi.detail(node_id));
   console.log("contact:", contact);
   document.getElementById("contact_id").value = node_id;
   document.getElementById("node_id_bill").value = node_id;
@@ -373,11 +368,11 @@ async function triggerContact() {
 async function triggerAnonContact() {
   let node_id = document.getElementById("node_id_contact").value;
   try {
-    let contact = success_or_fail(await contactApi.detail(node_id));
+    let contact = success_or_fail(await window.contactApi.detail(node_id));
     console.log("anon contact:", contact);
   } catch (err) {
     console.log("No contact found - creating..");
-    fail_on_error(await contactApi.create({
+    fail_on_error(await window.contactApi.create({
       t: 2,
       node_id: node_id,
       name: "some anon dude",
@@ -400,7 +395,7 @@ async function triggerBill(t, blank) {
 
     let file_upload_id = document.getElementById("file_upload_id").value || undefined;
     let node_id = document.getElementById("node_id_bill").value;
-    let identity = success_or_fail(await identityApi.detail());
+    let identity = success_or_fail(await window.identityApi.detail());
     let bill_issue_data = {
       t,
       country_of_issuing: "at",
@@ -417,9 +412,9 @@ async function triggerBill(t, blank) {
     };
     let bill;
     if (blank) {
-      bill = success_or_fail(await billApi.issue_blank(bill_issue_data));
+      bill = success_or_fail(await window.billApi.issue_blank(bill_issue_data));
     } else {
-      bill = success_or_fail(await billApi.issue(bill_issue_data));
+      bill = success_or_fail(await window.billApi.issue(bill_issue_data));
     }
     let bill_id = bill.id;
     console.log("created bill with id: ", bill_id);
@@ -433,7 +428,7 @@ async function triggerNotif() {
 
 async function fetchTempFile() {
   let file_upload_id = document.getElementById("file_upload_id").value;
-  let temp_file = success_or_fail(await generalApi.temp_file(file_upload_id));
+  let temp_file = success_or_fail(await window.generalApi.temp_file(file_upload_id));
   let file_bytes = temp_file.data;
   let arr = new Uint8Array(file_bytes);
   let blob = new Blob([arr], { type: temp_file.content_type });
@@ -446,27 +441,27 @@ async function fetchTempFile() {
 async function fetchContactFile() {
   let node_id = document.getElementById("contact_id").value;
   let file_name = document.getElementById("contact_file_name").value;
-  let file = success_or_fail(await contactApi.file_base64(node_id, file_name));
+  let file = success_or_fail(await window.contactApi.file_base64(node_id, file_name));
   document.getElementById("attached_file").src = `data:${file.content_type};base64,${file.data}`;
 }
 
 async function switchIdentity() {
   let node_id = document.getElementById("node_id_identity").value;
-  fail_on_error(await identityApi.switch({ t: 1, node_id }));
+  fail_on_error(await window.identityApi.switch({ t: 1, node_id }));
   document.getElementById("current_identity").textContent = node_id;
 }
 
 async function shareContact() {
   let node_id = document.getElementById("node_id_identity").value;
   console.log("sharing contact details to identity: ", node_id);
-  fail_on_error(await identityApi.share_contact_details({ recipient: node_id }));
+  fail_on_error(await window.identityApi.share_contact_details({ recipient: node_id }));
 }
 
 async function endorseBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.endorse_bill({ bill_id, endorsee }));
+    return success_or_fail(await window.billApi.endorse_bill({ bill_id, endorsee }));
   });
   await measured();
 }
@@ -475,7 +470,7 @@ async function endorseBillBlank() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.endorse_bill_blank({ bill_id, endorsee }));
+    return success_or_fail(await window.billApi.endorse_bill_blank({ bill_id, endorsee }));
   });
   await measured();
 }
@@ -483,7 +478,7 @@ async function endorseBillBlank() {
 async function requestToAcceptBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_accept({ bill_id, acceptance_deadline: getDeadlineDate() }));
+    return success_or_fail(await window.billApi.request_to_accept({ bill_id, acceptance_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -491,7 +486,7 @@ async function requestToAcceptBill() {
 async function acceptBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.accept({ bill_id }));
+    return success_or_fail(await window.billApi.accept({ bill_id }));
   });
   await measured();
 }
@@ -499,7 +494,7 @@ async function acceptBill() {
 async function requestToPayBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_pay({ bill_id, currency: "SAT", payment_deadline: getDeadlineDate() }));
+    return success_or_fail(await window.billApi.request_to_pay({ bill_id, currency: "SAT", payment_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -508,7 +503,7 @@ async function offerToSellBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.offer_to_sell({ bill_id, sum: "500", currency: "SAT", buyer: endorsee, buying_deadline: getDeadlineDate() }));
+    return success_or_fail(await window.billApi.offer_to_sell({ bill_id, sum: "500", currency: "SAT", buyer: endorsee, buying_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -517,7 +512,7 @@ async function requestToRecourseBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_recourse_bill_acceptance({ bill_id, recoursee: endorsee, recourse_deadline: getDeadlineDate() }));
+    return success_or_fail(await window.billApi.request_to_recourse_bill_acceptance({ bill_id, recoursee: endorsee, recourse_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -526,7 +521,7 @@ async function requestToRecourseBillPayment() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let endorsee = document.getElementById("endorsee_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "SAT", sum: "1500", recourse_deadline: getDeadlineDate() }));
+    return success_or_fail(await window.billApi.request_to_recourse_bill_payment({ bill_id, recoursee: endorsee, currency: "SAT", sum: "1500", recourse_deadline: getDeadlineDate() }));
   });
   await measured();
 }
@@ -534,7 +529,7 @@ async function requestToRecourseBillPayment() {
 async function rejectAcceptBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.reject_to_accept({ bill_id }));
+    return success_or_fail(await window.billApi.reject_to_accept({ bill_id }));
   });
   await measured();
 }
@@ -542,7 +537,7 @@ async function rejectAcceptBill() {
 async function rejectPayBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.reject_to_pay({ bill_id }));
+    return success_or_fail(await window.billApi.reject_to_pay({ bill_id }));
   });
   await measured();
 }
@@ -550,7 +545,7 @@ async function rejectPayBill() {
 async function rejectBuyingBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.reject_to_buy({ bill_id }));
+    return success_or_fail(await window.billApi.reject_to_buy({ bill_id }));
   });
   await measured();
 }
@@ -558,7 +553,7 @@ async function rejectBuyingBill() {
 async function rejectRecourseBill() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.reject_to_pay_recourse({ bill_id }));
+    return success_or_fail(await window.billApi.reject_to_pay_recourse({ bill_id }));
   });
   await measured();
 }
@@ -566,7 +561,7 @@ async function rejectRecourseBill() {
 async function requestToMint() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.request_to_mint({ bill_id, mint_node: config.default_mint_node_id }));
+    return success_or_fail(await window.billApi.request_to_mint({ bill_id, mint_node: config.default_mint_node_id }));
   });
   await measured();
 }
@@ -574,7 +569,7 @@ async function requestToMint() {
 async function getMintState() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.mint_state(bill_id));
+    return success_or_fail(await window.billApi.mint_state(bill_id));
   });
   await measured();
 }
@@ -582,7 +577,7 @@ async function getMintState() {
 async function checkMintState() {
   let bill_id = document.getElementById("endorse_bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.check_mint_state(bill_id));
+    return success_or_fail(await window.billApi.check_mint_state(bill_id));
   });
   await measured();
 }
@@ -590,7 +585,7 @@ async function checkMintState() {
 async function cancelRegToMint() {
   let mint_request_id = document.getElementById("mint_req_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.cancel_request_to_mint(mint_request_id));
+    return success_or_fail(await window.billApi.cancel_request_to_mint(mint_request_id));
   });
   await measured();
 }
@@ -598,7 +593,7 @@ async function cancelRegToMint() {
 async function acceptMintOffer() {
   let mint_request_id = document.getElementById("mint_req_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.accept_mint_offer(mint_request_id));
+    return success_or_fail(await window.billApi.accept_mint_offer(mint_request_id));
   });
   await measured();
 }
@@ -606,45 +601,45 @@ async function acceptMintOffer() {
 async function rejectMintOffer() {
   let mint_request_id = document.getElementById("mint_req_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.reject_mint_offer(mint_request_id));
+    return success_or_fail(await window.billApi.reject_mint_offer(mint_request_id));
   });
   await measured();
 }
 
 async function fetchBillDetail() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.detail(document.getElementById("bill_id").value));
+    return success_or_fail(await window.billApi.detail(document.getElementById("bill_id").value));
   });
   await measured();
 }
 
 async function fetchBillEndorsements() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.endorsements(document.getElementById("bill_id").value));
+    return success_or_fail(await window.billApi.endorsements(document.getElementById("bill_id").value));
   });
   await measured();
 }
 
 async function fetchBillPastEndorsees() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.past_endorsees(document.getElementById("bill_id").value));
+    return success_or_fail(await window.billApi.past_endorsees(document.getElementById("bill_id").value));
   });
   await measured();
 }
 
 async function fetchBillPastPayments() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.past_payments(document.getElementById("bill_id").value));
+    return success_or_fail(await window.billApi.past_payments(document.getElementById("bill_id").value));
   });
   await measured();
 }
 
 async function fetchBillFile() {
   let bill_id = document.getElementById("bill_id").value;
-  let detail = success_or_fail(await billApi.detail(bill_id));
+  let detail = success_or_fail(await window.billApi.detail(bill_id));
 
   if (detail.data.files.length > 0) {
-    let file = success_or_fail(await billApi.attachment_base64(bill_id, detail.data.files[0].name));
+    let file = success_or_fail(await window.billApi.attachment_base64(bill_id, detail.data.files[0].name));
     document.getElementById("bill_attached_file").src = `data:${file.content_type};base64,${file.data}`;
   } else {
     console.log("Bill has no file");
@@ -653,21 +648,21 @@ async function fetchBillFile() {
 
 async function fetchBillBills() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.list());
+    return success_or_fail(await window.billApi.list());
   });
   await measured();
 }
 
 async function fetchBillBalances() {
   let measured = measure(async () => {
-    return success_or_fail(await generalApi.overview("SAT"));
+    return success_or_fail(await window.generalApi.overview("SAT"));
   });
   await measured();
 }
 
 async function fetchBillSearch() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.search({ filter: { currency: "SAT", role: "All" } }));
+    return success_or_fail(await window.billApi.search({ filter: { currency: "SAT", role: "All" } }));
   });
   await measured();
 }
@@ -675,14 +670,14 @@ async function fetchBillSearch() {
 async function fetchBillHistory() {
   let bill_id = document.getElementById("bill_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.bill_history(bill_id));
+    return success_or_fail(await window.billApi.bill_history(bill_id));
   });
   await measured();
 }
 
 async function clearBillCache() {
   let measured = measure(async () => {
-    return success_or_fail(await billApi.clear_bill_cache());
+    return success_or_fail(await window.billApi.clear_bill_cache());
   });
   await measured();
 }
@@ -691,7 +686,7 @@ async function syncBillChain() {
   let bill_id = document.getElementById("bill_id").value;
   console.log("syncBillChain", bill_id);
   let measured = measure(async () => {
-    return success_or_fail(await billApi.sync_bill_chain({ bill_id: bill_id }));
+    return success_or_fail(await window.billApi.sync_bill_chain({ bill_id: bill_id }));
   });
   await measured();
 }
@@ -700,7 +695,7 @@ async function syncCompanyChain() {
   let node_id = document.getElementById("company_update_id").value;
   console.log("syncCompanyChain", node_id);
   let measured = measure(async () => {
-    return success_or_fail(await companyApi.sync_company_chain({ node_id: node_id }));
+    return success_or_fail(await window.companyApi.sync_company_chain({ node_id: node_id }));
   });
   await measured();
 }
@@ -708,7 +703,33 @@ async function syncCompanyChain() {
 async function syncIdentityChain() {
   console.log("syncIdentityChain");
   let measured = measure(async () => {
-    return success_or_fail(await identityApi.sync_identity_chain());
+    return success_or_fail(await window.identityApi.sync_identity_chain());
+  });
+  await measured();
+}
+
+async function confirmEmail() {
+  console.log("confirmEmail");
+  let email = document.getElementById("email_to_confirm").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.confirm_email(email));
+  });
+  await measured();
+}
+
+async function verifyEmail() {
+  console.log("verifyEmail");
+  let code = document.getElementById("confirmation_code").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.verify_email(code));
+  });
+  await measured();
+}
+
+async function getIdentityConfirmations() {
+  console.log("getIdentityConfirmations");
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.get_email_confirmations());
   });
   await measured();
 }
@@ -717,7 +738,7 @@ async function shareBillWithCourt() {
   let bill_id = document.getElementById("court_bill_id").value;
   let court_node_id = document.getElementById("court_node_id").value;
   let measured = measure(async () => {
-    return success_or_fail(await billApi.share_bill_with_court({ bill_id: bill_id, court_node_id: court_node_id }));
+    return success_or_fail(await window.billApi.share_bill_with_court({ bill_id: bill_id, court_node_id: court_node_id }));
   });
   await measured();
 }
@@ -726,7 +747,7 @@ async function devModeGetBillChain() {
   let bill_id = document.getElementById("dev_mode_bill_id").value;
   console.log("devModeGetBillChain", bill_id);
   let measured = measure(async () => {
-    let res = success_or_fail(await billApi.dev_mode_get_full_bill_chain(bill_id));
+    let res = success_or_fail(await window.billApi.dev_mode_get_full_bill_chain(bill_id));
     return res.map((b) => {
       return JSON.parse(b);
     })
@@ -737,7 +758,7 @@ async function devModeGetBillChain() {
 async function devModeGetIdentityChain() {
   console.log("devModeGetIdentityChain");
   let measured = measure(async () => {
-    let res = success_or_fail(await identityApi.dev_mode_get_full_identity_chain());
+    let res = success_or_fail(await window.identityApi.dev_mode_get_full_identity_chain());
     return res.map((b) => {
       return JSON.parse(b);
     })
@@ -749,7 +770,7 @@ async function devModeGetCompanyChain() {
   let company_id = document.getElementById("dev_mode_company_id").value;
   console.log("devModeGetCompanyChain", company_id);
   let measured = measure(async () => {
-    let res = success_or_fail(await companyApi.dev_mode_get_full_company_chain(company_id));
+    let res = success_or_fail(await window.companyApi.dev_mode_get_full_company_chain(company_id));
     return res.map((b) => {
       return JSON.parse(b);
     })
@@ -774,14 +795,14 @@ function measure(promiseFunction) {
 
 async function fetchContacts() {
   let measured = measure(async () => {
-    return success_or_fail(await contactApi.list());
+    return success_or_fail(await window.contactApi.list());
   });
   await measured();
 }
 
 async function searchContacts() {
   let measured = measure(async () => {
-    return success_or_fail(await contactApi.search({
+    return success_or_fail(await window.contactApi.search({
       search_term: document.getElementById("contact_search_term").value,
       include_logical: true,
       include_contact: true
@@ -793,7 +814,7 @@ async function searchContacts() {
 async function removeContactAvatar() {
   let node_id = document.getElementById("node_id_contact").value;
   let measured = measure(async () => {
-    return success_or_fail(await contactApi.edit({ node_id: node_id, avatar_file_upload_id: undefined, postal_address: {} }));
+    return success_or_fail(await window.contactApi.edit({ node_id: node_id, avatar_file_upload_id: undefined, postal_address: {} }));
   });
   await measured();
 }
@@ -801,7 +822,7 @@ async function removeContactAvatar() {
 async function deleteContact() {
   let node_id = document.getElementById("node_id_contact").value;
   let measured = measure(async () => {
-    return success_or_fail(await contactApi.remove(node_id));
+    return success_or_fail(await window.contactApi.remove(node_id));
   });
   await measured();
 }

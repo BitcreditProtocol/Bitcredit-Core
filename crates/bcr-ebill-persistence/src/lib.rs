@@ -44,6 +44,9 @@ pub enum Error {
     #[error("Network does not match")]
     NetworkDoesNotMatch,
 
+    #[error("Public Key does not match")]
+    PublicKeyDoesNotMatch,
+
     #[error("Error with encoding, or decoding")]
     EncodingError,
 }

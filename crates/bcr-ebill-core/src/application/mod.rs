@@ -9,7 +9,6 @@ pub mod company;
 pub mod contact;
 mod event;
 pub mod identity;
-pub mod identity_proof;
 pub mod nostr_contact;
 pub mod notification;
 
@@ -138,4 +137,8 @@ pub enum ValidationError {
     /// errors that stem from trying to accept a mint request that's expired
     #[error("Mint request can only be accepted if it's not expired.")]
     AcceptMintOfferExpired,
+
+    /// errors that stem from trying to create, or deanonymize an identity without a confirmed email
+    #[error("Ident identity can only be created with a confirmed email.")]
+    NoConfirmedEmailForIdentIdentity,
 }

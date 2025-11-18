@@ -358,6 +358,7 @@ mod test_utils {
         crypto::BcrKeys,
         event::ActionType,
     };
+    use bcr_ebill_core::protocol::{SignedEmailIdentityData, SignedIdentityProof};
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
@@ -530,6 +531,14 @@ mod test_utils {
             async fn get_current_identity(&self) -> Result<bcr_ebill_core::application::identity::ActiveIdentityState>;
             async fn set_current_identity(&self, identity_state: &bcr_ebill_core::application::identity::ActiveIdentityState) -> Result<()>;
             async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
+            async fn get_email_confirmations(
+                &self,
+            ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>>;
+            async fn set_email_confirmation(
+                &self,
+                proof: &SignedIdentityProof,
+                data: &SignedEmailIdentityData,
+            ) -> Result<()>;
         }
     }
 
@@ -779,5 +788,16 @@ mod test_utils {
     pub fn node_id_test_other() -> NodeId {
         NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
             .unwrap()
+    }
+
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
+        let data = SignedEmailIdentityData {
+            node_id: node_id_test(),
+            company_node_id: None,
+            email: Email::new("test@example.com").unwrap(),
+            created_at: Timestamp::new(1731593929).unwrap(),
+        };
+        let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
+        (proof, data)
     }
 }

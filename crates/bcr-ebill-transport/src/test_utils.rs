@@ -19,7 +19,7 @@ use bcr_ebill_core::protocol::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{EventEnvelope, EventType};
-use bcr_ebill_core::protocol::mint::MintSignature;
+use bcr_ebill_core::protocol::{SignedEmailIdentityData, SignedIdentityProof};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::contact::Contact,
@@ -145,7 +145,10 @@ pub fn init_test_cfg() {
                 payment_config: bcr_ebill_api::PaymentConfig {
                     num_confirmations_for_payment: 6,
                 },
-                dev_mode_config: DevModeConfig { on: false },
+                dev_mode_config: DevModeConfig {
+                    on: false,
+                    disable_mandatory_email_confirmations: false,
+                },
                 court_config: CourtConfig {
                     default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
                 },
@@ -771,7 +774,7 @@ mockall::mock! {
             company_node_id: &Option<NodeId>,
             confirmation_code: &str,
             private_key: &SecretKey,
-        ) -> bcr_ebill_api::external::email::Result<MintSignature>;
+        ) -> bcr_ebill_api::external::email::Result<(SignedIdentityProof, SignedEmailIdentityData)>;
         async fn send_bill_notification(
             &self,
             mint_url: &url::Url,

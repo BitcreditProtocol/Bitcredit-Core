@@ -1,4 +1,5 @@
 use super::Result;
+use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
 use crate::service::file_upload_service::UploadFileType;
@@ -11,9 +12,6 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::application::identity::validation::validate_create_identity;
 use bcr_ebill_core::application::identity::{ActiveIdentityState, Identity, IdentityWithAll};
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
-use bcr_ebill_core::protocol::Country;
-use bcr_ebill_core::protocol::Date;
-use bcr_ebill_core::protocol::Email;
 use bcr_ebill_core::protocol::Identification;
 use bcr_ebill_core::protocol::Name;
 use bcr_ebill_core::protocol::Sha256Hash;
@@ -21,13 +19,17 @@ use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::Blockchain;
 use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityBlock, IdentityBlockPlaintextWrapper, IdentityBlockchain, IdentityCreateBlockData,
-    IdentityType, IdentityUpdateBlockData,
+    IdentityProofBlockData, IdentityType, IdentityUpdateBlockData,
 };
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
+use bcr_ebill_core::protocol::{Country, SignedEmailIdentityData, SignedIdentityProof};
+use bcr_ebill_core::protocol::{Date, Field};
+use bcr_ebill_core::protocol::{Email, blockchain};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::IdentityChainEvent};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
+use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bitcoin::base58;
 use log::{debug, error, info};
 use secp256k1::{PublicKey, SecretKey};
@@ -122,6 +124,17 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
 
     /// If dev mode is on, return the full identity chain with decrypted data
     async fn dev_mode_get_full_identity_chain(&self) -> Result<Vec<IdentityBlockPlaintextWrapper>>;
+
+    /// Confirm a new email address
+    async fn confirm_email(&self, email: &Email) -> Result<()>;
+
+    /// Verify confirmation of an email address with the sent confirmation code
+    async fn verify_email(&self, confirmation_code: &str) -> Result<()>;
+
+    /// Get email confirmations for the identity
+    async fn get_email_confirmations(
+        &self,
+    ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>>;
 }
 
 /// The identity service is responsible for managing the local identity
@@ -132,6 +145,8 @@ pub struct IdentityService {
     file_upload_client: Arc<dyn FileStorageClientApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
     block_transport: Arc<dyn TransportServiceApi>,
+    email_client: Arc<dyn EmailClientApi>,
+    email_notification_store: Arc<dyn EmailNotificationStoreApi>,
 }
 
 impl IdentityService {
@@ -141,6 +156,8 @@ impl IdentityService {
         file_upload_client: Arc<dyn FileStorageClientApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
         block_transport: Arc<dyn TransportServiceApi>,
+        email_client: Arc<dyn EmailClientApi>,
+        email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     ) -> Self {
         Self {
             store,
@@ -148,6 +165,8 @@ impl IdentityService {
             file_upload_client,
             blockchain_store,
             block_transport,
+            email_client,
+            email_notification_store,
         }
     }
 
@@ -217,6 +236,103 @@ impl IdentityService {
     async fn on_identity_contact_change(&self, identity: &Identity, keys: &BcrKeys) -> Result<()> {
         debug!("Identity change");
         self.publish_contact(identity, keys).await
+    }
+
+    async fn validate_and_add_block(
+        &self,
+        chain: &mut IdentityBlockchain,
+        new_block: IdentityBlock,
+    ) -> Result<()> {
+        let try_add_block = chain.try_add_block(new_block.clone());
+        if try_add_block && chain.is_chain_valid() {
+            self.blockchain_store.add_block(&new_block).await?;
+            Ok(())
+        } else {
+            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+        }
+    }
+
+    async fn create_identity_proof_block(
+        &self,
+        proof: SignedIdentityProof,
+        data: SignedEmailIdentityData,
+        identity: &Identity,
+        keys: &BcrKeys,
+        chain: &mut IdentityBlockchain,
+    ) -> Result<()> {
+        let new_block = IdentityBlock::create_block_for_identity_proof(
+            chain.get_latest_block(),
+            &IdentityProofBlockData { proof, data },
+            keys,
+            Timestamp::now(),
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
+
+        self.validate_and_add_block(chain, new_block.clone())
+            .await?;
+        self.populate_block(identity, &new_block, keys).await?;
+
+        Ok(())
+    }
+
+    /// If mandatory email confirmations are not disabled, check that there is a confirmed email and the
+    /// given email is a confirmed one for the identity
+    async fn check_confirmed_email(
+        &self,
+        email: &Option<Email>,
+        t: &IdentityType,
+        node_id: &NodeId,
+    ) -> Result<Option<(SignedIdentityProof, SignedEmailIdentityData)>> {
+        match t {
+            IdentityType::Ident => {
+                // Email has to be checked before
+                let Some(em) = email else {
+                    return Err(ProtocolValidationError::FieldEmpty(Field::Email).into());
+                };
+
+                if !get_config()
+                    .dev_mode_config
+                    .disable_mandatory_email_confirmations
+                {
+                    // Make sure there is a confirmed email
+                    let email_confirmations = self.store.get_email_confirmations().await?;
+                    if email_confirmations.is_empty() {
+                        return Err(Error::Validation(
+                            ValidationError::NoConfirmedEmailForIdentIdentity,
+                        ));
+                    }
+
+                    // Given email has to be a confirmed email
+                    for ec in email_confirmations.iter() {
+                        if &ec.1.email == em {
+                            return Ok(Some((ec.0.to_owned(), ec.1.to_owned())));
+                        }
+                    }
+
+                    // No email found - fail
+                    Err(Error::Validation(
+                        ValidationError::NoConfirmedEmailForIdentIdentity,
+                    ))
+                } else {
+                    // if mandatory email confirmations are disabled, create self-signed email confirmation
+                    let keys = self.get_keys().await?;
+
+                    let self_signed_identity = SignedEmailIdentityData {
+                        node_id: node_id.to_owned(),
+                        company_node_id: None,
+                        email: em.to_owned(),
+                        created_at: Timestamp::now(),
+                    };
+                    let proof = self_signed_identity.sign(node_id, &keys.get_private_key())?;
+                    self.store
+                        .set_email_confirmation(&proof, &self_signed_identity)
+                        .await?;
+
+                    Ok(Some((proof, self_signed_identity)))
+                }
+            }
+            IdentityType::Anon => Ok(None),
+        }
     }
 }
 
@@ -384,7 +500,8 @@ impl IdentityServiceApi for IdentityService {
             };
         }
 
-        let previous_block = self.blockchain_store.get_latest_block().await?;
+        let mut identity_chain = self.blockchain_store.get_chain().await?;
+        let previous_block = identity_chain.get_latest_block();
         let block_data = IdentityUpdateBlockData {
             t: None,
             name,
@@ -399,9 +516,11 @@ impl IdentityServiceApi for IdentityService {
         };
         block_data.validate()?;
         let new_block =
-            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)
+            IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
-        self.blockchain_store.add_block(&new_block).await?;
+        self.validate_and_add_block(&mut identity_chain, new_block.clone())
+            .await?;
+
         self.store.save(&identity).await?;
         self.populate_block(&identity, &new_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
@@ -437,6 +556,8 @@ impl IdentityServiceApi for IdentityService {
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
         validate_create_identity(t.clone(), &email, &postal_address)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
+
+        let email_confirmation = self.check_confirmed_email(&email, &t, &node_id).await?;
 
         let identity = match t {
             IdentityType::Ident => {
@@ -501,7 +622,7 @@ impl IdentityServiceApi for IdentityService {
         // create new identity chain and persist it
         let block_data: IdentityCreateBlockData = identity.clone().into();
         block_data.validate()?;
-        let identity_chain = IdentityBlockchain::new(&block_data, &keys, timestamp)
+        let mut identity_chain = IdentityBlockchain::new(&block_data, &keys, timestamp)
             .map_err(|e| Error::Protocol(e.into()))?;
         let first_block = identity_chain.get_first_block();
         self.blockchain_store.add_block(first_block).await?;
@@ -510,6 +631,12 @@ impl IdentityServiceApi for IdentityService {
         self.store.save(&identity).await?;
         self.populate_block(&identity, first_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
+
+        // Create and populate identity proof block
+        if let Some((proof, data)) = email_confirmation {
+            self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
+                .await?;
+        }
 
         debug!("created identity");
         Ok(())
@@ -549,6 +676,10 @@ impl IdentityServiceApi for IdentityService {
         }
 
         validate_create_identity(t.clone(), &email, &postal_address)?;
+
+        let email_confirmation = self
+            .check_confirmed_email(&email, &t, &existing_identity.node_id)
+            .await?;
 
         // TODO(multi-relay): don't default to first
         let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
@@ -592,7 +723,8 @@ impl IdentityServiceApi for IdentityService {
             nostr_relays: get_config().nostr_config.relays.to_owned(),
         };
 
-        let previous_block = self.blockchain_store.get_latest_block().await?;
+        let mut identity_chain = self.blockchain_store.get_chain().await?;
+        let previous_block = identity_chain.get_latest_block();
         let block_data = IdentityUpdateBlockData {
             t: Some(t.clone()),
             name: Some(name),
@@ -607,12 +739,20 @@ impl IdentityServiceApi for IdentityService {
         };
         block_data.validate()?;
         let new_block =
-            IdentityBlock::create_block_for_update(&previous_block, &block_data, &keys, timestamp)
+            IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
-        self.blockchain_store.add_block(&new_block).await?;
+        self.validate_and_add_block(&mut identity_chain, new_block.clone())
+            .await?;
         self.store.save(&identity).await?;
         self.populate_block(&identity, &new_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
+
+        // Create and populate identity proof block
+        if let Some((proof, data)) = email_confirmation {
+            self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
+                .await?;
+        }
+
         debug!("deanonymized identity");
         Ok(())
     }
@@ -757,6 +897,62 @@ impl IdentityServiceApi for IdentityService {
             .await;
         Ok(())
     }
+
+    async fn confirm_email(&self, email: &Email) -> Result<()> {
+        let keys = self.store.get_or_create_key_pair().await?;
+        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+
+        // use default mint URL for now, until we support multiple mints
+        let mint_url = get_config().mint_config.default_mint_url.to_owned();
+
+        self.email_client
+            .register(&mint_url, &node_id, &None, email, &keys.get_private_key())
+            .await?;
+
+        Ok(())
+    }
+
+    async fn verify_email(&self, confirmation_code: &str) -> Result<()> {
+        let keys = self.store.get_or_create_key_pair().await?;
+        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+
+        // use default mint URL for now, until we support multiple mints
+        let mint_url = get_config().mint_config.default_mint_url.to_owned();
+        let mint_node_id = get_config().mint_config.default_mint_node_id.to_owned();
+
+        let (signed_proof, signed_email_identity_data) = self
+            .email_client
+            .confirm(
+                &mint_url,
+                &mint_node_id,
+                &node_id,
+                &None,
+                confirmation_code,
+                &keys.get_private_key(),
+            )
+            .await?;
+
+        self.store
+            .set_email_confirmation(&signed_proof, &signed_email_identity_data)
+            .await?;
+
+        let email_preferences_link = self
+            .email_client
+            .get_email_preferences_link(&mint_url, &node_id, &None, &keys.get_private_key())
+            .await?;
+        self.email_notification_store
+            .add_email_preferences_link_for_node_id(&email_preferences_link, &node_id)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn get_email_confirmations(
+        &self,
+    ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>> {
+        let email_confirmations = self.store.get_email_confirmations().await?;
+        Ok(email_confirmations)
+    }
 }
 
 #[cfg(test)]
@@ -765,11 +961,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        external::file_storage::MockFileStorageClientApi,
+        external::{email::MockEmailClientApi, file_storage::MockFileStorageClientApi},
         service::transport_service::MockTransportServiceApi,
         tests::tests::{
-            MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            empty_identity, empty_optional_address, filled_optional_address, init_test_cfg,
+            MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
+            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
+            empty_optional_address, filled_optional_address, init_test_cfg,
+            signed_identity_proof_test,
         },
     };
     use mockall::predicate::eq;
@@ -781,6 +979,8 @@ mod tests {
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
             Arc::new(MockTransportServiceApi::new()),
+            Arc::new(MockEmailClientApi::new()),
+            Arc::new(MockEmailNotificationStoreApiMock::new()),
         )
     }
 
@@ -795,6 +995,24 @@ mod tests {
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(mock_chain_storage),
             Arc::new(transport),
+            Arc::new(MockEmailClientApi::new()),
+            Arc::new(MockEmailNotificationStoreApiMock::new()),
+        )
+    }
+
+    fn get_service_with_email_client_and_email_notif_store(
+        mock_storage: MockIdentityStoreApiMock,
+        mock_email_client: MockEmailClientApi,
+        mock_notif_store: MockEmailNotificationStoreApiMock,
+    ) -> IdentityService {
+        IdentityService::new(
+            Arc::new(mock_storage),
+            Arc::new(MockFileUploadStoreApiMock::new()),
+            Arc::new(MockFileStorageClientApi::new()),
+            Arc::new(MockIdentityChainStoreApiMock::new()),
+            Arc::new(MockTransportServiceApi::new()),
+            Arc::new(mock_email_client),
+            Arc::new(mock_notif_store),
         )
     }
 
@@ -805,6 +1023,9 @@ mod tests {
         storage
             .expect_get_or_create_key_pair()
             .returning(|| Ok(BcrKeys::new()));
+        storage
+            .expect_get_email_confirmations()
+            .returning(|| Ok(vec![signed_identity_proof_test()]));
         storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
@@ -815,7 +1036,7 @@ mod tests {
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events()
                 .returning(|_| Ok(()))
-                .once();
+                .times(2); // create and identity proof
         });
         transport.expect_on_contact_transport(|t| {
             // publishes contact info to nostr
@@ -907,24 +1128,19 @@ mod tests {
             identity.t = IdentityType::Anon;
             Ok(identity)
         });
+        storage
+            .expect_get_email_confirmations()
+            .returning(|| Ok(vec![signed_identity_proof_test()]));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
-        chain_storage.expect_get_latest_block().returning(|| {
-            let identity = empty_identity();
-            Ok(IdentityBlockchain::new(
-                &identity.into(),
-                &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap(),
-            )
-            .unwrap()
-            .get_latest_block()
-            .clone())
-        });
+        chain_storage
+            .expect_get_chain()
+            .returning(|| Ok(get_genesis_chain(None)));
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events()
                 .returning(|_| Ok(()))
-                .once();
+                .times(2); // update and identity proof
         });
 
         // publishes contact info to nostr
@@ -1065,17 +1281,9 @@ mod tests {
             Ok(identity)
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_get_latest_block().returning(|| {
-            let identity = empty_identity();
-            Ok(IdentityBlockchain::new(
-                &identity.into(),
-                &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap(),
-            )
-            .unwrap()
-            .get_latest_block()
-            .clone())
-        });
+        chain_storage
+            .expect_get_chain()
+            .returning(|| Ok(get_genesis_chain(None)));
         chain_storage.expect_add_block().returning(|_| Ok(()));
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
@@ -1159,17 +1367,9 @@ mod tests {
             .returning(|_| Err(bcr_ebill_persistence::Error::EncodingError))
             .times(1);
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_get_latest_block().returning(|| {
-            let identity = empty_identity();
-            Ok(IdentityBlockchain::new(
-                &identity.into(),
-                &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap(),
-            )
-            .unwrap()
-            .get_latest_block()
-            .clone())
-        });
+        chain_storage
+            .expect_get_chain()
+            .returning(|| Ok(get_genesis_chain(None)));
         chain_storage
             .expect_add_block()
             .returning(|_| Ok(()))
@@ -1312,5 +1512,77 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_email_confirmations() {
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_email_confirmations()
+            .returning(|| Ok(vec![]));
+        let service = get_service(storage);
+        let res = service.get_email_confirmations().await.expect("works");
+        assert_eq!(res.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_verify_email() {
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage
+            .expect_set_email_confirmation()
+            .returning(|_, _| Ok(()));
+        let mut email_client = MockEmailClientApi::new();
+        email_client
+            .expect_get_email_preferences_link()
+            .returning(|_, _, _, _| Ok(url::Url::parse("https://bit.cr").unwrap()));
+        email_client
+            .expect_confirm()
+            .returning(|_, _, _, _, _, _| Ok(signed_identity_proof_test()));
+        let mut email_notif_storage = MockEmailNotificationStoreApiMock::new();
+        email_notif_storage
+            .expect_add_email_preferences_link_for_node_id()
+            .returning(|_, _| Ok(()));
+        let service = get_service_with_email_client_and_email_notif_store(
+            storage,
+            email_client,
+            email_notif_storage,
+        );
+        let res = service.verify_email("123456").await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_confirm_email() {
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        let mut email_client = MockEmailClientApi::new();
+        email_client
+            .expect_register()
+            .returning(|_, _, _, _, _| Ok(()));
+        let email_notif_storage = MockEmailNotificationStoreApiMock::new();
+        let service = get_service_with_email_client_and_email_notif_store(
+            storage,
+            email_client,
+            email_notif_storage,
+        );
+        let res = service
+            .confirm_email(&Email::new("test@example.com").unwrap())
+            .await;
+        assert!(res.is_ok());
+    }
+
+    fn get_genesis_chain(identity: Option<Identity>) -> IdentityBlockchain {
+        let identity = identity.unwrap_or(empty_identity());
+        IdentityBlockchain::new(
+            &identity.into(),
+            &BcrKeys::new(),
+            Timestamp::new(1731593928).unwrap(),
+        )
+        .unwrap()
     }
 }

@@ -1,6 +1,7 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain};
+use crate::protocol::BlockId;
 use crate::protocol::City;
 use crate::protocol::Country;
 use crate::protocol::Date;
@@ -10,9 +11,9 @@ use crate::protocol::Name;
 use crate::protocol::SchnorrSignature;
 use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
+use crate::protocol::base::identity_proof::{SignedEmailIdentityData, SignedIdentityProof};
 use crate::protocol::blockchain::{Error, borsh_to_json_value};
 use crate::protocol::crypto::{self, BcrKeys};
-use crate::protocol::{BlockId, IdentityProofStamp};
 use crate::protocol::{Field, ProtocolValidationError, Validate};
 use crate::protocol::{File, OptionalPostalAddress};
 use bcr_common::core::{BillId, NodeId};
@@ -262,12 +263,8 @@ pub struct IdentityRemoveSignatoryBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityProofBlockData {
-    pub stamp: IdentityProofStamp,
-    #[borsh(
-        serialize_with = "crate::protocol::serialization::serialize_url",
-        deserialize_with = "crate::protocol::serialization::deserialize_url"
-    )]
-    pub url: url::Url,
+    pub proof: SignedIdentityProof,
+    pub data: SignedEmailIdentityData,
 }
 
 #[derive(Debug)]
@@ -678,7 +675,8 @@ impl IdentityBlockchain {
 mod tests {
     use super::*;
     use crate::protocol::tests::tests::{
-        bill_id_test, empty_identity, node_id_test, private_key_test, valid_optional_address,
+        bill_id_test, empty_identity, node_id_test, private_key_test, signed_identity_proof_test,
+        valid_optional_address,
     };
 
     #[test]
@@ -808,11 +806,12 @@ mod tests {
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
 
+        let test_signed_identity = signed_identity_proof_test();
         let identity_proof_block = IdentityBlock::create_block_for_identity_proof(
             chain.get_latest_block(),
             &IdentityProofBlockData {
-                stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
-                url: url::Url::parse("https://bit.cr").unwrap(),
+                proof: test_signed_identity.0,
+                data: test_signed_identity.1,
             },
             &keys,
             Timestamp::new(1731593929).unwrap(),
