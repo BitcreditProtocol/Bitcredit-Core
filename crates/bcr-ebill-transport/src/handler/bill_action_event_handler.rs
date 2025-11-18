@@ -131,7 +131,8 @@ impl NotificationHandlerApi for BillActionEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
-        evt: Option<Box<nostr::Event>>,
+        sender: Option<nostr::PublicKey>,
+        _evt: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming bill chain event for {node_id} in action event handler");
         if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
@@ -139,10 +140,9 @@ impl NotificationHandlerApi for BillActionEventHandler {
                 .create_notification(
                     &decoded.data,
                     node_id,
-                    evt.ok_or(Error::Network(
+                    sender.ok_or(Error::Network(
                         "No original event for notification handler".to_string(),
-                    ))?
-                    .pubkey,
+                    ))?,
                 )
                 .await
             {
@@ -246,6 +246,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
+                Some(get_test_nostr_event().pubkey),
                 Some(Box::new(get_test_nostr_event())),
             )
             .await
@@ -284,6 +285,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
+                Some(get_test_nostr_event().pubkey),
                 Some(Box::new(get_test_nostr_event())),
             )
             .await
@@ -339,6 +341,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
+                Some(get_test_nostr_event().pubkey),
                 Some(Box::new(get_test_nostr_event())),
             )
             .await

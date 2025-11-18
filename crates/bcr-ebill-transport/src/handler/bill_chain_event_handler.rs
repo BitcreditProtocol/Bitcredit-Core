@@ -53,6 +53,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
+        _sender: Option<nostr::PublicKey>,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming bill chain event for {node_id} in chain event handler");
@@ -237,6 +238,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
+                None,
                 Some(Box::new(nostr_event)),
             )
             .await
@@ -310,6 +312,7 @@ mod tests {
             .handle_event(
                 event.try_into().expect("Envelope from event"),
                 &node_id_test(),
+                None,
                 Some(Box::new(get_test_nostr_event())),
             )
             .await

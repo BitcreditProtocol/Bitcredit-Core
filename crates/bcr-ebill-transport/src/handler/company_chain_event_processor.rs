@@ -364,7 +364,12 @@ impl CompanyChainEventProcessor {
                         // the bills.
                         if let Err(e) = self
                             .bill_invite_handler
-                            .handle_event(Event::new_bill(invite).try_into()?, &company.id, None)
+                            .handle_event(
+                                Event::new_bill(invite).try_into()?,
+                                &company.id,
+                                None,
+                                None,
+                            )
                             .await
                         {
                             error!(

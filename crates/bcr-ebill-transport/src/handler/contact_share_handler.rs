@@ -40,6 +40,7 @@ impl NotificationHandlerApi for ContactShareEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
+        _sender: Option<nostr::PublicKey>,
         _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming contact share for {node_id}");
@@ -171,7 +172,7 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().unwrap(), &node_id_test(), None)
+            .handle_event(event.try_into().unwrap(), &node_id_test(), None, None)
             .await
             .expect("Event successfully handled");
     }

@@ -655,7 +655,7 @@ pub async fn handle_direct_message<T: NostrSigner>(
             "Processing event: {} {} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}",
             envelope.event_type, envelope.version
         );
-        handle_event(envelope, client_id, event_handlers, event).await?;
+        handle_event(envelope, client_id, event_handlers, Some(sender), event).await?;
     }
     Ok(())
 }
@@ -677,7 +677,14 @@ async fn handle_public_event(
         {
             let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
             debug!("Handling public chain event: {:?}", decrypted.event_type);
-            handle_event(decrypted.clone(), node_id, handlers, event.clone()).await?;
+            handle_event(
+                decrypted.clone(),
+                node_id,
+                handlers,
+                Some(event.pubkey),
+                event.clone(),
+            )
+            .await?;
         }
         Ok(true)
     } else {
@@ -738,6 +745,7 @@ async fn handle_event(
     event: EventEnvelope,
     node_id: &NodeId,
     handlers: &[Arc<dyn NotificationHandlerApi>],
+    sender: Option<nostr::PublicKey>,
     original_event: Box<nostr::Event>,
 ) -> Result<()> {
     let event_type = &event.event_type;
@@ -745,7 +753,12 @@ async fn handle_event(
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
             match handler
-                .handle_event(event.to_owned(), node_id, Some(original_event.clone()))
+                .handle_event(
+                    event.to_owned(),
+                    node_id,
+                    sender,
+                    Some(original_event.clone()),
+                )
                 .await
             {
                 Ok(_) => times += 1,
@@ -867,7 +880,7 @@ mod tests {
         let expected_event: Event<TestEventPayload> = event.clone();
         handler
             .expect_handle_event()
-            .withf(move |e, i, _| {
+            .withf(move |e, i, _, _| {
                 let expected = expected_event.clone();
                 let received: Event<TestEventPayload> =
                     e.clone().try_into().expect("could not convert event");
@@ -876,7 +889,7 @@ mod tests {
                 let valid_identity = *i == NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
                 valid_type && valid_payload && valid_identity
             })
-            .returning(|_, _, _| Ok(()));
+            .returning(|_, _, _, _| Ok(()));
 
         let mut offset_store = MockNostrEventOffsetStore::new();
 

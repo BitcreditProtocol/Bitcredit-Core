@@ -33,6 +33,7 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
+        _sender: Option<nostr::PublicKey>,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming company chain event for {node_id}");
@@ -198,7 +199,12 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().unwrap(), &node_id, Some(original_event))
+            .handle_event(
+                event.try_into().unwrap(),
+                &node_id,
+                None,
+                Some(original_event),
+            )
             .await
             .expect("failed to handle event");
     }
@@ -248,7 +254,12 @@ mod tests {
         );
 
         handler
-            .handle_event(event.try_into().unwrap(), &node_id, Some(original_event))
+            .handle_event(
+                event.try_into().unwrap(),
+                &node_id,
+                None,
+                Some(original_event),
+            )
             .await
             .expect("failed to handle event");
     }

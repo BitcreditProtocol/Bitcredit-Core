@@ -39,6 +39,7 @@ impl NotificationHandlerApi for BillInviteEventHandler {
         &self,
         event: EventEnvelope,
         node_id: &NodeId,
+        _sender: Option<nostr::PublicKey>,
         _: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming bill chain invite for {node_id}");
@@ -255,7 +256,7 @@ mod tests {
 
         let handler = BillInviteEventHandler::new(Arc::new(processor), Arc::new(chain_event_store));
         handler
-            .handle_event(invite, &node_id, Some(Box::new(event.clone())))
+            .handle_event(invite, &node_id, None, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }
@@ -306,7 +307,7 @@ mod tests {
 
         let handler = BillInviteEventHandler::new(Arc::new(processor), Arc::new(chain_event_store));
         handler
-            .handle_event(invite, &node_id, Some(Box::new(event.clone())))
+            .handle_event(invite, &node_id, None, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }
@@ -365,7 +366,7 @@ mod tests {
 
         let handler = BillInviteEventHandler::new(Arc::new(processor), Arc::new(chain_event_store));
         handler
-            .handle_event(invite, &node_id, Some(Box::new(event.clone())))
+            .handle_event(invite, &node_id, None, Some(Box::new(event.clone())))
             .await
             .expect("failed to process chain invite event");
     }
