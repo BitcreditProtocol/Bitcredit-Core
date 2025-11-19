@@ -751,6 +751,10 @@ impl IdentityServiceApi for IdentityService {
             .contact_transport()
             .publish_contact(&identity.node_id, &contact_data)
             .await?;
+        self.block_transport
+            .contact_transport()
+            .ensure_nostr_contact(&identity.node_id)
+            .await;
         Ok(())
     }
 }
@@ -816,6 +820,7 @@ mod tests {
         transport.expect_on_contact_transport(|t| {
             // publishes contact info to nostr
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
 
         let service = get_service_with_chain_storage(storage, chain_storage, transport);
@@ -860,6 +865,7 @@ mod tests {
         });
         transport.expect_on_contact_transport(|t| {
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
 
         // publishes contact info to nostr
@@ -924,6 +930,7 @@ mod tests {
         // publishes contact info to nostr
         transport.expect_on_contact_transport(|t| {
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
 
         let service = get_service_with_chain_storage(storage, chain_storage, transport);
@@ -1079,6 +1086,7 @@ mod tests {
         transport.expect_on_contact_transport(|t| {
             // publishes contact info to nostr
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
 
         let service = get_service_with_chain_storage(storage, chain_storage, transport);

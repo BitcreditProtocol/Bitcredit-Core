@@ -1010,6 +1010,10 @@ impl CompanyServiceApi for CompanyService {
             .contact_transport()
             .publish_contact(&company.id, &contact_data)
             .await?;
+        self.transport_service
+            .contact_transport()
+            .ensure_nostr_contact(&company.id)
+            .await;
         Ok(())
     }
 }
@@ -1378,6 +1382,7 @@ pub mod tests {
         transport.expect_on_contact_transport(|t| {
             // publishes contact info to nostr
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
 
         company_chain_store
@@ -1518,6 +1523,7 @@ pub mod tests {
         transport.expect_on_contact_transport(|t| {
             // publishes contact info to nostr
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
 
         let node_id_clone = node_id.clone();
