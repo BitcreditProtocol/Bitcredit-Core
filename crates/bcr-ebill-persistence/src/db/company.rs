@@ -2,12 +2,20 @@ use super::{
     FileDb, PostalAddressDb, Result,
     surreal::{Bindings, SurrealWrapper},
 };
-use crate::constants::{DB_SEARCH_TERM, DB_TABLE};
+use crate::{
+    constants::{DB_SEARCH_TERM, DB_TABLE},
+    db::EmailConfirmationDb,
+};
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    application::ServiceTraitBounds, application::company::Company, protocol::City,
-    protocol::Country, protocol::Date, protocol::Email, protocol::Identification, protocol::Name,
-    protocol::SecretKey, protocol::crypto::BcrKeys,
+    application::{
+        ServiceTraitBounds,
+        company::{Company, CompanySignatory},
+    },
+    protocol::{
+        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SecretKey,
+        SignedIdentityProof, crypto::BcrKeys,
+    },
 };
 
 use crate::{Error, company::CompanyStoreApi};
@@ -24,6 +32,7 @@ pub struct SurrealCompanyStore {
 impl SurrealCompanyStore {
     const DATA_TABLE: &'static str = "company";
     const KEYS_TABLE: &'static str = "company_keys";
+    const EMAIL_CONFIRMATION_TABLE: &'static str = "company_email_confirmation";
 
     pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
@@ -140,6 +149,41 @@ impl CompanyStoreApi for SurrealCompanyStore {
             Some(c) => Ok(c.into()),
         }
     }
+
+    async fn get_email_confirmations(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>> {
+        let result: Vec<EmailConfirmationDb> =
+            self.db.select_all(Self::EMAIL_CONFIRMATION_TABLE).await?;
+        Ok(result
+            .into_iter()
+            // only return confirmations for this company
+            .filter(|confirmation| confirmation.company_node_id.as_ref() == Some(id))
+            .map(|confirmation| confirmation.into())
+            .collect())
+    }
+
+    async fn set_email_confirmation(
+        &self,
+        id: &NodeId,
+        proof: &SignedIdentityProof,
+        data: &EmailIdentityProofData,
+    ) -> Result<()> {
+        let keys = self.get_key_pair(id).await?;
+        if Some(keys.pub_key()) != data.company_node_id.as_ref().map(|ni| ni.pub_key()) {
+            return Err(Error::PublicKeyDoesNotMatch);
+        }
+        // the id contains the company id and the mint id
+        let id = format!("{}:{}", proof.witness, id);
+
+        let entity: EmailConfirmationDb = (proof.to_owned(), data.to_owned()).into();
+        let _: Option<EmailConfirmationDb> = self
+            .db
+            .upsert(Self::EMAIL_CONFIRMATION_TABLE, id, entity)
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,9 +198,33 @@ pub struct CompanyDb {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<FileDb>,
     pub logo_file: Option<FileDb>,
-    pub signatories: Vec<NodeId>,
+    pub signatories: Vec<CompanySignatoryDb>,
     #[serde(default = "active_default")]
     pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompanySignatoryDb {
+    pub node_id: NodeId,
+    pub email: Email,
+}
+
+impl From<&CompanySignatory> for CompanySignatoryDb {
+    fn from(value: &CompanySignatory) -> Self {
+        Self {
+            node_id: value.node_id.to_owned(),
+            email: value.email.to_owned(),
+        }
+    }
+}
+
+impl From<CompanySignatoryDb> for CompanySignatory {
+    fn from(value: CompanySignatoryDb) -> Self {
+        Self {
+            node_id: value.node_id,
+            email: value.email,
+        }
+    }
 }
 
 // needed to default existing companies to active
@@ -178,7 +246,7 @@ impl TryFrom<CompanyDb> for Company {
             registration_date: value.registration_date,
             proof_of_registration_file: value.proof_of_registration_file.map(|f| f.into()),
             logo_file: value.logo_file.map(|f| f.into()),
-            signatories: value.signatories,
+            signatories: value.signatories.into_iter().map(|s| s.into()).collect(),
             active: value.active,
         })
     }
@@ -204,7 +272,7 @@ impl From<&Company> for CompanyDb {
                 .clone()
                 .map(|f| (&f).into()),
             logo_file: value.logo_file.clone().map(|f| (&f).into()),
-            signatories: value.signatories.clone(),
+            signatories: value.signatories.iter().map(|s| s.into()).collect(),
             active: value.active,
         }
     }
@@ -262,7 +330,10 @@ mod tests {
             registration_date: Some(Date::new("2012-01-01").unwrap()),
             proof_of_registration_file: None,
             logo_file: None,
-            signatories: vec![node_id_test()],
+            signatories: vec![CompanySignatory {
+                node_id: node_id_test(),
+                email: Email::new("test@example.com").unwrap(),
+            }],
             active: true,
         }
     }

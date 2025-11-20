@@ -71,8 +71,11 @@
     <div>
         <h2>Company Testing</h2>
         <div>Company Id: <span id="companies"></span></div>
-        <button type="button" id="company_create">Create Company</button>
-        <div>Company Id: <input type="text" id="company_update_id"/></div>
+        <div>
+            Company Id: <input type="text" id="company_update_id"/>
+            <button type="button" id="company_create_id">Create New Company Id</button>
+            <button type="button" id="company_detail">Get Company Detail</button>
+        </div>
         <div>Company Name: <input type="text" id="company_update_name"/></div>
         <div>Signatory Node Id: <input type="text" id="company_signatory_id"/></div>
         <button type="button" id="company_update">Update Company name</button>
@@ -82,6 +85,20 @@
         <button type="button" id="share_company_contact_to">Share company contact to</button>
         <button type="button" id="list_signatories">List Signatories</button>
         <button type="button" id="sync_company_chain">Sync Company Chain</button>
+        <div>Company Identity Proof</div>
+        Company ID: <input type="text" id="company_email_id"/>
+        <br />
+        Company Signatory Email: <input type="text" id="company_email"/>
+        <button type="button" id="confirm_company_email">Confirm Company Signatory Email</button>
+        <br />
+        Confirmation Code: <input type="text" id="company_confirmation_code"/>
+        <button type="button" id="verify_company_email">Verify Email</button>
+        <br />
+        <button type="button" id="get_company_confirmations">Get Company Email Confirmations</button>
+        <br />
+        <button type="button" id="company_create">Create Company</button>
+        <br />
+        <button type="button" id="change_signatory_email">Change Company Signatory Email</button>
     </div>
     <div>
         <h2>Contact Testing</h2>

@@ -1,5 +1,7 @@
 use super::{FileDb, OptionalPostalAddressDb, Result, surreal::SurrealWrapper};
-use crate::{Error, identity::IdentityStoreApi, protocol::crypto::BcrKeys};
+use crate::{
+    Error, db::EmailConfirmationDb, identity::IdentityStoreApi, protocol::crypto::BcrKeys,
+};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
@@ -8,8 +10,8 @@ use bcr_ebill_core::{
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
     },
     protocol::{
-        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SchnorrSignature,
-        SecretKey, SignedIdentityProof, Timestamp, blockchain::identity::IdentityType,
+        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SecretKey,
+        SignedIdentityProof, blockchain::identity::IdentityType,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -185,7 +187,7 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn get_email_confirmations(
         &self,
     ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>> {
-        let result: Vec<IdentityEmailConfirmationDb> =
+        let result: Vec<EmailConfirmationDb> =
             self.db.select_all(Self::EMAIL_CONFIRMATION_TABLE).await?;
         Ok(result
             .into_iter()
@@ -203,8 +205,8 @@ impl IdentityStoreApi for SurrealIdentityStore {
             return Err(Error::PublicKeyDoesNotMatch);
         }
 
-        let entity: IdentityEmailConfirmationDb = (proof.to_owned(), data.to_owned()).into();
-        let _: Option<IdentityEmailConfirmationDb> = self
+        let entity: EmailConfirmationDb = (proof.to_owned(), data.to_owned()).into();
+        let _: Option<EmailConfirmationDb> = self
             .db
             .upsert(
                 Self::EMAIL_CONFIRMATION_TABLE,
@@ -213,46 +215,6 @@ impl IdentityStoreApi for SurrealIdentityStore {
             )
             .await?;
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IdentityEmailConfirmationDb {
-    pub signature: SchnorrSignature,
-    pub witness: NodeId,
-    pub node_id: NodeId,
-    pub company_node_id: Option<NodeId>,
-    pub email: Email,
-    pub created_at: Timestamp,
-}
-
-impl From<(SignedIdentityProof, EmailIdentityProofData)> for IdentityEmailConfirmationDb {
-    fn from((proof, data): (SignedIdentityProof, EmailIdentityProofData)) -> Self {
-        IdentityEmailConfirmationDb {
-            signature: proof.signature,
-            witness: proof.witness,
-            node_id: data.node_id,
-            company_node_id: data.company_node_id,
-            email: data.email,
-            created_at: data.created_at,
-        }
-    }
-}
-
-impl From<IdentityEmailConfirmationDb> for (SignedIdentityProof, EmailIdentityProofData) {
-    fn from(value: IdentityEmailConfirmationDb) -> Self {
-        (
-            SignedIdentityProof {
-                signature: value.signature,
-                witness: value.witness,
-            },
-            EmailIdentityProofData {
-                node_id: value.node_id,
-                company_node_id: value.company_node_id,
-                email: value.email,
-                created_at: value.created_at,
-            },
-        )
     }
 }
 
