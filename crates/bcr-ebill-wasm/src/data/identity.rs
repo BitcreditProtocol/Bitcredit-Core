@@ -103,7 +103,6 @@ pub struct NewIdentityPayload {
 #[tsify(from_wasm_abi)]
 pub struct ChangeIdentityPayload {
     pub name: Option<String>,
-    pub email: Option<String>,
     pub postal_address: CreateOptionalPostalAddressWeb,
     pub date_of_birth: Option<String>,
     pub country_of_birth: Option<String>,
@@ -111,6 +110,12 @@ pub struct ChangeIdentityPayload {
     pub identification_number: Option<String>,
     pub profile_picture_file_upload_id: Option<String>,
     pub identity_document_file_upload_id: Option<String>,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ChangeIdentityEmailPayload {
+    pub email: String,
 }
 
 #[derive(Tsify, Debug, Serialize)]

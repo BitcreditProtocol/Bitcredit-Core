@@ -43,7 +43,6 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     async fn update_identity(
         &self,
         name: Option<Name>,
-        email: Option<Email>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
@@ -55,6 +54,8 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
         ignore_identity_document_file_upload_id: bool,
         timestamp: Timestamp,
     ) -> Result<()>;
+    /// Updates the identity email
+    async fn update_email(&self, email: &Email, timestamp: Timestamp) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
     async fn get_full_identity(&self) -> Result<IdentityWithAll>;
     /// Gets the local identity
@@ -364,7 +365,6 @@ impl IdentityServiceApi for IdentityService {
     async fn update_identity(
         &self,
         name: Option<Name>,
-        email: Option<Email>,
         postal_address: OptionalPostalAddress,
         date_of_birth: Option<Date>,
         country_of_birth: Option<Country>,
@@ -396,13 +396,6 @@ impl IdentityServiceApi for IdentityService {
 
         // for anonymous identity, we only consider name
         if identity.t == IdentityType::Ident {
-            if let Some(ref email_to_set) = email
-                && identity.email.as_ref() != Some(email_to_set)
-            {
-                identity.email = Some(email_to_set.to_owned());
-                changed = true;
-            }
-
             if let Some(ref country_to_set) = postal_address.country
                 && identity.postal_address.country.as_ref() != Some(country_to_set)
             {
@@ -505,7 +498,7 @@ impl IdentityServiceApi for IdentityService {
         let block_data = IdentityUpdateBlockData {
             t: None,
             name,
-            email,
+            email: None,
             postal_address,
             date_of_birth,
             country_of_birth,
@@ -525,6 +518,65 @@ impl IdentityServiceApi for IdentityService {
         self.populate_block(&identity, &new_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
         debug!("updated identity");
+        Ok(())
+    }
+
+    async fn update_email(&self, email: &Email, timestamp: Timestamp) -> Result<()> {
+        debug!("updating identity email");
+        let mut identity = self.store.get().await?;
+        let keys = self.store.get_key_pair().await?;
+
+        if identity.t == IdentityType::Ident {
+            if identity.email.as_ref() != Some(email) {
+                identity.email = Some(email.to_owned());
+            } else {
+                // return early, if email didn't change
+                return Ok(());
+            }
+        } else {
+            // can't update email for anon identity
+            return Err(Error::Validation(
+                ProtocolValidationError::IdentityCantBeAnon.into(),
+            ));
+        }
+
+        // check if email is confirmed
+        let email_confirmation = self
+            .check_confirmed_email(&Some(email.to_owned()), &identity.t, &identity.node_id)
+            .await?;
+
+        let mut identity_chain = self.blockchain_store.get_chain().await?;
+        let previous_block = identity_chain.get_latest_block();
+        let block_data = IdentityUpdateBlockData {
+            t: None,
+            name: None,
+            email: Some(email.to_owned()),
+            postal_address: OptionalPostalAddress::empty(),
+            date_of_birth: None,
+            country_of_birth: None,
+            city_of_birth: None,
+            identification_number: None,
+            profile_picture_file: None,
+            identity_document_file: None,
+        };
+        block_data.validate()?;
+        let new_block =
+            IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
+                .map_err(|e| Error::Protocol(e.into()))?;
+        self.validate_and_add_block(&mut identity_chain, new_block.clone())
+            .await?;
+
+        self.store.save(&identity).await?;
+        self.populate_block(&identity, &new_block, &keys).await?;
+        self.on_identity_contact_change(&identity, &keys).await?;
+
+        // Create and populate identity proof block
+        if let Some((proof, data)) = email_confirmation {
+            self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
+                .await?;
+        }
+
+        debug!("updated identity email");
         Ok(())
     }
 
@@ -1301,7 +1353,6 @@ mod tests {
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),
-                None,
                 empty_optional_address(),
                 None,
                 None,
@@ -1335,7 +1386,6 @@ mod tests {
         let res = service
             .update_identity(
                 Some(Name::new("name").unwrap()),
-                None,
                 empty_optional_address(),
                 None,
                 None,
@@ -1383,7 +1433,6 @@ mod tests {
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),
-                None,
                 empty_optional_address(),
                 None,
                 None,
