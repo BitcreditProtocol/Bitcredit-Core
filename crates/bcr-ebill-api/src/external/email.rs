@@ -1,14 +1,15 @@
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::protocol::{Email, event::bill_events::BillEventType, mint::MintSignature};
-use bitcoin::{XOnlyPublicKey, base58};
+use bcr_ebill_core::protocol::Sha256Hash;
+use bcr_ebill_core::protocol::{
+    Email, EmailIdentityProofData, SchnorrSignature, SignedIdentityProof,
+    crypto::Error as CryptoError, event::bill_events::BillEventType,
+};
+use bitcoin::base58;
 use borsh_derive::BorshSerialize;
-use nostr::hashes::Hash;
-use nostr::hashes::sha256;
-use nostr::util::SECP256K1;
 use secp256k1::schnorr::Signature;
-use secp256k1::{Keypair, Message, SecretKey};
+use secp256k1::{Keypair, Message, SECP256K1, SecretKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -27,9 +28,6 @@ pub enum Error {
     /// all hex errors
     #[error("External Email Base58 Error: {0}")]
     Base58(#[from] base58::InvalidCharacterError),
-    /// all signature errors
-    #[error("External Email Signature Error: {0}")]
-    Signature(#[from] secp256k1::Error),
     /// all borsh errors
     #[error("External Email Borsh Error")]
     Borsh(#[from] borsh::io::Error),
@@ -37,6 +35,8 @@ pub enum Error {
     InvalidMintId,
     #[error("External Email Invalid Mint Signature Error")]
     InvalidMintSignature,
+    #[error("External Email crypto Error")]
+    Crypto(#[from] CryptoError),
 }
 
 #[cfg(test)]
@@ -66,7 +66,7 @@ pub trait EmailClientApi: ServiceTraitBounds {
         company_node_id: &Option<NodeId>,
         confirmation_code: &str,
         private_key: &SecretKey,
-    ) -> Result<MintSignature>;
+    ) -> Result<(SignedIdentityProof, EmailIdentityProofData)>;
     /// Send a bill notification email
     async fn send_bill_notification(
         &self,
@@ -100,38 +100,54 @@ impl EmailClient {
         }
     }
 
-    async fn get_eic_challenge(&self, mint_url: &url::Url, node_id: &NodeId) -> Result<String> {
-        let req = StartEmailRegisterRequest {
-            node_id: node_id.to_owned(),
-        };
-
-        let resp: StartEmailRegisterResponse = self
-            .cl
-            .post(to_url(mint_url, "v1/eic/challenge")?)
-            .json(&req)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.challenge)
+    async fn get_eic_challenge(
+        &self,
+        mint_url: &url::Url,
+        node_id: &NodeId,
+        private_key: &SecretKey,
+    ) -> Result<Signature> {
+        self.get_challenge("eic", mint_url, node_id, private_key)
+            .await
     }
 
-    async fn get_ens_challenge(&self, mint_url: &url::Url, node_id: &NodeId) -> Result<String> {
+    async fn get_ens_challenge(
+        &self,
+        mint_url: &url::Url,
+        node_id: &NodeId,
+        private_key: &SecretKey,
+    ) -> Result<Signature> {
+        self.get_challenge("ens", mint_url, node_id, private_key)
+            .await
+    }
+
+    async fn get_challenge(
+        &self,
+        prefix: &str,
+        mint_url: &url::Url,
+        node_id: &NodeId,
+        private_key: &SecretKey,
+    ) -> Result<Signature> {
         let req = StartEmailRegisterRequest {
             node_id: node_id.to_owned(),
         };
 
         let resp: StartEmailRegisterResponse = self
             .cl
-            .post(to_url(mint_url, "v1/ens/challenge")?)
+            .post(to_url(mint_url, &format!("v1/{}/challenge", prefix))?)
             .json(&req)
             .send()
             .await?
             .json()
             .await?;
 
-        Ok(resp.challenge)
+        let decoded_challenge = base58::decode(&resp.challenge).map_err(Error::Base58)?;
+
+        let key_pair = Keypair::from_secret_key(SECP256K1, private_key);
+        let msg = Message::from_digest_slice(&decoded_challenge)
+            .map_err(|e| Error::Crypto(CryptoError::Signature(e.to_string())))?;
+        let signature = SECP256K1.sign_schnorr(&msg, &key_pair);
+
+        Ok(signature)
     }
 }
 
@@ -151,12 +167,9 @@ impl EmailClientApi for EmailClient {
         email: &Email,
         private_key: &SecretKey,
     ) -> Result<()> {
-        let challenge = self.get_eic_challenge(mint_url, node_id).await?;
-        let decoded_challenge = base58::decode(&challenge).map_err(Error::Base58)?;
-
-        let key_pair = Keypair::from_secret_key(SECP256K1, private_key);
-        let msg = Message::from_digest_slice(&decoded_challenge).map_err(Error::Signature)?;
-        let signed_challenge = SECP256K1.sign_schnorr(&msg, &key_pair);
+        let signed_challenge = self
+            .get_eic_challenge(mint_url, node_id, private_key)
+            .await?;
 
         let req = RegisterEmailRequest {
             node_id: node_id.to_owned(),
@@ -183,7 +196,7 @@ impl EmailClientApi for EmailClient {
         company_node_id: &Option<NodeId>,
         confirmation_code: &str,
         private_key: &SecretKey,
-    ) -> Result<MintSignature> {
+    ) -> Result<(SignedIdentityProof, EmailIdentityProofData)> {
         let pl = EmailConfirmPayload {
             node_id: node_id.to_owned(),
             company_node_id: company_node_id.to_owned(),
@@ -191,10 +204,14 @@ impl EmailClientApi for EmailClient {
         };
 
         let serialized = borsh::to_vec(&pl).map_err(Error::Borsh)?;
-        let signature = sign_payload(&serialized, private_key);
+        let hash = Sha256Hash::from_bytes(&serialized);
+        let signature = SchnorrSignature::sign(&hash, private_key).map_err(Error::Crypto)?;
         let payload = base58::encode(&serialized);
 
-        let req = EmailConfirmRequest { payload, signature };
+        let req = EmailConfirmRequest {
+            payload,
+            signature: signature.as_sig(),
+        };
 
         let res: EmailConfirmResponse = self
             .cl
@@ -210,18 +227,25 @@ impl EmailClientApi for EmailClient {
         }
 
         let decoded_mint_sig = base58::decode(&res.payload).map_err(Error::Base58)?;
+        let hash = Sha256Hash::from_bytes(&decoded_mint_sig);
 
-        if !verify_request(
-            &decoded_mint_sig,
-            &res.signature,
-            &mint_node_id.pub_key().x_only_public_key().0,
-        )? {
+        let signature = SchnorrSignature::from(res.signature);
+
+        if !signature
+            .verify(&hash, &mint_node_id.pub_key())
+            .map_err(Error::Crypto)?
+        {
             return Err(Error::InvalidMintSignature.into());
         }
 
-        let mint_sig: MintSignature = borsh::from_slice(&decoded_mint_sig).map_err(Error::Borsh)?;
+        let proof = SignedIdentityProof {
+            signature,
+            witness: res.mint_node_id,
+        };
+        let data: EmailIdentityProofData =
+            borsh::from_slice(&decoded_mint_sig).map_err(Error::Borsh)?;
 
-        Ok(mint_sig)
+        Ok((proof, data))
     }
 
     async fn send_bill_notification(
@@ -243,13 +267,17 @@ impl EmailClientApi for EmailClient {
         };
 
         let serialized = borsh::to_vec(&pl).map_err(Error::Borsh)?;
-        let signature = sign_payload(&serialized, private_key);
+        let hash = Sha256Hash::from_bytes(&serialized);
+        let signature = SchnorrSignature::sign(&hash, private_key).map_err(Error::Crypto)?;
         let payload = base58::encode(&serialized);
 
-        let req = NotificationSendRequest { payload, signature };
+        let req = NotificationSendRequest {
+            payload,
+            signature: signature.as_sig(),
+        };
 
         self.cl
-            .post(to_url(mint_url, "notifications/v1/send")?)
+            .post(to_url(mint_url, "v1/ens/email/send")?)
             .json(&req)
             .send()
             .await?
@@ -265,12 +293,9 @@ impl EmailClientApi for EmailClient {
         company_node_id: &Option<NodeId>,
         private_key: &SecretKey,
     ) -> Result<url::Url> {
-        let challenge = self.get_ens_challenge(mint_url, node_id).await?;
-        let decoded_challenge = base58::decode(&challenge).map_err(Error::Base58)?;
-
-        let key_pair = Keypair::from_secret_key(SECP256K1, private_key);
-        let msg = Message::from_digest_slice(&decoded_challenge).map_err(Error::Signature)?;
-        let signed_challenge = SECP256K1.sign_schnorr(&msg, &key_pair);
+        let signed_challenge = self
+            .get_ens_challenge(mint_url, node_id, private_key)
+            .await?;
 
         let req = GetEmailPreferencesLinkRequest {
             node_id: node_id.to_owned(),
@@ -291,20 +316,6 @@ impl EmailClientApi for EmailClient {
     }
 }
 
-pub fn sign_payload(req: &[u8], private_key: &SecretKey) -> Signature {
-    let key_pair = Keypair::from_secret_key(SECP256K1, private_key);
-    let hash: sha256::Hash = sha256::Hash::hash(req);
-    let req = Message::from_digest(*hash.as_ref());
-
-    SECP256K1.sign_schnorr(&req, &key_pair)
-}
-
-pub fn verify_request(payload: &[u8], signature: &Signature, key: &XOnlyPublicKey) -> Result<bool> {
-    let hash = sha256::Hash::hash(payload);
-    let msg = Message::from_digest(*hash.as_ref());
-    Ok(SECP256K1.verify_schnorr(signature, &msg, key).is_ok())
-}
-
 #[derive(Debug, Serialize)]
 pub struct StartEmailRegisterRequest {
     pub node_id: NodeId,
@@ -313,7 +324,7 @@ pub struct StartEmailRegisterRequest {
 #[derive(Debug, Deserialize)]
 pub struct StartEmailRegisterResponse {
     pub challenge: String,
-    pub ttl_seconds: u32,
+    pub ttl: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -341,7 +352,7 @@ pub struct EmailConfirmPayload {
 
 #[derive(Debug, Deserialize)]
 pub struct EmailConfirmResponse {
-    /// A borsh-encoded MintSignature
+    /// A borsh-encoded EmailIdentityProofData
     pub payload: String,
     /// The mint signature of the payload
     pub signature: Signature,

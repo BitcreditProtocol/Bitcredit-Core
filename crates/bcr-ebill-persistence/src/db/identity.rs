@@ -8,8 +8,8 @@ use bcr_ebill_core::{
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
     },
     protocol::{
-        City, Country, Date, Email, Identification, Name, SecretKey,
-        blockchain::identity::IdentityType,
+        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SchnorrSignature,
+        SecretKey, SignedIdentityProof, Timestamp, blockchain::identity::IdentityType,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,7 @@ impl SurrealIdentityStore {
     const ACTIVE_IDENTITY_TABLE: &'static str = "active_identity";
     const KEY_TABLE: &'static str = "identity_key";
     const NETWORK_TABLE: &'static str = "identity_network";
+    const EMAIL_CONFIRMATION_TABLE: &'static str = "email_confirmation";
     const UNIQUE_ID: &'static str = "unique_record";
 
     pub fn new(db: SurrealWrapper) -> Self {
@@ -180,6 +181,79 @@ impl IdentityStoreApi for SurrealIdentityStore {
             .await?;
         Ok(())
     }
+
+    async fn get_email_confirmations(
+        &self,
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>> {
+        let result: Vec<IdentityEmailConfirmationDb> =
+            self.db.select_all(Self::EMAIL_CONFIRMATION_TABLE).await?;
+        Ok(result
+            .into_iter()
+            .map(|confirmation| confirmation.into())
+            .collect())
+    }
+
+    async fn set_email_confirmation(
+        &self,
+        proof: &SignedIdentityProof,
+        data: &EmailIdentityProofData,
+    ) -> Result<()> {
+        let keys = self.get_key_pair().await?;
+        if keys.pub_key() != data.node_id.pub_key() {
+            return Err(Error::PublicKeyDoesNotMatch);
+        }
+
+        let entity: IdentityEmailConfirmationDb = (proof.to_owned(), data.to_owned()).into();
+        let _: Option<IdentityEmailConfirmationDb> = self
+            .db
+            .upsert(
+                Self::EMAIL_CONFIRMATION_TABLE,
+                proof.witness.to_string(),
+                entity,
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentityEmailConfirmationDb {
+    pub signature: SchnorrSignature,
+    pub witness: NodeId,
+    pub node_id: NodeId,
+    pub company_node_id: Option<NodeId>,
+    pub email: Email,
+    pub created_at: Timestamp,
+}
+
+impl From<(SignedIdentityProof, EmailIdentityProofData)> for IdentityEmailConfirmationDb {
+    fn from((proof, data): (SignedIdentityProof, EmailIdentityProofData)) -> Self {
+        IdentityEmailConfirmationDb {
+            signature: proof.signature,
+            witness: proof.witness,
+            node_id: data.node_id,
+            company_node_id: data.company_node_id,
+            email: data.email,
+            created_at: data.created_at,
+        }
+    }
+}
+
+impl From<IdentityEmailConfirmationDb> for (SignedIdentityProof, EmailIdentityProofData) {
+    fn from(value: IdentityEmailConfirmationDb) -> Self {
+        (
+            SignedIdentityProof {
+                signature: value.signature,
+                witness: value.witness,
+            },
+            EmailIdentityProofData {
+                node_id: value.node_id,
+                company_node_id: value.company_node_id,
+                email: value.email,
+                created_at: value.created_at,
+            },
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,7 +364,10 @@ impl From<KeyDb> for BcrKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::get_memory_db, tests::tests::empty_identity};
+    use crate::{
+        db::get_memory_db,
+        tests::tests::{empty_identity, private_key_test, signed_identity_proof_test},
+    };
 
     async fn get_store() -> SurrealIdentityStore {
         let mem_db = get_memory_db("test", "identity")
@@ -343,5 +420,21 @@ mod tests {
         store.save_key_pair(&keys, &seed).await.unwrap();
         let fetched_key_pair = store.get_key_pair().await.unwrap();
         assert_eq!(keys.get_public_key(), fetched_key_pair.get_public_key());
+    }
+
+    #[tokio::test]
+    async fn test_set_get_email_confirmation() {
+        let store = get_store().await;
+        let key = BcrKeys::from_private_key(&private_key_test());
+        store.save_key_pair(&key, "").await.unwrap();
+
+        let (proof, data) = signed_identity_proof_test();
+        store
+            .set_email_confirmation(&proof, &data)
+            .await
+            .expect("works");
+        let email_confirmations = store.get_email_confirmations().await.expect("works");
+        assert_eq!(email_confirmations.len(), 1);
+        assert_eq!(email_confirmations[0].0.signature, proof.signature);
     }
 }

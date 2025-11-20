@@ -16,6 +16,12 @@
 * Change document max file size to 10 MB and max files on bill to 20
 * Add request deadlines to BillHistoryBlock
 * Remove `identity_proof` API and adapt and move to new email confirmation API
+* Add dev mode flag `disable_mandatory_email_confirmations`, to make it easier for testing
+* Identity Confirmation via Email
+    * Add persistence
+    * Adapt `create_identity` and `deanonymize` to require a confirmed email for identified users
+    * Add endpoints to `confirm`, `verify` an email address and to `get_email_confirmations`
+    * Adapt `IdentityProof` Block to include the email confirmation signed by the mint
 
 # 0.4.12
 

@@ -81,6 +81,7 @@ enum JsErrorType {
     RejectMintRequestNotOffered,
     AcceptMintRequestNotOffered,
     AcceptMintOfferExpired,
+    NoConfirmedEmailForIdentIdentity,
     NoFileForFileUploadId,
     NotFound,
     ExternalApi,
@@ -246,6 +247,9 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
             err_400(e, JsErrorType::AcceptMintRequestNotOffered)
         }
         ValidationError::AcceptMintOfferExpired => err_400(e, JsErrorType::AcceptMintOfferExpired),
+        ValidationError::NoConfirmedEmailForIdentIdentity => {
+            err_400(e, JsErrorType::NoConfirmedEmailForIdentIdentity)
+        }
     }
 }
 

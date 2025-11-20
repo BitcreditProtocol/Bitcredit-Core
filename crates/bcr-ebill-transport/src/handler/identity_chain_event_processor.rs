@@ -299,8 +299,11 @@ impl IdentityChainEventProcessor {
                 IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
                 IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
                 IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
-                IdentityBlockPayload::IdentityProof(_) => {
-                    // TODO: handle identity proof block
+                IdentityBlockPayload::IdentityProof(data) => {
+                    self.identity_store
+                        .set_email_confirmation(&data.proof, &data.data)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
             }
 
@@ -379,7 +382,6 @@ pub mod tests {
     use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
     use bcr_ebill_core::{
         application::identity::Identity,
-        protocol::IdentityProofStamp,
         protocol::Name,
         protocol::Sha256Hash,
         protocol::Timestamp,
@@ -393,6 +395,7 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
+    use crate::handler::test_utils::signed_identity_proof_test;
     use crate::{
         handler::{
             IdentityChainEventProcessorApi, MockNostrContactProcessorApi,
@@ -400,7 +403,6 @@ pub mod tests {
             identity_chain_event_processor::IdentityChainEventProcessor,
             test_utils::{
                 MockIdentityChainStore, MockIdentityStore, get_baseline_identity, node_id_test,
-                private_key_test,
             },
         },
         test_utils::MockNotificationJsonTransport,
@@ -733,9 +735,10 @@ pub mod tests {
         let keys = full.key_pair.clone();
         let blocks = vec![get_identity_create_block(full.identity, &full.key_pair)];
         let chain = IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let test_signed_identity = signed_identity_proof_test();
         let data = IdentityProofBlockData {
-            stamp: IdentityProofStamp::new(&node_id_test(), &private_key_test()).unwrap(),
-            url: url::Url::parse("https://bit.cr").unwrap(),
+            proof: test_signed_identity.0,
+            data: test_signed_identity.1,
         };
         let identity_proof_block = get_identity_proof_block(chain.get_latest_block(), &keys, &data);
 
@@ -745,6 +748,12 @@ pub mod tests {
             .expect_get()
             .returning(move || Ok(expected_identity.clone()))
             .once();
+
+        // incoming identity proof is set
+        store
+            .expect_set_email_confirmation()
+            .returning(|_, _| Ok(()))
+            .times(1);
 
         // checks if we already have the chain
         chain_store

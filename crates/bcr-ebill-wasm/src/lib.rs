@@ -44,6 +44,7 @@ pub struct Config {
     pub default_mint_node_id: String,
     pub num_confirmations_for_payment: usize,
     pub dev_mode: bool,
+    pub disable_mandatory_email_confirmations: bool,
     pub default_court_url: String,
 }
 
@@ -137,6 +138,7 @@ pub async fn initialize_api(
         },
         dev_mode_config: DevModeConfig {
             on: config.dev_mode,
+            disable_mandatory_email_confirmations: config.disable_mandatory_email_confirmations,
         },
         court_config: CourtConfig {
             default_url: url::Url::parse(&config.default_court_url)

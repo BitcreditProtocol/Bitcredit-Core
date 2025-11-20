@@ -7,8 +7,8 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, UploadFile,
         UploadFileResponse, has_field,
         identity::{
-            ChangeIdentityPayload, IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase,
-            ShareContactTo, SwitchIdentity,
+            ChangeIdentityPayload, IdentityEmailConfirmationWeb, IdentityTypeWeb, IdentityWeb,
+            NewIdentityPayload, SeedPhrase, ShareContactTo, SwitchIdentity,
         },
     },
     error::WasmError,
@@ -474,6 +474,46 @@ impl Identity {
                 .resync_identity_chain()
                 .await?;
             Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn confirm_email(&self, email: &str) -> JsValue {
+        let res: Result<()> = async {
+            let parsed_email = Email::new(email)?;
+            get_ctx()
+                .identity_service
+                .confirm_email(&parsed_email)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn verify_email(&self, confirmation_code: &str) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx()
+                .identity_service
+                .verify_email(confirmation_code)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<IdentityEmailConfirmationWeb[]>")]
+    pub async fn get_email_confirmations(&self) -> JsValue {
+        let res: Result<Vec<IdentityEmailConfirmationWeb>> = async {
+            let email_confirmations = get_ctx().identity_service.get_email_confirmations().await?;
+            Ok(email_confirmations
+                .into_iter()
+                .map(|ec| ec.into())
+                .collect())
         }
         .await;
         TSResult::res_to_js(res)

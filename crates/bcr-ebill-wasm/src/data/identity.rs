@@ -7,8 +7,8 @@ use bcr_ebill_core::{
         nostr_contact::NostrPublicKey,
     },
     protocol::{
-        City, Country, Date, Email, Identification, Name, PublicKey,
-        blockchain::identity::IdentityType,
+        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, PublicKey,
+        SchnorrSignature, SignedIdentityProof, Timestamp, blockchain::identity::IdentityType,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -189,4 +189,33 @@ pub struct ShareCompanyContactTo {
     /// The node id of the company to share the contact details for
     #[tsify(type = "string")]
     pub company_id: NodeId,
+}
+
+#[derive(Tsify, Debug, Serialize)]
+pub struct IdentityEmailConfirmationWeb {
+    #[tsify(type = "string")]
+    pub signature: SchnorrSignature,
+    #[tsify(type = "string")]
+    pub witness: NodeId,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+    #[tsify(type = "string | undefined")]
+    pub company_node_id: Option<NodeId>,
+    #[tsify(type = "string")]
+    pub email: Email,
+    #[tsify(type = "number")]
+    pub created_at: Timestamp,
+}
+
+impl From<(SignedIdentityProof, EmailIdentityProofData)> for IdentityEmailConfirmationWeb {
+    fn from((proof, data): (SignedIdentityProof, EmailIdentityProofData)) -> Self {
+        Self {
+            signature: proof.signature,
+            witness: proof.witness,
+            node_id: data.node_id,
+            company_node_id: data.company_node_id,
+            email: data.email,
+            created_at: data.created_at,
+        }
+    }
 }

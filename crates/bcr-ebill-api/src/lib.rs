@@ -72,6 +72,8 @@ pub struct CourtConfig {
 pub struct DevModeConfig {
     /// Whether dev mode is on
     pub on: bool,
+    /// Whether mandatory email confirmations should be enabled (disable for easier testing)
+    pub disable_mandatory_email_confirmations: bool,
 }
 
 /// Payment specific configuration

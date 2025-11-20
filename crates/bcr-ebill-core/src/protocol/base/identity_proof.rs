@@ -1,121 +1,82 @@
-use std::{fmt, str::FromStr};
-
-use log::warn;
+use borsh::{BorshDeserialize, BorshSerialize};
 use secp256k1::{SECP256K1, SecretKey};
+use serde::{Deserialize, Serialize};
 
 use bcr_common::core::NodeId;
 
-use crate::protocol::{ProtocolValidationError, SchnorrSignature, Sha256Hash};
+use crate::protocol::{
+    Email, ProtocolError, SchnorrSignature, Sha256Hash, Timestamp, crypto::Error as CryptoError,
+};
 
-/// This is the string users are supposed to post on their social media to prove their identity
-#[derive(Debug, Clone, PartialEq)]
-pub struct IdentityProofStamp {
-    inner: SchnorrSignature,
+/// The signature and witness of an identity proof
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq)]
+pub struct SignedIdentityProof {
+    /// The signature of the sha256 hashed borsh-payload (EmailIdentityProofData) by the mint
+    pub signature: SchnorrSignature,
+    /// The mint (signer) node id
+    pub witness: NodeId,
 }
 
-impl IdentityProofStamp {
-    /// Sign the base58 sha256 hash of the given node_id using the given key and returns the resulting signature
-    pub fn new(node_id: &NodeId, private_key: &SecretKey) -> Result<Self, ProtocolValidationError> {
-        // check that the node id and the private key match
-        if node_id.pub_key() != private_key.public_key(SECP256K1) {
-            return Err(ProtocolValidationError::InvalidNodeId);
+impl SignedIdentityProof {
+    pub fn verify(&self, data: &EmailIdentityProofData) -> Result<bool, ProtocolError> {
+        let serialized = borsh::to_vec(&data)?;
+        let hash = Sha256Hash::from_bytes(&serialized);
+        let res = self.signature.verify(&hash, &self.witness.pub_key())?;
+        Ok(res)
+    }
+}
+
+/// Mapping from (node_id/option<company_node_id>) => email, to be signed by a witness (mint)
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq)]
+pub struct EmailIdentityProofData {
+    /// Identity node id
+    pub node_id: NodeId,
+    /// Optional company node id
+    pub company_node_id: Option<NodeId>,
+    /// The mapped email
+    pub email: Email,
+    /// The time of signing
+    pub created_at: Timestamp,
+}
+
+impl EmailIdentityProofData {
+    pub fn sign(
+        &self,
+        witness: &NodeId,
+        witness_private_key: &SecretKey,
+    ) -> Result<SignedIdentityProof, ProtocolError> {
+        if witness.pub_key() != witness_private_key.public_key(SECP256K1) {
+            return Err(ProtocolError::Crypto(CryptoError::Crypto(
+                "Keys don't match".into(),
+            )));
         }
-        // hash the node id
-        let hash = Sha256Hash::from_bytes(node_id.to_string().as_bytes());
-        // sign it
-        let signature = SchnorrSignature::sign(&hash, private_key)
-            .map_err(|_| ProtocolValidationError::InvalidSignature)?;
-        Ok(IdentityProofStamp::from(signature))
-    }
-
-    /// Checks if the identity proof signature string is within the given body of text
-    pub fn is_contained_in(&self, body: &str) -> bool {
-        let self_str = self.to_string();
-        body.contains(&self_str)
-    }
-
-    pub fn verify_against_node_id(&self, node_id: &NodeId) -> bool {
-        let hash = Sha256Hash::from_bytes(node_id.to_string().as_bytes());
-        match self.inner.verify(&hash, &node_id.pub_key()) {
-            Ok(verified) => verified,
-            Err(e) => {
-                warn!(
-                    "could not verify identity proof stamp {self} against node id {node_id}: {e}"
-                );
-                false
-            }
-        }
-    }
-}
-
-impl fmt::Display for IdentityProofStamp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.fmt(f)
-    }
-}
-
-impl From<SchnorrSignature> for IdentityProofStamp {
-    fn from(value: SchnorrSignature) -> Self {
-        Self { inner: value }
-    }
-}
-
-impl FromStr for IdentityProofStamp {
-    type Err = ProtocolValidationError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(Self {
-            inner: SchnorrSignature::from_str(s)?,
+        let serialized = borsh::to_vec(&self)?;
+        let hash = Sha256Hash::from_bytes(&serialized);
+        let sig = SchnorrSignature::sign(&hash, witness_private_key)?;
+        Ok(SignedIdentityProof {
+            signature: sig,
+            witness: witness.to_owned(),
         })
     }
 }
 
-impl serde::Serialize for IdentityProofStamp {
-    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        s.collect_str(self)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for IdentityProofStamp {
-    fn deserialize<D>(d: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(d)?;
-        IdentityProofStamp::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
-impl borsh::BorshSerialize for IdentityProofStamp {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let stamp_str = self.to_string();
-        borsh::BorshSerialize::serialize(&stamp_str, writer)
-    }
-}
-
-impl borsh::BorshDeserialize for IdentityProofStamp {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let stamp_str: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        IdentityProofStamp::from_str(&stamp_str)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-}
-
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use crate::protocol::tests::tests::{node_id_test, private_key_test};
 
     use super::*;
 
     #[test]
-    fn test_create_and_verify() {
-        let node_id = node_id_test();
-        let private_key = private_key_test();
-
-        let identity_proof_stamp =
-            IdentityProofStamp::new(&node_id, &private_key).expect("is valid");
-        assert!(identity_proof_stamp.verify_against_node_id(&node_id));
+    fn test_sign_verify() {
+        let data = EmailIdentityProofData {
+            node_id: node_id_test(),
+            company_node_id: None,
+            email: Email::new("test@example.com").unwrap(),
+            created_at: Timestamp::new(1731593929).unwrap(),
+        };
+        let proof = data
+            .sign(&node_id_test(), &private_key_test())
+            .expect("works");
+        assert!(proof.verify(&data).expect("works"));
     }
 }

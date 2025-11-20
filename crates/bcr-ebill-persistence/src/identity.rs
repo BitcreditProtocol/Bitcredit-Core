@@ -2,10 +2,15 @@ use super::Result;
 use async_trait::async_trait;
 
 use bcr_ebill_core::{
-    application::ServiceTraitBounds,
-    application::identity::{ActiveIdentityState, Identity, IdentityWithAll},
-    protocol::blockchain::identity::{IdentityBlock, IdentityBlockchain},
-    protocol::crypto::BcrKeys,
+    application::{
+        ServiceTraitBounds,
+        identity::{ActiveIdentityState, Identity, IdentityWithAll},
+    },
+    protocol::{
+        EmailIdentityProofData, SignedIdentityProof,
+        blockchain::identity::{IdentityBlock, IdentityBlockchain},
+        crypto::BcrKeys,
+    },
 };
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -34,6 +39,16 @@ pub trait IdentityStoreApi: ServiceTraitBounds {
     async fn set_current_identity(&self, identity_state: &ActiveIdentityState) -> Result<()>;
     /// Sets the network for this identity, or, if it's set, checks if the set network is the same as the configured one
     async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
+    /// Gets the email confirmation state for this identity
+    async fn get_email_confirmations(
+        &self,
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
+    /// Sets the email confirmation state for this identity
+    async fn set_email_confirmation(
+        &self,
+        proof: &SignedIdentityProof,
+        data: &EmailIdentityProofData,
+    ) -> Result<()>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
