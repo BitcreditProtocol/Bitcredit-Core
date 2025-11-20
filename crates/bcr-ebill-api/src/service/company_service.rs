@@ -10,7 +10,6 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
-use bcr_ebill_core::protocol::Country;
 use bcr_ebill_core::protocol::Date;
 use bcr_ebill_core::protocol::Email;
 use bcr_ebill_core::protocol::Identification;
@@ -23,13 +22,14 @@ use bcr_ebill_core::protocol::blockchain::company::{
     CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain,
     CompanyCreateBlockData, CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
 };
-use bcr_ebill_core::protocol::blockchain::identity::IdentityType;
 use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
     IdentityRemoveSignatoryBlockData,
 };
+use bcr_ebill_core::protocol::blockchain::identity::{IdentityBlockchain, IdentityType};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
+use bcr_ebill_core::protocol::{Country, blockchain};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_core::protocol::{
     PublicKey, SecretKey,
@@ -246,6 +246,37 @@ impl CompanyService {
         debug!("Company change");
         self.publish_contact(company, keys).await
     }
+
+    async fn validate_and_add_identity_block(
+        &self,
+        chain: &mut IdentityBlockchain,
+        new_block: IdentityBlock,
+    ) -> Result<()> {
+        let try_add_block = chain.try_add_block(new_block.clone());
+        if try_add_block && chain.is_chain_valid() {
+            self.identity_blockchain_store.add_block(&new_block).await?;
+            Ok(())
+        } else {
+            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+        }
+    }
+
+    async fn validate_and_add_block(
+        &self,
+        company_id: &NodeId,
+        chain: &mut CompanyBlockchain,
+        new_block: CompanyBlock,
+    ) -> Result<()> {
+        let try_add_block = chain.try_add_block(new_block.clone());
+        if try_add_block && chain.is_chain_valid() {
+            self.company_blockchain_store
+                .add_block(company_id, &new_block)
+                .await?;
+            Ok(())
+        } else {
+            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+        }
+    }
 }
 
 /// Derives a company contact encryption key, encrypts the contact data with it and returns the BCR metadata.
@@ -442,9 +473,10 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         let create_company_block = company_chain.get_first_block();
 
-        let previous_block = self.identity_blockchain_store.get_latest_block().await?;
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_block = identity_chain.get_latest_block();
         let new_block = IdentityBlock::create_block_for_create_company(
-            &previous_block,
+            previous_block,
             &IdentityCreateCompanyBlockData {
                 company_id: id.clone(),
                 company_key: company_keys.get_private_key(),
@@ -464,11 +496,12 @@ impl CompanyServiceApi for CompanyService {
             .add_company_transport(&company, &company_keys)
             .await?;
 
-        let company_chain = self.company_blockchain_store.get_chain(&id).await?;
         self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
-        self.identity_blockchain_store.add_block(&new_block).await?;
+        self.validate_and_add_identity_block(&mut identity_chain, new_block.clone())
+            .await?;
+
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
@@ -660,10 +693,11 @@ impl CompanyServiceApi for CompanyService {
 
         self.store.update(id, &company).await?;
 
-        let previous_block = self.company_blockchain_store.get_latest_block(id).await?;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_update(
             id.to_owned(),
-            &previous_block,
+            previous_block,
             &CompanyUpdateBlockData {
                 name,
                 email,
@@ -680,10 +714,8 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.company_blockchain_store
-            .add_block(id, &new_block)
+        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
             .await?;
-        let company_chain = self.company_blockchain_store.get_chain(id).await?;
         self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
@@ -748,10 +780,11 @@ impl CompanyServiceApi for CompanyService {
         company.signatories.push(signatory_node_id.clone());
         self.store.update(id, &company).await?;
 
-        let previous_block = self.company_blockchain_store.get_latest_block(id).await?;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_add_signatory(
             id.to_owned(),
-            &previous_block,
+            previous_block,
             &CompanyAddSignatoryBlockData {
                 signatory: signatory_node_id.clone(),
                 t: SignatoryType::Solo,
@@ -763,9 +796,10 @@ impl CompanyServiceApi for CompanyService {
         )
         .map_err(|e| Error::Protocol(e.into()))?;
 
-        let previous_identity_block = self.identity_blockchain_store.get_latest_block().await?;
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_identity_block = identity_chain.get_latest_block();
         let new_identity_block = IdentityBlock::create_block_for_add_signatory(
-            &previous_identity_block,
+            previous_identity_block,
             &IdentityAddSignatoryBlockData {
                 company_id: id.to_owned(),
                 block_hash: new_block.hash.clone(),
@@ -776,10 +810,8 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.company_blockchain_store
-            .add_block(id, &new_block)
+        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
             .await?;
-        let company_chain = self.company_blockchain_store.get_chain(id).await?;
         self.populate_block(
             &company,
             &company_chain,
@@ -788,8 +820,7 @@ impl CompanyServiceApi for CompanyService {
         )
         .await?;
 
-        self.identity_blockchain_store
-            .add_block(&new_identity_block)
+        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
             .await?;
         self.transport_service
             .block_transport()
@@ -855,10 +886,11 @@ impl CompanyServiceApi for CompanyService {
             self.store.remove(id).await?;
         }
 
-        let previous_block = self.company_blockchain_store.get_latest_block(id).await?;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_remove_signatory(
             id.to_owned(),
-            &previous_block,
+            previous_block,
             &CompanyRemoveSignatoryBlockData {
                 signatory: signatory_node_id.clone(),
             },
@@ -868,9 +900,10 @@ impl CompanyServiceApi for CompanyService {
         )
         .map_err(|e| Error::Protocol(e.into()))?;
 
-        let previous_identity_block = self.identity_blockchain_store.get_latest_block().await?;
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_identity_block = identity_chain.get_latest_block();
         let new_identity_block = IdentityBlock::create_block_for_remove_signatory(
-            &previous_identity_block,
+            previous_identity_block,
             &IdentityRemoveSignatoryBlockData {
                 company_id: id.to_owned(),
                 block_hash: new_block.hash.clone(),
@@ -882,15 +915,12 @@ impl CompanyServiceApi for CompanyService {
         )
         .map_err(|e| Error::Protocol(e.into()))?;
 
-        self.company_blockchain_store
-            .add_block(id, &new_block)
+        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
             .await?;
-        let company_chain = self.company_blockchain_store.get_chain(id).await?;
         self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
-        self.identity_blockchain_store
-            .add_block(&new_identity_block)
+        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
             .await?;
         self.transport_service
             .block_transport()
@@ -1134,6 +1164,15 @@ pub mod tests {
         .unwrap()
     }
 
+    fn get_valid_identity_chain() -> IdentityBlockchain {
+        IdentityBlockchain::new(
+            &empty_identity().into(),
+            &BcrKeys::new(),
+            Timestamp::new(1731593928).unwrap(),
+        )
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn get_list_of_companies_baseline() {
         let (
@@ -1348,18 +1387,8 @@ pub mod tests {
             .expect_remove_temp_upload_folder()
             .returning(|_| Ok(()));
         identity_chain_store
-            .expect_get_latest_block()
-            .returning(|| {
-                let identity = empty_identity();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &BcrKeys::new(),
-                    Timestamp::new(1731593928).unwrap(),
-                )
-                .unwrap()
-                .get_latest_block()
-                .clone())
-            });
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
@@ -1384,11 +1413,6 @@ pub mod tests {
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
             t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
-
-        company_chain_store
-            .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
-            .once();
 
         let service = get_service(
             storage,
@@ -1824,18 +1848,8 @@ pub mod tests {
             })
         });
         identity_chain_store
-            .expect_get_latest_block()
-            .returning(|| {
-                let identity = empty_identity();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &BcrKeys::new(),
-                    Timestamp::new(1731593928).unwrap(),
-                )
-                .unwrap()
-                .get_latest_block()
-                .clone())
-            });
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
@@ -2153,18 +2167,8 @@ pub mod tests {
         });
         storage.expect_update().returning(|_, _| Ok(()));
         identity_chain_store
-            .expect_get_latest_block()
-            .returning(|| {
-                let identity = empty_identity();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &BcrKeys::new(),
-                    Timestamp::new(1731593928).unwrap(),
-                )
-                .unwrap()
-                .get_latest_block()
-                .clone())
-            });
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
@@ -2311,20 +2315,9 @@ pub mod tests {
         });
         storage.expect_update().returning(|_, _| Ok(()));
         storage.expect_remove().returning(|_| Ok(()));
-        let keys_clone2 = keys.clone();
         identity_chain_store
-            .expect_get_latest_block()
-            .returning(move || {
-                let identity = empty_identity();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &keys_clone2,
-                    Timestamp::new(1731593928).unwrap(),
-                )
-                .unwrap()
-                .get_latest_block()
-                .clone())
-            });
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));

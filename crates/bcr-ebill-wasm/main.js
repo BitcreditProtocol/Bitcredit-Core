@@ -26,7 +26,10 @@ document.getElementById("dev_mode_get_identity_chain").addEventListener("click",
 document.getElementById("sync_identity_chain").addEventListener("click", syncIdentityChain);
 document.getElementById("confirm_email").addEventListener("click", confirmEmail);
 document.getElementById("verify_email").addEventListener("click", verifyEmail);
+document.getElementById("change_email").addEventListener("click", changeEmail);
 document.getElementById("get_confirmations").addEventListener("click", getIdentityConfirmations);
+document.getElementById("get_identity").addEventListener("click", getIdentity);
+document.getElementById("change_name").addEventListener("click", changeName);
 
 // bill actions
 document.getElementById("bill_fetch_detail").addEventListener("click", fetchBillDetail);
@@ -710,7 +713,7 @@ async function syncIdentityChain() {
 
 async function confirmEmail() {
   console.log("confirmEmail");
-  let email = document.getElementById("email_to_confirm").value;
+  let email = document.getElementById("identity_email").value;
   let measured = measure(async () => {
     return success_or_fail(await window.identityApi.confirm_email(email));
   });
@@ -726,10 +729,36 @@ async function verifyEmail() {
   await measured();
 }
 
+async function changeEmail() {
+  console.log("changeEmail");
+  let email = document.getElementById("identity_email").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.change_email({ email }));
+  });
+  await measured();
+}
+
 async function getIdentityConfirmations() {
   console.log("getIdentityConfirmations");
   let measured = measure(async () => {
     return success_or_fail(await window.identityApi.get_email_confirmations());
+  });
+  await measured();
+}
+
+async function getIdentity() {
+  console.log("getIdentity");
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.detail());
+  });
+  await measured();
+}
+
+async function changeName() {
+  console.log("changeName");
+  let name = document.getElementById("identity_name").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.change({ name, postal_address: {} }));
   });
   await measured();
 }

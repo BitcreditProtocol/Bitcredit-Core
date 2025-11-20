@@ -7,8 +7,9 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, UploadFile,
         UploadFileResponse, has_field,
         identity::{
-            ChangeIdentityPayload, IdentityEmailConfirmationWeb, IdentityTypeWeb, IdentityWeb,
-            NewIdentityPayload, SeedPhrase, ShareContactTo, SwitchIdentity,
+            ChangeIdentityEmailPayload, ChangeIdentityPayload, IdentityEmailConfirmationWeb,
+            IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase, ShareContactTo,
+            SwitchIdentity,
         },
     },
     error::WasmError,
@@ -269,7 +270,6 @@ impl Identity {
             let identity_payload: ChangeIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
 
             if identity_payload.name.is_none()
-                && identity_payload.email.is_none()
                 && identity_payload.postal_address.is_none()
                 && identity_payload.date_of_birth.is_none()
                 && identity_payload.country_of_birth.is_none()
@@ -285,7 +285,6 @@ impl Identity {
                 .identity_service
                 .update_identity(
                     identity_payload.name.map(Name::new).transpose()?,
-                    identity_payload.email.map(Email::new).transpose()?,
                     OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
                         identity_payload.postal_address,
                     )?),
@@ -321,6 +320,26 @@ impl Identity {
                     !has_identity_document_file_upload_id,
                     timestamp,
                 )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn change_email(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ChangeIdentityEmailPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let identity_email_payload: ChangeIdentityEmailPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+
+            let timestamp = Timestamp::now();
+            get_ctx()
+                .identity_service
+                .update_email(&Email::new(identity_email_payload.email)?, timestamp)
                 .await?;
             Ok(())
         }

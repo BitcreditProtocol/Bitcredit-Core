@@ -139,6 +139,6 @@ pub enum ValidationError {
     AcceptMintOfferExpired,
 
     /// errors that stem from trying to create, or deanonymize an identity without a confirmed email
-    #[error("Ident identity can only be created with a confirmed email.")]
+    #[error("E-Mail has to be a confirmed email.")]
     NoConfirmedEmailForIdentIdentity,
 }

@@ -22,6 +22,7 @@
     * Adapt `create_identity` and `deanonymize` to require a confirmed email for identified users
     * Add endpoints to `confirm`, `verify` an email address and to `get_email_confirmations`
     * Adapt `IdentityProof` Block to include the email confirmation signed by the mint
+    * Split up `update_identity` and `update_email` for identity and create identity proof block on email update
 
 # 0.4.12
 
