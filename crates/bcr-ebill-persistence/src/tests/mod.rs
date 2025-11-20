@@ -15,7 +15,7 @@ pub mod tests {
         },
         protocol::{
             Address, City, Country, Date, Email, Name, OptionalPostalAddress, PostalAddress,
-            PublicKey, SecretKey, SignedEmailIdentityData, SignedIdentityProof, Sum, Timestamp,
+            PublicKey, SecretKey, EmailIdentityProofData, SignedIdentityProof, Sum, Timestamp,
             blockchain::{
                 bill::{
                     BillHistory, BitcreditBill, ContactType,
@@ -204,8 +204,8 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
-        let data = SignedEmailIdentityData {
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
+        let data = EmailIdentityProofData {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),

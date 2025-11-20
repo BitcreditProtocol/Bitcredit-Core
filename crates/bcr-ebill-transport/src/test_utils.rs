@@ -19,7 +19,7 @@ use bcr_ebill_core::protocol::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{EventEnvelope, EventType};
-use bcr_ebill_core::protocol::{SignedEmailIdentityData, SignedIdentityProof};
+use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::contact::Contact,
@@ -774,7 +774,7 @@ mockall::mock! {
             company_node_id: &Option<NodeId>,
             confirmation_code: &str,
             private_key: &SecretKey,
-        ) -> bcr_ebill_api::external::email::Result<(SignedIdentityProof, SignedEmailIdentityData)>;
+        ) -> bcr_ebill_api::external::email::Result<(SignedIdentityProof, EmailIdentityProofData)>;
         async fn send_bill_notification(
             &self,
             mint_url: &url::Url,

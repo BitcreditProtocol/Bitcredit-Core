@@ -9,7 +9,7 @@ use bcr_ebill_core::{
     },
     protocol::{
         City, Country, Date, Email, Identification, Name, SchnorrSignature, SecretKey,
-        SignedEmailIdentityData, SignedIdentityProof, Timestamp,
+        EmailIdentityProofData, SignedIdentityProof, Timestamp,
         blockchain::identity::IdentityType,
     },
 };
@@ -185,7 +185,7 @@ impl IdentityStoreApi for SurrealIdentityStore {
 
     async fn get_email_confirmations(
         &self,
-    ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>> {
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>> {
         let result: Vec<IdentityEmailConfirmationDb> =
             self.db.select_all(Self::EMAIL_CONFIRMATION_TABLE).await?;
         Ok(result
@@ -197,7 +197,7 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn set_email_confirmation(
         &self,
         proof: &SignedIdentityProof,
-        data: &SignedEmailIdentityData,
+        data: &EmailIdentityProofData,
     ) -> Result<()> {
         let keys = self.get_key_pair().await?;
         if keys.pub_key() != data.node_id.pub_key() {
@@ -227,8 +227,8 @@ pub struct IdentityEmailConfirmationDb {
     pub created_at: Timestamp,
 }
 
-impl From<(SignedIdentityProof, SignedEmailIdentityData)> for IdentityEmailConfirmationDb {
-    fn from((proof, data): (SignedIdentityProof, SignedEmailIdentityData)) -> Self {
+impl From<(SignedIdentityProof, EmailIdentityProofData)> for IdentityEmailConfirmationDb {
+    fn from((proof, data): (SignedIdentityProof, EmailIdentityProofData)) -> Self {
         IdentityEmailConfirmationDb {
             signature: proof.signature,
             witness: proof.witness,
@@ -240,14 +240,14 @@ impl From<(SignedIdentityProof, SignedEmailIdentityData)> for IdentityEmailConfi
     }
 }
 
-impl From<IdentityEmailConfirmationDb> for (SignedIdentityProof, SignedEmailIdentityData) {
+impl From<IdentityEmailConfirmationDb> for (SignedIdentityProof, EmailIdentityProofData) {
     fn from(value: IdentityEmailConfirmationDb) -> Self {
         (
             SignedIdentityProof {
                 signature: value.signature,
                 witness: value.witness,
             },
-            SignedEmailIdentityData {
+            EmailIdentityProofData {
                 node_id: value.node_id,
                 company_node_id: value.company_node_id,
                 email: value.email,

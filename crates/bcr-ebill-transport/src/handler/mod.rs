@@ -358,7 +358,7 @@ mod test_utils {
         crypto::BcrKeys,
         event::ActionType,
     };
-    use bcr_ebill_core::protocol::{SignedEmailIdentityData, SignedIdentityProof};
+    use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result,
         bill::{BillChainStoreApi, BillStoreApi},
@@ -533,11 +533,11 @@ mod test_utils {
             async fn set_or_check_network(&self, configured_network: bitcoin::Network) -> Result<()>;
             async fn get_email_confirmations(
                 &self,
-            ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>>;
+            ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
             async fn set_email_confirmation(
                 &self,
                 proof: &SignedIdentityProof,
-                data: &SignedEmailIdentityData,
+                data: &EmailIdentityProofData,
             ) -> Result<()>;
         }
     }
@@ -790,8 +790,8 @@ mod test_utils {
             .unwrap()
     }
 
-    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
-        let data = SignedEmailIdentityData {
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
+        let data = EmailIdentityProofData {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),

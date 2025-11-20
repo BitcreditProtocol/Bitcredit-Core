@@ -3,7 +3,7 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::{
-    Email, SchnorrSignature, SignedEmailIdentityData, SignedIdentityProof,
+    Email, SchnorrSignature, EmailIdentityProofData, SignedIdentityProof,
     crypto::Error as CryptoError, event::bill_events::BillEventType,
 };
 use bitcoin::base58;
@@ -66,7 +66,7 @@ pub trait EmailClientApi: ServiceTraitBounds {
         company_node_id: &Option<NodeId>,
         confirmation_code: &str,
         private_key: &SecretKey,
-    ) -> Result<(SignedIdentityProof, SignedEmailIdentityData)>;
+    ) -> Result<(SignedIdentityProof, EmailIdentityProofData)>;
     /// Send a bill notification email
     async fn send_bill_notification(
         &self,
@@ -196,7 +196,7 @@ impl EmailClientApi for EmailClient {
         company_node_id: &Option<NodeId>,
         confirmation_code: &str,
         private_key: &SecretKey,
-    ) -> Result<(SignedIdentityProof, SignedEmailIdentityData)> {
+    ) -> Result<(SignedIdentityProof, EmailIdentityProofData)> {
         let pl = EmailConfirmPayload {
             node_id: node_id.to_owned(),
             company_node_id: company_node_id.to_owned(),
@@ -242,7 +242,7 @@ impl EmailClientApi for EmailClient {
             signature,
             witness: res.mint_node_id,
         };
-        let data: SignedEmailIdentityData =
+        let data: EmailIdentityProofData =
             borsh::from_slice(&decoded_mint_sig).map_err(Error::Borsh)?;
 
         Ok((proof, data))
@@ -352,7 +352,7 @@ pub struct EmailConfirmPayload {
 
 #[derive(Debug, Deserialize)]
 pub struct EmailConfirmResponse {
-    /// A borsh-encoded SignedEmailIdentityData
+    /// A borsh-encoded EmailIdentityProofData
     pub payload: String,
     /// The mint signature of the payload
     pub signature: Signature,

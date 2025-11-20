@@ -11,7 +11,7 @@ pub mod tests {
     use crate::protocol::Sum;
     use crate::protocol::Timestamp;
     use crate::protocol::Zip;
-    use crate::protocol::base::identity_proof::SignedEmailIdentityData;
+    use crate::protocol::base::identity_proof::EmailIdentityProofData;
     use crate::protocol::base::identity_proof::SignedIdentityProof;
     use crate::protocol::blockchain::bill::BitcreditBill;
     use crate::protocol::blockchain::bill::ContactType;
@@ -191,8 +191,8 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn signed_identity_proof_test() -> (SignedIdentityProof, SignedEmailIdentityData) {
-        let data = SignedEmailIdentityData {
+    pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
+        let data = EmailIdentityProofData {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),

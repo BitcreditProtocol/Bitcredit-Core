@@ -23,7 +23,7 @@ use bcr_ebill_core::protocol::blockchain::identity::{
 };
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
-use bcr_ebill_core::protocol::{Country, SignedEmailIdentityData, SignedIdentityProof};
+use bcr_ebill_core::protocol::{Country, EmailIdentityProofData, SignedIdentityProof};
 use bcr_ebill_core::protocol::{Date, Field};
 use bcr_ebill_core::protocol::{Email, blockchain};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::IdentityChainEvent};
@@ -134,7 +134,7 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     /// Get email confirmations for the identity
     async fn get_email_confirmations(
         &self,
-    ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>>;
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
 }
 
 /// The identity service is responsible for managing the local identity
@@ -255,7 +255,7 @@ impl IdentityService {
     async fn create_identity_proof_block(
         &self,
         proof: SignedIdentityProof,
-        data: SignedEmailIdentityData,
+        data: EmailIdentityProofData,
         identity: &Identity,
         keys: &BcrKeys,
         chain: &mut IdentityBlockchain,
@@ -282,7 +282,7 @@ impl IdentityService {
         email: &Option<Email>,
         t: &IdentityType,
         node_id: &NodeId,
-    ) -> Result<Option<(SignedIdentityProof, SignedEmailIdentityData)>> {
+    ) -> Result<Option<(SignedIdentityProof, EmailIdentityProofData)>> {
         match t {
             IdentityType::Ident => {
                 // Email has to be checked before
@@ -317,7 +317,7 @@ impl IdentityService {
                     // if mandatory email confirmations are disabled, create self-signed email confirmation
                     let keys = self.get_keys().await?;
 
-                    let self_signed_identity = SignedEmailIdentityData {
+                    let self_signed_identity = EmailIdentityProofData {
                         node_id: node_id.to_owned(),
                         company_node_id: None,
                         email: em.to_owned(),
@@ -949,7 +949,7 @@ impl IdentityServiceApi for IdentityService {
 
     async fn get_email_confirmations(
         &self,
-    ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>> {
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>> {
         let email_confirmations = self.store.get_email_confirmations().await?;
         Ok(email_confirmations)
     }

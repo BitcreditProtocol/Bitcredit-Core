@@ -7,7 +7,7 @@ use bcr_ebill_core::{
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
     },
     protocol::{
-        SignedEmailIdentityData, SignedIdentityProof,
+        EmailIdentityProofData, SignedIdentityProof,
         blockchain::identity::{IdentityBlock, IdentityBlockchain},
         crypto::BcrKeys,
     },
@@ -42,12 +42,12 @@ pub trait IdentityStoreApi: ServiceTraitBounds {
     /// Gets the email confirmation state for this identity
     async fn get_email_confirmations(
         &self,
-    ) -> Result<Vec<(SignedIdentityProof, SignedEmailIdentityData)>>;
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
     /// Sets the email confirmation state for this identity
     async fn set_email_confirmation(
         &self,
         proof: &SignedIdentityProof,
-        data: &SignedEmailIdentityData,
+        data: &EmailIdentityProofData,
     ) -> Result<()>;
 }
 

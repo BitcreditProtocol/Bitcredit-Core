@@ -8,7 +8,7 @@ use bcr_ebill_core::{
     },
     protocol::{
         City, Country, Date, Email, Identification, Name, PublicKey, SchnorrSignature,
-        SignedEmailIdentityData, SignedIdentityProof, Timestamp,
+        EmailIdentityProofData, SignedIdentityProof, Timestamp,
         blockchain::identity::IdentityType,
     },
 };
@@ -208,8 +208,8 @@ pub struct IdentityEmailConfirmationWeb {
     pub created_at: Timestamp,
 }
 
-impl From<(SignedIdentityProof, SignedEmailIdentityData)> for IdentityEmailConfirmationWeb {
-    fn from((proof, data): (SignedIdentityProof, SignedEmailIdentityData)) -> Self {
+impl From<(SignedIdentityProof, EmailIdentityProofData)> for IdentityEmailConfirmationWeb {
+    fn from((proof, data): (SignedIdentityProof, EmailIdentityProofData)) -> Self {
         Self {
             signature: proof.signature,
             witness: proof.witness,

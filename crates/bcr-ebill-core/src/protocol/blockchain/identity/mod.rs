@@ -11,7 +11,7 @@ use crate::protocol::Name;
 use crate::protocol::SchnorrSignature;
 use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
-use crate::protocol::base::identity_proof::{SignedEmailIdentityData, SignedIdentityProof};
+use crate::protocol::base::identity_proof::{EmailIdentityProofData, SignedIdentityProof};
 use crate::protocol::blockchain::{Error, borsh_to_json_value};
 use crate::protocol::crypto::{self, BcrKeys};
 use crate::protocol::{Field, ProtocolValidationError, Validate};
@@ -264,7 +264,7 @@ pub struct IdentityRemoveSignatoryBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityProofBlockData {
     pub proof: SignedIdentityProof,
-    pub data: SignedEmailIdentityData,
+    pub data: EmailIdentityProofData,
 }
 
 #[derive(Debug)]

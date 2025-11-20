@@ -11,14 +11,14 @@ use crate::protocol::{
 /// The signature and witness of an identity proof
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq)]
 pub struct SignedIdentityProof {
-    /// The signature of the sha256 hashed borsh-payload (SignedEmailIdentityData) by the mint
+    /// The signature of the sha256 hashed borsh-payload (EmailIdentityProofData) by the mint
     pub signature: SchnorrSignature,
     /// The mint (signer) node id
     pub witness: NodeId,
 }
 
 impl SignedIdentityProof {
-    pub fn verify(&self, data: &SignedEmailIdentityData) -> Result<bool, ProtocolError> {
+    pub fn verify(&self, data: &EmailIdentityProofData) -> Result<bool, ProtocolError> {
         let serialized = borsh::to_vec(&data)?;
         let hash = Sha256Hash::from_bytes(&serialized);
         let res = self.signature.verify(&hash, &self.witness.pub_key())?;
@@ -28,7 +28,7 @@ impl SignedIdentityProof {
 
 /// Mapping from (node_id/option<company_node_id>) => email, to be signed by a witness (mint)
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq)]
-pub struct SignedEmailIdentityData {
+pub struct EmailIdentityProofData {
     /// Identity node id
     pub node_id: NodeId,
     /// Optional company node id
@@ -39,7 +39,7 @@ pub struct SignedEmailIdentityData {
     pub created_at: Timestamp,
 }
 
-impl SignedEmailIdentityData {
+impl EmailIdentityProofData {
     pub fn sign(
         &self,
         witness: &NodeId,
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify() {
-        let data = SignedEmailIdentityData {
+        let data = EmailIdentityProofData {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),
