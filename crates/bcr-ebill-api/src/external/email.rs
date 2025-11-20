@@ -3,7 +3,7 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::{
-    Email, SchnorrSignature, EmailIdentityProofData, SignedIdentityProof,
+    Email, EmailIdentityProofData, SchnorrSignature, SignedIdentityProof,
     crypto::Error as CryptoError, event::bill_events::BillEventType,
 };
 use bitcoin::base58;

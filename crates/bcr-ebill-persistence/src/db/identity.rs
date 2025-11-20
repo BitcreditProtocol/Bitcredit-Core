@@ -8,9 +8,8 @@ use bcr_ebill_core::{
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
     },
     protocol::{
-        City, Country, Date, Email, Identification, Name, SchnorrSignature, SecretKey,
-        EmailIdentityProofData, SignedIdentityProof, Timestamp,
-        blockchain::identity::IdentityType,
+        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SchnorrSignature,
+        SecretKey, SignedIdentityProof, Timestamp, blockchain::identity::IdentityType,
     },
 };
 use serde::{Deserialize, Serialize};

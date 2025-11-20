@@ -7,9 +7,8 @@ use bcr_ebill_core::{
         nostr_contact::NostrPublicKey,
     },
     protocol::{
-        City, Country, Date, Email, Identification, Name, PublicKey, SchnorrSignature,
-        EmailIdentityProofData, SignedIdentityProof, Timestamp,
-        blockchain::identity::IdentityType,
+        City, Country, Date, Email, EmailIdentityProofData, Identification, Name, PublicKey,
+        SchnorrSignature, SignedIdentityProof, Timestamp, blockchain::identity::IdentityType,
     },
 };
 use serde::{Deserialize, Serialize};

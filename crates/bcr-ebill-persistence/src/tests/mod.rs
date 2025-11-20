@@ -14,8 +14,9 @@ pub mod tests {
             identity::Identity,
         },
         protocol::{
-            Address, City, Country, Date, Email, Name, OptionalPostalAddress, PostalAddress,
-            PublicKey, SecretKey, EmailIdentityProofData, SignedIdentityProof, Sum, Timestamp,
+            Address, City, Country, Date, Email, EmailIdentityProofData, Name,
+            OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, SignedIdentityProof, Sum,
+            Timestamp,
             blockchain::{
                 bill::{
                     BillHistory, BitcreditBill, ContactType,
