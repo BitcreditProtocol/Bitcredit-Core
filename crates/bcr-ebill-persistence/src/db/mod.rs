@@ -3,9 +3,10 @@ use super::{Error, Result};
 use crate::constants::{
     SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
 };
-use bcr_common::core::BillId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::{
-    Address, City, Country, File, Name, OptionalPostalAddress, PostalAddress, Sha256Hash, Zip,
+    Address, City, Country, Email, EmailIdentityProofData, File, Name, OptionalPostalAddress,
+    PostalAddress, SchnorrSignature, Sha256Hash, SignedIdentityProof, Timestamp, Zip,
 };
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
@@ -205,6 +206,46 @@ impl From<&PostalAddress> for PostalAddressDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillIdDb {
     pub bill_id: BillId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailConfirmationDb {
+    pub signature: SchnorrSignature,
+    pub witness: NodeId,
+    pub node_id: NodeId,
+    pub company_node_id: Option<NodeId>,
+    pub email: Email,
+    pub created_at: Timestamp,
+}
+
+impl From<(SignedIdentityProof, EmailIdentityProofData)> for EmailConfirmationDb {
+    fn from((proof, data): (SignedIdentityProof, EmailIdentityProofData)) -> Self {
+        EmailConfirmationDb {
+            signature: proof.signature,
+            witness: proof.witness,
+            node_id: data.node_id,
+            company_node_id: data.company_node_id,
+            email: data.email,
+            created_at: data.created_at,
+        }
+    }
+}
+
+impl From<EmailConfirmationDb> for (SignedIdentityProof, EmailIdentityProofData) {
+    fn from(value: EmailConfirmationDb) -> Self {
+        (
+            SignedIdentityProof {
+                signature: value.signature,
+                witness: value.witness,
+            },
+            EmailIdentityProofData {
+                node_id: value.node_id,
+                company_node_id: value.company_node_id,
+                email: value.email,
+                created_at: value.created_at,
+            },
+        )
+    }
 }
 
 #[cfg(test)]

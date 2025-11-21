@@ -244,6 +244,16 @@ pub mod tests {
             async fn remove(&self, id: &NodeId) -> Result<()>;
             async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
             async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
+            async fn get_email_confirmations(
+                &self,
+                id: &NodeId,
+            ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
+            async fn set_email_confirmation(
+                &self,
+                id: &NodeId,
+                proof: &SignedIdentityProof,
+                data: &EmailIdentityProofData,
+            ) -> Result<()>;
         }
     }
 

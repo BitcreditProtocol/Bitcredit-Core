@@ -3,6 +3,7 @@ use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::protocol::blockchain::company::{CompanyBlock, CompanyBlockchain};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
 use std::collections::HashMap;
 
 use super::Result;
@@ -37,6 +38,20 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
 
     /// Gets the key pair for the given company id
     async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
+
+    /// Gets the email confirmation state for this company
+    async fn get_email_confirmations(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
+
+    /// Sets the email confirmation state for this company
+    async fn set_email_confirmation(
+        &self,
+        id: &NodeId,
+        proof: &SignedIdentityProof,
+        data: &EmailIdentityProofData,
+    ) -> Result<()>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

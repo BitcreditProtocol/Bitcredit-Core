@@ -255,7 +255,7 @@ mod tests {
         tests::tests::{empty_address, empty_optional_address, node_id_test, private_key_test},
     };
     use bcr_ebill_core::{
-        application::company::Company,
+        application::company::{Company, CompanySignatory},
         protocol::{
             City, Country, Date, Email, Identification, Name,
             blockchain::company::CompanyUpdateBlockData,
@@ -293,7 +293,10 @@ mod tests {
                 registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                signatories: vec![node_id_test()],
+                signatories: vec![CompanySignatory {
+                    node_id: node_id_test(),
+                    email: Email::new("test@example.com").unwrap(),
+                }],
                 active: true,
             }
             .into(),
@@ -349,7 +352,10 @@ mod tests {
                 registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                signatories: vec![node_id_test()],
+                signatories: vec![CompanySignatory {
+                    node_id: node_id_test(),
+                    email: Email::new("test@example.com").unwrap(),
+                }],
                 active: true,
             }
             .into(),

@@ -97,7 +97,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             let signers = company
                 .signatories
                 .iter()
-                .map(|s| s.npub())
+                .map(|s| s.node_id.npub())
                 .collect::<Vec<nostr::PublicKey>>();
             Ok(signers.contains(&sender))
         } else {
@@ -241,7 +241,7 @@ impl CompanyChainEventProcessor {
             // as well as all the company signatories
             for signatory in company.signatories.iter() {
                 self.nostr_contact_processor
-                    .ensure_nostr_contact(signatory)
+                    .ensure_nostr_contact(&signatory.node_id)
                     .await;
             }
         } else {
@@ -379,8 +379,11 @@ impl CompanyChainEventProcessor {
                         }
                     }
                 }
-                CompanyBlockPayload::IdentityProof(_) => {
-                    // TODO: handle identity proof blocks
+                CompanyBlockPayload::IdentityProof(data) => {
+                    self.company_store
+                        .set_email_confirmation(company_id, &data.proof, &data.data)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
             }
 
@@ -478,6 +481,8 @@ pub mod tests {
     use std::sync::Arc;
 
     use bcr_common::core::NodeId;
+    use bcr_ebill_core::application::company::CompanySignatory;
+    use bcr_ebill_core::protocol::Email;
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
         application::company::Company,
@@ -588,7 +593,10 @@ pub mod tests {
         let keys = BcrKeys::new();
         let (chain_store, mut store, contact, bill, identity, transport) = create_mocks();
         let (_, (mut company, _)) = get_company_data();
-        company.signatories = vec![NodeId::new(keys.pub_key(), bitcoin::Network::Testnet)];
+        company.signatories = vec![CompanySignatory {
+            node_id: NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+            email: Email::new("test@example.com").unwrap(),
+        }];
         store
             .expect_get()
             .with(eq(node_id_test()))
@@ -994,6 +1002,7 @@ pub mod tests {
         let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
         let data = CompanyAddSignatoryBlockData {
             signatory: new_node_id.clone(),
+            signatory_email: Email::new("test@example.com").unwrap(),
             t: SignatoryType::Solo,
         };
         let update_block = get_company_add_signatory_block(
@@ -1040,7 +1049,9 @@ pub mod tests {
             .withf(move |n, c| {
                 n == &expected_node.clone()
                     && c.id == expected_node.clone()
-                    && c.signatories.contains(&expected_new_node.clone())
+                    && c.signatories
+                        .iter()
+                        .any(|s| s.node_id == expected_new_node.clone())
             })
             .returning(|_, _| Ok(()))
             .once();
@@ -1088,7 +1099,10 @@ pub mod tests {
             create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (mut company, keys)) = get_company_data();
-        company.signatories.push(new_node_id.clone());
+        company.signatories.push(CompanySignatory {
+            node_id: new_node_id.clone(),
+            email: Email::new("test@example.com").unwrap(),
+        });
 
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -1143,7 +1157,10 @@ pub mod tests {
             .withf(move |n, c| {
                 n == &expected_node.clone()
                     && c.id == expected_node.clone()
-                    && !c.signatories.contains(&expected_new_node.clone())
+                    && !c
+                        .signatories
+                        .iter()
+                        .any(|s| s.node_id == expected_new_node.clone())
             })
             .returning(|_, _| Ok(()))
             .once();
@@ -1213,6 +1230,12 @@ pub mod tests {
             .expect_get()
             .returning(|| Ok(get_baseline_identity().identity))
             .once();
+
+        // incoming identity proof is set
+        store
+            .expect_set_email_confirmation()
+            .returning(|_, _, _| Ok(()))
+            .times(1);
 
         // checks if we already have the chain
         chain_store

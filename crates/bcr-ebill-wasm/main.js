@@ -77,6 +77,12 @@ document.getElementById("share_company_contact_to").addEventListener("click", sh
 document.getElementById("dev_mode_get_company_chain").addEventListener("click", devModeGetCompanyChain);
 document.getElementById("list_signatories").addEventListener("click", listSignatories);
 document.getElementById("sync_company_chain").addEventListener("click", syncCompanyChain);
+document.getElementById("company_detail").addEventListener("click", companyDetail);
+document.getElementById("company_create_id").addEventListener("click", companyCreateId);
+document.getElementById("confirm_company_email").addEventListener("click", confirmCompanyEmail);
+document.getElementById("verify_company_email").addEventListener("click", verifyCompanyEmail);
+document.getElementById("get_company_confirmations").addEventListener("click", getCompanyConfirmations);
+document.getElementById("change_signatory_email").addEventListener("click", changeSignatoryEmail);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -180,38 +186,8 @@ async function start(create_identity) {
     console.log(current_identity);
     document.getElementById("current_identity").innerHTML = current_identity.node_id;
 
-    // Company
     let companies = success_or_fail(await window.companyApi.list());
-    console.log("companies:", companies.companies.length, companies);
-    if (companies.companies.length == 0 && create_identity) {
-      let company = success_or_fail(await window.companyApi.create({
-        name: "hayek Ltd",
-        email: "test@example.com",
-        postal_address: {
-          country: "AT",
-          city: "Vienna",
-          zip: "1020",
-          address: "street 1",
-        }
-      }));
-      console.log("company: ", company);
-      fail_on_error(await window.companyApi.edit({ id: company.id, email: "different@example.com", postal_address: {} }));
-      let detail = success_or_fail(await window.companyApi.detail(company.id));
-      console.log("company detail: ", detail);
-      // add company to contacts
-      fail_on_error(await window.contactApi.create({
-        t: 1,
-        node_id: detail.id,
-        name: "Company Contact",
-        email: "comcont@example.com",
-        postal_address: {
-          country: "AT",
-          city: "Vienna",
-          zip: "1020",
-          address: "street 1",
-        },
-      }));
-    } else if (companies.companies.length > 0) {
+    if (companies.companies.length > 0) {
       document.getElementById("companies").innerHTML = "node_id: " + companies.companies[0].id;
     }
   }
@@ -274,7 +250,10 @@ async function restoreFromSeedPhrase() {
 }
 
 async function createCompany() {
+  let company_id = document.getElementById("company_update_id").value;
+  let company_email = document.getElementById("company_email").value;
   let company = success_or_fail(await window.companyApi.create({
+    id: company_id,
     name: "hayek Ltd",
     email: "test@example.com",
     postal_address: {
@@ -282,7 +261,8 @@ async function createCompany() {
       city: "Vienna",
       zip: "1020",
       address: "street 1",
-    }
+    },
+    creator_email: company_email,
   }));
   console.log("company: ", company);
 }
@@ -326,8 +306,10 @@ async function shareCompanyContact() {
 }
 
 async function listCompanies() {
-  let companies = success_or_fail(await window.companyApi.list());
-  console.log("companies:", companies.companies.length, companies);
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.list());
+  });
+  await measured();
 }
 
 async function listSignatories() {
@@ -703,6 +685,62 @@ async function syncCompanyChain() {
   await measured();
 }
 
+async function companyDetail() {
+  let node_id = document.getElementById("company_update_id").value;
+  console.log("companyDetail", node_id);
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.detail(node_id));
+  });
+  await measured();
+}
+
+async function companyCreateId() {
+  console.log("companyCreateId");
+  let id = success_or_fail(await window.companyApi.create_keys());
+    console.log(id);
+  document.getElementById("company_update_id").value = id.id;
+  document.getElementById("company_email_id").value = id.id;
+}
+
+async function confirmCompanyEmail() {
+  console.log("confirmCompanyEmail");
+  let email = document.getElementById("company_email").value;
+  let id = document.getElementById("company_email_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.confirm_email({ id, email }));
+  });
+  await measured();
+}
+
+async function verifyCompanyEmail() {
+  console.log("verifyCompanyEmail");
+  let code = document.getElementById("company_confirmation_code").value;
+  let id = document.getElementById("company_email_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.verify_email({ id, confirmation_code: code }));
+  });
+  await measured();
+}
+
+async function getCompanyConfirmations() {
+  console.log("getCompanyConfirmations");
+  let id = document.getElementById("company_email_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.get_email_confirmations(id));
+  });
+  await measured();
+}
+
+async function changeSignatoryEmail() {
+  console.log("changeSignatoryEmail");
+  let id = document.getElementById("company_email_id").value;
+  let email = document.getElementById("company_email").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.change_signatory_email({ id, email }));
+  });
+  await measured();
+}
+
 async function syncIdentityChain() {
   console.log("syncIdentityChain");
   let measured = measure(async () => {
@@ -715,7 +753,7 @@ async function confirmEmail() {
   console.log("confirmEmail");
   let email = document.getElementById("identity_email").value;
   let measured = measure(async () => {
-    return success_or_fail(await window.identityApi.confirm_email(email));
+    return success_or_fail(await window.identityApi.confirm_email({ email }));
   });
   await measured();
 }
@@ -724,7 +762,7 @@ async function verifyEmail() {
   console.log("verifyEmail");
   let code = document.getElementById("confirmation_code").value;
   let measured = measure(async () => {
-    return success_or_fail(await window.identityApi.verify_email(code));
+    return success_or_fail(await window.identityApi.verify_email({ confirmation_code: code }));
   });
   await measured();
 }

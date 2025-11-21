@@ -106,6 +106,8 @@ impl Context {
             db.identity_chain_store,
             db.company_chain_store,
             transport_service.clone(),
+            email_client.clone(),
+            db.email_notification_store.clone(),
         );
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 

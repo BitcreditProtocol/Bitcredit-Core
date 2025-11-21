@@ -188,7 +188,6 @@ impl BillService {
             }
         }
 
-        // TODO: replace with directly creating BillIssueBlockData
         let bill = BitcreditBill {
             id: bill_id.clone(),
             country_of_issuing: data.country_of_issuing,

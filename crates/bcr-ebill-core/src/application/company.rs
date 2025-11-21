@@ -1,13 +1,8 @@
-use crate::{
-    protocol::City,
-    protocol::Country,
-    protocol::Date,
-    protocol::Email,
-    protocol::File,
-    protocol::Identification,
-    protocol::Name,
-    protocol::PostalAddress,
-    protocol::blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData},
+use crate::protocol::{
+    City, Country, Date, Email, File, Identification, Name, PostalAddress,
+    blockchain::company::{
+        CompanyBlockPayload, CompanyCreateBlockData, CompanySignatoryBlockData, SignatoryType,
+    },
 };
 use bcr_common::core::NodeId;
 
@@ -25,7 +20,7 @@ pub struct Company {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
-    pub signatories: Vec<NodeId>,
+    pub signatories: Vec<CompanySignatory>,
     pub active: bool,
 }
 
@@ -42,7 +37,32 @@ impl From<Company> for CompanyCreateBlockData {
             registration_date: value.registration_date,
             proof_of_registration_file: value.proof_of_registration_file,
             logo_file: value.logo_file,
-            signatories: value.signatories,
+            signatories: value.signatories.into_iter().map(|s| s.into()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CompanySignatory {
+    pub node_id: NodeId,
+    pub email: Email,
+}
+
+impl From<CompanySignatory> for CompanySignatoryBlockData {
+    fn from(value: CompanySignatory) -> Self {
+        Self {
+            t: SignatoryType::Solo,
+            node_id: value.node_id,
+            email: value.email,
+        }
+    }
+}
+
+impl From<CompanySignatoryBlockData> for CompanySignatory {
+    fn from(value: CompanySignatoryBlockData) -> Self {
+        Self {
+            node_id: value.node_id,
+            email: value.email,
         }
     }
 }
@@ -50,7 +70,7 @@ impl From<Company> for CompanyCreateBlockData {
 impl Company {
     /// Creates a new company from a block data payload
     pub fn from_block_data(data: CompanyCreateBlockData, our_node_id: &NodeId) -> Self {
-        let active = data.signatories.contains(our_node_id);
+        let active = data.signatories.iter().any(|s| &s.node_id == our_node_id);
         Self {
             id: data.id,
             name: data.name,
@@ -62,7 +82,7 @@ impl Company {
             registration_date: data.registration_date,
             proof_of_registration_file: data.proof_of_registration_file,
             logo_file: data.logo_file,
-            signatories: data.signatories,
+            signatories: data.signatories.into_iter().map(|s| s.into()).collect(),
             active,
         }
     }
@@ -115,15 +135,26 @@ impl Company {
                     .or(self.proof_of_registration_file.to_owned());
             }
             CompanyBlockPayload::AddSignatory(payload) => {
-                if !self.signatories.contains(&payload.signatory) {
-                    self.signatories.push(payload.signatory.to_owned());
+                if !self
+                    .signatories
+                    .iter()
+                    .any(|s| s.node_id == payload.signatory)
+                {
+                    self.signatories.push(
+                        CompanySignatoryBlockData {
+                            t: SignatoryType::Solo,
+                            node_id: payload.signatory.to_owned(),
+                            email: payload.signatory_email.to_owned(),
+                        }
+                        .into(),
+                    );
                     if &payload.signatory == our_node_id {
                         self.active = true;
                     }
                 }
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {
-                self.signatories.retain(|i| i != &payload.signatory);
+                self.signatories.retain(|i| i.node_id != payload.signatory);
                 if &payload.signatory == our_node_id {
                     self.active = false;
                 }

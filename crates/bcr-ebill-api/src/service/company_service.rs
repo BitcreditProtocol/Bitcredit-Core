@@ -1,4 +1,5 @@
 use super::Result;
+use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::service::Error;
@@ -7,10 +8,9 @@ use crate::service::transport_service::{BcrMetadata, NostrContactData, Transport
 use crate::util::{self, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::application::company::{Company, CompanySignatory};
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
-use bcr_ebill_core::protocol::Date;
 use bcr_ebill_core::protocol::Email;
 use bcr_ebill_core::protocol::Identification;
 use bcr_ebill_core::protocol::Name;
@@ -20,7 +20,8 @@ use bcr_ebill_core::protocol::blockchain::Blockchain;
 use bcr_ebill_core::protocol::blockchain::bill::ContactType;
 use bcr_ebill_core::protocol::blockchain::company::{
     CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain,
-    CompanyCreateBlockData, CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+    CompanyCreateBlockData, CompanyIdentityProofBlockData, CompanyRemoveSignatoryBlockData,
+    CompanyUpdateBlockData, SignatoryType,
 };
 use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
@@ -30,6 +31,7 @@ use bcr_ebill_core::protocol::blockchain::identity::{IdentityBlockchain, Identit
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
 use bcr_ebill_core::protocol::{Country, blockchain};
+use bcr_ebill_core::protocol::{Date, EmailIdentityProofData, SignedIdentityProof};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, PostalAddress};
 use bcr_ebill_core::protocol::{
     PublicKey, SecretKey,
@@ -40,6 +42,7 @@ use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bitcoin::base58;
 use log::{debug, error, info};
 use std::sync::Arc;
@@ -53,6 +56,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
 
     /// Search companies
     async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
+
     /// Get a list of companies
     async fn get_list_of_companies(&self) -> Result<Vec<Company>>;
 
@@ -62,9 +66,13 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     /// Get a company and it's keys by id
     async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, BcrKeys)>;
 
-    /// Create a new company
+    /// Create a new company key pair
+    async fn create_company_keys(&self) -> Result<NodeId>;
+
+    /// Create a new company, `create_company_keys` needs to be called before to get a key pair
     async fn create_company(
         &self,
+        id: NodeId,
         name: Name,
         country_of_registration: Option<Country>,
         city_of_registration: Option<City>,
@@ -74,6 +82,7 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         registration_date: Option<Date>,
         proof_of_registration_file_upload_id: Option<Uuid>,
         logo_file_upload_id: Option<Uuid>,
+        creator_email: Email,
         timestamp: Timestamp,
     ) -> Result<Company>;
 
@@ -131,6 +140,21 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
 
     /// Publishes this company's contact to the nostr profile
     async fn publish_contact(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
+
+    /// Change the email of the signatory (local identity only)
+    async fn change_signatory_email(&self, id: &NodeId, email: &Email) -> Result<()>;
+
+    /// Confirm a new email address for a company id
+    async fn confirm_email(&self, id: &NodeId, email: &Email) -> Result<()>;
+
+    /// Verify confirmation of an email address with the sent confirmation code for a company id
+    async fn verify_email(&self, id: &NodeId, confirmation_code: &str) -> Result<()>;
+
+    /// Get email confirmations for the identity and company
+    async fn get_email_confirmations(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
 }
 
 /// The company service is responsible for managing the companies
@@ -145,6 +169,8 @@ pub struct CompanyService {
     identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
     company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     transport_service: Arc<dyn TransportServiceApi>,
+    email_client: Arc<dyn EmailClientApi>,
+    email_notification_store: Arc<dyn EmailNotificationStoreApi>,
 }
 
 impl CompanyService {
@@ -158,6 +184,8 @@ impl CompanyService {
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
         company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
         transport_service: Arc<dyn TransportServiceApi>,
+        email_client: Arc<dyn EmailClientApi>,
+        email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     ) -> Self {
         Self {
             store,
@@ -169,6 +197,8 @@ impl CompanyService {
             identity_blockchain_store,
             company_blockchain_store,
             transport_service,
+            email_client,
+            email_notification_store,
         }
     }
 
@@ -245,6 +275,83 @@ impl CompanyService {
     async fn on_company_contact_change(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         debug!("Company change");
         self.publish_contact(company, keys).await
+    }
+
+    async fn create_identity_proof_block(
+        &self,
+        proof: SignedIdentityProof,
+        data: EmailIdentityProofData,
+        company: &Company,
+        identity_keys: &BcrKeys,
+        company_keys: &BcrKeys,
+        chain: &mut CompanyBlockchain,
+    ) -> Result<()> {
+        let new_block = CompanyBlock::create_block_for_identity_proof(
+            company.id.clone(),
+            chain.get_latest_block(),
+            &CompanyIdentityProofBlockData { proof, data },
+            identity_keys,
+            company_keys,
+            Timestamp::now(),
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
+
+        self.validate_and_add_block(&company.id, chain, new_block.clone())
+            .await?;
+        self.populate_block(company, chain, company_keys, None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// If mandatory email confirmations are not disabled, check that there is a confirmed email and the
+    /// given email is a confirmed one for the company signatory
+    async fn check_confirmed_email(
+        &self,
+        node_id: &NodeId,
+        company_id: &NodeId,
+        email: &Email,
+    ) -> Result<Option<(SignedIdentityProof, EmailIdentityProofData)>> {
+        if !get_config()
+            .dev_mode_config
+            .disable_mandatory_email_confirmations
+        {
+            // Make sure there is a confirmed email
+            let email_confirmations = self.store.get_email_confirmations(company_id).await?;
+            if email_confirmations.is_empty() {
+                return Err(Error::Validation(
+                    ValidationError::NoConfirmedEmailForIdentIdentity,
+                ));
+            }
+
+            // Given email has to be a confirmed email
+            for ec in email_confirmations.iter() {
+                if &ec.1.email == email {
+                    return Ok(Some((ec.0.to_owned(), ec.1.to_owned())));
+                }
+            }
+
+            // No email found - fail
+            Err(Error::Validation(
+                ValidationError::NoConfirmedEmailForIdentIdentity,
+            ))
+        } else {
+            // if mandatory email confirmations are disabled, create self-signed email confirmation
+            let identity_keys = self.identity_store.get_key_pair().await?;
+
+            let self_signed_identity = EmailIdentityProofData {
+                node_id: node_id.to_owned(),
+                company_node_id: Some(company_id.to_owned()),
+                email: email.to_owned(),
+                created_at: Timestamp::now(),
+            };
+            let proof = self_signed_identity.sign(node_id, &identity_keys.get_private_key())?;
+            self.store
+                .set_email_confirmation(company_id, &proof, &self_signed_identity)
+                .await?;
+
+            Ok(Some((proof, self_signed_identity)))
+        }
     }
 
     async fn validate_and_add_identity_block(
@@ -325,12 +432,15 @@ impl CompanyServiceApi for CompanyService {
         let mut signatory_contacts: Vec<Contact> = company
             .signatories
             .iter()
-            .filter_map(|node_id| contacts.get(node_id))
+            .filter_map(|signatory| contacts.get(&signatory.node_id))
             .cloned()
             .collect();
 
         // if we are signatory and not yet in signatory contacts, add our identity contact
-        if company.signatories.contains(&identity.node_id)
+        if company
+            .signatories
+            .iter()
+            .any(|s| s.node_id == identity.node_id)
             && !signatory_contacts
                 .iter()
                 .any(|c| c.node_id == identity.node_id)
@@ -344,8 +454,8 @@ impl CompanyServiceApi for CompanyService {
             let missing = company
                 .signatories
                 .iter()
-                .filter(|s| !signatory_contacts.iter().any(|c| c.node_id == **s))
-                .cloned()
+                .filter(|s| !signatory_contacts.iter().any(|c| c.node_id == s.node_id))
+                .map(|s| s.node_id.to_owned())
                 .collect::<Vec<NodeId>>();
 
             let nostr_contacts: Vec<Contact> = self
@@ -392,8 +502,16 @@ impl CompanyServiceApi for CompanyService {
         Ok(company)
     }
 
+    async fn create_company_keys(&self) -> Result<NodeId> {
+        let company_keys = BcrKeys::new();
+        let id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
+        self.store.save_key_pair(&id, &company_keys).await?;
+        Ok(id)
+    }
+
     async fn create_company(
         &self,
+        id: NodeId,
         name: Name,
         country_of_registration: Option<Country>,
         city_of_registration: Option<City>,
@@ -403,12 +521,11 @@ impl CompanyServiceApi for CompanyService {
         registration_date: Option<Date>,
         proof_of_registration_file_upload_id: Option<Uuid>,
         logo_file_upload_id: Option<Uuid>,
+        creator_email: Email,
         timestamp: Timestamp,
     ) -> Result<Company> {
-        debug!("creating company");
-        let company_keys = BcrKeys::new();
-
-        let id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
+        debug!("creating company by creator {}", creator_email);
+        let company_keys = self.store.get_key_pair(&id).await?;
 
         let full_identity = self.identity_store.get_full().await?;
         let nostr_relays = full_identity.identity.nostr_relays.clone();
@@ -418,6 +535,11 @@ impl CompanyServiceApi for CompanyService {
                 ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
+
+        // check if email is confirmed
+        let email_confirmation = self
+            .check_confirmed_email(&full_identity.identity.node_id, &id, &creator_email)
+            .await?;
 
         // TODO(multi-relay): don't default to first
         let (proof_of_registration_file, logo_file) = match nostr_relays.first() {
@@ -447,7 +569,6 @@ impl CompanyServiceApi for CompanyService {
             None => (None, None),
         };
 
-        self.store.save_key_pair(&id, &company_keys).await?;
         let company = Company {
             id: id.clone(),
             name,
@@ -459,12 +580,15 @@ impl CompanyServiceApi for CompanyService {
             registration_date,
             proof_of_registration_file,
             logo_file,
-            signatories: vec![full_identity.identity.node_id.clone()], // add caller as signatory
+            signatories: vec![CompanySignatory {
+                node_id: full_identity.identity.node_id.clone(),
+                email: creator_email,
+            }], // add caller as signatory
             active: true,
         };
         self.store.insert(&company).await?;
 
-        let company_chain = CompanyBlockchain::new(
+        let mut company_chain = CompanyBlockchain::new(
             &CompanyCreateBlockData::from(company.clone()),
             &full_identity.key_pair,
             &company_keys,
@@ -515,9 +639,20 @@ impl CompanyServiceApi for CompanyService {
         self.on_company_contact_change(&company, &company_keys)
             .await?;
 
-        debug!("company with id {id} created");
+        // Create and populate company proof block
+        if let Some((proof, data)) = email_confirmation {
+            self.create_identity_proof_block(
+                proof,
+                data,
+                &company,
+                &full_identity.key_pair,
+                &company_keys,
+                &mut company_chain,
+            )
+            .await?;
+        }
 
-        // TODO NOSTR: upload files to nostr
+        debug!("company with id {id} created");
 
         // clean up temporary file uploads, if there are any, logging any errors
         for upload_id in [proof_of_registration_file_upload_id, logo_file_upload_id]
@@ -570,7 +705,7 @@ impl CompanyServiceApi for CompanyService {
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
 
-        if !company.signatories.contains(&node_id) {
+        if !company.signatories.iter().any(|s| s.node_id == node_id) {
             return Err(super::Error::Validation(
                 ValidationError::CallerMustBeSignatory,
             ));
@@ -771,13 +906,22 @@ impl CompanyServiceApi for CompanyService {
 
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
-        if company.signatories.contains(&signatory_node_id) {
+        if company
+            .signatories
+            .iter()
+            .any(|s| s.node_id == signatory_node_id)
+        {
             return Err(super::Error::Validation(
                 ProtocolValidationError::SignatoryAlreadySignatory(signatory_node_id.to_string())
                     .into(),
             ));
         }
-        company.signatories.push(signatory_node_id.clone());
+        // TODO (company-signatory): this will be different with the invite/accept workflow - email comes from invitee
+        let signatory_email = Email::new("todo@example.com").unwrap();
+        company.signatories.push(CompanySignatory {
+            node_id: signatory_node_id.clone(),
+            email: signatory_email.clone(),
+        });
         self.store.update(id, &company).await?;
 
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
@@ -787,6 +931,7 @@ impl CompanyServiceApi for CompanyService {
             previous_block,
             &CompanyAddSignatoryBlockData {
                 signatory: signatory_node_id.clone(),
+                signatory_email,
                 t: SignatoryType::Solo,
             },
             &full_identity.key_pair,
@@ -836,9 +981,6 @@ impl CompanyServiceApi for CompanyService {
             &signatory_node_id
         );
 
-        // TODO NOSTR: propagate block to company topic
-        // TODO NOSTR: propagate company and files to new signatory
-
         Ok(())
     }
 
@@ -872,13 +1014,19 @@ impl CompanyServiceApi for CompanyService {
                 ProtocolValidationError::CantRemoveLastSignatory.into(),
             ));
         }
-        if !company.signatories.contains(&signatory_node_id) {
+        if !company
+            .signatories
+            .iter()
+            .any(|s| s.node_id == signatory_node_id)
+        {
             return Err(super::Error::Validation(
                 ProtocolValidationError::NotASignatory(signatory_node_id.to_string()).into(),
             ));
         }
 
-        company.signatories.retain(|i| i != &signatory_node_id);
+        company
+            .signatories
+            .retain(|i| i.node_id != signatory_node_id);
         self.store.update(id, &company).await?;
 
         if full_identity.identity.node_id == signatory_node_id {
@@ -930,8 +1078,6 @@ impl CompanyServiceApi for CompanyService {
                 &full_identity.key_pair,
             ))
             .await?;
-
-        // TODO NOSTR: propagate block to company topic
 
         if full_identity.identity.node_id == signatory_node_id {
             // TODO NOSTR: stop susbcribing to company topic
@@ -1046,13 +1192,130 @@ impl CompanyServiceApi for CompanyService {
             .await;
         Ok(())
     }
+
+    /// Change the email of the signatory (local identity only)
+    async fn change_signatory_email(&self, id: &NodeId, email: &Email) -> Result<()> {
+        debug!("updating signatory email");
+        let identity = self.identity_store.get_full().await?;
+        let company_keys = self.store.get_key_pair(id).await?;
+        let mut company = self.store.get(id).await?;
+
+        let Some(signatory) = company
+            .signatories
+            .iter_mut()
+            .find(|s| s.node_id == identity.identity.node_id)
+        else {
+            return Err(super::Error::Validation(
+                ValidationError::CallerMustBeSignatory,
+            ));
+        };
+
+        if &signatory.email != email {
+            signatory.email = email.to_owned();
+        } else {
+            // return early, if email didn't change
+            return Ok(());
+        }
+
+        // check if email is confirmed
+        let email_confirmation = self
+            .check_confirmed_email(&identity.identity.node_id, id, email)
+            .await?;
+
+        // update signatories list in the DB
+        self.store.update(id, &company).await?;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        // Create and populate company proof block
+        if let Some((proof, data)) = email_confirmation {
+            self.create_identity_proof_block(
+                proof,
+                data,
+                &company,
+                &identity.key_pair,
+                &company_keys,
+                &mut company_chain,
+            )
+            .await?;
+        }
+
+        debug!("updated signatory email");
+        Ok(())
+    }
+
+    async fn confirm_email(&self, id: &NodeId, email: &Email) -> Result<()> {
+        let identity = self.identity_store.get_full().await?;
+
+        // use default mint URL for now, until we support multiple mints
+        let mint_url = get_config().mint_config.default_mint_url.to_owned();
+
+        self.email_client
+            .register(
+                &mint_url,
+                &identity.identity.node_id,
+                &Some(id.to_owned()),
+                email,
+                &identity.key_pair.get_private_key(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn verify_email(&self, id: &NodeId, confirmation_code: &str) -> Result<()> {
+        let identity = self.identity_store.get_full().await?;
+        let node_id = identity.identity.node_id;
+        let identity_keys = identity.key_pair;
+
+        // use default mint URL for now, until we support multiple mints
+        let mint_url = get_config().mint_config.default_mint_url.to_owned();
+        let mint_node_id = get_config().mint_config.default_mint_node_id.to_owned();
+
+        let (signed_proof, signed_email_identity_data) = self
+            .email_client
+            .confirm(
+                &mint_url,
+                &mint_node_id,
+                &node_id,
+                &Some(id.to_owned()),
+                confirmation_code,
+                &identity_keys.get_private_key(),
+            )
+            .await?;
+
+        self.store
+            .set_email_confirmation(id, &signed_proof, &signed_email_identity_data)
+            .await?;
+
+        let email_preferences_link = self
+            .email_client
+            .get_email_preferences_link(
+                &mint_url,
+                &node_id,
+                &Some(id.to_owned()),
+                &identity_keys.get_private_key(),
+            )
+            .await?;
+        self.email_notification_store
+            .add_email_preferences_link_for_node_id(&email_preferences_link, id)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn get_email_confirmations(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>> {
+        let email_confirmations = self.store.get_email_confirmations(id).await?;
+        Ok(email_confirmations)
+    }
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
     use crate::{
-        external::file_storage::MockFileStorageClientApi,
+        external::{email::MockEmailClientApi, file_storage::MockFileStorageClientApi},
         service::{
             bill_service::test_utils::get_baseline_identity,
             contact_service::tests::{get_baseline_contact, get_baseline_nostr_contact},
@@ -1060,9 +1323,10 @@ pub mod tests {
         },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
-            MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, empty_address, empty_identity, empty_optional_address,
-            node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+            MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
+            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
+            empty_address, empty_identity, empty_optional_address, node_id_test,
+            node_id_test_other, node_id_test_other2, private_key_test, signed_identity_proof_test,
         },
         util::get_uuid_v4,
     };
@@ -1084,6 +1348,8 @@ pub mod tests {
         mock_identity_chain_storage: MockIdentityChainStoreApiMock,
         mock_company_chain_storage: MockCompanyChainStoreApiMock,
         transport_service: MockTransportServiceApi,
+        mock_email_client: MockEmailClientApi,
+        mock_email_notification_store: MockEmailNotificationStoreApiMock,
     ) -> CompanyService {
         CompanyService::new(
             Arc::new(mock_storage),
@@ -1095,6 +1361,8 @@ pub mod tests {
             Arc::new(mock_identity_chain_storage),
             Arc::new(mock_company_chain_storage),
             Arc::new(transport_service),
+            Arc::new(mock_email_client),
+            Arc::new(mock_email_notification_store),
         )
     }
 
@@ -1108,6 +1376,8 @@ pub mod tests {
         MockCompanyChainStoreApiMock,
         MockTransportServiceApi,
         MockNostrContactStore,
+        MockEmailClientApi,
+        MockEmailNotificationStoreApiMock,
     ) {
         (
             MockCompanyStoreApiMock::new(),
@@ -1119,6 +1389,8 @@ pub mod tests {
             MockCompanyChainStoreApiMock::new(),
             MockTransportServiceApi::new(),
             MockNostrContactStore::new(),
+            MockEmailClientApi::new(),
+            MockEmailNotificationStoreApiMock::new(),
         )
     }
 
@@ -1137,7 +1409,10 @@ pub mod tests {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![node_id_test()],
+                    signatories: vec![CompanySignatory {
+                        node_id: node_id_test(),
+                        email: Email::new("test@example.com").unwrap(),
+                    }],
                     active: true,
                 },
                 BcrKeys::from_private_key(&private_key_test()),
@@ -1185,6 +1460,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_get_all().returning(|| {
             let mut map = HashMap::new();
@@ -1202,6 +1479,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         let res = service.get_list_of_companies().await;
@@ -1222,6 +1501,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_get_all().returning(|| {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
@@ -1238,6 +1519,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service.get_list_of_companies().await;
         assert!(res.is_err());
@@ -1255,6 +1538,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage
@@ -1273,6 +1558,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         let res = service.get_company_by_id(&node_id_test()).await;
@@ -1292,6 +1579,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         let service = get_service(
@@ -1304,6 +1593,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service.get_company_by_id(&node_id_test()).await;
         assert!(res.is_err());
@@ -1321,6 +1612,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -1338,6 +1631,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service.get_company_by_id(&node_id_test()).await;
         assert!(res.is_err());
@@ -1355,6 +1650,8 @@ pub mod tests {
             mut company_chain_store,
             mut transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         company_chain_store
             .expect_add_block()
@@ -1366,7 +1663,13 @@ pub mod tests {
             .unwrap())
         });
         storage.expect_save_key_pair().returning(|_, _| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
         storage.expect_insert().returning(|_| Ok(()));
+        storage
+            .expect_get_email_confirmations()
+            .returning(|_| Ok(vec![signed_identity_proof_test()]));
         identity_store.expect_get_full().returning(|| {
             let mut identity = empty_identity();
             identity.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
@@ -1405,7 +1708,7 @@ pub mod tests {
             // sends company block
             t.expect_send_company_chain_events()
                 .returning(|_| Ok(()))
-                .once();
+                .times(2); // create and identity proof
         });
 
         transport.expect_on_contact_transport(|t| {
@@ -1424,10 +1727,13 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         let res = service
             .create_company(
+                node_id_test(),
                 Name::new("name").unwrap(),
                 Some(Country::AT),
                 Some(City::new("Vienna").unwrap()),
@@ -1437,6 +1743,7 @@ pub mod tests {
                 Some(Date::new("2012-01-01").unwrap()),
                 Some(get_uuid_v4()),
                 Some(get_uuid_v4()),
+                Email::new("test@example.com").unwrap(),
                 Timestamp::new(1731593928).unwrap(),
             )
             .await;
@@ -1469,13 +1776,21 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_save_key_pair().returning(|_, _| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
         storage.expect_insert().returning(|_| {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
                 "test error",
             )))
         });
+        storage
+            .expect_get_email_confirmations()
+            .returning(|_| Ok(vec![signed_identity_proof_test()]));
         identity_store.expect_get_full().returning(|| {
             let identity = empty_identity();
             Ok(IdentityWithAll {
@@ -1493,9 +1808,12 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .create_company(
+                node_id_test(),
                 Name::new("name").unwrap(),
                 Some(Country::AT),
                 Some(City::new("Vienna").unwrap()),
@@ -1505,6 +1823,7 @@ pub mod tests {
                 Some(Date::new("2012-01-01").unwrap()),
                 None,
                 None,
+                Email::new("test@example.com").unwrap(),
                 Timestamp::new(1731593928).unwrap(),
             )
             .await;
@@ -1525,6 +1844,8 @@ pub mod tests {
             mut company_chain_store,
             mut transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -1553,7 +1874,10 @@ pub mod tests {
         let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![node_id_clone.clone()];
+            data.signatories = vec![CompanySignatory {
+                node_id: node_id_clone.clone(),
+                email: Email::new("test@example.com").unwrap(),
+            }];
             Ok(data)
         });
         storage
@@ -1596,6 +1920,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .edit_company(
@@ -1629,6 +1955,8 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         let service = get_service(
@@ -1641,6 +1969,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .edit_company(
@@ -1674,11 +2004,16 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![node_id_test_other()];
+            data.signatories = vec![CompanySignatory {
+                node_id: node_id_test_other(),
+                email: Email::new("test@example.com").unwrap(),
+            }];
             Ok(data)
         });
         identity_store.expect_get_full().returning(|| {
@@ -1698,6 +2033,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .edit_company(
@@ -1731,13 +2068,18 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         let keys = BcrKeys::new();
         let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
         let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![node_id_clone.clone()];
+            data.signatories = vec![CompanySignatory {
+                node_id: node_id_clone.clone(),
+                email: Email::new("test@example.com").unwrap(),
+            }];
             Ok(data)
         });
         storage
@@ -1767,6 +2109,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .edit_company(
@@ -1800,6 +2144,8 @@ pub mod tests {
             mut company_chain_store,
             mut transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
@@ -1864,6 +2210,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .add_signatory(
@@ -1887,6 +2235,8 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
@@ -1916,6 +2266,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .add_signatory(
@@ -1939,6 +2291,8 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         contact_store
@@ -1961,6 +2315,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .add_signatory(
@@ -1984,6 +2340,8 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         identity_store.expect_get_full().returning(|| {
@@ -2003,6 +2361,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .add_signatory(
@@ -2026,6 +2386,8 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         identity_store.expect_get_full().returning(|| {
@@ -2043,7 +2405,10 @@ pub mod tests {
         });
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(node_id_test());
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test(),
+                email: Email::new("test@example.com").unwrap(),
+            });
             Ok(data)
         });
         storage
@@ -2059,6 +2424,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .add_signatory(
@@ -2082,6 +2449,8 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         identity_store.expect_get_full().returning(|| {
@@ -2118,6 +2487,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .add_signatory(
@@ -2141,6 +2512,8 @@ pub mod tests {
             mut company_chain_store,
             mut transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -2151,8 +2524,14 @@ pub mod tests {
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(node_id_test_other2());
-            data.signatories.push(node_id_test_other());
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test_other2(),
+                email: Email::new("test2@example.com").unwrap(),
+            });
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test_other(),
+                email: Email::new("test@example.com").unwrap(),
+            });
             Ok(data)
         });
         storage
@@ -2199,6 +2578,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .remove_signatory(
@@ -2222,6 +2603,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         identity_store.expect_get_full().returning(|| {
@@ -2241,6 +2624,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .remove_signatory(
@@ -2265,6 +2650,8 @@ pub mod tests {
             mut company_chain_store,
             mut transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         company_chain_store
             .expect_get_latest_block()
@@ -2291,11 +2678,15 @@ pub mod tests {
         let keys_clone = keys.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(node_id_test());
-            data.signatories.push(NodeId::new(
-                keys_clone.clone().pub_key(),
-                bitcoin::Network::Testnet,
-            ));
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test(),
+                email: Email::new("test@example.com").unwrap(),
+            });
+            data.signatories.push(CompanySignatory {
+                node_id: NodeId::new(keys_clone.clone().pub_key(), bitcoin::Network::Testnet),
+                email: Email::new("test2@example.com").unwrap(),
+            });
+
             Ok(data)
         });
         storage
@@ -2331,6 +2722,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .remove_signatory(
@@ -2354,12 +2747,21 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(node_id_test_other());
-            data.signatories.push(node_id_test());
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test(),
+                email: Email::new("test@example.com").unwrap(),
+            });
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test_other(),
+                email: Email::new("test2@example.com").unwrap(),
+            });
+
             Ok(data)
         });
         storage
@@ -2382,6 +2784,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .remove_signatory(
@@ -2405,6 +2809,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -2431,6 +2837,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .remove_signatory(
@@ -2454,12 +2862,20 @@ pub mod tests {
             company_chain_store,
             notification,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(node_id_test());
-            data.signatories.push(node_id_test_other());
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test(),
+                email: Email::new("test@example.com").unwrap(),
+            });
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test_other(),
+                email: Email::new("test2@example.com").unwrap(),
+            });
             Ok(data)
         });
         storage
@@ -2487,6 +2903,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             notification,
+            email_client,
+            email_notification_store,
         );
         let res = service
             .remove_signatory(
@@ -2517,6 +2935,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
 
         file_upload_client
@@ -2543,6 +2963,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         let file = service
@@ -2591,6 +3013,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         file_upload_client.expect_upload().returning(|_, _| {
             Err(crate::external::Error::ExternalFileStorageApi(
@@ -2607,6 +3031,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         assert!(
@@ -2635,6 +3061,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         file_upload_client.expect_upload().returning(|_, _| {
             Err(crate::external::Error::ExternalFileStorageApi(
@@ -2651,6 +3079,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         assert!(
@@ -2678,11 +3108,16 @@ pub mod tests {
             company_chain_store,
             transport,
             mut nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(node_id_test_other());
+            data.signatories.push(CompanySignatory {
+                node_id: node_id_test_other(),
+                email: Email::new("test2@example.com").unwrap(),
+            });
             Ok(data)
         });
 
@@ -2717,6 +3152,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
 
         let res = service.list_signatories(&node_id_test()).await;
@@ -2736,6 +3173,8 @@ pub mod tests {
             company_chain_store,
             transport,
             nostr_contact_store,
+            email_client,
+            email_notification_store,
         ) = get_storages();
         let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
         let service = get_service(
@@ -2748,6 +3187,8 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
         );
         assert!(service.list_signatories(&mainnet_node_id).await.is_err());
         assert!(
