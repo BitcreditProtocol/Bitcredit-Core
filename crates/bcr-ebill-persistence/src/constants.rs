@@ -40,6 +40,7 @@ pub const DB_ENTITY_ID: &str = "entity_id";
 pub const DB_FILE_NAME: &str = "file_name";
 pub const DB_NODE_ID: &str = "node_id";
 pub const DB_FILE_UPLOAD_ID: &str = "file_upload_id";
+pub const DB_RECEIVER_NODE_ID: &str = "receiver_node_id";
 
 #[cfg(target_arch = "wasm32")]
 pub const SURREAL_DB_CON_INDXDB_DATA: &str = "indxdb://data";

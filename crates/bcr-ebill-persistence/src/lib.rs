@@ -68,5 +68,8 @@ pub use db::{
     identity_chain::SurrealIdentityChainStore, nostr_chain_event::SurrealNostrChainEventStore,
     nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
 };
-pub use nostr::{NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
+pub use nostr::{
+    NostrChainEventStoreApi, NostrContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
+    NostrQueuedMessageStoreApi, PendingContactShare, ShareDirection,
+};
 pub use notification::NotificationStoreApi;

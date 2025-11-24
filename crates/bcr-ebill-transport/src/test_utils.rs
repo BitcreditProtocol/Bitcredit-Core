@@ -42,7 +42,7 @@ use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStore
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
 use bcr_ebill_persistence::{
     ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
-    SurrealDbConfig,
+    PendingContactShare, ShareDirection, SurrealDbConfig,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -486,6 +486,7 @@ mockall::mock! {
             recipient: &NodeId,
             contact_id: &NodeId,
             keys: &BcrKeys,
+            share_back_pending_id: Option<String>,
         ) -> Result<()>;
         async fn ensure_nostr_contact(&self, node_id: &NodeId);
     }
@@ -765,6 +766,10 @@ mockall::mock! {
         file_name: &Name,
         private_key: &SecretKey,
     ) -> bcr_ebill_api::service::Result<Vec<u8>>;
+    async fn list_pending_contact_shares(&self, receiver_node_id: &NodeId) -> bcr_ebill_api::service::Result<Vec<PendingContactShare>>;
+    async fn get_pending_contact_share(&self, id: &str) -> bcr_ebill_api::service::Result<Option<PendingContactShare>>;
+    async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> bcr_ebill_api::service::Result<()>;
+    async fn reject_contact_share(&self, pending_share_id: &str) -> bcr_ebill_api::service::Result<()>;
     }
 }
 
@@ -843,5 +848,12 @@ mockall::mock! {
         async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> bcr_ebill_persistence::Result<()>;
         async fn get_npubs(&self, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrPublicKey>>;
         async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
+        async fn add_pending_share(&self, pending_share: PendingContactShare) -> bcr_ebill_persistence::Result<()>;
+        async fn get_pending_share(&self, id: &str) -> bcr_ebill_persistence::Result<Option<PendingContactShare>>;
+        async fn get_pending_share_by_private_key(&self, private_key: &SecretKey) -> bcr_ebill_persistence::Result<Option<PendingContactShare>>;
+        async fn list_pending_shares_by_receiver(&self, receiver_node_id: &NodeId) -> bcr_ebill_persistence::Result<Vec<PendingContactShare>>;
+        async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> bcr_ebill_persistence::Result<Vec<PendingContactShare>>;
+        async fn delete_pending_share(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
+        async fn pending_share_exists_for_node_and_receiver(&self, node_id: &NodeId, receiver_node_id: &NodeId) -> bcr_ebill_persistence::Result<bool>;
     }
 }

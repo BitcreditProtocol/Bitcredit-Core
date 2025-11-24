@@ -2,8 +2,11 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::Error;
 use bcr_ebill_core::{
     application::{ValidationError, contact::Contact},
-    protocol::{City, Country, Date, Email, Identification, Name, blockchain::bill::ContactType},
+    protocol::{
+        City, Country, Date, Email, Identification, Name, Timestamp, blockchain::bill::ContactType,
+    },
 };
+use bcr_ebill_persistence::PendingContactShare;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
@@ -144,4 +147,45 @@ impl From<Contact> for ContactWeb {
             is_logical: val.is_logical,
         }
     }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct PendingContactShareWeb {
+    pub id: String,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+    pub contact: ContactWeb,
+    #[tsify(type = "string")]
+    pub sender_node_id: NodeId,
+    #[tsify(type = "string")]
+    pub receiver_node_id: NodeId,
+    #[tsify(type = "string")]
+    pub received_at: Timestamp,
+}
+
+impl From<PendingContactShare> for PendingContactShareWeb {
+    fn from(val: PendingContactShare) -> Self {
+        PendingContactShareWeb {
+            id: val.id,
+            node_id: val.node_id,
+            contact: val.contact.into(),
+            sender_node_id: val.sender_node_id,
+            receiver_node_id: val.receiver_node_id,
+            received_at: val.received_at,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct PendingContactSharesResponse {
+    pub pending_shares: Vec<PendingContactShareWeb>,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ApproveContactSharePayload {
+    pub pending_share_id: String,
+    pub share_back: bool,
 }

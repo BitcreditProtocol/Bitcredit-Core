@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use crate::TSResult;
 use crate::data::contact::{
-    ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload, NewContactPayload,
-    SearchContactsPayload,
+    ApproveContactSharePayload, ContactTypeWeb, ContactWeb, ContactsResponse, EditContactPayload,
+    NewContactPayload, PendingContactShareWeb, PendingContactSharesResponse, SearchContactsPayload,
 };
 use crate::data::{
     Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, PostalAddressWeb, UploadFile,
@@ -352,6 +352,70 @@ impl Contact {
                         .transpose()?,
                     !has_proof_document_file_upload_id,
                 )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<PendingContactSharesResponse>")]
+    pub async fn list_pending_contact_shares(&self, receiver_node_id: &str) -> JsValue {
+        let res: Result<PendingContactSharesResponse> = async {
+            let parsed_node_id = NodeId::from_str(receiver_node_id)
+                .map_err(bcr_ebill_core::protocol::ProtocolValidationError::from)?;
+            let pending_shares = get_ctx()
+                .contact_service
+                .list_pending_contact_shares(&parsed_node_id)
+                .await?;
+            Ok(PendingContactSharesResponse {
+                pending_shares: pending_shares.into_iter().map(|ps| ps.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<PendingContactShareWeb | undefined>")]
+    pub async fn get_pending_contact_share(&self, id: &str) -> JsValue {
+        let res: Result<Option<PendingContactShareWeb>> = async {
+            let pending_share = get_ctx()
+                .contact_service
+                .get_pending_contact_share(id)
+                .await?;
+            Ok(pending_share.map(|ps| ps.into()))
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn approve_contact_share(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ApproveContactSharePayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let approve_payload: ApproveContactSharePayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            get_ctx()
+                .contact_service
+                .approve_contact_share(
+                    &approve_payload.pending_share_id,
+                    approve_payload.share_back,
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn reject_contact_share(&self, pending_share_id: &str) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx()
+                .contact_service
+                .reject_contact_share(pending_share_id)
                 .await?;
             Ok(())
         }

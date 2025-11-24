@@ -22,11 +22,13 @@ pub trait ContactTransportServiceApi: ServiceTraitBounds {
     async fn publish_contact(&self, node_id: &NodeId, contact: &NostrContactData) -> Result<()>;
 
     /// Shares derived keys for private contact information via DM.
+    /// If share_back_pending_id is provided, it will be included in the event to enable auto-accept.
     async fn share_contact_details_keys(
         &self,
         recipient: &NodeId,
         contact_id: &NodeId,
         keys: &BcrKeys,
+        share_back_pending_id: Option<String>,
     ) -> Result<()>;
 
     /// Ensures that the given node id is in our nostr contacts

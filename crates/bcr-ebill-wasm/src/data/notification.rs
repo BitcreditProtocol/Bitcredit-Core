@@ -51,6 +51,7 @@ pub enum NotificationTypeWeb {
     General,
     Company,
     Bill,
+    Contact,
 }
 
 impl From<NotificationType> for NotificationTypeWeb {
@@ -59,6 +60,7 @@ impl From<NotificationType> for NotificationTypeWeb {
             NotificationType::Bill => NotificationTypeWeb::Bill,
             NotificationType::Company => NotificationTypeWeb::Company,
             NotificationType::General => NotificationTypeWeb::General,
+            NotificationType::Contact => NotificationTypeWeb::Contact,
         }
     }
 }

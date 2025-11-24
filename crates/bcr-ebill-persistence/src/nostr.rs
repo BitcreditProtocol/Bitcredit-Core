@@ -3,7 +3,9 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
+    application::contact::Contact,
     application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
+    protocol::SecretKey,
     protocol::Sha256Hash,
     protocol::Timestamp,
     protocol::blockchain::BlockchainType,
@@ -98,6 +100,71 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
     /// Searches for a contact by name
     async fn search(&self, search_term: &str, levels: Vec<TrustLevel>)
     -> Result<Vec<NostrContact>>;
+
+    // Pending contact share methods
+    /// Store a new pending contact share
+    async fn add_pending_share(&self, pending_share: PendingContactShare) -> Result<()>;
+    /// Get a pending contact share by its unique id
+    async fn get_pending_share(&self, id: &str) -> Result<Option<PendingContactShare>>;
+    /// Get a pending contact share by the contact's private key (for auto-accept matching)
+    async fn get_pending_share_by_private_key(
+        &self,
+        private_key: &SecretKey,
+    ) -> Result<Option<PendingContactShare>>;
+    /// List all pending contact shares for a given receiver node id
+    async fn list_pending_shares_by_receiver(
+        &self,
+        receiver_node_id: &NodeId,
+    ) -> Result<Vec<PendingContactShare>>;
+    /// List all pending contact shares for a given receiver node id filtered by direction
+    async fn list_pending_shares_by_receiver_and_direction(
+        &self,
+        receiver_node_id: &NodeId,
+        direction: ShareDirection,
+    ) -> Result<Vec<PendingContactShare>>;
+    /// Delete a pending contact share (after approval or rejection)
+    async fn delete_pending_share(&self, id: &str) -> Result<()>;
+    /// Check if a pending share exists for a given node_id and receiver
+    async fn pending_share_exists_for_node_and_receiver(
+        &self,
+        node_id: &NodeId,
+        receiver_node_id: &NodeId,
+    ) -> Result<bool>;
+}
+
+/// Direction of a contact share - incoming (we received) or outgoing (we sent)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ShareDirection {
+    /// We received this contact share from someone else
+    Incoming,
+    /// We sent this contact share to someone else
+    Outgoing,
+}
+
+/// A pending contact share that requires user approval before being added to contacts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingContactShare {
+    /// Unique identifier for this pending share
+    pub id: String,
+    /// The node id of the contact that was shared
+    pub node_id: NodeId,
+    /// The decrypted contact data
+    pub contact: Contact,
+    /// The node id of the sender who shared this contact
+    pub sender_node_id: NodeId,
+    /// The private key to decrypt the contact data on Nostr
+    pub contact_private_key: SecretKey,
+    /// The node id that received this share (our identity or company)
+    pub receiver_node_id: NodeId,
+    /// When this share was received/sent
+    pub received_at: Timestamp,
+    /// Direction of the share (incoming or outgoing)
+    pub direction: ShareDirection,
+    /// The initial share ID from the sender. For Incoming shares, this is always present and
+    /// contains the pending share ID that the sender created on their side. When sharing back,
+    /// we use this as the share_back_pending_id so the sender can auto-accept.
+    /// For Outgoing shares, this is None since we are the sender.
+    pub initial_share_id: Option<String>,
 }
 
 /// Allows us to keep track of Nostr chain events and have an archive of signed events that

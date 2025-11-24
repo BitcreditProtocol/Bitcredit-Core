@@ -65,6 +65,7 @@ impl Context {
             db.file_upload_store.clone(),
             file_upload_client.clone(),
             db.identity_store.clone(),
+            db.company_store.clone(),
             db.nostr_contact_store.clone(),
             transport_service.clone(),
             &cfg,

@@ -9,9 +9,10 @@ use bcr_ebill_api::util::validate_node_id_network;
 
 use bcr_ebill_api::service::transport_service::ContactTransportServiceApi;
 use bcr_ebill_core::application::{ContactShareEvent, ServiceTraitBounds};
-use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::crypto::{BcrKeys, decrypt_ecies};
 use bcr_ebill_core::protocol::event::Event;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::{PendingContactShare, ShareDirection};
 use log::error;
 
 use bcr_ebill_api::service::transport_service::{Error, Result};
@@ -70,6 +71,7 @@ impl ContactTransportServiceApi for ContactTransportService {
         recipient: &NodeId,
         contact_id: &NodeId,
         keys: &BcrKeys,
+        share_back_pending_id: Option<String>,
     ) -> Result<()> {
         let relays = match self.nostr_contact_store.by_node_id(recipient).await {
             Ok(Some(contact)) => contact.relays,
@@ -83,14 +85,54 @@ impl ContactTransportServiceApi for ContactTransportService {
             error!("No relays found for contact {recipient}");
             return Err(Error::NotFound);
         }
+
+        let private_key = keys.get_private_key();
+
+        // Always generate a pending share ID upfront
+        let initial_share_id = uuid::Uuid::new_v4().to_string();
+
         let event = Event::new_contact_share(ContactShareEvent {
             node_id: contact_id.to_owned(),
-            private_key: keys.get_private_key(),
+            private_key,
+            initial_share_id: initial_share_id.clone(),
+            share_back_pending_id: share_back_pending_id.clone(),
         });
 
         self.nostr_transport
             .send_private_event(contact_id, recipient, &relays, event.try_into()?)
             .await?;
+
+        // Create an outgoing pending share to track this share for potential auto-accept
+        // Only if this is NOT a share-back (share_back_pending_id is None)
+        if share_back_pending_id.is_none()
+            && let Ok(Some(contact_data)) = self.resolve_contact(contact_id).await
+            && let Some(bcr_metadata) = contact_data.get_bcr_metadata()
+            && let Ok(decrypted) = decrypt_ecies(
+                &bitcoin::base58::decode(&bcr_metadata.contact_data).unwrap_or_default(),
+                &private_key,
+            )
+            && let Ok(contact) =
+                serde_json::from_slice::<bcr_ebill_core::application::contact::Contact>(&decrypted)
+        {
+            let pending_share = PendingContactShare {
+                id: initial_share_id,
+                node_id: contact_id.to_owned(),
+                contact,
+                sender_node_id: contact_id.to_owned(), // We are sharing our own contact
+                contact_private_key: private_key,
+                receiver_node_id: recipient.to_owned(),
+                received_at: bcr_ebill_core::protocol::Timestamp::now(),
+                direction: ShareDirection::Outgoing,
+                initial_share_id: None, // We are the sender, so no initial_share_id
+            };
+
+            // Store the outgoing pending share
+            let _ = self
+                .nostr_contact_store
+                .add_pending_share(pending_share)
+                .await;
+        }
+
         Ok(())
     }
 

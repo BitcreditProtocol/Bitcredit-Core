@@ -1233,7 +1233,7 @@ impl CompanyServiceApi for CompanyService {
         let keys = BcrKeys::from_private_key(&derived_keys.secret_key());
         self.transport_service
             .contact_transport()
-            .share_contact_details_keys(share_to, &company_id, &keys)
+            .share_contact_details_keys(share_to, &company_id, &keys, None)
             .await?;
         Ok(())
     }

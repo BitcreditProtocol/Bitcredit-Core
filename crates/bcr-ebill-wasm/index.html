@@ -43,7 +43,6 @@
         <div>Active identity: <span id="current_identity"></span></div>
         <input type="text" id="node_id_identity"/>
         <button type="button" id="switch_identity">Switch to identity</button>
-        <button type="button" id="share_contact_to">Share current identity contact to</button>
         <button type="button" id="sync_identity_chain">Sync Identity Chain</button>
         <div>Identity Proof</div>
         Email: <input type="text" id="identity_email"/>
@@ -59,6 +58,29 @@
         <button type="button" id="change_name">Change Name</button>
         <br />
         <button type="button" id="get_identity">Get Identity Data</button>
+    </div>
+    <div>
+        <h2>Contact Share Testing</h2>
+        <div>
+            Recipient Node Id: <input type="text" id="share_recipient_node_id"/>
+            <button type="button" id="share_contact_to">Share current identity contact to</button>
+        </div>
+        <div>
+            Company Id: <input type="text" id="share_company_id"/>
+            Recipient Node Id: <input type="text" id="share_company_recipient_node_id"/>
+            <button type="button" id="share_company_contact_to">Share company contact to</button>
+        </div>
+        <div>
+            Receiver Node Id: <input type="text" id="receiver_node_id"/>
+            <button type="button" id="list_pending_contact_shares">List Pending Contact Shares</button>
+        </div>
+        <div>
+            Pending Share Id: <input type="text" id="pending_share_id"/>
+            <button type="button" id="get_pending_contact_share">Get Pending Contact Share</button>
+            <button type="button" id="approve_contact_share">Approve Contact Share</button>
+            <button type="button" id="approve_contact_share_with_share_back">Approve and Share Back</button>
+            <button type="button" id="reject_contact_share">Reject Contact Share</button>
+        </div>
     </div>
     <div>
         <h2>Identity backup restore</h2>
@@ -79,7 +101,6 @@
         <div>Company Name: <input type="text" id="company_update_name"/></div>
         <button type="button" id="company_update">Update Company name</button>
         <button type="button" id="company_list">List Companies</button>
-        <br >
         <button type="button" id="list_signatories">List Signatories</button>
         <button type="button" id="sync_company_chain">Sync Company Chain</button>
         <h3>Company Identity Proof</h3>

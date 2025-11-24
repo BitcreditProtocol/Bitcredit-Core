@@ -299,6 +299,7 @@ pub async fn create_nostr_consumer(
             transport.clone(),
             db_context.contact_store.clone(),
             db_context.nostr_contact_store.clone(),
+            db_context.notification_store.clone(),
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());
