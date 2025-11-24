@@ -254,12 +254,9 @@ mod tests {
         protocol::crypto::BcrKeys,
         tests::tests::{empty_address, empty_optional_address, node_id_test, private_key_test},
     };
-    use bcr_ebill_core::{
-        application::company::{Company, CompanySignatory},
-        protocol::{
-            City, Country, Date, Email, Identification, Name,
-            blockchain::company::CompanyUpdateBlockData,
-        },
+    use bcr_ebill_core::protocol::{
+        City, Country, Date, Email, Identification, Name,
+        blockchain::company::{CompanyCreateBlockData, CompanyUpdateBlockData},
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -282,7 +279,7 @@ mod tests {
         let block = CompanyBlock::create_block_for_create(
             node_id_test(),
             Sha256Hash::new("genesis hash"),
-            &Company {
+            &CompanyCreateBlockData {
                 id: node_id_test(),
                 name: Name::new("Hayek Ltd").unwrap(),
                 country_of_registration: Some(Country::AT),
@@ -293,13 +290,9 @@ mod tests {
                 registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                signatories: vec![CompanySignatory {
-                    node_id: node_id_test(),
-                    email: Email::new("test@example.com").unwrap(),
-                }],
-                active: true,
-            }
-            .into(),
+                creation_time: Timestamp::new(1731593928).unwrap(),
+                creator: node_id_test(),
+            },
             &BcrKeys::new(),
             &get_company_keys(),
             Timestamp::new(1731593928).unwrap(),
@@ -341,7 +334,7 @@ mod tests {
         let block = CompanyBlock::create_block_for_create(
             node_id_test(),
             Sha256Hash::new("genesis hash"),
-            &Company {
+            &CompanyCreateBlockData {
                 id: node_id_test(),
                 name: Name::new("Hayek Ltd").unwrap(),
                 country_of_registration: Some(Country::AT),
@@ -352,13 +345,9 @@ mod tests {
                 registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                signatories: vec![CompanySignatory {
-                    node_id: node_id_test(),
-                    email: Email::new("test@example.com").unwrap(),
-                }],
-                active: true,
-            }
-            .into(),
+                creation_time: Timestamp::new(1731593928).unwrap(),
+                creator: node_id_test(),
+            },
             &BcrKeys::new(),
             &get_company_keys(),
             Timestamp::new(1731593928).unwrap(),

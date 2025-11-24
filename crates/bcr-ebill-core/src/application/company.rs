@@ -1,8 +1,7 @@
 use crate::protocol::{
-    City, Country, Date, Email, File, Identification, Name, PostalAddress,
-    blockchain::company::{
-        CompanyBlockPayload, CompanyCreateBlockData, CompanySignatoryBlockData, SignatoryType,
-    },
+    City, Country, Date, Email, EmailIdentityProofData, File, Identification, Name, PostalAddress,
+    SignedIdentityProof, Timestamp,
+    blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData, SignatoryType},
 };
 use bcr_common::core::NodeId;
 
@@ -20,57 +19,71 @@ pub struct Company {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
+    pub creation_time: Timestamp,
     pub signatories: Vec<CompanySignatory>,
-    pub active: bool,
+    pub status: CompanyStatus,
 }
 
-impl From<Company> for CompanyCreateBlockData {
-    fn from(value: Company) -> Self {
-        Self {
-            id: value.id,
-            name: value.name,
-            country_of_registration: value.country_of_registration,
-            city_of_registration: value.city_of_registration,
-            postal_address: value.postal_address,
-            email: value.email,
-            registration_number: value.registration_number,
-            registration_date: value.registration_date,
-            proof_of_registration_file: value.proof_of_registration_file,
-            logo_file: value.logo_file,
-            signatories: value.signatories.into_iter().map(|s| s.into()).collect(),
-        }
+impl Company {
+    // checks if the given node id is an authorized signer for this company
+    pub fn is_authorized_signer(&self, node_id: &NodeId) -> bool {
+        self.signatories.iter().any(|s| {
+            &s.node_id == node_id
+                && matches!(
+                    s.status,
+                    CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                )
+        })
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy)]
+pub enum CompanyStatus {
+    Invited,
+    Active,
+    None,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CompanySignatory {
+    pub t: SignatoryType,
     pub node_id: NodeId,
-    pub email: Email,
+    pub status: CompanySignatoryStatus,
 }
 
-impl From<CompanySignatory> for CompanySignatoryBlockData {
-    fn from(value: CompanySignatory) -> Self {
-        Self {
-            t: SignatoryType::Solo,
-            node_id: value.node_id,
-            email: value.email,
-        }
-    }
-}
-
-impl From<CompanySignatoryBlockData> for CompanySignatory {
-    fn from(value: CompanySignatoryBlockData) -> Self {
-        Self {
-            node_id: value.node_id,
-            email: value.email,
-        }
-    }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum CompanySignatoryStatus {
+    Invited {
+        ts: Timestamp,
+        inviter: NodeId,
+    },
+    InviteAccepted {
+        ts: Timestamp,
+    },
+    InviteRejected {
+        ts: Timestamp,
+    },
+    InviteAcceptedIdentityProven {
+        ts: Timestamp,
+        data: EmailIdentityProofData,
+        proof: SignedIdentityProof,
+    },
+    Removed {
+        ts: Timestamp,
+        remover: NodeId,
+    },
 }
 
 impl Company {
     /// Creates a new company from a block data payload
     pub fn from_block_data(data: CompanyCreateBlockData, our_node_id: &NodeId) -> Self {
-        let active = data.signatories.iter().any(|s| &s.node_id == our_node_id);
+        // if we're the creator, the company is active, otherwise we have no status in the company at this point
+        let status = if our_node_id == &data.creator {
+            CompanyStatus::Active
+        } else {
+            CompanyStatus::None
+        };
+
         Self {
             id: data.id,
             name: data.name,
@@ -82,12 +95,24 @@ impl Company {
             registration_date: data.registration_date,
             proof_of_registration_file: data.proof_of_registration_file,
             logo_file: data.logo_file,
-            signatories: data.signatories.into_iter().map(|s| s.into()).collect(),
-            active,
+            creation_time: data.creation_time,
+            signatories: vec![CompanySignatory {
+                t: SignatoryType::Solo,
+                node_id: data.creator,
+                status: CompanySignatoryStatus::InviteAccepted {
+                    ts: data.creation_time,
+                },
+            }],
+            status,
         }
     }
     /// Applies data from a block to this company.
-    pub fn apply_block_data(&mut self, data: &CompanyBlockPayload, our_node_id: &NodeId) {
+    pub fn apply_block_data(
+        &mut self,
+        data: &CompanyBlockPayload,
+        our_node_id: &NodeId,
+        timestamp: Timestamp,
+    ) {
         match data {
             CompanyBlockPayload::Update(payload) => {
                 self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
@@ -134,32 +159,137 @@ impl Company {
                     .to_owned()
                     .or(self.proof_of_registration_file.to_owned());
             }
-            CompanyBlockPayload::AddSignatory(payload) => {
-                if !self
+            CompanyBlockPayload::InviteSignatory(payload) => {
+                // if we're invited, set our status to invited, if we're not already invited or accepted
+                if CompanyStatus::None == self.status && our_node_id == &payload.invitee {
+                    self.status = CompanyStatus::Invited;
+                }
+
+                // update signatory data
+                if let Some(signatory) = self
                     .signatories
-                    .iter()
-                    .any(|s| s.node_id == payload.signatory)
+                    .iter_mut()
+                    .find(|s| s.node_id == payload.invitee)
                 {
-                    self.signatories.push(
-                        CompanySignatoryBlockData {
-                            t: SignatoryType::Solo,
-                            node_id: payload.signatory.to_owned(),
-                            email: payload.signatory_email.to_owned(),
+                    match signatory.status {
+                        CompanySignatoryStatus::InviteRejected { .. }
+                        | CompanySignatoryStatus::Removed { .. } => {
+                            // invite again
+                            signatory.status = CompanySignatoryStatus::Invited {
+                                ts: timestamp,
+                                inviter: payload.inviter.clone(),
+                            }
                         }
-                        .into(),
-                    );
-                    if &payload.signatory == our_node_id {
-                        self.active = true;
+                        _ => (), // already invited / accepted - ignore,
                     }
+                } else {
+                    // if the signatory wasn't in the list before - add as invited
+                    self.signatories.push(CompanySignatory {
+                        t: SignatoryType::Solo,
+                        node_id: payload.invitee.to_owned(),
+                        status: CompanySignatoryStatus::Invited {
+                            ts: timestamp,
+                            inviter: payload.inviter.clone(),
+                        },
+                    });
+                }
+            }
+            CompanyBlockPayload::SignatoryAcceptInvite(payload) => {
+                // if we're invited, set our status to active
+                if CompanyStatus::Invited == self.status && our_node_id == &payload.accepter {
+                    self.status = CompanyStatus::Active;
+                }
+
+                // update signatory data
+                if let Some(signatory) = self
+                    .signatories
+                    .iter_mut()
+                    .find(|s| s.node_id == payload.accepter)
+                {
+                    signatory.status = CompanySignatoryStatus::InviteAccepted { ts: timestamp };
+                }
+            }
+            CompanyBlockPayload::SignatoryRejectInvite(payload) => {
+                // if we're invited, set our status to None
+                if CompanyStatus::Invited == self.status && our_node_id == &payload.rejecter {
+                    self.status = CompanyStatus::None;
+                }
+
+                // update signatory data
+                if let Some(signatory) = self
+                    .signatories
+                    .iter_mut()
+                    .find(|s| s.node_id == payload.rejecter)
+                {
+                    signatory.status = CompanySignatoryStatus::InviteRejected { ts: timestamp };
                 }
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {
-                self.signatories.retain(|i| i.node_id != payload.signatory);
-                if &payload.signatory == our_node_id {
-                    self.active = false;
+                // if we're removed, set our status to none
+                if our_node_id == &payload.removee {
+                    self.status = CompanyStatus::None;
+                }
+
+                // update signatory data
+                if let Some(signatory) = self
+                    .signatories
+                    .iter_mut()
+                    .find(|s| s.node_id == payload.removee)
+                {
+                    signatory.status = CompanySignatoryStatus::Removed {
+                        ts: timestamp,
+                        remover: payload.remover.clone(),
+                    };
+                }
+            }
+            CompanyBlockPayload::IdentityProof(payload) => {
+                if let Some(signatory) = self
+                    .signatories
+                    .iter_mut()
+                    .find(|s| s.node_id == payload.data.node_id)
+                {
+                    // Part of adding a signatory via Accept, or Create
+                    if payload.reference_block.is_some() {
+                        match signatory.status {
+                            CompanySignatoryStatus::InviteAccepted { .. }
+                            | CompanySignatoryStatus::InviteAcceptedIdentityProven { .. } => {
+                                signatory.status =
+                                    CompanySignatoryStatus::InviteAcceptedIdentityProven {
+                                        ts: timestamp,
+                                        data: payload.data.clone(),
+                                        proof: payload.proof.clone(),
+                                    }
+                            }
+                            _ => (), // invalid / irrelevant cases
+                        }
+                    } else {
+                        // only update data
+                        if let CompanySignatoryStatus::InviteAcceptedIdentityProven { ts, .. } =
+                            signatory.status
+                        {
+                            signatory.status =
+                                CompanySignatoryStatus::InviteAcceptedIdentityProven {
+                                    ts,
+                                    data: payload.data.clone(),
+                                    proof: payload.proof.clone(),
+                                }
+                        }
+                    }
                 }
             }
             _ => {}
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalSignatoryOverride {
+    pub company_id: NodeId,
+    pub node_id: NodeId,
+    pub status: LocalSignatoryOverrideStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalSignatoryOverrideStatus {
+    Hidden, // hide a company signatory locally
 }

@@ -25,6 +25,11 @@
     * Split up `update_identity` and `update_email` for identity and create identity proof block on email update
     * Change flow for company creation to first call `create_company_keys` to get a key pair and node id, then confirm email of creator, then create company
         * Add `email` to signatory and use a data structure for signatories (breaking API and DB change)
+    * Adapt signatory handling for companies
+        * API for inviting signatories
+        * API to accept/reject company invites
+        * Restructured company persistence - `company` table is now a cache, calculated from the chain (similar to bills)
+        * Added possibility to locally hide past invites
 
 # 0.4.12
 

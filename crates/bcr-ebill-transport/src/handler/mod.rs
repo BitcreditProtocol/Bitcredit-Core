@@ -333,17 +333,20 @@ mod tests {
 mod test_utils {
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
-    use bcr_ebill_core::application::company::CompanySignatory;
+    use bcr_ebill_core::application::company::{
+        CompanySignatory, CompanySignatoryStatus, CompanyStatus,
+    };
     use bcr_ebill_core::application::nostr_contact::{
         HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel,
     };
     use bcr_ebill_core::application::{
         ServiceTraitBounds,
         bill::{BitcreditBillResult, PaymentState},
-        company::Company,
+        company::{Company, LocalSignatoryOverride, LocalSignatoryOverrideStatus},
         identity::{Identity, IdentityWithAll},
         notification::{Notification, NotificationType},
     };
+    use bcr_ebill_core::protocol::blockchain::company::SignatoryType;
     use bcr_ebill_core::protocol::{
         Address, BlockId, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
         PostalAddress, PublicKey, SecretKey, Sum, Timestamp,
@@ -582,6 +585,18 @@ mod test_utils {
                 proof: &SignedIdentityProof,
                 data: &EmailIdentityProofData,
             ) -> Result<()>;
+            async fn get_local_signatory_overrides(
+                &self,
+                id: &NodeId,
+            ) -> Result<Vec<LocalSignatoryOverride>>;
+            async fn set_local_signatory_override(
+                &self,
+                id: &NodeId,
+                signatory: &NodeId,
+                status: LocalSignatoryOverrideStatus,
+            ) -> Result<()>;
+            async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
+            async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
         }
     }
 
@@ -767,15 +782,26 @@ mod test_utils {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![CompanySignatory {
-                        node_id: node_id_test(),
-                        email: Email::new("test@example.com").unwrap(),
-                    }],
-                    active: true,
+                    signatories: vec![get_valid_activated_signatory(&node_id_test())],
+                    creation_time: Timestamp::new(1731593928).unwrap(),
+                    status: CompanyStatus::Active,
                 },
                 BcrKeys::from_private_key(&private_key_test()),
             ),
         )
+    }
+
+    pub fn get_valid_activated_signatory(node_id: &NodeId) -> CompanySignatory {
+        let (proof, data) = signed_identity_proof_test();
+        CompanySignatory {
+            t: SignatoryType::Solo,
+            node_id: node_id.to_owned(),
+            status: CompanySignatoryStatus::InviteAcceptedIdentityProven {
+                ts: Timestamp::new(1731593928).unwrap(),
+                data,
+                proof,
+            },
+        }
     }
 
     // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY

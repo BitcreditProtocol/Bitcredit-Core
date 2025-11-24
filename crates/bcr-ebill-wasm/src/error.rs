@@ -129,6 +129,8 @@ enum JsErrorType {
     SignatoryAlreadySignatory,
     CantRemoveLastSignatory,
     NotASignatory,
+    NotARemovedSignatory,
+    NotInvitedAsSignatory,
     FileIsTooBig,
     FileIsEmpty,
     TooManyFiles,
@@ -373,6 +375,12 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
             err_400(e, JsErrorType::CantRemoveLastSignatory)
         }
         ProtocolValidationError::NotASignatory(_) => err_400(e, JsErrorType::NotASignatory),
+        ProtocolValidationError::NotARemovedSignatory => {
+            err_400(e, JsErrorType::NotARemovedSignatory)
+        }
+        ProtocolValidationError::NotInvitedAsSignatory => {
+            err_400(e, JsErrorType::NotInvitedAsSignatory)
+        }
         ProtocolValidationError::FileIsTooBig(_) => err_400(e, JsErrorType::FileIsTooBig),
         ProtocolValidationError::FileIsEmpty => err_400(e, JsErrorType::FileIsEmpty),
         ProtocolValidationError::TooManyFiles => err_400(e, JsErrorType::TooManyFiles),

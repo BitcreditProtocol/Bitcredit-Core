@@ -1,6 +1,8 @@
 use bcr_common::core::NodeId;
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::application::company::{
+    Company, LocalSignatoryOverride, LocalSignatoryOverrideStatus,
+};
 use bcr_ebill_core::protocol::blockchain::company::{CompanyBlock, CompanyBlockchain};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
@@ -52,6 +54,26 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
         proof: &SignedIdentityProof,
         data: &EmailIdentityProofData,
     ) -> Result<()>;
+
+    /// Gets local signatory overrides for this company
+    async fn get_local_signatory_overrides(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<LocalSignatoryOverride>>;
+
+    /// Sets local signatory override for a company and signatory
+    async fn set_local_signatory_override(
+        &self,
+        id: &NodeId,
+        signatory: &NodeId,
+        status: LocalSignatoryOverrideStatus,
+    ) -> Result<()>;
+
+    /// Deletes the local signatory override for a company and signatory
+    async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
+
+    /// Gets the companies where the is currently invited to
+    async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

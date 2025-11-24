@@ -3,18 +3,21 @@ use super::{
     surreal::{Bindings, SurrealWrapper},
 };
 use crate::{
-    constants::{DB_SEARCH_TERM, DB_TABLE},
+    constants::{DB_COMPANY_ID, DB_SEARCH_TERM, DB_TABLE},
     db::EmailConfirmationDb,
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{
     application::{
         ServiceTraitBounds,
-        company::{Company, CompanySignatory},
+        company::{
+            Company, CompanySignatory, CompanySignatoryStatus, CompanyStatus,
+            LocalSignatoryOverride, LocalSignatoryOverrideStatus,
+        },
     },
     protocol::{
         City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SecretKey,
-        SignedIdentityProof, crypto::BcrKeys,
+        SignedIdentityProof, Timestamp, blockchain::company::SignatoryType, crypto::BcrKeys,
     },
 };
 
@@ -32,54 +35,27 @@ pub struct SurrealCompanyStore {
 impl SurrealCompanyStore {
     const DATA_TABLE: &'static str = "company";
     const KEYS_TABLE: &'static str = "company_keys";
+    const LOCAL_SIGNATORY_OVERRIDES_TABLE: &'static str = "company_local_signatory_overrides";
     const EMAIL_CONFIRMATION_TABLE: &'static str = "company_email_confirmation";
 
     pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
     }
-}
 
-impl ServiceTraitBounds for SurrealCompanyStore {}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl CompanyStoreApi for SurrealCompanyStore {
-    async fn search(&self, search_term: &str) -> Result<Vec<Company>> {
-        let mut bindings = Bindings::default();
-        bindings.add(DB_TABLE, Self::DATA_TABLE)?;
-        bindings.add(DB_SEARCH_TERM, search_term.to_owned())?;
-        let results: Vec<CompanyDb> = self.db
-            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term AND active != false", bindings).await?;
-        results.into_iter().map(|c| c.try_into()).collect()
-    }
-
-    async fn exists(&self, id: &NodeId) -> bool {
-        self.get(id).await.map(|_| true).unwrap_or(false)
-            && self.get_key_pair(id).await.map(|_| true).unwrap_or(false)
-    }
-
-    async fn get(&self, id: &NodeId) -> Result<Company> {
-        let result: Option<CompanyDb> =
-            self.db.select_one(Self::DATA_TABLE, id.to_string()).await?;
-        match result {
-            None => Err(Error::NoSuchEntity("company".to_string(), id.to_string())),
-            Some(c) => Ok(c.try_into()?),
-        }
-    }
-
-    async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>> {
+    async fn get_all_filter_for_status(
+        &self,
+        status: CompanyStatus,
+    ) -> Result<HashMap<NodeId, (Company, BcrKeys)>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::DATA_TABLE)?;
         let companies: Vec<CompanyDb> = self
             .db
-            .query(
-                "SELECT * from type::table($table) WHERE active != false",
-                bindings,
-            )
+            .query("SELECT * from type::table($table)", bindings)
             .await?;
         let company_keys: Vec<KeyDb> = self.db.select_all(Self::KEYS_TABLE).await?;
         let companies_map: HashMap<NodeId, CompanyDb> = companies
             .into_iter()
+            .filter(|c| c.status == status)
             .map(|company| {
                 let id =
                     NodeId::from_str(&company.id.id.to_raw()).map_err(|_| Error::EncodingError)?;
@@ -106,6 +82,46 @@ impl CompanyStoreApi for SurrealCompanyStore {
             })
             .collect();
         combined
+    }
+}
+
+impl ServiceTraitBounds for SurrealCompanyStore {}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl CompanyStoreApi for SurrealCompanyStore {
+    async fn search(&self, search_term: &str) -> Result<Vec<Company>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::DATA_TABLE)?;
+        bindings.add(DB_SEARCH_TERM, search_term.to_owned())?;
+        let results: Vec<CompanyDb> = self.db
+            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term", bindings).await?;
+        results
+            .into_iter()
+            .filter(|c| c.status == CompanyStatus::Active) // only return active companies
+            .map(|c| c.try_into())
+            .collect()
+    }
+
+    async fn exists(&self, id: &NodeId) -> bool {
+        self.get(id)
+            .await
+            .map(|c| !matches!(c.status, CompanyStatus::None)) // only active, or invited companies are usable
+            .unwrap_or(false)
+            && self.get_key_pair(id).await.map(|_| true).unwrap_or(false)
+    }
+
+    async fn get(&self, id: &NodeId) -> Result<Company> {
+        let result: Option<CompanyDb> =
+            self.db.select_one(Self::DATA_TABLE, id.to_string()).await?;
+        match result {
+            None => Err(Error::NoSuchEntity("company".to_string(), id.to_string())),
+            Some(c) => Ok(c.try_into()?),
+        }
+    }
+
+    async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>> {
+        self.get_all_filter_for_status(CompanyStatus::Active).await
     }
 
     async fn insert(&self, data: &Company) -> Result<()> {
@@ -184,6 +200,77 @@ impl CompanyStoreApi for SurrealCompanyStore {
             .await?;
         Ok(())
     }
+
+    async fn get_local_signatory_overrides(
+        &self,
+        id: &NodeId,
+    ) -> Result<Vec<LocalSignatoryOverride>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::LOCAL_SIGNATORY_OVERRIDES_TABLE)?;
+        bindings.add(DB_COMPANY_ID, id.to_owned())?;
+
+        let result: Vec<LocalSignatoryOverrideDb> = self
+            .db
+            .query(
+                "SELECT * from type::table($table) WHERE company_id = $company_id",
+                bindings,
+            )
+            .await?;
+        Ok(result.into_iter().map(|so| so.into()).collect())
+    }
+
+    async fn set_local_signatory_override(
+        &self,
+        id: &NodeId,
+        signatory: &NodeId,
+        status: LocalSignatoryOverrideStatus,
+    ) -> Result<()> {
+        let entity: LocalSignatoryOverrideDb = LocalSignatoryOverrideDb {
+            company_id: id.to_owned(),
+            node_id: signatory.to_owned(),
+            status,
+        };
+        // the id contains the company id and the signatory id
+        let id = format!("{}:{}", id, signatory);
+
+        let _: Option<LocalSignatoryOverrideDb> = self
+            .db
+            .upsert(Self::LOCAL_SIGNATORY_OVERRIDES_TABLE, id, entity)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()> {
+        // the id contains the company id and the signatory id
+        let id = format!("{}:{}", id, signatory);
+
+        let _: Option<LocalSignatoryOverrideDb> = self
+            .db
+            .delete(Self::LOCAL_SIGNATORY_OVERRIDES_TABLE, id)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>> {
+        self.get_all_filter_for_status(CompanyStatus::Invited).await
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalSignatoryOverrideDb {
+    pub company_id: NodeId,
+    pub node_id: NodeId,
+    pub status: LocalSignatoryOverrideStatus,
+}
+
+impl From<LocalSignatoryOverrideDb> for LocalSignatoryOverride {
+    fn from(value: LocalSignatoryOverrideDb) -> Self {
+        Self {
+            company_id: value.company_id,
+            node_id: value.node_id,
+            status: value.status,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,22 +285,24 @@ pub struct CompanyDb {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<FileDb>,
     pub logo_file: Option<FileDb>,
+    pub creation_time: Timestamp,
     pub signatories: Vec<CompanySignatoryDb>,
-    #[serde(default = "active_default")]
-    pub active: bool,
+    pub status: CompanyStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanySignatoryDb {
+    pub t: SignatoryType,
     pub node_id: NodeId,
-    pub email: Email,
+    pub status: CompanySignatoryStatus,
 }
 
 impl From<&CompanySignatory> for CompanySignatoryDb {
     fn from(value: &CompanySignatory) -> Self {
         Self {
+            t: value.t.to_owned(),
             node_id: value.node_id.to_owned(),
-            email: value.email.to_owned(),
+            status: value.status.to_owned(),
         }
     }
 }
@@ -221,15 +310,11 @@ impl From<&CompanySignatory> for CompanySignatoryDb {
 impl From<CompanySignatoryDb> for CompanySignatory {
     fn from(value: CompanySignatoryDb) -> Self {
         Self {
+            t: value.t,
             node_id: value.node_id,
-            email: value.email,
+            status: value.status,
         }
     }
-}
-
-// needed to default existing companies to active
-fn active_default() -> bool {
-    true
 }
 
 impl TryFrom<CompanyDb> for Company {
@@ -247,7 +332,8 @@ impl TryFrom<CompanyDb> for Company {
             proof_of_registration_file: value.proof_of_registration_file.map(|f| f.into()),
             logo_file: value.logo_file.map(|f| f.into()),
             signatories: value.signatories.into_iter().map(|s| s.into()).collect(),
-            active: value.active,
+            creation_time: value.creation_time,
+            status: value.status,
         })
     }
 }
@@ -273,7 +359,8 @@ impl From<&Company> for CompanyDb {
                 .map(|f| (&f).into()),
             logo_file: value.logo_file.clone().map(|f| (&f).into()),
             signatories: value.signatories.iter().map(|s| s.into()).collect(),
-            active: value.active,
+            creation_time: value.creation_time,
+            status: value.status,
         }
     }
 }
@@ -305,7 +392,10 @@ mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
-        tests::tests::{empty_address, node_id_test, node_id_test_other, private_key_test},
+        tests::tests::{
+            empty_address, node_id_test, node_id_test_other, private_key_test,
+            signed_identity_proof_test,
+        },
     };
 
     async fn get_store() -> SurrealCompanyStore {
@@ -319,6 +409,7 @@ mod tests {
     }
 
     fn get_baseline_company() -> Company {
+        let (proof, data) = signed_identity_proof_test();
         Company {
             id: node_id_test(),
             name: Name::new("some_name").unwrap(),
@@ -331,10 +422,16 @@ mod tests {
             proof_of_registration_file: None,
             logo_file: None,
             signatories: vec![CompanySignatory {
+                t: SignatoryType::Solo,
                 node_id: node_id_test(),
-                email: Email::new("test@example.com").unwrap(),
+                status: CompanySignatoryStatus::InviteAcceptedIdentityProven {
+                    ts: Timestamp::new(1731593928).unwrap(),
+                    data,
+                    proof,
+                },
             }],
-            active: true,
+            creation_time: Timestamp::new(1731593928).unwrap(),
+            status: CompanyStatus::Active,
         }
     }
 
@@ -450,6 +547,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_invites() {
+        let store = get_store().await;
+        let mut company = get_baseline_company();
+        company.name = Name::new("first").unwrap();
+        company.status = CompanyStatus::Invited;
+
+        store.insert(&company).await.unwrap();
+        store
+            .save_key_pair(
+                &node_id_test(),
+                &BcrKeys::from_private_key(&private_key_test()),
+            )
+            .await
+            .unwrap();
+        let mut company2 = get_baseline_company();
+        company2.id = node_id_test_other();
+        store.insert(&company2).await.unwrap();
+        store
+            .save_key_pair(
+                &company2.id,
+                &BcrKeys::from_private_key(&private_key_test()),
+            )
+            .await
+            .unwrap();
+        let companies = store.get_active_company_invites().await.unwrap();
+        assert_eq!(companies.len(), 1);
+        assert_eq!(
+            companies.get(&node_id_test()).as_ref().unwrap().0.name,
+            Name::new("first").unwrap()
+        );
+        assert_eq!(
+            companies.get(&node_id_test()).as_ref().unwrap().1.pub_key(),
+            node_id_test().pub_key()
+        );
+    }
+
+    #[tokio::test]
     async fn test_get_all_and_search_only_return_active_companies() {
         let store = get_store().await;
         let mut company = get_baseline_company();
@@ -465,7 +599,7 @@ mod tests {
         let mut company2 = get_baseline_company();
         company2.id = node_id_test_other();
         company2.name = Name::new("second company").unwrap();
-        company2.active = false;
+        company2.status = CompanyStatus::None;
 
         store.insert(&company2).await.unwrap();
         store
@@ -487,5 +621,69 @@ mod tests {
             search_results.first().unwrap().name,
             Name::new("first company").unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_get_email_confirmation() {
+        let store = get_store().await;
+        let company = get_baseline_company();
+        store.insert(&company).await.unwrap();
+        store
+            .save_key_pair(
+                &node_id_test(),
+                &BcrKeys::from_private_key(&private_key_test()),
+            )
+            .await
+            .unwrap();
+
+        let (proof, mut data) = signed_identity_proof_test();
+        data.company_node_id = Some(company.id.clone());
+        store
+            .set_email_confirmation(&company.id, &proof, &data)
+            .await
+            .expect("works");
+        let email_confirmations = store
+            .get_email_confirmations(&company.id)
+            .await
+            .expect("works");
+        assert_eq!(email_confirmations.len(), 1);
+        assert_eq!(email_confirmations[0].0.signature, proof.signature);
+    }
+
+    #[tokio::test]
+    async fn test_set_get_remove_local_override() {
+        let store = get_store().await;
+        let company = get_baseline_company();
+        store.insert(&company).await.unwrap();
+        store
+            .save_key_pair(
+                &node_id_test(),
+                &BcrKeys::from_private_key(&private_key_test()),
+            )
+            .await
+            .unwrap();
+
+        store
+            .set_local_signatory_override(
+                &company.id,
+                &node_id_test(),
+                LocalSignatoryOverrideStatus::Hidden,
+            )
+            .await
+            .expect("works");
+        let overrides = store
+            .get_local_signatory_overrides(&company.id)
+            .await
+            .expect("works");
+        assert_eq!(overrides.len(), 1);
+        store
+            .delete_local_signatory_override(&company.id, &node_id_test())
+            .await
+            .expect("works");
+        let overrides = store
+            .get_local_signatory_overrides(&company.id)
+            .await
+            .expect("works");
+        assert_eq!(overrides.len(), 0);
     }
 }

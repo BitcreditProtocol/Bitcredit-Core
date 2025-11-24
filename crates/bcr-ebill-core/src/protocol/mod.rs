@@ -297,6 +297,14 @@ pub enum ProtocolValidationError {
     #[error("Node id {0} is not a signatory.")]
     NotASignatory(String),
 
+    /// error returned if the signatory to be hidden is not a removed signatory
+    #[error("Node id is not a removed signatory.")]
+    NotARemovedSignatory,
+
+    /// error returned if the signatory is not invited
+    #[error("Node id is not invited as a signatory.")]
+    NotInvitedAsSignatory,
+
     /// error returned if the file is too big
     #[error("Maximum file size for this file type is {0} bytes")]
     FileIsTooBig(usize),

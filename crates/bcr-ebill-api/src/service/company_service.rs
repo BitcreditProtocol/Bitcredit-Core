@@ -8,27 +8,31 @@ use crate::service::transport_service::{BcrMetadata, NostrContactData, Transport
 use crate::util::{self, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::application::company::{Company, CompanySignatory};
+use bcr_ebill_core::application::company::{
+    Company, CompanySignatory, CompanySignatoryStatus, CompanyStatus, LocalSignatoryOverrideStatus,
+};
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
-use bcr_ebill_core::protocol::Email;
 use bcr_ebill_core::protocol::Identification;
 use bcr_ebill_core::protocol::Name;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
-use bcr_ebill_core::protocol::blockchain::Blockchain;
 use bcr_ebill_core::protocol::blockchain::bill::ContactType;
 use bcr_ebill_core::protocol::blockchain::company::{
-    CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain,
-    CompanyCreateBlockData, CompanyIdentityProofBlockData, CompanyRemoveSignatoryBlockData,
-    CompanyUpdateBlockData, SignatoryType,
+    CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain, CompanyCreateBlockData,
+    CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
+    CompanyRemoveSignatoryBlockData, CompanySignatoryAcceptInviteBlockData,
+    CompanySignatoryRejectInviteBlockData, CompanyUpdateBlockData, SignatoryType,
 };
 use bcr_ebill_core::protocol::blockchain::identity::{
-    IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
+    IdentityAcceptSignatoryInviteBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
+    IdentityInviteSignatoryBlockData, IdentityRejectSignatoryInviteBlockData,
     IdentityRemoveSignatoryBlockData,
 };
 use bcr_ebill_core::protocol::blockchain::identity::{IdentityBlockchain, IdentityType};
+use bcr_ebill_core::protocol::blockchain::{Block, Blockchain};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
+use bcr_ebill_core::protocol::{BlockId, Email};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
 use bcr_ebill_core::protocol::{Country, blockchain};
 use bcr_ebill_core::protocol::{Date, EmailIdentityProofData, SignedIdentityProof};
@@ -45,6 +49,7 @@ use bcr_ebill_persistence::nostr::NostrContactStoreApi;
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bitcoin::base58;
 use log::{debug, error, info};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -52,7 +57,7 @@ use uuid::Uuid;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait CompanyServiceApi: ServiceTraitBounds {
     /// List signatories for company
-    async fn list_signatories(&self, id: &NodeId) -> Result<Vec<Contact>>;
+    async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>>;
 
     /// Search companies
     async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
@@ -104,8 +109,8 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         timestamp: Timestamp,
     ) -> Result<()>;
 
-    /// Adds another signatory to the given company
-    async fn add_signatory(
+    /// Invite another signatory to the given company
+    async fn invite_signatory(
         &self,
         id: &NodeId,
         signatory_node_id: NodeId,
@@ -155,6 +160,30 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         &self,
         id: &NodeId,
     ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
+
+    /// Get active company invites for the current identity
+    async fn get_active_company_invites(&self) -> Result<Vec<Company>>;
+
+    /// Accept an invite to a company (needs a confirmed email)
+    async fn accept_company_invite(
+        &self,
+        id: &NodeId,
+        email: &Email,
+        timestamp: Timestamp,
+    ) -> Result<()>;
+
+    /// Reject an invite to a company
+    async fn reject_company_invite(&self, id: &NodeId, timestamp: Timestamp) -> Result<()>;
+
+    /// Locally hide a removed signatory
+    async fn locally_hide_signatory(&self, id: &NodeId, signatory_node_id: &NodeId) -> Result<()>;
+
+    /// Filter out locally hidden signatories for display
+    async fn filter_out_locally_hidden_signatories(
+        &self,
+        company_id: &NodeId,
+        signatories: &mut Vec<CompanySignatory>,
+    ) -> Result<()>;
 }
 
 /// The company service is responsible for managing the companies
@@ -285,11 +314,16 @@ impl CompanyService {
         identity_keys: &BcrKeys,
         company_keys: &BcrKeys,
         chain: &mut CompanyBlockchain,
+        reference_block: &Option<BlockId>,
     ) -> Result<()> {
         let new_block = CompanyBlock::create_block_for_identity_proof(
             company.id.clone(),
             chain.get_latest_block(),
-            &CompanyIdentityProofBlockData { proof, data },
+            &CompanyIdentityProofBlockData {
+                proof,
+                data,
+                reference_block: reference_block.to_owned(),
+            },
             identity_keys,
             company_keys,
             Timestamp::now(),
@@ -311,7 +345,7 @@ impl CompanyService {
         node_id: &NodeId,
         company_id: &NodeId,
         email: &Email,
-    ) -> Result<Option<(SignedIdentityProof, EmailIdentityProofData)>> {
+    ) -> Result<(SignedIdentityProof, EmailIdentityProofData)> {
         if !get_config()
             .dev_mode_config
             .disable_mandatory_email_confirmations
@@ -327,7 +361,7 @@ impl CompanyService {
             // Given email has to be a confirmed email
             for ec in email_confirmations.iter() {
                 if &ec.1.email == email {
-                    return Ok(Some((ec.0.to_owned(), ec.1.to_owned())));
+                    return Ok((ec.0.to_owned(), ec.1.to_owned()));
                 }
             }
 
@@ -350,7 +384,7 @@ impl CompanyService {
                 .set_email_confirmation(company_id, &proof, &self_signed_identity)
                 .await?;
 
-            Ok(Some((proof, self_signed_identity)))
+            Ok((proof, self_signed_identity))
         }
     }
 
@@ -419,7 +453,7 @@ impl ServiceTraitBounds for CompanyService {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompanyServiceApi for CompanyService {
-    async fn list_signatories(&self, id: &NodeId) -> Result<Vec<Contact>> {
+    async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>> {
         validate_node_id_network(id)?;
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
@@ -429,24 +463,30 @@ impl CompanyServiceApi for CompanyService {
         let contacts = self.contact_store.get_map().await?;
 
         // we add all where we have a contact
-        let mut signatory_contacts: Vec<Contact> = company
+        let mut signatory_contacts: Vec<(CompanySignatory, Contact)> = company
             .signatories
             .iter()
-            .filter_map(|signatory| contacts.get(&signatory.node_id))
-            .cloned()
+            .filter_map(|signatory| {
+                contacts
+                    .get(&signatory.node_id)
+                    .map(|contact| (signatory.clone(), contact.clone()))
+            })
             .collect();
 
         // if we are signatory and not yet in signatory contacts, add our identity contact
-        if company
+        if let Some(self_signatory) = company
             .signatories
             .iter()
-            .any(|s| s.node_id == identity.node_id)
+            .find(|s| s.node_id == identity.node_id)
             && !signatory_contacts
                 .iter()
-                .any(|c| c.node_id == identity.node_id)
+                .any(|c| c.0.node_id == identity.node_id)
         {
             // we force person for this as it will be thrown out in later validation
-            signatory_contacts.push(identity.as_contact(Some(ContactType::Person)));
+            signatory_contacts.push((
+                self_signatory.clone(),
+                identity.as_contact(Some(ContactType::Person)),
+            ));
         }
 
         // if we are still missing some signatory details try to fill them from nostr contacts
@@ -454,19 +494,23 @@ impl CompanyServiceApi for CompanyService {
             let missing = company
                 .signatories
                 .iter()
-                .filter(|s| !signatory_contacts.iter().any(|c| c.node_id == s.node_id))
-                .map(|s| s.node_id.to_owned())
-                .collect::<Vec<NodeId>>();
+                .filter(|s| !signatory_contacts.iter().any(|c| c.0.node_id == s.node_id))
+                .map(|s| (s.node_id.to_owned(), s.to_owned()))
+                .collect::<HashMap<NodeId, CompanySignatory>>();
 
             let nostr_contacts: Vec<Contact> = self
                 .nostr_contact_store
-                .by_node_ids(missing)
+                .by_node_ids(missing.keys().cloned().collect())
                 .await?
                 .into_iter()
                 .filter_map(|c| c.into_contact(Some(ContactType::Person)))
                 .collect();
 
-            signatory_contacts.extend(nostr_contacts);
+            for nostr_contact in nostr_contacts.iter() {
+                if let Some(signatory) = missing.get(&nostr_contact.node_id) {
+                    signatory_contacts.push((signatory.to_owned(), nostr_contact.to_owned()));
+                }
+            }
         }
 
         Ok(signatory_contacts)
@@ -537,7 +581,7 @@ impl CompanyServiceApi for CompanyService {
         }
 
         // check if email is confirmed
-        let email_confirmation = self
+        let (proof, data) = self
             .check_confirmed_email(&full_identity.identity.node_id, &id, &creator_email)
             .await?;
 
@@ -569,27 +613,47 @@ impl CompanyServiceApi for CompanyService {
             None => (None, None),
         };
 
+        let status = CompanyStatus::Active; // we're creator, so it's an active company
         let company = Company {
             id: id.clone(),
-            name,
-            country_of_registration,
-            city_of_registration,
-            postal_address,
-            email,
-            registration_number,
-            registration_date,
-            proof_of_registration_file,
-            logo_file,
+            name: name.clone(),
+            country_of_registration: country_of_registration.clone(),
+            city_of_registration: city_of_registration.clone(),
+            postal_address: postal_address.clone(),
+            email: email.clone(),
+            registration_number: registration_number.clone(),
+            registration_date: registration_date.clone(),
+            proof_of_registration_file: proof_of_registration_file.clone(),
+            logo_file: logo_file.clone(),
             signatories: vec![CompanySignatory {
                 node_id: full_identity.identity.node_id.clone(),
-                email: creator_email,
+                t: SignatoryType::Solo,
+                status: CompanySignatoryStatus::InviteAcceptedIdentityProven {
+                    ts: timestamp,
+                    proof: proof.clone(),
+                    data: data.clone(),
+                },
             }], // add caller as signatory
-            active: true,
+            creation_time: timestamp,
+            status,
         };
         self.store.insert(&company).await?;
 
         let mut company_chain = CompanyBlockchain::new(
-            &CompanyCreateBlockData::from(company.clone()),
+            &CompanyCreateBlockData {
+                id: id.clone(),
+                name,
+                country_of_registration,
+                city_of_registration,
+                postal_address,
+                email,
+                registration_number,
+                registration_date,
+                proof_of_registration_file,
+                logo_file,
+                creation_time: timestamp,
+                creator: full_identity.identity.node_id.clone(),
+            },
             &full_identity.key_pair,
             &company_keys,
             timestamp,
@@ -639,18 +703,18 @@ impl CompanyServiceApi for CompanyService {
         self.on_company_contact_change(&company, &company_keys)
             .await?;
 
+        let reference_block = create_company_block.id();
         // Create and populate company proof block
-        if let Some((proof, data)) = email_confirmation {
-            self.create_identity_proof_block(
-                proof,
-                data,
-                &company,
-                &full_identity.key_pair,
-                &company_keys,
-                &mut company_chain,
-            )
-            .await?;
-        }
+        self.create_identity_proof_block(
+            proof,
+            data,
+            &company,
+            &full_identity.key_pair,
+            &company_keys,
+            &mut company_chain,
+            &Some(reference_block),
+        )
+        .await?;
 
         debug!("company with id {id} created");
 
@@ -705,11 +769,12 @@ impl CompanyServiceApi for CompanyService {
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
 
-        if !company.signatories.iter().any(|s| s.node_id == node_id) {
+        if !company.is_authorized_signer(&node_id) {
             return Err(super::Error::Validation(
                 ValidationError::CallerMustBeSignatory,
             ));
         }
+
         let mut changed = false;
 
         if let Some(ref name_to_set) = name {
@@ -872,7 +937,7 @@ impl CompanyServiceApi for CompanyService {
         Ok(())
     }
 
-    async fn add_signatory(
+    async fn invite_signatory(
         &self,
         id: &NodeId,
         signatory_node_id: NodeId,
@@ -894,6 +959,14 @@ impl CompanyServiceApi for CompanyService {
                 ProtocolValidationError::IdentityCantBeAnon.into(),
             ));
         }
+
+        let mut company = self.store.get(id).await?;
+        if !company.is_authorized_signer(&full_identity.identity.node_id) {
+            return Err(super::Error::Validation(
+                ValidationError::CallerMustBeSignatory,
+            ));
+        }
+
         let contacts = self.contact_store.get_map().await?;
         let is_in_contacts = contacts.iter().any(|(node_id, contact)| {
             *node_id == signatory_node_id && contact.t == ContactType::Person // only non-anon persons can be added
@@ -904,34 +977,40 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
 
-        let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
-        if company
-            .signatories
-            .iter()
-            .any(|s| s.node_id == signatory_node_id)
-        {
+        // Can only be invited, if the signatory isnt already invited, or a signatory
+        if company.signatories.iter().any(|s| {
+            s.node_id == signatory_node_id
+                && !matches!(
+                    s.status,
+                    CompanySignatoryStatus::InviteRejected { .. }
+                        | CompanySignatoryStatus::Removed { .. }
+                )
+        }) {
             return Err(super::Error::Validation(
                 ProtocolValidationError::SignatoryAlreadySignatory(signatory_node_id.to_string())
                     .into(),
             ));
         }
-        // TODO (company-signatory): this will be different with the invite/accept workflow - email comes from invitee
-        let signatory_email = Email::new("todo@example.com").unwrap();
+        // Add signatory as invited
         company.signatories.push(CompanySignatory {
             node_id: signatory_node_id.clone(),
-            email: signatory_email.clone(),
+            t: SignatoryType::Solo,
+            status: CompanySignatoryStatus::Invited {
+                ts: timestamp,
+                inviter: full_identity.identity.node_id.clone(),
+            },
         });
         self.store.update(id, &company).await?;
 
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
-        let new_block = CompanyBlock::create_block_for_add_signatory(
+        let new_block = CompanyBlock::create_block_for_invite_signatory(
             id.to_owned(),
             previous_block,
-            &CompanyAddSignatoryBlockData {
-                signatory: signatory_node_id.clone(),
-                signatory_email,
+            &CompanyInviteSignatoryBlockData {
+                invitee: signatory_node_id.clone(),
+                inviter: full_identity.identity.node_id.clone(),
                 t: SignatoryType::Solo,
             },
             &full_identity.key_pair,
@@ -943,9 +1022,9 @@ impl CompanyServiceApi for CompanyService {
 
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
         let previous_identity_block = identity_chain.get_latest_block();
-        let new_identity_block = IdentityBlock::create_block_for_add_signatory(
+        let new_identity_block = IdentityBlock::create_block_for_invite_signatory(
             previous_identity_block,
-            &IdentityAddSignatoryBlockData {
+            &IdentityInviteSignatoryBlockData {
                 company_id: id.to_owned(),
                 block_hash: new_block.hash.clone(),
                 block_id: new_block.id,
@@ -1008,31 +1087,39 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
         let mut company = self.store.get(id).await?;
+        if !company.is_authorized_signer(&full_identity.identity.node_id) {
+            return Err(super::Error::Validation(
+                ValidationError::CallerMustBeSignatory,
+            ));
+        }
         let company_keys = self.store.get_key_pair(id).await?;
         if company.signatories.len() == 1 {
             return Err(super::Error::Validation(
                 ProtocolValidationError::CantRemoveLastSignatory.into(),
             ));
         }
-        if !company
+
+        if let Some(signatory) = company
             .signatories
-            .iter()
-            .any(|s| s.node_id == signatory_node_id)
+            .iter_mut()
+            .find(|s| s.node_id == signatory_node_id)
         {
+            signatory.status = CompanySignatoryStatus::Removed {
+                ts: timestamp,
+                remover: full_identity.identity.node_id.clone(),
+            };
+        } else {
             return Err(super::Error::Validation(
                 ProtocolValidationError::NotASignatory(signatory_node_id.to_string()).into(),
             ));
         }
 
-        company
-            .signatories
-            .retain(|i| i.node_id != signatory_node_id);
-        self.store.update(id, &company).await?;
-
         if full_identity.identity.node_id == signatory_node_id {
-            info!("Removing self from company {id}");
-            self.store.remove(id).await?;
+            info!("Removing self from company {id} - setting status to inactive");
+            company.status = CompanyStatus::None;
         }
+
+        self.store.update(id, &company).await?;
 
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
@@ -1040,7 +1127,8 @@ impl CompanyServiceApi for CompanyService {
             id.to_owned(),
             previous_block,
             &CompanyRemoveSignatoryBlockData {
-                signatory: signatory_node_id.clone(),
+                removee: signatory_node_id.clone(),
+                remover: full_identity.identity.node_id.clone(),
             },
             &full_identity.key_pair,
             &company_keys,
@@ -1210,15 +1298,23 @@ impl CompanyServiceApi for CompanyService {
             ));
         };
 
-        if &signatory.email != email {
-            signatory.email = email.to_owned();
+        if let CompanySignatoryStatus::InviteAcceptedIdentityProven { ref mut data, .. } =
+            signatory.status
+        {
+            if &data.email != email {
+                data.email = email.to_owned();
+            } else {
+                // return early, if email didn't change
+                return Ok(());
+            }
         } else {
-            // return early, if email didn't change
-            return Ok(());
+            return Err(super::Error::Validation(
+                ValidationError::CallerMustBeSignatory,
+            ));
         }
 
         // check if email is confirmed
-        let email_confirmation = self
+        let (proof, data) = self
             .check_confirmed_email(&identity.identity.node_id, id, email)
             .await?;
 
@@ -1226,17 +1322,16 @@ impl CompanyServiceApi for CompanyService {
         self.store.update(id, &company).await?;
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         // Create and populate company proof block
-        if let Some((proof, data)) = email_confirmation {
-            self.create_identity_proof_block(
-                proof,
-                data,
-                &company,
-                &identity.key_pair,
-                &company_keys,
-                &mut company_chain,
-            )
-            .await?;
-        }
+        self.create_identity_proof_block(
+            proof,
+            data,
+            &company,
+            &identity.key_pair,
+            &company_keys,
+            &mut company_chain,
+            &None, // no reference block, just updating signatory email
+        )
+        .await?;
 
         debug!("updated signatory email");
         Ok(())
@@ -1309,6 +1404,260 @@ impl CompanyServiceApi for CompanyService {
         let email_confirmations = self.store.get_email_confirmations(id).await?;
         Ok(email_confirmations)
     }
+
+    async fn get_active_company_invites(&self) -> Result<Vec<Company>> {
+        let invites = self.store.get_active_company_invites().await?;
+        let companies: Vec<Company> = invites
+            .into_iter()
+            .map(|(_id, (company, _keys))| company)
+            .collect();
+        Ok(companies)
+    }
+
+    async fn accept_company_invite(
+        &self,
+        id: &NodeId,
+        email: &Email,
+        timestamp: Timestamp,
+    ) -> Result<()> {
+        debug!("accepting invite to company with id: {id}");
+        validate_node_id_network(id)?;
+        if !self.store.exists(id).await {
+            return Err(super::Error::NotFound);
+        }
+        let full_identity = self.identity_store.get_full().await?;
+        let our_node_id = full_identity.identity.node_id;
+        let mut company = self.store.get(id).await?;
+        let company_keys = self.store.get_key_pair(id).await?;
+
+        // check if we were invited
+        let Some(signatory) = company
+            .signatories
+            .iter_mut()
+            .find(|s| s.node_id == our_node_id)
+        else {
+            return Err(Error::Validation(
+                ProtocolValidationError::NotInvitedAsSignatory.into(),
+            ));
+        };
+
+        if !matches!(signatory.status, CompanySignatoryStatus::Invited { .. }) {
+            return Err(Error::Validation(
+                ProtocolValidationError::NotInvitedAsSignatory.into(),
+            ));
+        }
+
+        // check if email is confirmed
+        let (proof, data) = self.check_confirmed_email(&our_node_id, id, email).await?;
+
+        signatory.status = CompanySignatoryStatus::InviteAcceptedIdentityProven {
+            ts: timestamp,
+            proof: proof.clone(),
+            data: data.clone(),
+        }; // invite accepted and identity proven
+        company.status = CompanyStatus::Active; // we're now active in the company
+        // update signatories list in the DB
+        self.store.update(id, &company).await?;
+
+        // company block
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        let previous_block = company_chain.get_latest_block();
+        let new_block = CompanyBlock::create_block_for_accept_signatory_invite(
+            id.to_owned(),
+            previous_block,
+            &CompanySignatoryAcceptInviteBlockData {
+                accepter: our_node_id.clone(),
+            },
+            &full_identity.key_pair,
+            &company_keys,
+            timestamp,
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
+
+        // identity block
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_identity_block = identity_chain.get_latest_block();
+        let new_identity_block = IdentityBlock::create_block_for_accept_signatory_invite(
+            previous_identity_block,
+            &IdentityAcceptSignatoryInviteBlockData {
+                company_id: id.to_owned(),
+                block_hash: new_block.hash.clone(),
+                block_id: new_block.id,
+            },
+            &full_identity.key_pair,
+            timestamp,
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
+
+        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
+            .await?;
+        self.populate_block(&company, &company_chain, &company_keys, None)
+            .await?;
+
+        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
+            .await?;
+        self.transport_service
+            .block_transport()
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &our_node_id,
+                &new_identity_block,
+                &full_identity.key_pair,
+            ))
+            .await?;
+
+        let reference_block = new_block.id();
+        // Create and populate company proof block
+        self.create_identity_proof_block(
+            proof,
+            data,
+            &company,
+            &full_identity.key_pair,
+            &company_keys,
+            &mut company_chain,
+            &Some(reference_block),
+        )
+        .await?;
+
+        debug!("accepted invite to company with id: {id}");
+        Ok(())
+    }
+
+    async fn reject_company_invite(&self, id: &NodeId, timestamp: Timestamp) -> Result<()> {
+        debug!("rejecting invite to company with id: {id}");
+        validate_node_id_network(id)?;
+        if !self.store.exists(id).await {
+            return Err(super::Error::NotFound);
+        }
+
+        let full_identity = self.identity_store.get_full().await?;
+        let our_node_id = full_identity.identity.node_id;
+        let mut company = self.store.get(id).await?;
+        let company_keys = self.store.get_key_pair(id).await?;
+
+        let Some(signatory) = company
+            .signatories
+            .iter_mut()
+            .find(|s| s.node_id == our_node_id)
+        else {
+            return Err(Error::Validation(
+                ProtocolValidationError::NotInvitedAsSignatory.into(),
+            ));
+        };
+
+        if !matches!(signatory.status, CompanySignatoryStatus::Invited { .. }) {
+            return Err(Error::Validation(
+                ProtocolValidationError::NotInvitedAsSignatory.into(),
+            ));
+        }
+
+        signatory.status = CompanySignatoryStatus::InviteRejected { ts: timestamp }; // invite rejected
+        company.status = CompanyStatus::None; // not interested in the company anymore
+        // update signatories list in the DB
+        self.store.update(id, &company).await?;
+
+        // company block
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        let previous_block = company_chain.get_latest_block();
+        let new_block = CompanyBlock::create_block_for_reject_signatory_invite(
+            id.to_owned(),
+            previous_block,
+            &CompanySignatoryRejectInviteBlockData {
+                rejecter: our_node_id.clone(),
+            },
+            &full_identity.key_pair,
+            &company_keys,
+            timestamp,
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
+
+        // identity block
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_identity_block = identity_chain.get_latest_block();
+        let new_identity_block = IdentityBlock::create_block_for_reject_signatory_invite(
+            previous_identity_block,
+            &IdentityRejectSignatoryInviteBlockData {
+                company_id: id.to_owned(),
+                block_hash: new_block.hash.clone(),
+                block_id: new_block.id,
+            },
+            &full_identity.key_pair,
+            timestamp,
+        )
+        .map_err(|e| Error::Protocol(e.into()))?;
+
+        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
+            .await?;
+        self.populate_block(&company, &company_chain, &company_keys, None)
+            .await?;
+
+        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
+            .await?;
+        self.transport_service
+            .block_transport()
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &our_node_id,
+                &new_identity_block,
+                &full_identity.key_pair,
+            ))
+            .await?;
+
+        debug!("rejected invite to company with id: {id}");
+        Ok(())
+    }
+
+    async fn locally_hide_signatory(&self, id: &NodeId, signatory_node_id: &NodeId) -> Result<()> {
+        validate_node_id_network(id)?;
+        validate_node_id_network(signatory_node_id)?;
+        if !self.store.exists(id).await {
+            return Err(super::Error::NotFound);
+        }
+
+        let full_identity = self.identity_store.get_full().await?;
+        let company = self.store.get(id).await?;
+        if !company.is_authorized_signer(&full_identity.identity.node_id) {
+            return Err(super::Error::Validation(
+                ValidationError::CallerMustBeSignatory,
+            ));
+        }
+
+        if let Some(signatory) = company
+            .signatories
+            .iter()
+            .find(|s| &s.node_id == signatory_node_id)
+            && matches!(signatory.status, CompanySignatoryStatus::Removed { .. })
+        {
+            self.store
+                .set_local_signatory_override(
+                    id,
+                    signatory_node_id,
+                    LocalSignatoryOverrideStatus::Hidden,
+                )
+                .await?;
+        } else {
+            return Err(super::Error::Validation(
+                ProtocolValidationError::NotARemovedSignatory.into(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn filter_out_locally_hidden_signatories(
+        &self,
+        company_id: &NodeId,
+        signatories: &mut Vec<CompanySignatory>,
+    ) -> Result<()> {
+        let local_overrides = self.store.get_local_signatory_overrides(company_id).await?;
+        if local_overrides.is_empty() {
+            return Ok(());
+        }
+        let node_ids_to_filter: HashSet<NodeId> =
+            local_overrides.into_iter().map(|s| s.node_id).collect();
+
+        // filter out node ids that should be hidden
+        signatories.retain(|sig| !node_ids_to_filter.contains(&sig.node_id));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1331,8 +1680,8 @@ pub mod tests {
         util::get_uuid_v4,
     };
     use bcr_ebill_core::{
-        application::identity::IdentityWithAll, protocol::Country,
-        protocol::blockchain::identity::IdentityBlockchain,
+        application::{company::LocalSignatoryOverride, identity::IdentityWithAll},
+        protocol::{Country, blockchain::identity::IdentityBlockchain},
     };
     use mockall::predicate::eq;
     use nostr::hashes::sha256::Hash as Sha256HexHash;
@@ -1409,11 +1758,9 @@ pub mod tests {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![CompanySignatory {
-                        node_id: node_id_test(),
-                        email: Email::new("test@example.com").unwrap(),
-                    }],
-                    active: true,
+                    signatories: vec![get_valid_activated_signatory(&node_id_test())],
+                    creation_time: Timestamp::new(1731593928).unwrap(),
+                    status: CompanyStatus::Active,
                 },
                 BcrKeys::from_private_key(&private_key_test()),
             ),
@@ -1428,10 +1775,36 @@ pub mod tests {
         get_valid_company_chain().get_latest_block().to_owned()
     }
 
+    pub fn get_valid_activated_signatory(node_id: &NodeId) -> CompanySignatory {
+        let (proof, data) = signed_identity_proof_test();
+        CompanySignatory {
+            t: SignatoryType::Solo,
+            node_id: node_id.to_owned(),
+            status: CompanySignatoryStatus::InviteAcceptedIdentityProven {
+                ts: Timestamp::new(1731593928).unwrap(),
+                data,
+                proof,
+            },
+        }
+    }
+
     pub fn get_valid_company_chain() -> CompanyBlockchain {
-        let (_id, (company, company_keys)) = get_baseline_company_data();
+        let (id, (company, company_keys)) = get_baseline_company_data();
         CompanyBlockchain::new(
-            &CompanyCreateBlockData::from(company),
+            &CompanyCreateBlockData {
+                id,
+                name: company.name,
+                country_of_registration: company.country_of_registration,
+                city_of_registration: company.city_of_registration,
+                postal_address: company.postal_address,
+                email: company.email,
+                registration_number: company.registration_number,
+                registration_date: company.registration_date,
+                proof_of_registration_file: company.proof_of_registration_file,
+                logo_file: company.logo_file,
+                creation_time: company.creation_time,
+                creator: node_id_test(),
+            },
             &BcrKeys::new(),
             &company_keys,
             Timestamp::new(1731593928).unwrap(),
@@ -1484,6 +1857,47 @@ pub mod tests {
         );
 
         let res = service.get_list_of_companies().await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert_eq!(res.as_ref().unwrap()[0].id, node_id_test());
+    }
+
+    #[tokio::test]
+    async fn get_list_of_invites() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        storage.expect_get_active_company_invites().returning(|| {
+            let mut map = HashMap::new();
+            let company_data = get_baseline_company_data();
+            map.insert(company_data.0, company_data.1);
+            Ok(map)
+        });
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+
+        let res = service.get_active_company_invites().await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 1);
         assert_eq!(res.as_ref().unwrap()[0].id, node_id_test());
@@ -1874,10 +2288,7 @@ pub mod tests {
         let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![CompanySignatory {
-                node_id: node_id_clone.clone(),
-                email: Email::new("test@example.com").unwrap(),
-            }];
+            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
             Ok(data)
         });
         storage
@@ -2010,10 +2421,7 @@ pub mod tests {
         storage.expect_exists().returning(|_| false);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![CompanySignatory {
-                node_id: node_id_test_other(),
-                email: Email::new("test@example.com").unwrap(),
-            }];
+            data.signatories = vec![get_valid_activated_signatory(&node_id_test_other())];
             Ok(data)
         });
         identity_store.expect_get_full().returning(|| {
@@ -2076,10 +2484,7 @@ pub mod tests {
         let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![CompanySignatory {
-                node_id: node_id_clone.clone(),
-                email: Email::new("test@example.com").unwrap(),
-            }];
+            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
             Ok(data)
         });
         storage
@@ -2133,7 +2538,190 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn add_signatory_baseline() {
+    async fn accept_company_invite_baseline() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            contact_store,
+            mut identity_chain_store,
+            mut company_chain_store,
+            mut transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        storage.expect_exists().returning(|_| true);
+        storage.expect_update().returning(|_, _| Ok(()));
+        storage
+            .expect_get_email_confirmations()
+            .returning(|_| Ok(vec![signed_identity_proof_test()]));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        transport.expect_on_block_transport(|t| {
+            // sends company block
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .times(2);
+            // sends identity block
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+        let caller_keys = BcrKeys::new();
+        let caller_keys_clone = caller_keys.clone();
+        let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
+        let caller_node_id_clone = caller_node_id.clone();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1.0;
+            let mut sig = get_valid_activated_signatory(&caller_node_id_clone.clone());
+            sig.status = CompanySignatoryStatus::Invited {
+                ts: Timestamp::new(1731593928).unwrap(),
+                inviter: node_id_test(),
+            };
+            data.signatories = vec![sig];
+            Ok(data)
+        });
+        identity_store.expect_get_full().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = caller_node_id.clone();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: caller_keys_clone.clone(),
+            })
+        });
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
+        identity_chain_store
+            .expect_add_block()
+            .returning(|_| Ok(()));
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .accept_company_invite(
+                &node_id_test(),
+                &Email::new("test@example.com").unwrap(),
+                Timestamp::new(1731593928).unwrap(),
+            )
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn reject_company_invite_baseline() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            contact_store,
+            mut identity_chain_store,
+            mut company_chain_store,
+            mut transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        storage.expect_exists().returning(|_| true);
+        storage.expect_update().returning(|_, _| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        transport.expect_on_block_transport(|t| {
+            // sends company block
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+            // sends identity block
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+        let caller_keys = BcrKeys::new();
+        let caller_keys_clone = caller_keys.clone();
+        let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
+        let caller_node_id_clone = caller_node_id.clone();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1.0;
+            let mut sig = get_valid_activated_signatory(&caller_node_id_clone.clone());
+            sig.status = CompanySignatoryStatus::Invited {
+                ts: Timestamp::new(1731593928).unwrap(),
+                inviter: node_id_test(),
+            };
+            data.signatories = vec![sig];
+            Ok(data)
+        });
+        identity_store.expect_get_full().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = caller_node_id.clone();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: caller_keys_clone.clone(),
+            })
+        });
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
+        identity_chain_store
+            .expect_add_block()
+            .returning(|_| Ok(()));
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .reject_company_invite(&node_id_test(), Timestamp::new(1731593928).unwrap())
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn invite_signatory_baseline() {
         let (
             mut storage,
             file_upload_store,
@@ -2181,16 +2769,21 @@ pub mod tests {
             map.insert(signatory_node_id_clone.clone(), contact);
             Ok(map)
         });
-        storage
-            .expect_get()
-            .returning(|_| Ok(get_baseline_company_data().1.0));
-        identity_store.expect_get_full().returning(|| {
-            let keys = BcrKeys::new();
+        let caller_keys = BcrKeys::new();
+        let caller_keys_clone = caller_keys.clone();
+        let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
+        let caller_node_id_clone = caller_node_id.clone();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories = vec![get_valid_activated_signatory(&caller_node_id_clone.clone())];
+            Ok(data)
+        });
+        identity_store.expect_get_full().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+            identity.node_id = caller_node_id.clone();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: keys,
+                key_pair: caller_keys_clone.clone(),
             })
         });
         identity_chain_store
@@ -2214,7 +2807,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .add_signatory(
+            .invite_signatory(
                 &node_id_test(),
                 signatory_node_id,
                 Timestamp::new(1731593928).unwrap(),
@@ -2224,7 +2817,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn add_signatory_fails_if_signatory_in_contacts_but_not_a_person() {
+    async fn invite_signatory_fails_if_signatory_in_contacts_but_not_a_person() {
         let (
             mut storage,
             file_upload_store,
@@ -2240,6 +2833,11 @@ pub mod tests {
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories = vec![get_valid_activated_signatory(&node_id_test())];
+            Ok(data)
+        });
         let signatory_node_id_clone = signatory_node_id.clone();
         contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
@@ -2270,7 +2868,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .add_signatory(
+            .invite_signatory(
                 &node_id_test(),
                 signatory_node_id,
                 Timestamp::new(1731593928).unwrap(),
@@ -2280,7 +2878,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn add_signatory_fails_if_signatory_not_in_contacts() {
+    async fn invite_signatory_fails_if_signatory_not_in_contacts() {
         let (
             mut storage,
             file_upload_store,
@@ -2295,6 +2893,11 @@ pub mod tests {
             email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories = vec![get_valid_activated_signatory(&node_id_test())];
+            Ok(data)
+        });
         contact_store
             .expect_get_map()
             .returning(|| Ok(HashMap::new()));
@@ -2319,7 +2922,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .add_signatory(
+            .invite_signatory(
                 &node_id_test(),
                 node_id_test_other(),
                 Timestamp::new(1731593928).unwrap(),
@@ -2329,7 +2932,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn add_signatory_fails_if_company_doesnt_exist() {
+    async fn invite_signatory_fails_if_company_doesnt_exist() {
         let (
             mut storage,
             file_upload_store,
@@ -2365,7 +2968,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .add_signatory(
+            .invite_signatory(
                 &node_id_test(),
                 node_id_test_other(),
                 Timestamp::new(1731593928).unwrap(),
@@ -2375,7 +2978,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn add_signatory_fails_if_signatory_is_already_signatory() {
+    async fn invite_signatory_fails_if_signatory_is_already_signatory() {
         let (
             mut storage,
             file_upload_store,
@@ -2405,10 +3008,7 @@ pub mod tests {
         });
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test(),
-                email: Email::new("test@example.com").unwrap(),
-            });
+            data.signatories = vec![get_valid_activated_signatory(&node_id_test())];
             Ok(data)
         });
         storage
@@ -2428,7 +3028,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .add_signatory(
+            .invite_signatory(
                 &node_id_test(),
                 node_id_test(),
                 Timestamp::new(1731593928).unwrap(),
@@ -2438,7 +3038,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn add_signatory_propagates_persistence_errors() {
+    async fn invite_signatory_propagates_persistence_errors() {
         let (
             mut storage,
             file_upload_store,
@@ -2491,7 +3091,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .add_signatory(
+            .invite_signatory(
                 &node_id_test(),
                 node_id_test(),
                 Timestamp::new(1731593928).unwrap(),
@@ -2524,14 +3124,10 @@ pub mod tests {
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test_other2(),
-                email: Email::new("test2@example.com").unwrap(),
-            });
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test_other(),
-                email: Email::new("test@example.com").unwrap(),
-            });
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test_other2()));
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test_other()));
             Ok(data)
         });
         storage
@@ -2678,14 +3274,13 @@ pub mod tests {
         let keys_clone = keys.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test(),
-                email: Email::new("test@example.com").unwrap(),
-            });
-            data.signatories.push(CompanySignatory {
-                node_id: NodeId::new(keys_clone.clone().pub_key(), bitcoin::Network::Testnet),
-                email: Email::new("test2@example.com").unwrap(),
-            });
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test()));
+            data.signatories
+                .push(get_valid_activated_signatory(&NodeId::new(
+                    keys_clone.clone().pub_key(),
+                    bitcoin::Network::Testnet,
+                )));
 
             Ok(data)
         });
@@ -2753,14 +3348,10 @@ pub mod tests {
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test(),
-                email: Email::new("test@example.com").unwrap(),
-            });
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test_other(),
-                email: Email::new("test2@example.com").unwrap(),
-            });
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test()));
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test_other()));
 
             Ok(data)
         });
@@ -2868,14 +3459,10 @@ pub mod tests {
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test(),
-                email: Email::new("test@example.com").unwrap(),
-            });
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test_other(),
-                email: Email::new("test2@example.com").unwrap(),
-            });
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test()));
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test_other()));
             Ok(data)
         });
         storage
@@ -3114,10 +3701,8 @@ pub mod tests {
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
-            data.signatories.push(CompanySignatory {
-                node_id: node_id_test_other(),
-                email: Email::new("test2@example.com").unwrap(),
-            });
+            data.signatories
+                .push(get_valid_activated_signatory(&node_id_test_other()));
             Ok(data)
         });
 
@@ -3159,6 +3744,116 @@ pub mod tests {
         let res = service.list_signatories(&node_id_test()).await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_locally_hide_signatory() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1.0;
+
+            let mut sig = get_valid_activated_signatory(&node_id_test_other());
+            sig.status = CompanySignatoryStatus::Removed {
+                ts: Timestamp::new(1731593928).unwrap(),
+                remover: node_id_test(),
+            };
+            data.signatories.push(sig);
+            Ok(data)
+        });
+        storage
+            .expect_set_local_signatory_override()
+            .returning(|_, _, _| Ok(()))
+            .once();
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+
+        let res = service
+            .locally_hide_signatory(&node_id_test(), &node_id_test_other())
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_filter_locally_hidden_signatories() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+
+        storage
+            .expect_get_local_signatory_overrides()
+            .returning(|_| {
+                Ok(vec![LocalSignatoryOverride {
+                    company_id: node_id_test(),
+                    node_id: node_id_test(),
+                    status: LocalSignatoryOverrideStatus::Hidden,
+                }])
+            })
+            .once();
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+
+        let mut signatories = vec![get_valid_activated_signatory(&node_id_test())];
+
+        let res = service
+            .filter_out_locally_hidden_signatories(&node_id_test(), &mut signatories)
+            .await;
+        assert!(res.is_ok());
+        assert!(signatories.is_empty());
     }
 
     #[tokio::test]
@@ -3220,7 +3915,7 @@ pub mod tests {
         );
         assert!(
             service
-                .add_signatory(
+                .invite_signatory(
                     &mainnet_node_id.clone(),
                     mainnet_node_id.clone(),
                     Timestamp::new(1731593928).unwrap()
