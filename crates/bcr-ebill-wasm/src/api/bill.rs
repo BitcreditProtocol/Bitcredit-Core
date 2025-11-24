@@ -1237,7 +1237,11 @@ pub(super) async fn get_signer_public_data_and_keys() -> Result<(BillParticipant
                 .company_service
                 .get_company_and_keys_by_id(&company_node_id)
                 .await?;
-            if !company.signatories.contains(&local_node_id) {
+            if !company
+                .signatories
+                .iter()
+                .any(|s| s.node_id == local_node_id)
+            {
                 return Err(Error::Validation(
                     ProtocolValidationError::NotASignatory(local_node_id.to_string()).into(),
                 )

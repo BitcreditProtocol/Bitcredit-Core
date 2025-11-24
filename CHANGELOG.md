@@ -23,6 +23,8 @@
     * Add endpoints to `confirm`, `verify` an email address and to `get_email_confirmations`
     * Adapt `IdentityProof` Block to include the email confirmation signed by the mint
     * Split up `update_identity` and `update_email` for identity and create identity proof block on email update
+    * Change flow for company creation to first call `create_company_keys` to get a key pair and node id, then confirm email of creator, then create company
+        * Add `email` to signatory and use a data structure for signatories (breaking API and DB change)
 
 # 0.4.12
 

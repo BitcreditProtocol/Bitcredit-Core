@@ -143,7 +143,14 @@ pub struct CompanyCreateBlockData {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
-    pub signatories: Vec<NodeId>,
+    pub signatories: Vec<CompanySignatoryBlockData>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CompanySignatoryBlockData {
+    pub t: SignatoryType,
+    pub node_id: NodeId,
+    pub email: Email,
 }
 
 #[derive(
@@ -177,6 +184,7 @@ pub struct CompanySignCompanyBillBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyAddSignatoryBlockData {
     pub signatory: NodeId,
+    pub signatory_email: Email,
     pub t: SignatoryType,
 }
 
@@ -677,7 +685,11 @@ mod tests {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![node_id_test()],
+                    signatories: vec![CompanySignatoryBlockData {
+                        node_id: node_id_test(),
+                        email: Email::new("test@example.com").unwrap(),
+                        t: SignatoryType::Solo,
+                    }],
                 },
                 BcrKeys::from_private_key(&private_key_test()),
             ),
@@ -774,6 +786,7 @@ mod tests {
             chain.get_latest_block(),
             &CompanyAddSignatoryBlockData {
                 signatory: node_id_test(),
+                signatory_email: Email::new("test@example.com").unwrap(),
                 t: SignatoryType::Solo,
             },
             &identity_keys,

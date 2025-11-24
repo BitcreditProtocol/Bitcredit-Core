@@ -114,6 +114,18 @@ pub struct ChangeIdentityPayload {
 
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
+pub struct ConfirmEmailPayload {
+    pub email: String,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct VerifyEmailPayload {
+    pub confirmation_code: String,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
 pub struct ChangeIdentityEmailPayload {
     pub email: String,
 }

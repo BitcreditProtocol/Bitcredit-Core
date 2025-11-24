@@ -1,8 +1,13 @@
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    application::ValidationError, application::company::Company, application::contact::Contact,
-    protocol::City, protocol::Country, protocol::Date, protocol::Email, protocol::Identification,
-    protocol::Name, protocol::blockchain::bill::block::ContactType,
+    application::{
+        ValidationError,
+        company::{Company, CompanySignatory},
+        contact::Contact,
+    },
+    protocol::{
+        City, Country, Date, Email, Identification, Name, blockchain::bill::block::ContactType,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -39,7 +44,7 @@ pub struct CompanyWeb {
     pub proof_of_registration_file: Option<FileWeb>,
     pub logo_file: Option<FileWeb>,
     #[tsify(type = "string[]")]
-    pub signatories: Vec<NodeId>,
+    pub signatories: Vec<CompanySignatoryWeb>,
 }
 
 impl From<Company> for CompanyWeb {
@@ -55,14 +60,40 @@ impl From<Company> for CompanyWeb {
             registration_date: val.registration_date,
             proof_of_registration_file: val.proof_of_registration_file.map(|f| f.into()),
             logo_file: val.logo_file.map(|f| f.into()),
-            signatories: val.signatories,
+            signatories: val.signatories.into_iter().map(|s| s.into()).collect(),
         }
     }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct CompanySignatoryWeb {
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+    #[tsify(type = "string")]
+    pub email: Email,
+}
+
+impl From<CompanySignatory> for CompanySignatoryWeb {
+    fn from(value: CompanySignatory) -> Self {
+        Self {
+            node_id: value.node_id,
+            email: value.email,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct CompanyKeysWeb {
+    #[tsify(type = "string")]
+    pub id: NodeId,
 }
 
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
 pub struct CreateCompanyPayload {
+    pub id: String,
     pub name: String,
     pub country_of_registration: Option<String>,
     pub city_of_registration: Option<String>,
@@ -72,6 +103,7 @@ pub struct CreateCompanyPayload {
     pub registration_date: Option<String>,
     pub proof_of_registration_file_upload_id: Option<String>,
     pub logo_file_upload_id: Option<String>,
+    pub creator_email: String,
 }
 
 #[derive(Tsify, Debug, Deserialize, Clone)]
@@ -150,4 +182,25 @@ impl TryFrom<Contact> for SignatoryResponse {
 pub struct ResyncCompanyPayload {
     #[tsify(type = "string")]
     pub node_id: NodeId,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ChangeSignatoryEmailPayload {
+    pub id: String,
+    pub email: String,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct ConfirmEmailPayload {
+    pub id: String,
+    pub email: String,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct VerifyEmailPayload {
+    pub id: String,
+    pub confirmation_code: String,
 }

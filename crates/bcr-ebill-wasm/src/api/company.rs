@@ -21,12 +21,13 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, PostalAddressWeb,
         UploadFile, UploadFileResponse,
         company::{
-            AddSignatoryPayload, CompaniesResponse, CompanyWeb, CreateCompanyPayload,
-            EditCompanyPayload, ListSignatoriesResponse, RemoveSignatoryPayload,
-            ResyncCompanyPayload, SignatoryResponse,
+            AddSignatoryPayload, ChangeSignatoryEmailPayload, CompaniesResponse, CompanyKeysWeb,
+            CompanyWeb, ConfirmEmailPayload, CreateCompanyPayload, EditCompanyPayload,
+            ListSignatoriesResponse, RemoveSignatoryPayload, ResyncCompanyPayload,
+            SignatoryResponse, VerifyEmailPayload,
         },
         has_field,
-        identity::ShareCompanyContactTo,
+        identity::{IdentityEmailConfirmationWeb, ShareCompanyContactTo},
     },
     error::WasmError,
 };
@@ -169,6 +170,16 @@ impl Company {
         TSResult::res_to_js(res)
     }
 
+    #[wasm_bindgen(unchecked_return_type = "TSResult<CompanyKeysWeb>")]
+    pub async fn create_keys(&self) -> JsValue {
+        let res: Result<CompanyKeysWeb> = async {
+            let company_id = get_ctx().company_service.create_company_keys().await?;
+            Ok(CompanyKeysWeb { id: company_id })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
     #[wasm_bindgen(unchecked_return_type = "TSResult<CompanyWeb>")]
     pub async fn create(
         &self,
@@ -181,6 +192,7 @@ impl Company {
             let created_company = get_ctx()
                 .company_service
                 .create_company(
+                    NodeId::from_str(&company_payload.id).map_err(ProtocolValidationError::from)?,
                     Name::new(company_payload.name)?,
                     company_payload
                         .country_of_registration
@@ -217,6 +229,7 @@ impl Company {
                                 .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
                         })
                         .transpose()?,
+                    Email::new(company_payload.creator_email)?,
                     timestamp,
                 )
                 .await?;
@@ -398,6 +411,84 @@ impl Company {
                 .resync_company_chain(&payload.node_id)
                 .await?;
             Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn change_signatory_email(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ChangeSignatoryEmailPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: ChangeSignatoryEmailPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_email = Email::new(payload.email)?;
+            let parsed_company_id =
+                NodeId::from_str(&payload.id).map_err(ProtocolValidationError::from)?;
+
+            get_ctx()
+                .company_service
+                .change_signatory_email(&parsed_company_id, &parsed_email)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn confirm_email(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ConfirmEmailPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: ConfirmEmailPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_email = Email::new(payload.email)?;
+            let parsed_company_id =
+                NodeId::from_str(&payload.id).map_err(ProtocolValidationError::from)?;
+            get_ctx()
+                .company_service
+                .confirm_email(&parsed_company_id, &parsed_email)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn verify_email(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "VerifyEmailPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: VerifyEmailPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_company_id =
+                NodeId::from_str(&payload.id).map_err(ProtocolValidationError::from)?;
+            get_ctx()
+                .company_service
+                .verify_email(&parsed_company_id, &payload.confirmation_code)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<IdentityEmailConfirmationWeb[]>")]
+    pub async fn get_email_confirmations(&self, company_id: &str) -> JsValue {
+        let res: Result<Vec<IdentityEmailConfirmationWeb>> = async {
+            let parsed_company_id =
+                NodeId::from_str(company_id).map_err(ProtocolValidationError::from)?;
+            let email_confirmations = get_ctx()
+                .company_service
+                .get_email_confirmations(&parsed_company_id)
+                .await?;
+            Ok(email_confirmations
+                .into_iter()
+                .map(|ec| ec.into())
+                .collect())
         }
         .await;
         TSResult::res_to_js(res)

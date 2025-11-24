@@ -333,6 +333,7 @@ mod tests {
 mod test_utils {
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
+    use bcr_ebill_core::application::company::CompanySignatory;
     use bcr_ebill_core::application::nostr_contact::{
         HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel,
     };
@@ -571,6 +572,16 @@ mod test_utils {
             async fn remove(&self, id: &NodeId) -> Result<()>;
             async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
             async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
+            async fn get_email_confirmations(
+                &self,
+                id: &NodeId,
+            ) -> Result<Vec<(SignedIdentityProof, EmailIdentityProofData)>>;
+            async fn set_email_confirmation(
+                &self,
+                id: &NodeId,
+                proof: &SignedIdentityProof,
+                data: &EmailIdentityProofData,
+            ) -> Result<()>;
         }
     }
 
@@ -756,7 +767,10 @@ mod test_utils {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![node_id_test()],
+                    signatories: vec![CompanySignatory {
+                        node_id: node_id_test(),
+                        email: Email::new("test@example.com").unwrap(),
+                    }],
                     active: true,
                 },
                 BcrKeys::from_private_key(&private_key_test()),

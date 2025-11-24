@@ -220,7 +220,7 @@ impl BillService {
                             .0
                             .signatories
                             .iter()
-                            .any(|s| s == &identity.identity.node_id)
+                            .any(|s| s.node_id == identity.identity.node_id)
                     {
                         let reason = match payment_info.reason {
                             BillRecourseReasonBlockData::Pay => {
@@ -354,7 +354,7 @@ impl BillService {
                             .0
                             .signatories
                             .iter()
-                            .any(|s| s == &identity.identity.node_id)
+                            .any(|s| s.node_id == identity.identity.node_id)
                     {
                         let _ = self
                                 .execute_bill_action(

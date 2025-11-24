@@ -7,9 +7,9 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, UploadFile,
         UploadFileResponse, has_field,
         identity::{
-            ChangeIdentityEmailPayload, ChangeIdentityPayload, IdentityEmailConfirmationWeb,
-            IdentityTypeWeb, IdentityWeb, NewIdentityPayload, SeedPhrase, ShareContactTo,
-            SwitchIdentity,
+            ChangeIdentityEmailPayload, ChangeIdentityPayload, ConfirmEmailPayload,
+            IdentityEmailConfirmationWeb, IdentityTypeWeb, IdentityWeb, NewIdentityPayload,
+            SeedPhrase, ShareContactTo, SwitchIdentity, VerifyEmailPayload,
         },
     },
     error::WasmError,
@@ -499,9 +499,13 @@ impl Identity {
     }
 
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
-    pub async fn confirm_email(&self, email: &str) -> JsValue {
+    pub async fn confirm_email(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ConfirmEmailPayload")] payload: JsValue,
+    ) -> JsValue {
         let res: Result<()> = async {
-            let parsed_email = Email::new(email)?;
+            let payload: ConfirmEmailPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_email = Email::new(payload.email)?;
             get_ctx()
                 .identity_service
                 .confirm_email(&parsed_email)
@@ -513,11 +517,15 @@ impl Identity {
     }
 
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
-    pub async fn verify_email(&self, confirmation_code: &str) -> JsValue {
+    pub async fn verify_email(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "VerifyEmailPayload")] payload: JsValue,
+    ) -> JsValue {
         let res: Result<()> = async {
+            let payload: VerifyEmailPayload = serde_wasm_bindgen::from_value(payload)?;
             get_ctx()
                 .identity_service
-                .verify_email(confirmation_code)
+                .verify_email(&payload.confirmation_code)
                 .await?;
             Ok(())
         }
