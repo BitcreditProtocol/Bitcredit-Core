@@ -23,6 +23,7 @@ use log::{debug, warn};
 use uuid::Uuid;
 
 use crate::EventType;
+use crate::PushApi;
 use bcr_ebill_api::service::transport_service::{Error, Result};
 
 use super::NotificationHandlerApi;
@@ -33,6 +34,7 @@ pub struct ContactShareEventHandler {
     contact_store: Arc<dyn ContactStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     notification_store: Arc<dyn NotificationStoreApi>,
+    push_service: Arc<dyn PushApi>,
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -146,11 +148,21 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                     );
 
                     self.notification_store
-                        .add(notification)
+                        .add(notification.clone())
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
 
                     debug!("created notification for pending contact share");
+
+                    // Send push notification to connected clients
+                    match serde_json::to_value(notification) {
+                        Ok(notification_value) => {
+                            self.push_service.send(notification_value).await;
+                        }
+                        Err(e) => {
+                            warn!("Failed to serialize notification for push service: {e}");
+                        }
+                    }
                 }
             }
         } else {
@@ -168,12 +180,14 @@ impl ContactShareEventHandler {
         contact_store: Arc<dyn ContactStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         notification_store: Arc<dyn NotificationStoreApi>,
+        push_service: Arc<dyn PushApi>,
     ) -> Self {
         Self {
             transport,
             contact_store,
             nostr_contact_store,
             notification_store,
+            push_service,
         }
     }
 
@@ -229,7 +243,7 @@ impl ContactShareEventHandler {
 #[cfg(test)]
 mod tests {
     use crate::{
-        handler::test_utils::node_id_test,
+        handler::test_utils::{MockPushService, node_id_test},
         test_utils::{
             MockContactStore, MockNostrContactStore, MockNotificationJsonTransport,
             MockNotificationStore,
@@ -248,7 +262,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_share_creates_pending_share() {
-        let (mut transport, mut contact, mut nostr_contact, mut notification) = get_mocks();
+        let (mut transport, mut contact, mut nostr_contact, mut notification, mut push_service) =
+            get_mocks();
         let keys = BcrKeys::new();
 
         let event = Event::new_contact_share(ContactShareEvent {
@@ -301,11 +316,15 @@ mod tests {
             .returning(Ok)
             .once();
 
+        // Expect push notification to be sent
+        push_service.expect_send().times(1).returning(|_| ());
+
         let handler = ContactShareEventHandler::new(
             Arc::new(transport),
             Arc::new(contact),
             Arc::new(nostr_contact),
             Arc::new(notification),
+            Arc::new(push_service),
         );
 
         handler
@@ -316,7 +335,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_share_with_share_back_pending_id_auto_accepts() {
-        let (mut transport, mut contact, mut nostr_contact, notification) = get_mocks();
+        let (mut transport, mut contact, mut nostr_contact, notification, push_service) =
+            get_mocks();
         let keys = BcrKeys::new();
         let pending_share_id = "test_pending_share_id".to_string();
 
@@ -384,6 +404,7 @@ mod tests {
             Arc::new(contact),
             Arc::new(nostr_contact),
             Arc::new(notification),
+            Arc::new(push_service),
         );
 
         handler
@@ -394,7 +415,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_share_skips_duplicate_pending() {
-        let (mut transport, mut contact, mut nostr_contact, notification) = get_mocks();
+        let (mut transport, mut contact, mut nostr_contact, notification, push_service) =
+            get_mocks();
         let keys = BcrKeys::new();
 
         let event = Event::new_contact_share(ContactShareEvent {
@@ -436,6 +458,7 @@ mod tests {
             Arc::new(contact),
             Arc::new(nostr_contact),
             Arc::new(notification),
+            Arc::new(push_service),
         );
 
         handler
@@ -481,12 +504,14 @@ mod tests {
         MockContactStore,
         MockNostrContactStore,
         MockNotificationStore,
+        MockPushService,
     ) {
         (
             MockNotificationJsonTransport::new(),
             MockContactStore::new(),
             MockNostrContactStore::new(),
             MockNotificationStore::new(),
+            MockPushService::new(),
         )
     }
 }
