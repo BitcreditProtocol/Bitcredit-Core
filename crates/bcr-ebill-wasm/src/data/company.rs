@@ -2,18 +2,21 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::{
     application::{
         ValidationError,
-        company::{Company, CompanySignatory},
+        company::{Company, CompanySignatory, CompanySignatoryStatus, CompanyStatus},
         contact::Contact,
     },
     protocol::{
-        City, Country, Date, Email, Identification, Name, blockchain::bill::block::ContactType,
+        City, Country, Date, Email, Identification, Name, Timestamp,
+        blockchain::bill::block::ContactType,
     },
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use crate::data::{CreateOptionalPostalAddressWeb, CreatePostalAddressWeb};
+use crate::data::{
+    CreateOptionalPostalAddressWeb, CreatePostalAddressWeb, identity::IdentityEmailConfirmationWeb,
+};
 
 use super::{FileWeb, PostalAddressWeb, contact::ContactTypeWeb};
 
@@ -21,6 +24,24 @@ use super::{FileWeb, PostalAddressWeb, contact::ContactTypeWeb};
 #[tsify(into_wasm_abi)]
 pub struct CompaniesResponse {
     pub companies: Vec<CompanyWeb>,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum CompanyStatusWeb {
+    Invited,
+    Active,
+    None,
+}
+
+impl From<CompanyStatus> for CompanyStatusWeb {
+    fn from(value: CompanyStatus) -> Self {
+        match value {
+            CompanyStatus::Invited => CompanyStatusWeb::Invited,
+            CompanyStatus::Active => CompanyStatusWeb::Active,
+            CompanyStatus::None => CompanyStatusWeb::None,
+        }
+    }
 }
 
 #[derive(Tsify, Debug, Serialize, Clone)]
@@ -43,8 +64,10 @@ pub struct CompanyWeb {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<FileWeb>,
     pub logo_file: Option<FileWeb>,
-    #[tsify(type = "string[]")]
     pub signatories: Vec<CompanySignatoryWeb>,
+    #[tsify(type = "number")]
+    pub creation_time: Timestamp,
+    pub status: CompanyStatusWeb,
 }
 
 impl From<Company> for CompanyWeb {
@@ -61,6 +84,63 @@ impl From<Company> for CompanyWeb {
             proof_of_registration_file: val.proof_of_registration_file.map(|f| f.into()),
             logo_file: val.logo_file.map(|f| f.into()),
             signatories: val.signatories.into_iter().map(|s| s.into()).collect(),
+            creation_time: val.creation_time,
+            status: val.status.into(),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum CompanySignatoryStatusWeb {
+    Invited {
+        #[tsify(type = "number")]
+        ts: Timestamp,
+        #[tsify(type = "string")]
+        inviter: NodeId,
+    },
+    InviteAccepted {
+        #[tsify(type = "number")]
+        ts: Timestamp,
+    },
+    InviteRejected {
+        #[tsify(type = "number")]
+        ts: Timestamp,
+    },
+    InviteAcceptedIdentityProven {
+        #[tsify(type = "number")]
+        ts: Timestamp,
+        confirmation: IdentityEmailConfirmationWeb,
+    },
+    Removed {
+        #[tsify(type = "number")]
+        ts: Timestamp,
+        #[tsify(type = "string")]
+        remover: NodeId,
+    },
+}
+
+impl From<CompanySignatoryStatus> for CompanySignatoryStatusWeb {
+    fn from(value: CompanySignatoryStatus) -> Self {
+        match value {
+            CompanySignatoryStatus::Invited { ts, inviter } => {
+                CompanySignatoryStatusWeb::Invited { ts, inviter }
+            }
+            CompanySignatoryStatus::InviteAccepted { ts } => {
+                CompanySignatoryStatusWeb::InviteAccepted { ts }
+            }
+            CompanySignatoryStatus::InviteRejected { ts } => {
+                CompanySignatoryStatusWeb::InviteRejected { ts }
+            }
+            CompanySignatoryStatus::InviteAcceptedIdentityProven { ts, data, proof } => {
+                CompanySignatoryStatusWeb::InviteAcceptedIdentityProven {
+                    ts,
+                    confirmation: (proof, data).into(),
+                }
+            }
+            CompanySignatoryStatus::Removed { ts, remover } => {
+                CompanySignatoryStatusWeb::Removed { ts, remover }
+            }
         }
     }
 }
@@ -70,15 +150,14 @@ impl From<Company> for CompanyWeb {
 pub struct CompanySignatoryWeb {
     #[tsify(type = "string")]
     pub node_id: NodeId,
-    #[tsify(type = "string")]
-    pub email: Email,
+    pub status: CompanySignatoryStatusWeb,
 }
 
 impl From<CompanySignatory> for CompanySignatoryWeb {
     fn from(value: CompanySignatory) -> Self {
         Self {
             node_id: value.node_id,
-            email: value.email,
+            status: value.status.into(),
         }
     }
 }
@@ -124,7 +203,7 @@ pub struct EditCompanyPayload {
 
 #[derive(Tsify, Debug, Deserialize, Clone)]
 #[tsify(from_wasm_abi)]
-pub struct AddSignatoryPayload {
+pub struct InviteSignatoryPayload {
     #[tsify(type = "string")]
     pub id: NodeId,
     #[tsify(type = "string")]
@@ -157,22 +236,24 @@ pub struct SignatoryResponse {
     pub postal_address: Option<PostalAddressWeb>,
     pub avatar_file: Option<FileWeb>,
     pub is_logical: bool,
+    pub signatory: CompanySignatoryWeb,
 }
 
-impl TryFrom<Contact> for SignatoryResponse {
+impl TryFrom<(CompanySignatory, Contact)> for SignatoryResponse {
     type Error = ValidationError;
 
-    fn try_from(value: Contact) -> Result<Self, Self::Error> {
-        if value.t == ContactType::Anon {
-            return Err(ValidationError::InvalidContact(value.node_id.to_string()));
+    fn try_from((signatory, contact): (CompanySignatory, Contact)) -> Result<Self, Self::Error> {
+        if contact.t == ContactType::Anon {
+            return Err(ValidationError::InvalidContact(contact.node_id.to_string()));
         }
         Ok(Self {
-            t: value.t.into(),
-            node_id: value.node_id.clone(),
-            name: value.name,
-            postal_address: value.postal_address.map(|pa| pa.into()),
-            avatar_file: value.avatar_file.map(|f| f.into()),
-            is_logical: value.is_logical,
+            t: contact.t.into(),
+            node_id: contact.node_id.clone(),
+            name: contact.name,
+            postal_address: contact.postal_address.map(|pa| pa.into()),
+            avatar_file: contact.avatar_file.map(|f| f.into()),
+            is_logical: contact.is_logical,
+            signatory: signatory.into(),
         })
     }
 }
@@ -203,4 +284,18 @@ pub struct ConfirmEmailPayload {
 pub struct VerifyEmailPayload {
     pub id: String,
     pub confirmation_code: String,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct AcceptCompanyInvitePayload {
+    pub id: String,
+    pub email: String,
+}
+
+#[derive(Tsify, Debug, Deserialize, Clone)]
+#[tsify(from_wasm_abi)]
+pub struct LocallyHideSignatoryPayload {
+    pub id: String,
+    pub signatory_node_id: String,
 }

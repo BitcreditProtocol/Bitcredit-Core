@@ -68,13 +68,23 @@ pub async fn create_nostr_clients(
     )];
 
     // optionally collect all company accounts
-    let companies = match company_store.get_all().await {
+    let mut companies = match company_store.get_all().await {
         Ok(companies) => companies,
         Err(e) => {
             error!("Failed to get companies for nostr client: {e}");
             HashMap::new()
         }
     };
+
+    // we collect companies we were invited to as well, so we can accept/reject the invite
+    let invite_companies = match company_store.get_active_company_invites().await {
+        Ok(companies) => companies,
+        Err(e) => {
+            error!("Failed to get invite companies for nostr client: {e}");
+            HashMap::new()
+        }
+    };
+    companies.extend(invite_companies);
 
     for (_, (_company, keys)) in companies.iter() {
         configs.push(NostrConfig::new(

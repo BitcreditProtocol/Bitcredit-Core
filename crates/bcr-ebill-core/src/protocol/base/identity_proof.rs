@@ -9,7 +9,7 @@ use crate::protocol::{
 };
 
 /// The signature and witness of an identity proof
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedIdentityProof {
     /// The signature of the sha256 hashed borsh-payload (EmailIdentityProofData) by the mint
     pub signature: SchnorrSignature,
@@ -27,7 +27,7 @@ impl SignedIdentityProof {
 }
 
 /// Mapping from (node_id/option<company_node_id>) => email, to be signed by a witness (mint)
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmailIdentityProofData {
     /// Identity node id
     pub node_id: NodeId,

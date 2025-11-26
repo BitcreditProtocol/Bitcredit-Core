@@ -208,7 +208,7 @@ pub struct ShareCompanyContactTo {
     pub company_id: NodeId,
 }
 
-#[derive(Tsify, Debug, Serialize)]
+#[derive(Tsify, Debug, Clone, Serialize)]
 pub struct IdentityEmailConfirmationWeb {
     #[tsify(type = "string")]
     pub signature: SchnorrSignature,

@@ -72,22 +72,17 @@
         <h2>Company Testing</h2>
         <div>Company Id: <span id="companies"></span></div>
         <div>
-            Company Id: <input type="text" id="company_update_id"/>
+            Company Id: <input type="text" id="company_id"/>
             <button type="button" id="company_create_id">Create New Company Id</button>
             <button type="button" id="company_detail">Get Company Detail</button>
         </div>
         <div>Company Name: <input type="text" id="company_update_name"/></div>
-        <div>Signatory Node Id: <input type="text" id="company_signatory_id"/></div>
         <button type="button" id="company_update">Update Company name</button>
-        <button type="button" id="company_add_signatory">Add Signatory</button>
-        <button type="button" id="company_remove_signatory">Remove Signatory</button>
         <button type="button" id="company_list">List Companies</button>
-        <button type="button" id="share_company_contact_to">Share company contact to</button>
+        <br >
         <button type="button" id="list_signatories">List Signatories</button>
         <button type="button" id="sync_company_chain">Sync Company Chain</button>
-        <div>Company Identity Proof</div>
-        Company ID: <input type="text" id="company_email_id"/>
-        <br />
+        <h3>Company Identity Proof</h3>
         Company Signatory Email: <input type="text" id="company_email"/>
         <button type="button" id="confirm_company_email">Confirm Company Signatory Email</button>
         <br />
@@ -99,6 +94,18 @@
         <button type="button" id="company_create">Create Company</button>
         <br />
         <button type="button" id="change_signatory_email">Change Company Signatory Email</button>
+        <h3>Company Signatories</h3>
+        <div>Signatory Node Id: <input type="text" id="company_signatory_id"/></div>
+        <button type="button" id="company_invite_signatory">Invite Signatory</button>
+        <button type="button" id="company_remove_signatory">Remove Signatory</button>
+        <br />
+        <button type="button" id="get_company_invites">List Company invites</button>
+        <button type="button" id="company_accept_invite">Accept Invite</button>
+        <button type="button" id="company_reject_invite">Reject Invite</button>
+        <br />
+        <button type="button" id="share_company_contact_to">Share company contact to</button>
+        <br />
+        <button type="button" id="locally_hide_signatory">Locally Hide Removed Signatory</button>
     </div>
     <div>
         <h2>Contact Testing</h2>

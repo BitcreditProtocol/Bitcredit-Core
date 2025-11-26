@@ -28,8 +28,10 @@ use serde::{Deserialize, Serialize};
 pub enum CompanyOpCode {
     Create,
     Update,
-    AddSignatory,
+    InviteSignatory,
     RemoveSignatory,
+    SignatoryAcceptInvite,
+    SignatoryRejectInvite,
     SignCompanyBill,
     IdentityProof,
 }
@@ -60,7 +62,7 @@ pub enum SignatoryType {
 ///
 /// - `data` contains the actual data of the block, encrypted using the company's pub key
 /// - `key` is optional and if set, contains the company private keys encrypted by an identity
-///   pub key (e.g. for CreateCompany the creator's and AddSignatory the signatory's)
+///   pub key (e.g. for CreateCompany the creator's and InviteSignatory the signatory's)
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct CompanyBlockData {
     data: Vec<u8>,
@@ -106,9 +108,15 @@ impl CompanyBlockPlaintextWrapper {
             CompanyOpCode::Update => {
                 borsh_to_json_value::<CompanyUpdateBlockData>(&self.plaintext_data_bytes)?
             }
-            CompanyOpCode::AddSignatory => {
-                borsh_to_json_value::<CompanyAddSignatoryBlockData>(&self.plaintext_data_bytes)?
+            CompanyOpCode::InviteSignatory => {
+                borsh_to_json_value::<CompanyInviteSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
+            CompanyOpCode::SignatoryAcceptInvite => borsh_to_json_value::<
+                CompanySignatoryAcceptInviteBlockData,
+            >(&self.plaintext_data_bytes)?,
+            CompanyOpCode::SignatoryRejectInvite => borsh_to_json_value::<
+                CompanySignatoryRejectInviteBlockData,
+            >(&self.plaintext_data_bytes)?,
             CompanyOpCode::RemoveSignatory => {
                 borsh_to_json_value::<CompanyRemoveSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
@@ -143,14 +151,8 @@ pub struct CompanyCreateBlockData {
     pub registration_date: Option<Date>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
-    pub signatories: Vec<CompanySignatoryBlockData>,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct CompanySignatoryBlockData {
-    pub t: SignatoryType,
-    pub node_id: NodeId,
-    pub email: Email,
+    pub creation_time: Timestamp,
+    pub creator: NodeId,
 }
 
 #[derive(
@@ -182,21 +184,33 @@ pub struct CompanySignCompanyBillBlockData {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct CompanyAddSignatoryBlockData {
-    pub signatory: NodeId,
-    pub signatory_email: Email,
+pub struct CompanyInviteSignatoryBlockData {
+    pub invitee: NodeId,
+    pub inviter: NodeId,
     pub t: SignatoryType,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CompanySignatoryAcceptInviteBlockData {
+    pub accepter: NodeId,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CompanySignatoryRejectInviteBlockData {
+    pub rejecter: NodeId,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyRemoveSignatoryBlockData {
-    pub signatory: NodeId,
+    pub removee: NodeId,
+    pub remover: NodeId,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyIdentityProofBlockData {
     pub proof: SignedIdentityProof,
     pub data: EmailIdentityProofData,
+    pub reference_block: Option<BlockId>, // the block this identity proof refers to, e.g. an accept, or create block
 }
 
 #[derive(Debug)]
@@ -204,7 +218,9 @@ pub enum CompanyBlockPayload {
     Create(CompanyCreateBlockData),
     Update(CompanyUpdateBlockData),
     SignBill(CompanySignCompanyBillBlockData),
-    AddSignatory(CompanyAddSignatoryBlockData),
+    InviteSignatory(CompanyInviteSignatoryBlockData),
+    SignatoryAcceptInvite(CompanySignatoryAcceptInviteBlockData),
+    SignatoryRejectInvite(CompanySignatoryRejectInviteBlockData),
     RemoveSignatory(CompanyRemoveSignatoryBlockData),
     IdentityProof(CompanyIdentityProofBlockData),
 }
@@ -421,10 +437,10 @@ impl CompanyBlock {
         Ok(block)
     }
 
-    pub fn create_block_for_add_signatory(
+    pub fn create_block_for_invite_signatory(
         company_id: NodeId,
         previous_block: &Self,
-        data: &CompanyAddSignatoryBlockData,
+        data: &CompanyInviteSignatoryBlockData,
         identity_keys: &BcrKeys,
         company_keys: &BcrKeys,
         signatory_public_key: &PublicKey, // the signatory's public key
@@ -438,7 +454,49 @@ impl CompanyBlock {
             company_keys,
             Some(signatory_public_key),
             timestamp,
-            CompanyOpCode::AddSignatory,
+            CompanyOpCode::InviteSignatory,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_accept_signatory_invite(
+        company_id: NodeId,
+        previous_block: &Self,
+        data: &CompanySignatoryAcceptInviteBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: &BcrKeys,
+        timestamp: Timestamp,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            company_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            None,
+            timestamp,
+            CompanyOpCode::SignatoryAcceptInvite,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_reject_signatory_invite(
+        company_id: NodeId,
+        previous_block: &Self,
+        data: &CompanySignatoryRejectInviteBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: &BcrKeys,
+        timestamp: Timestamp,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            company_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            None,
+            timestamp,
+            CompanyOpCode::SignatoryRejectInvite,
         )?;
         Ok(block)
     }
@@ -490,7 +548,15 @@ impl CompanyBlock {
         let result: CompanyBlockPayload = match self.op_code {
             CompanyOpCode::Create => CompanyBlockPayload::Create(from_slice(&data)?),
             CompanyOpCode::Update => CompanyBlockPayload::Update(from_slice(&data)?),
-            CompanyOpCode::AddSignatory => CompanyBlockPayload::AddSignatory(from_slice(&data)?),
+            CompanyOpCode::InviteSignatory => {
+                CompanyBlockPayload::InviteSignatory(from_slice(&data)?)
+            }
+            CompanyOpCode::SignatoryAcceptInvite => {
+                CompanyBlockPayload::SignatoryAcceptInvite(from_slice(&data)?)
+            }
+            CompanyOpCode::SignatoryRejectInvite => {
+                CompanyBlockPayload::SignatoryRejectInvite(from_slice(&data)?)
+            }
             CompanyOpCode::RemoveSignatory => {
                 CompanyBlockPayload::RemoveSignatory(from_slice(&data)?)
             }
@@ -525,7 +591,7 @@ impl CompanyBlock {
         let mut key = None;
 
         // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
-        if op_code == CompanyOpCode::AddSignatory
+        if op_code == CompanyOpCode::InviteSignatory
             && let Some(signatory_public_key) = public_key_for_keys
         {
             let key_bytes = to_vec(&company_keys.get_private_key_string())?;
@@ -631,7 +697,13 @@ impl CompanyBlockchain {
             let plaintext_data_bytes = match block.op_code() {
                 CompanyOpCode::Create => block.get_decrypted_block_bytes(company_keys)?,
                 CompanyOpCode::Update => block.get_decrypted_block_bytes(company_keys)?,
-                CompanyOpCode::AddSignatory => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::InviteSignatory => block.get_decrypted_block_bytes(company_keys)?,
+                CompanyOpCode::SignatoryAcceptInvite => {
+                    block.get_decrypted_block_bytes(company_keys)?
+                }
+                CompanyOpCode::SignatoryRejectInvite => {
+                    block.get_decrypted_block_bytes(company_keys)?
+                }
                 CompanyOpCode::RemoveSignatory => block.get_decrypted_block_bytes(company_keys)?,
                 CompanyOpCode::SignCompanyBill => block.get_decrypted_block_bytes(company_keys)?,
                 CompanyOpCode::IdentityProof => block.get_decrypted_block_bytes(company_keys)?,
@@ -665,8 +737,8 @@ mod tests {
     use crate::protocol::{
         Country,
         tests::tests::{
-            bill_id_test, node_id_test, private_key_test, signed_identity_proof_test,
-            valid_address, valid_optional_address,
+            bill_id_test, node_id_test, node_id_test_other, private_key_test,
+            signed_identity_proof_test, valid_address, valid_optional_address,
         },
     };
 
@@ -685,11 +757,8 @@ mod tests {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![CompanySignatoryBlockData {
-                        node_id: node_id_test(),
-                        email: Email::new("test@example.com").unwrap(),
-                        t: SignatoryType::Solo,
-                    }],
+                    creation_time: Timestamp::new(1731593928).unwrap(),
+                    creator: node_id_test(),
                 },
                 BcrKeys::from_private_key(&private_key_test()),
             ),
@@ -781,12 +850,12 @@ mod tests {
         assert!(bill_block.is_ok());
         chain.try_add_block(bill_block.unwrap());
 
-        let add_signatory_block = CompanyBlock::create_block_for_add_signatory(
+        let invite_signatory_block = CompanyBlock::create_block_for_invite_signatory(
             id.clone(),
             chain.get_latest_block(),
-            &CompanyAddSignatoryBlockData {
-                signatory: node_id_test(),
-                signatory_email: Email::new("test@example.com").unwrap(),
+            &CompanyInviteSignatoryBlockData {
+                invitee: node_id_test(),
+                inviter: node_id_test_other(),
                 t: SignatoryType::Solo,
             },
             &identity_keys,
@@ -794,14 +863,41 @@ mod tests {
             &node_id_test().pub_key(),
             Timestamp::new(1731593931).unwrap(),
         );
-        assert!(add_signatory_block.is_ok());
-        chain.try_add_block(add_signatory_block.unwrap());
+        assert!(invite_signatory_block.is_ok());
+        chain.try_add_block(invite_signatory_block.unwrap());
+
+        let accept_invitation_block = CompanyBlock::create_block_for_accept_signatory_invite(
+            id.clone(),
+            chain.get_latest_block(),
+            &CompanySignatoryAcceptInviteBlockData {
+                accepter: node_id_test(),
+            },
+            &identity_keys,
+            &company_keys,
+            Timestamp::new(1731593931).unwrap(),
+        );
+        assert!(accept_invitation_block.is_ok());
+        chain.try_add_block(accept_invitation_block.unwrap());
+
+        let reject_invitation_block = CompanyBlock::create_block_for_reject_signatory_invite(
+            id.clone(),
+            chain.get_latest_block(),
+            &CompanySignatoryRejectInviteBlockData {
+                rejecter: node_id_test(),
+            },
+            &identity_keys,
+            &company_keys,
+            Timestamp::new(1731593931).unwrap(),
+        );
+        assert!(reject_invitation_block.is_ok());
+        chain.try_add_block(reject_invitation_block.unwrap());
 
         let remove_signatory_block = CompanyBlock::create_block_for_remove_signatory(
             id.clone(),
             chain.get_latest_block(),
             &CompanyRemoveSignatoryBlockData {
-                signatory: node_id_test(),
+                removee: node_id_test(),
+                remover: node_id_test_other(),
             },
             &identity_keys,
             &company_keys,
@@ -810,9 +906,6 @@ mod tests {
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
 
-        assert_eq!(chain.blocks().len(), 5);
-        assert!(chain.is_chain_valid());
-
         let test_signed_identity = signed_identity_proof_test();
         let identity_proof_block = CompanyBlock::create_block_for_identity_proof(
             id.clone(),
@@ -820,6 +913,7 @@ mod tests {
             &CompanyIdentityProofBlockData {
                 proof: test_signed_identity.0,
                 data: test_signed_identity.1,
+                reference_block: None,
             },
             &identity_keys,
             &company_keys,
@@ -828,7 +922,7 @@ mod tests {
         assert!(identity_proof_block.is_ok());
         chain.try_add_block(identity_proof_block.unwrap());
 
-        assert_eq!(chain.blocks().len(), 6);
+        assert_eq!(chain.blocks().len(), 8);
         assert!(chain.is_chain_valid());
 
         let new_chain_from_empty_blocks = CompanyBlockchain::new_from_blocks(vec![]);

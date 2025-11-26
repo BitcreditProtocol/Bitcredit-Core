@@ -70,7 +70,7 @@ document.getElementById("share_bill_with_court").addEventListener("click", share
 // companies
 document.getElementById("company_create").addEventListener("click", createCompany);
 document.getElementById("company_update").addEventListener("click", updateCompany);
-document.getElementById("company_add_signatory").addEventListener("click", addSignatory);
+document.getElementById("company_invite_signatory").addEventListener("click", inviteSignatory);
 document.getElementById("company_remove_signatory").addEventListener("click", removeSignatory);
 document.getElementById("company_list").addEventListener("click", listCompanies);
 document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
@@ -83,6 +83,10 @@ document.getElementById("confirm_company_email").addEventListener("click", confi
 document.getElementById("verify_company_email").addEventListener("click", verifyCompanyEmail);
 document.getElementById("get_company_confirmations").addEventListener("click", getCompanyConfirmations);
 document.getElementById("change_signatory_email").addEventListener("click", changeSignatoryEmail);
+document.getElementById("get_company_invites").addEventListener("click", getCompanyInvites);
+document.getElementById("company_accept_invite").addEventListener("click", acceptCompanyInvite);
+document.getElementById("company_reject_invite").addEventListener("click", rejectCompanyInvite);
+document.getElementById("locally_hide_signatory").addEventListener("click", locallyHideRemovedSignatory);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -106,7 +110,7 @@ let config = {
   default_mint_url: "http://localhost:4343",
   // default_mint_url: "https://wildcat-dev-docker.minibill.tech",
   // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
-  default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99", // dev mint
+  default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
   num_confirmations_for_payment: 1,
   dev_mode: true,
   disable_mandatory_email_confirmations: true,
@@ -250,7 +254,7 @@ async function restoreFromSeedPhrase() {
 }
 
 async function createCompany() {
-  let company_id = document.getElementById("company_update_id").value;
+  let company_id = document.getElementById("company_id").value;
   let company_email = document.getElementById("company_email").value;
   let company = success_or_fail(await window.companyApi.create({
     id: company_id,
@@ -268,7 +272,7 @@ async function createCompany() {
 }
 
 async function updateCompany() {
-  let company_id = document.getElementById("company_update_id").value;
+  let company_id = document.getElementById("company_id").value;
   let name = document.getElementById("company_update_name").value;
   fail_on_error(await window.companyApi.edit({
     id: company_id,
@@ -278,18 +282,18 @@ async function updateCompany() {
   console.log("updated company name: ", company_id, name);
 }
 
-async function addSignatory() {
-  let company_id = document.getElementById("company_update_id").value;
+async function inviteSignatory() {
+  let company_id = document.getElementById("company_id").value;
   let signatory_node_id = document.getElementById("company_signatory_id").value;
-  fail_on_error(await window.companyApi.add_signatory({
+  fail_on_error(await window.companyApi.invite_signatory({
     id: company_id,
     signatory_node_id: signatory_node_id,
   }));
-  console.log("added signatory to company: ", signatory_node_id, company_id);
+  console.log("invited signatory to company: ", signatory_node_id, company_id);
 }
 
 async function removeSignatory() {
-  let company_id = document.getElementById("company_update_id").value;
+  let company_id = document.getElementById("company_id").value;
   let signatory_node_id = document.getElementById("company_signatory_id").value;
   fail_on_error(await window.companyApi.remove_signatory({
     id: company_id,
@@ -299,7 +303,7 @@ async function removeSignatory() {
 }
 
 async function shareCompanyContact() {
-  let node_id = document.getElementById("company_update_id").value;
+  let node_id = document.getElementById("company_id").value;
   let share_to_node_id = document.getElementById("company_signatory_id").value;
   console.log("sharing contact details to identity: ", node_id);
   fail_on_error(await window.companyApi.share_contact_details({ recipient: share_to_node_id, company_id: node_id }));
@@ -314,7 +318,7 @@ async function listCompanies() {
 
 async function listSignatories() {
   let measured = measure(async () => {
-    return success_or_fail(await window.companyApi.list_signatories(document.getElementById("company_update_id").value));
+    return success_or_fail(await window.companyApi.list_signatories(document.getElementById("company_id").value));
   });
   await measured();
 }
@@ -677,7 +681,7 @@ async function syncBillChain() {
 }
 
 async function syncCompanyChain() {
-  let node_id = document.getElementById("company_update_id").value;
+  let node_id = document.getElementById("company_id").value;
   console.log("syncCompanyChain", node_id);
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.sync_company_chain({ node_id: node_id }));
@@ -686,7 +690,7 @@ async function syncCompanyChain() {
 }
 
 async function companyDetail() {
-  let node_id = document.getElementById("company_update_id").value;
+  let node_id = document.getElementById("company_id").value;
   console.log("companyDetail", node_id);
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.detail(node_id));
@@ -698,14 +702,13 @@ async function companyCreateId() {
   console.log("companyCreateId");
   let id = success_or_fail(await window.companyApi.create_keys());
     console.log(id);
-  document.getElementById("company_update_id").value = id.id;
-  document.getElementById("company_email_id").value = id.id;
+  document.getElementById("company_id").value = id.id;
 }
 
 async function confirmCompanyEmail() {
   console.log("confirmCompanyEmail");
   let email = document.getElementById("company_email").value;
-  let id = document.getElementById("company_email_id").value;
+  let id = document.getElementById("company_id").value;
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.confirm_email({ id, email }));
   });
@@ -715,7 +718,7 @@ async function confirmCompanyEmail() {
 async function verifyCompanyEmail() {
   console.log("verifyCompanyEmail");
   let code = document.getElementById("company_confirmation_code").value;
-  let id = document.getElementById("company_email_id").value;
+  let id = document.getElementById("company_id").value;
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.verify_email({ id, confirmation_code: code }));
   });
@@ -724,7 +727,7 @@ async function verifyCompanyEmail() {
 
 async function getCompanyConfirmations() {
   console.log("getCompanyConfirmations");
-  let id = document.getElementById("company_email_id").value;
+  let id = document.getElementById("company_id").value;
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.get_email_confirmations(id));
   });
@@ -733,13 +736,50 @@ async function getCompanyConfirmations() {
 
 async function changeSignatoryEmail() {
   console.log("changeSignatoryEmail");
-  let id = document.getElementById("company_email_id").value;
+  let id = document.getElementById("company_id").value;
   let email = document.getElementById("company_email").value;
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.change_signatory_email({ id, email }));
   });
   await measured();
 }
+
+async function getCompanyInvites() {
+  console.log("getCompanyInvites");
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.list_invites());
+  });
+  await measured();
+}
+
+async function acceptCompanyInvite() {
+  let id = document.getElementById("company_id").value;
+  let email = document.getElementById("company_email").value;
+  console.log("acceptCompanyInvite");
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.accept_invite({ id, email }));
+  });
+  await measured();
+}
+
+async function rejectCompanyInvite() {
+  let id = document.getElementById("company_id").value;
+  console.log("rejectCompanyInvite");
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.reject_invite(id));
+  });
+  await measured();
+}
+async function locallyHideRemovedSignatory() {
+  let id = document.getElementById("company_id").value;
+  let signatory_node_id = document.getElementById("company_signatory_id").value;
+  console.log("locallyHideRemovedSignatory");
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.locally_hide_signatory({ id, signatory_node_id }));
+  });
+  await measured();
+}
+
 
 async function syncIdentityChain() {
   console.log("syncIdentityChain");

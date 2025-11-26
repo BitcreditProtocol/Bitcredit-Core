@@ -258,7 +258,7 @@ impl IdentityChainEventProcessor {
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
-                IdentityBlockPayload::AddSignatory(payload) => {
+                IdentityBlockPayload::InviteSignatory(payload) => {
                     info!("Adding signatory to identity {node_id}");
                     self.nostr_contact_processor
                         .ensure_nostr_contact(&payload.signatory)
@@ -296,6 +296,8 @@ impl IdentityChainEventProcessor {
                             .await?;
                     }
                 }
+                IdentityBlockPayload::AcceptSignatoryInvite(_) => { /* no action needed */ }
+                IdentityBlockPayload::RejectSignatoryInvite(_) => { /* no action needed */ }
                 IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
                 IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
                 IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }

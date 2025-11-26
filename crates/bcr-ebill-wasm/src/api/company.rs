@@ -7,9 +7,12 @@ use bcr_ebill_api::service::{
     Error,
     file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
 };
-use bcr_ebill_core::protocol::{
-    City, Country, Date, Email, Identification, Name, OptionalPostalAddress, PostalAddress,
-    ProtocolValidationError, Timestamp,
+use bcr_ebill_core::{
+    application::company::CompanySignatory,
+    protocol::{
+        City, Country, Date, Email, Identification, Name, OptionalPostalAddress, PostalAddress,
+        ProtocolValidationError, Timestamp,
+    },
 };
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -21,9 +24,10 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, PostalAddressWeb,
         UploadFile, UploadFileResponse,
         company::{
-            AddSignatoryPayload, ChangeSignatoryEmailPayload, CompaniesResponse, CompanyKeysWeb,
-            CompanyWeb, ConfirmEmailPayload, CreateCompanyPayload, EditCompanyPayload,
-            ListSignatoriesResponse, RemoveSignatoryPayload, ResyncCompanyPayload,
+            AcceptCompanyInvitePayload, ChangeSignatoryEmailPayload, CompaniesResponse,
+            CompanyKeysWeb, CompanyWeb, ConfirmEmailPayload, CreateCompanyPayload,
+            EditCompanyPayload, InviteSignatoryPayload, ListSignatoriesResponse,
+            LocallyHideSignatoryPayload, RemoveSignatoryPayload, ResyncCompanyPayload,
             SignatoryResponse, VerifyEmailPayload,
         },
         has_field,
@@ -125,14 +129,31 @@ impl Company {
     #[wasm_bindgen(unchecked_return_type = "TSResult<CompaniesResponse>")]
     pub async fn list(&self) -> JsValue {
         let res: Result<CompaniesResponse> = async {
-            let companies = get_ctx()
+            let mut companies = get_ctx().company_service.get_list_of_companies().await?;
+
+            filter_hidden_signatories_for_companies(&mut companies).await?;
+
+            Ok(CompaniesResponse {
+                companies: companies.into_iter().map(|c| c.into()).collect(),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<CompaniesResponse>")]
+    pub async fn list_invites(&self) -> JsValue {
+        let res: Result<CompaniesResponse> = async {
+            let mut companies = get_ctx()
                 .company_service
-                .get_list_of_companies()
-                .await?
-                .into_iter()
-                .map(|c| c.into())
-                .collect();
-            Ok(CompaniesResponse { companies })
+                .get_active_company_invites()
+                .await?;
+
+            filter_hidden_signatories_for_companies(&mut companies).await?;
+
+            Ok(CompaniesResponse {
+                companies: companies.into_iter().map(|c| c.into()).collect(),
+            })
         }
         .await;
         TSResult::res_to_js(res)
@@ -142,15 +163,35 @@ impl Company {
     pub async fn list_signatories(&self, id: &str) -> JsValue {
         let res: Result<ListSignatoriesResponse> = async {
             let parsed_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
-            let signatories = get_ctx()
+            let mut signatories_and_contacts = get_ctx()
                 .company_service
                 .list_signatories(&parsed_id)
                 .await?;
-            let signatories: Vec<SignatoryResponse> = signatories
+
+            let mut signatories: Vec<CompanySignatory> = signatories_and_contacts
+                .iter()
+                .map(|(s, _)| s.clone())
+                .collect();
+
+            get_ctx()
+                .company_service
+                .filter_out_locally_hidden_signatories(&parsed_id, &mut signatories)
+                .await?;
+
+            signatories_and_contacts.retain(|(s, _)| {
+                signatories
+                    .iter()
+                    .any(|filtered| filtered.node_id == s.node_id)
+            });
+
+            let signatories_and_contacts: Vec<SignatoryResponse> = signatories_and_contacts
                 .into_iter()
                 .map(|c| c.try_into())
                 .collect::<std::result::Result<_, _>>()?;
-            Ok(ListSignatoriesResponse { signatories })
+
+            Ok(ListSignatoriesResponse {
+                signatories: signatories_and_contacts,
+            })
         }
         .await;
         TSResult::res_to_js(res)
@@ -160,10 +201,16 @@ impl Company {
     pub async fn detail(&self, id: &str) -> JsValue {
         let res: Result<CompanyWeb> = async {
             let parsed_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
-            let company = get_ctx()
+            let mut company = get_ctx()
                 .company_service
                 .get_company_by_id(&parsed_id)
                 .await?;
+
+            get_ctx()
+                .company_service
+                .filter_out_locally_hidden_signatories(&parsed_id, &mut company.signatories)
+                .await?;
+
             Ok(company.into())
         }
         .await;
@@ -313,16 +360,16 @@ impl Company {
     }
 
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
-    pub async fn add_signatory(
+    pub async fn invite_signatory(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "AddSignatoryPayload")] payload: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "InviteSignatoryPayload")] payload: JsValue,
     ) -> JsValue {
         let res: Result<()> = async {
-            let company_payload: AddSignatoryPayload = serde_wasm_bindgen::from_value(payload)?;
+            let company_payload: InviteSignatoryPayload = serde_wasm_bindgen::from_value(payload)?;
             let timestamp = Timestamp::now();
             get_ctx()
                 .company_service
-                .add_signatory(
+                .invite_signatory(
                     &company_payload.id,
                     company_payload.signatory_node_id.clone(),
                     timestamp,
@@ -493,6 +540,76 @@ impl Company {
         .await;
         TSResult::res_to_js(res)
     }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn accept_invite(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "AcceptCompanyInvitePayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: AcceptCompanyInvitePayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_email = Email::new(payload.email)?;
+            let parsed_company_id =
+                NodeId::from_str(&payload.id).map_err(ProtocolValidationError::from)?;
+            let timestamp = Timestamp::now();
+            get_ctx()
+                .company_service
+                .accept_company_invite(&parsed_company_id, &parsed_email, timestamp)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn reject_invite(&self, company_id: &str) -> JsValue {
+        let res: Result<()> = async {
+            let parsed_company_id =
+                NodeId::from_str(company_id).map_err(ProtocolValidationError::from)?;
+            let timestamp = Timestamp::now();
+            get_ctx()
+                .company_service
+                .reject_company_invite(&parsed_company_id, timestamp)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn locally_hide_signatory(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "LocallyHideSignatoryPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: LocallyHideSignatoryPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_company_id =
+                NodeId::from_str(&payload.id).map_err(ProtocolValidationError::from)?;
+            let parsed_node_id = NodeId::from_str(&payload.signatory_node_id)
+                .map_err(ProtocolValidationError::from)?;
+            get_ctx()
+                .company_service
+                .locally_hide_signatory(&parsed_company_id, &parsed_node_id)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+}
+
+async fn filter_hidden_signatories_for_companies(
+    companies: &mut [bcr_ebill_core::application::company::Company],
+) -> Result<()> {
+    for company in companies.iter_mut() {
+        get_ctx()
+            .company_service
+            .filter_out_locally_hidden_signatories(&company.id, &mut company.signatories)
+            .await?;
+    }
+    Ok(())
 }
 
 impl Default for Company {

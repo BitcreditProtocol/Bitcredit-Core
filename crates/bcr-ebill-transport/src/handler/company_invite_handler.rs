@@ -477,7 +477,20 @@ mod tests {
 
     pub fn get_valid_company_chain(company: &Company, keys: &BcrKeys) -> CompanyBlockchain {
         CompanyBlockchain::new(
-            &CompanyCreateBlockData::from(company.to_owned()),
+            &CompanyCreateBlockData {
+                id: company.id.to_owned(),
+                name: company.name.to_owned(),
+                country_of_registration: company.country_of_registration.to_owned(),
+                city_of_registration: company.city_of_registration.to_owned(),
+                postal_address: company.postal_address.to_owned(),
+                email: company.email.to_owned(),
+                registration_number: company.registration_number.to_owned(),
+                registration_date: company.registration_date.to_owned(),
+                proof_of_registration_file: company.proof_of_registration_file.to_owned(),
+                logo_file: company.logo_file.to_owned(),
+                creation_time: Timestamp::new(1731593928).unwrap(),
+                creator: node_id_test(),
+            },
             &BcrKeys::new(),
             keys,
             Timestamp::new(1731593928).unwrap(),

@@ -8,9 +8,13 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
-use bcr_ebill_core::protocol::{
-    crypto::BcrKeys,
-    event::{ChainInvite, Event},
+use bcr_ebill_core::{
+    application::company::CompanyStatus,
+    protocol::{
+        blockchain::Block,
+        crypto::BcrKeys,
+        event::{ChainInvite, Event},
+    },
 };
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -200,9 +204,9 @@ impl CompanyChainEventProcessor {
         keys: &BcrKeys,
         identity: &NodeId,
     ) -> Result<()> {
-        let (company_id, mut company, mut chain, we_are_signatory) =
+        let (company_id, mut company, mut chain, we_are_signatory_or_invited) =
             self.get_valid_chain(blocks.clone(), keys, identity)?;
-        if we_are_signatory {
+        if we_are_signatory_or_invited {
             debug!(
                 "adding new chain and company {company_id} with {} blocks",
                 blocks.len()
@@ -315,7 +319,7 @@ impl CompanyChainEventProcessor {
         company: &mut Company,
         chain: &mut CompanyBlockchain,
         block: &CompanyBlock,
-        identity: &NodeId,
+        identity_node_id: &NodeId,
     ) -> Result<()> {
         if chain.try_add_block(block.clone()) {
             let data = block
@@ -325,18 +329,57 @@ impl CompanyChainEventProcessor {
                 CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
                 update @ CompanyBlockPayload::Update(_) => {
                     info!("Updating company {company_id} from block data");
-                    company.apply_block_data(&update, identity);
+                    company.apply_block_data(&update, identity_node_id, block.timestamp());
                     self.company_store
                         .update(company_id, company)
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
-                CompanyBlockPayload::AddSignatory(payload) => {
-                    info!("Adding signatory to company {company_id} and contacts");
+                CompanyBlockPayload::InviteSignatory(payload) => {
+                    info!("Signatory invited to company {company_id}, adding to contacts");
                     self.nostr_contact_processor
-                        .ensure_nostr_contact(&payload.signatory)
+                        .ensure_nostr_contact(&payload.invitee)
                         .await;
-                    company.apply_block_data(&CompanyBlockPayload::AddSignatory(payload), identity);
+                    company.apply_block_data(
+                        &CompanyBlockPayload::InviteSignatory(payload.clone()),
+                        identity_node_id,
+                        block.timestamp(),
+                    );
+                    self.company_store
+                        .update(company_id, company)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                    // reset local hiding state for the invited user, so it's shown again
+                    if let Err(e) = self
+                        .company_store
+                        .delete_local_signatory_override(company_id, &payload.invitee)
+                        .await
+                    {
+                        warn!(
+                            "Couldn't reset local signatory override for company {company_id} and {}: {e}",
+                            &payload.invitee
+                        );
+                    }
+                }
+                CompanyBlockPayload::SignatoryAcceptInvite(payload) => {
+                    info!("Signatory accepted invite to company {company_id}");
+                    self.nostr_contact_processor
+                        .ensure_nostr_contact(&payload.accepter)
+                        .await;
+                    company.apply_block_data(
+                        &CompanyBlockPayload::SignatoryAcceptInvite(payload),
+                        identity_node_id,
+                        block.timestamp(),
+                    );
+                    self.company_store
+                        .update(company_id, company)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                }
+                update @ CompanyBlockPayload::SignatoryRejectInvite(_) => {
+                    info!("Signatory rejected invite to company {company_id}");
+                    company.apply_block_data(&update, identity_node_id, block.timestamp());
                     self.company_store
                         .update(company_id, company)
                         .await
@@ -344,7 +387,7 @@ impl CompanyChainEventProcessor {
                 }
                 update @ CompanyBlockPayload::RemoveSignatory(_) => {
                     info!("Removing signatory from company {company_id}");
-                    company.apply_block_data(&update, identity);
+                    company.apply_block_data(&update, identity_node_id, block.timestamp());
                     self.company_store
                         .update(company_id, company)
                         .await
@@ -379,9 +422,24 @@ impl CompanyChainEventProcessor {
                         }
                     }
                 }
-                CompanyBlockPayload::IdentityProof(data) => {
+                CompanyBlockPayload::IdentityProof(payload) => {
+                    info!("Received identity proof for company {company_id}");
+                    // if it's our own block - update our local confirmation state
+                    if &payload.data.node_id == identity_node_id {
+                        self.company_store
+                            .set_email_confirmation(company_id, &payload.proof, &payload.data)
+                            .await
+                            .map_err(|e| Error::Persistence(e.to_string()))?;
+                    }
+
+                    // update company data
+                    company.apply_block_data(
+                        &CompanyBlockPayload::IdentityProof(payload),
+                        identity_node_id,
+                        block.timestamp(),
+                    );
                     self.company_store
-                        .set_email_confirmation(company_id, &data.proof, &data.data)
+                        .update(company_id, company)
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
@@ -401,7 +459,7 @@ impl CompanyChainEventProcessor {
         &self,
         blocks: Vec<CompanyBlock>,
         keys: &BcrKeys,
-        identity: &NodeId,
+        identity_node_id: &NodeId,
     ) -> Result<(NodeId, Company, CompanyBlockchain, bool)> {
         match CompanyBlockchain::new_from_blocks(blocks.clone()) {
             Ok(chain) if chain.is_chain_valid() => {
@@ -425,24 +483,25 @@ impl CompanyChainEventProcessor {
                 let node_id = payload.id.clone();
 
                 // initialize company from payload
-                let company = Company::from_block_data(payload, identity);
+                let company = Company::from_block_data(payload, identity_node_id);
 
-                // check if we are a signatory
-                let we_are_signatory = {
+                // check if we are a signatory, or to be invited as a signatory
+                let we_are_signatory_or_invited = {
                     let mut aggregate = company.clone();
                     for block in blocks.iter().skip(1) {
                         if let Ok(data) = &block.get_block_data(keys) {
-                            aggregate.apply_block_data(data, identity);
+                            aggregate.apply_block_data(data, identity_node_id, block.timestamp());
                         }
                     }
-                    aggregate.active
+                    aggregate.status == CompanyStatus::Active
+                        || aggregate.status == CompanyStatus::Invited
                 };
 
                 // chain with just the create block
                 let return_chain = CompanyBlockchain::new_from_blocks(vec![first_block.clone()])
                     .map_err(|e| Error::Blockchain(e.to_string()))?;
 
-                Ok((node_id, company, return_chain, we_are_signatory))
+                Ok((node_id, company, return_chain, we_are_signatory_or_invited))
             }
             _ => {
                 error!("Newly received company chain is not valid");
@@ -481,8 +540,11 @@ pub mod tests {
     use std::sync::Arc;
 
     use bcr_common::core::NodeId;
-    use bcr_ebill_core::application::company::CompanySignatory;
-    use bcr_ebill_core::protocol::Email;
+    use bcr_ebill_core::application::company::CompanySignatoryStatus;
+    use bcr_ebill_core::protocol::blockchain::company::{
+        CompanyCreateBlockData, CompanySignatoryAcceptInviteBlockData,
+        CompanySignatoryRejectInviteBlockData,
+    };
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
         application::company::Company,
@@ -492,8 +554,8 @@ pub mod tests {
         protocol::blockchain::{
             Blockchain, BlockchainType,
             company::{
-                CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain,
-                CompanyIdentityProofBlockData, CompanyRemoveSignatoryBlockData,
+                CompanyBlock, CompanyBlockchain, CompanyIdentityProofBlockData,
+                CompanyInviteSignatoryBlockData, CompanyRemoveSignatoryBlockData,
                 CompanyUpdateBlockData, SignatoryType,
             },
         },
@@ -501,7 +563,7 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::test_utils::signed_identity_proof_test;
+    use crate::handler::test_utils::{get_valid_activated_signatory, signed_identity_proof_test};
     use crate::{
         handler::{
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
@@ -593,10 +655,10 @@ pub mod tests {
         let keys = BcrKeys::new();
         let (chain_store, mut store, contact, bill, identity, transport) = create_mocks();
         let (_, (mut company, _)) = get_company_data();
-        company.signatories = vec![CompanySignatory {
-            node_id: NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
-            email: Email::new("test@example.com").unwrap(),
-        }];
+        company.signatories = vec![get_valid_activated_signatory(&NodeId::new(
+            keys.pub_key(),
+            bitcoin::Network::Testnet,
+        ))];
         store
             .expect_get()
             .with(eq(node_id_test()))
@@ -989,7 +1051,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_add_company_signatory() {
+    async fn test_process_invite_company_signatory() {
         let (mut chain_store, mut store, mut contact, bill, mut identity, transport) =
             create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
@@ -1000,12 +1062,12 @@ pub mod tests {
             &keys,
         )];
         let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
-        let data = CompanyAddSignatoryBlockData {
-            signatory: new_node_id.clone(),
-            signatory_email: Email::new("test@example.com").unwrap(),
+        let data = CompanyInviteSignatoryBlockData {
+            invitee: new_node_id.clone(),
+            inviter: node_id_test(),
             t: SignatoryType::Solo,
         };
-        let update_block = get_company_add_signatory_block(
+        let update_block = get_company_invite_signatory_block(
             node_id.clone(),
             chain.get_latest_block(),
             &BcrKeys::new(),
@@ -1031,6 +1093,13 @@ pub mod tests {
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
             .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // if node is invited, we clean local overrides
+        store
+            .expect_delete_local_signatory_override()
+            .with(eq(node_id.clone()), eq(new_node_id.clone()))
+            .returning(|_, _| Ok(()))
             .once();
 
         // get the current company state
@@ -1094,15 +1163,230 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn test_process_accept_company_invite() {
+        let (mut chain_store, mut store, mut contact, bill, mut identity, transport) =
+            create_mocks();
+        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let (node_id, (mut company, keys)) = get_company_data();
+        company
+            .signatories
+            .push(get_valid_activated_signatory(&new_node_id.clone()));
+
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data = CompanySignatoryAcceptInviteBlockData {
+            accepter: new_node_id.clone(),
+        };
+        let update_block = get_company_accept_invite_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .once();
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(chain.clone()))
+            .once();
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .once();
+
+        // apply changes from block with the signatory
+        let expected_node = node_id.clone();
+        let expected_new_node = new_node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.signatories.iter().any(|s| {
+                        s.node_id == expected_new_node.clone()
+                            && matches!(s.status, CompanySignatoryStatus::InviteAccepted { .. })
+                    })
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        // ensure the new node is a contact
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(new_node_id.clone()))
+            .returning(|_| ())
+            .once();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    #[tokio::test]
+    async fn test_process_reject_company_invite() {
+        let (mut chain_store, mut store, mut contact, bill, mut identity, transport) =
+            create_mocks();
+        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let (node_id, (mut company, keys)) = get_company_data();
+        company
+            .signatories
+            .push(get_valid_activated_signatory(&new_node_id.clone()));
+
+        let blocks = vec![get_company_create_block(
+            node_id.clone(),
+            company.clone(),
+            &keys,
+        )];
+        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let data = CompanySignatoryRejectInviteBlockData {
+            rejecter: new_node_id.clone(),
+        };
+        let update_block = get_company_reject_invite_block(
+            node_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::new(),
+            &keys,
+            &data,
+        );
+
+        // we need to validate if we are a signatory with our identity
+        identity
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity))
+            .once();
+
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(chain.clone()))
+            .once();
+
+        // we have a chain so get the keys
+        store
+            .expect_get_key_pair()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(keys.clone()))
+            .once();
+
+        // get the current company state
+        let expected_company = company.clone();
+        store
+            .expect_get()
+            .with(eq(node_id.clone()))
+            .returning(move |_| Ok(expected_company.clone()))
+            .once();
+
+        // apply changes from block with the signatory
+        let expected_node = node_id.clone();
+        let expected_new_node = new_node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.signatories.iter().any(|s| {
+                        s.node_id == expected_new_node.clone()
+                            && matches!(s.status, CompanySignatoryStatus::InviteRejected { .. })
+                    })
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // inserts the block
+        chain_store
+            .expect_add_block()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // we already have the keys
+        store
+            .expect_save_key_pair()
+            .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .never();
+
+        // no need to ensure contacts in case of a reject
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(new_node_id.clone()))
+            .returning(|_| ())
+            .never();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .process_chain_data(&node_id, vec![update_block], None)
+            .await
+            .expect("Process chain data should be handled");
+    }
+
+    #[tokio::test]
     async fn test_process_remove_company_signatory() {
         let (mut chain_store, mut store, mut contact, bill, mut identity, transport) =
             create_mocks();
         let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let (node_id, (mut company, keys)) = get_company_data();
-        company.signatories.push(CompanySignatory {
-            node_id: new_node_id.clone(),
-            email: Email::new("test@example.com").unwrap(),
-        });
+        company
+            .signatories
+            .push(get_valid_activated_signatory(&new_node_id.clone()));
 
         let blocks = vec![get_company_create_block(
             node_id.clone(),
@@ -1111,7 +1395,8 @@ pub mod tests {
         )];
         let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
         let data = CompanyRemoveSignatoryBlockData {
-            signatory: new_node_id.clone(),
+            remover: node_id_test(),
+            removee: new_node_id.clone(),
         };
         let update_block = get_company_remove_signatory_block(
             node_id.clone(),
@@ -1157,10 +1442,10 @@ pub mod tests {
             .withf(move |n, c| {
                 n == &expected_node.clone()
                     && c.id == expected_node.clone()
-                    && !c
-                        .signatories
-                        .iter()
-                        .any(|s| s.node_id == expected_new_node.clone())
+                    && c.signatories.iter().any(|s| {
+                        s.node_id == expected_new_node.clone()
+                            && matches!(s.status, CompanySignatoryStatus::Removed { .. })
+                    })
             })
             .returning(|_, _| Ok(()))
             .once();
@@ -1216,6 +1501,7 @@ pub mod tests {
         let data = CompanyIdentityProofBlockData {
             proof: test_signed_identity.0,
             data: test_signed_identity.1,
+            reference_block: None,
         };
         let update_block = get_company_identity_proof_block(
             node_id.clone(),
@@ -1235,7 +1521,26 @@ pub mod tests {
         store
             .expect_set_email_confirmation()
             .returning(|_, _, _| Ok(()))
-            .times(1);
+            .once();
+
+        // apply changes from block with the identity proof
+        let expected_node = node_id.clone();
+        let expected_new_node = data.data.node_id.clone();
+        store
+            .expect_update()
+            .withf(move |n, c| {
+                n == &expected_node.clone()
+                    && c.id == expected_node.clone()
+                    && c.signatories.iter().any(|s| {
+                        s.node_id == expected_new_node.clone()
+                            && matches!(
+                                s.status,
+                                CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                            )
+                    })
+            })
+            .returning(|_, _| Ok(()))
+            .once();
 
         // checks if we already have the chain
         chain_store
@@ -1297,7 +1602,20 @@ pub mod tests {
         CompanyBlock::create_block_for_create(
             node_id,
             Sha256Hash::new("genesis hash"),
-            &company.into(),
+            &CompanyCreateBlockData {
+                id: company.id,
+                name: company.name,
+                country_of_registration: company.country_of_registration,
+                city_of_registration: company.city_of_registration,
+                postal_address: company.postal_address,
+                email: company.email,
+                registration_number: company.registration_number,
+                registration_date: company.registration_date,
+                proof_of_registration_file: company.proof_of_registration_file,
+                logo_file: company.logo_file,
+                creation_time: Timestamp::new(1731593928).unwrap(),
+                creator: node_id_test(),
+            },
             &BcrKeys::new(),
             keys,
             Timestamp::new(1731593928).unwrap(),
@@ -1323,20 +1641,56 @@ pub mod tests {
         .expect("could not create block")
     }
 
-    fn get_company_add_signatory_block(
+    fn get_company_invite_signatory_block(
         node_id: NodeId,
         previous_block: &CompanyBlock,
         keys: &BcrKeys,
         company_keys: &BcrKeys,
-        data: &CompanyAddSignatoryBlockData,
+        data: &CompanyInviteSignatoryBlockData,
     ) -> CompanyBlock {
-        CompanyBlock::create_block_for_add_signatory(
+        CompanyBlock::create_block_for_invite_signatory(
             node_id,
             previous_block,
             data,
             keys,
             company_keys,
-            &data.signatory.pub_key(),
+            &data.invitee.pub_key(),
+            Timestamp::new(1731594928).unwrap(),
+        )
+        .expect("could not create block")
+    }
+
+    fn get_company_accept_invite_block(
+        node_id: NodeId,
+        previous_block: &CompanyBlock,
+        keys: &BcrKeys,
+        company_keys: &BcrKeys,
+        data: &CompanySignatoryAcceptInviteBlockData,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_accept_signatory_invite(
+            node_id,
+            previous_block,
+            data,
+            keys,
+            company_keys,
+            Timestamp::new(1731594928).unwrap(),
+        )
+        .expect("could not create block")
+    }
+
+    fn get_company_reject_invite_block(
+        node_id: NodeId,
+        previous_block: &CompanyBlock,
+        keys: &BcrKeys,
+        company_keys: &BcrKeys,
+        data: &CompanySignatoryRejectInviteBlockData,
+    ) -> CompanyBlock {
+        CompanyBlock::create_block_for_reject_signatory_invite(
+            node_id,
+            previous_block,
+            data,
+            keys,
+            company_keys,
             Timestamp::new(1731594928).unwrap(),
         )
         .expect("could not create block")

@@ -22,7 +22,7 @@ pub mod tests {
     use bcr_ebill_core::{
         application::ServiceTraitBounds,
         application::bill::{BitcreditBillResult, PaymentState},
-        application::company::Company,
+        application::company::{Company, LocalSignatoryOverride, LocalSignatoryOverrideStatus},
         application::contact::Contact,
         application::identity::{ActiveIdentityState, Identity, IdentityWithAll},
         application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
@@ -254,6 +254,18 @@ pub mod tests {
                 proof: &SignedIdentityProof,
                 data: &EmailIdentityProofData,
             ) -> Result<()>;
+            async fn get_local_signatory_overrides(
+                &self,
+                id: &NodeId,
+            ) -> Result<Vec<LocalSignatoryOverride>>;
+            async fn set_local_signatory_override(
+                &self,
+                id: &NodeId,
+                signatory: &NodeId,
+                status: LocalSignatoryOverrideStatus,
+            ) -> Result<()>;
+            async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
+            async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
         }
     }
 
