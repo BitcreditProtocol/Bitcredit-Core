@@ -63,9 +63,17 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                 {
                     debug!("found matching pending share, auto-accepting");
                     // Auto-accept: immediately add the contact
-                    return self
-                        .accept_contact_share(&decoded.data, node_id, sender)
-                        .await;
+                    self.accept_contact_share(&decoded.data, node_id, sender)
+                        .await?;
+
+                    // Delete the pending share after successful auto-accept
+                    debug!("deleting pending share after auto-accept");
+                    self.nostr_contact_store
+                        .delete_pending_share(pending_share_id)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                    return Ok(());
                 }
             }
 
@@ -363,7 +371,7 @@ mod tests {
         // Expect check for share-back pending ID
         nostr_contact
             .expect_get_pending_share()
-            .with(eq(pending_share_id))
+            .with(eq(pending_share_id.clone()))
             .returning(move |_| Ok(Some(pending_share.clone())))
             .once();
 
@@ -396,6 +404,13 @@ mod tests {
         nostr_contact
             .expect_upsert()
             .withf(|c| c.contact_private_key.is_some())
+            .returning(|_| Ok(()))
+            .once();
+
+        // Expect pending share to be deleted after auto-accept
+        nostr_contact
+            .expect_delete_pending_share()
+            .with(eq(pending_share_id))
             .returning(|_| Ok(()))
             .once();
 

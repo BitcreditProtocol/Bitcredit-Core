@@ -161,8 +161,6 @@ pub struct ContactService {
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
-    // we still need this for fetching new contacts from nostr when we get keys externally
-    #[allow(dead_code)]
     transport_service: Arc<dyn TransportServiceApi>,
     config: Config,
 }
@@ -829,6 +827,7 @@ impl ContactServiceApi for ContactService {
                 )
             } else {
                 // receiver_node_id doesn't match identity or any company
+                // this should never happen as one of our identities was the receiver
                 return Err(super::Error::Validation(
                     bcr_ebill_core::application::ValidationError::Protocol(
                         bcr_ebill_core::protocol::ProtocolValidationError::InvalidContactType,
