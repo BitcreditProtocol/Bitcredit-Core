@@ -708,68 +708,68 @@ mockall::mock! {
     impl ServiceTraitBounds for ContactService {}
     #[async_trait]
     impl ContactServiceApi for ContactService {
-    async fn search(&self, search_term: &str, include_logical: Option<bool>, include_contact: Option<bool>) -> bcr_ebill_api::service::Result<Vec<Contact>>;
-    async fn get_contacts(&self) -> bcr_ebill_api::service::Result<Vec<Contact>>;
-    async fn get_contact(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Contact>;
-    async fn get_identity_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<BillParticipant>>;
-    async fn delete(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<()>;
-    async fn update_contact(
-        &self,
-        node_id: &NodeId,
-        name: Option<Name>,
-        email: Option<Email>,
-        postal_address: OptionalPostalAddress,
-        date_of_birth_or_registration: Option<Date>,
-        country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<City>,
-        identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<Uuid>,
-        ignore_avatar_file_upload_id: bool,
-        proof_document_file_upload_id: Option<Uuid>,
-        ignore_proof_document_file_upload_id: bool,
-    ) -> bcr_ebill_api::service::Result<()>;
-    async fn add_contact(
-        &self,
-        node_id: &NodeId,
-        t: ContactType,
-        name: Name,
-        email: Option<Email>,
-        postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<Date>,
-        country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<City>,
-        identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<Uuid>,
-        proof_document_file_upload_id: Option<Uuid>,
-    ) -> bcr_ebill_api::service::Result<Contact>;
-    async fn deanonymize_contact(
-        &self,
-        node_id: &NodeId,
-        t: ContactType,
-        name: Name,
-        email: Option<Email>,
-        postal_address: Option<PostalAddress>,
-        date_of_birth_or_registration: Option<Date>,
-        country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<City>,
-        identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<Uuid>,
-        proof_document_file_upload_id: Option<Uuid>,
-    ) -> bcr_ebill_api::service::Result<Contact>;
-    async fn is_known_npub(&self, npub: &bcr_ebill_core::application::nostr_contact::NostrPublicKey) -> bcr_ebill_api::service::Result<bool>;
-    async fn get_nostr_npubs(&self) -> bcr_ebill_api::service::Result<Vec<bcr_ebill_core::application::nostr_contact::NostrPublicKey>>;
-    async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<bcr_ebill_core::application::nostr_contact::NostrContact>>;
-    async fn open_and_decrypt_file(
-        &self,
-        contact: Contact,
-        id: &NodeId,
-        file_name: &Name,
-        private_key: &SecretKey,
-    ) -> bcr_ebill_api::service::Result<Vec<u8>>;
-    async fn list_pending_contact_shares(&self, receiver_node_id: &NodeId) -> bcr_ebill_api::service::Result<Vec<PendingContactShare>>;
-    async fn get_pending_contact_share(&self, id: &str) -> bcr_ebill_api::service::Result<Option<PendingContactShare>>;
-    async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> bcr_ebill_api::service::Result<()>;
-    async fn reject_contact_share(&self, pending_share_id: &str) -> bcr_ebill_api::service::Result<()>;
+        async fn search(&self, search_term: &str, include_logical: Option<bool>, include_contact: Option<bool>) -> bcr_ebill_api::service::Result<Vec<Contact>>;
+        async fn get_contacts(&self) -> bcr_ebill_api::service::Result<Vec<Contact>>;
+        async fn get_contact(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Contact>;
+        async fn get_identity_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<BillParticipant>>;
+        async fn delete(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<()>;
+        async fn update_contact(
+            &self,
+            node_id: &NodeId,
+            name: Option<Name>,
+            email: Option<Email>,
+            postal_address: OptionalPostalAddress,
+            date_of_birth_or_registration: Option<Date>,
+            country_of_birth_or_registration: Option<Country>,
+            city_of_birth_or_registration: Option<City>,
+            identification_number: Option<Identification>,
+            avatar_file_upload_id: Option<Uuid>,
+            ignore_avatar_file_upload_id: bool,
+            proof_document_file_upload_id: Option<Uuid>,
+            ignore_proof_document_file_upload_id: bool,
+        ) -> bcr_ebill_api::service::Result<()>;
+        async fn add_contact(
+            &self,
+            node_id: &NodeId,
+            t: ContactType,
+            name: Name,
+            email: Option<Email>,
+            postal_address: Option<PostalAddress>,
+            date_of_birth_or_registration: Option<Date>,
+            country_of_birth_or_registration: Option<Country>,
+            city_of_birth_or_registration: Option<City>,
+            identification_number: Option<Identification>,
+            avatar_file_upload_id: Option<Uuid>,
+            proof_document_file_upload_id: Option<Uuid>,
+        ) -> bcr_ebill_api::service::Result<Contact>;
+        async fn deanonymize_contact(
+            &self,
+            node_id: &NodeId,
+            t: ContactType,
+            name: Name,
+            email: Option<Email>,
+            postal_address: Option<PostalAddress>,
+            date_of_birth_or_registration: Option<Date>,
+            country_of_birth_or_registration: Option<Country>,
+            city_of_birth_or_registration: Option<City>,
+            identification_number: Option<Identification>,
+            avatar_file_upload_id: Option<Uuid>,
+            proof_document_file_upload_id: Option<Uuid>,
+        ) -> bcr_ebill_api::service::Result<Contact>;
+        async fn is_known_npub(&self, npub: &bcr_ebill_core::application::nostr_contact::NostrPublicKey) -> bcr_ebill_api::service::Result<bool>;
+        async fn get_nostr_npubs(&self) -> bcr_ebill_api::service::Result<Vec<bcr_ebill_core::application::nostr_contact::NostrPublicKey>>;
+        async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<bcr_ebill_core::application::nostr_contact::NostrContact>>;
+        async fn open_and_decrypt_file(
+            &self,
+            contact: Contact,
+            id: &NodeId,
+            file_name: &Name,
+            private_key: &SecretKey,
+        ) -> bcr_ebill_api::service::Result<Vec<u8>>;
+        async fn list_pending_contact_shares(&self, receiver_node_id: &NodeId) -> bcr_ebill_api::service::Result<Vec<PendingContactShare>>;
+        async fn get_pending_contact_share(&self, id: &str) -> bcr_ebill_api::service::Result<Option<PendingContactShare>>;
+        async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> bcr_ebill_api::service::Result<()>;
+        async fn reject_contact_share(&self, pending_share_id: &str) -> bcr_ebill_api::service::Result<()>;
     }
 }
 

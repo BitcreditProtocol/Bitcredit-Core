@@ -154,7 +154,7 @@ pub struct PendingContactShare {
     pub sender_node_id: NodeId,
     /// The private key to decrypt the contact data on Nostr
     pub contact_private_key: SecretKey,
-    /// The node id that received this share (our identity or company)
+    /// The node id that receives this share (identity or company)
     pub receiver_node_id: NodeId,
     /// When this share was received/sent
     pub received_at: Timestamp,

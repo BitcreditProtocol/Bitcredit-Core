@@ -160,7 +160,7 @@ pub struct PendingContactShareWeb {
     pub sender_node_id: NodeId,
     #[tsify(type = "string")]
     pub receiver_node_id: NodeId,
-    #[tsify(type = "string")]
+    #[tsify(type = "number")]
     pub received_at: Timestamp,
 }
 

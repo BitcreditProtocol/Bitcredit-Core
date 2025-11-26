@@ -6,7 +6,7 @@ use bcr_ebill_core::protocol::{
     City, Country, Date, Email, File, Identification, Name, OptionalPostalAddress, PostalAddress,
     PublicKey, SecretKey, Sha256Hash,
     blockchain::bill::{block::ContactType, participant::BillParticipant},
-    crypto,
+    crypto::{self, BcrKeys, DeriveKeypair},
 };
 use bcr_ebill_core::{
     application::{
@@ -812,19 +812,13 @@ impl ContactServiceApi for ContactService {
 
             let keys = if &receiver_identity.identity.node_id == receiver_node_id {
                 // Share back as identity
-                use bcr_ebill_core::protocol::crypto::DeriveKeypair;
                 let derived_keys = receiver_identity.key_pair.derive_identity_keypair()?;
-                bcr_ebill_core::protocol::crypto::BcrKeys::from_private_key(
-                    &derived_keys.secret_key(),
-                )
+                BcrKeys::from_private_key(&derived_keys.secret_key())
             } else if self.company_store.exists(receiver_node_id).await {
                 // Share back as company
                 let company_keys = self.company_store.get_key_pair(receiver_node_id).await?;
-                use bcr_ebill_core::protocol::crypto::DeriveKeypair;
                 let derived_keys = company_keys.derive_company_keypair()?;
-                bcr_ebill_core::protocol::crypto::BcrKeys::from_private_key(
-                    &derived_keys.secret_key(),
-                )
+                BcrKeys::from_private_key(&derived_keys.secret_key())
             } else {
                 // receiver_node_id doesn't match identity or any company
                 // this should never happen as one of our identities was the receiver

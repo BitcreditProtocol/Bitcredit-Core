@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{
     constants::{
-        DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_RECEIVER_NODE_ID, DB_SEARCH_TERM, DB_TABLE,
-        DB_TRUST_LEVEL,
+        DB_CONTACT_SHARE_DIRECTION, DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_RECEIVER_NODE_ID,
+        DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL,
     },
     nostr::{NostrContactStoreApi, PendingContactShare, ShareDirection},
 };
@@ -206,9 +206,9 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
         bindings.add(DB_RECEIVER_NODE_ID, receiver_node_id.to_owned())?;
-        bindings.add("direction", direction)?;
+        bindings.add(DB_CONTACT_SHARE_DIRECTION, direction)?;
         let query = format!(
-            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} AND direction = $direction ORDER BY received_at DESC"
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} AND ${DB_CONTACT_SHARE_DIRECTION} = $direction ORDER BY received_at DESC"
         );
         let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
         let values = result

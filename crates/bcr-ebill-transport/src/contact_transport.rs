@@ -115,7 +115,7 @@ impl ContactTransportServiceApi for ContactTransportService {
                 serde_json::from_slice::<bcr_ebill_core::application::contact::Contact>(&decrypted)
         {
             let pending_share = PendingContactShare {
-                id: initial_share_id,
+                id: initial_share_id.to_owned(),
                 node_id: contact_id.to_owned(),
                 contact,
                 sender_node_id: contact_id.to_owned(), // We are sharing our own contact
@@ -127,10 +127,15 @@ impl ContactTransportServiceApi for ContactTransportService {
             };
 
             // Store the outgoing pending share
-            let _ = self
+            if let Err(e) = self
                 .nostr_contact_store
                 .add_pending_share(pending_share)
-                .await;
+                .await
+            {
+                error!(
+                    "Failed to store pending share {initial_share_id} from {contact_id} to {recipient} with: {e}"
+                );
+            }
         }
 
         Ok(())
