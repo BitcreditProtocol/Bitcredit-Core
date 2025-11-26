@@ -237,7 +237,9 @@ mod tests {
     use super::*;
     use crate::{
         db::{bill::tests::get_first_block, get_memory_db},
-        tests::tests::{bill_id_test, empty_address, get_bill_keys, node_id_test},
+        tests::tests::{
+            bill_id_test, empty_address, get_bill_keys, node_id_test, signed_identity_proof_test,
+        },
     };
     use bcr_ebill_core::protocol::{
         Name,
@@ -283,6 +285,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: Timestamp::new(1731593928).unwrap(),
                 signing_address: empty_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
             },
             &BcrKeys::new(),
             None,

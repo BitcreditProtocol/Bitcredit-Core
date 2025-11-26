@@ -376,6 +376,7 @@ mod test_utils {
     use std::{collections::HashMap, str::FromStr};
 
     use crate::PushApi;
+    use crate::test_utils::signed_identity_proof_test;
 
     mock! {
         pub NotificationStore {}
@@ -667,7 +668,12 @@ mod test_utils {
     pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
         BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             get_baseline_identity().key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -828,16 +834,5 @@ mod test_utils {
     pub fn node_id_test_other() -> NodeId {
         NodeId::from_str("bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f")
             .unwrap()
-    }
-
-    pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
-        let data = EmailIdentityProofData {
-            node_id: node_id_test(),
-            company_node_id: None,
-            email: Email::new("test@example.com").unwrap(),
-            created_at: Timestamp::new(1731593929).unwrap(),
-        };
-        let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
-        (proof, data)
     }
 }

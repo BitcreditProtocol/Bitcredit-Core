@@ -328,10 +328,13 @@ pub struct BitcreditBill {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::protocol::blockchain::bill::{
-        BillBlock, BillBlockchain, BillOpCode,
-        block::{BillAcceptBlockData, BillIssueBlockData},
-        chain::BillBlockPlaintextWrapper,
+    use crate::protocol::{
+        blockchain::bill::{
+            BillBlock, BillBlockchain, BillOpCode,
+            block::{BillAcceptBlockData, BillIssueBlockData},
+            chain::BillBlockPlaintextWrapper,
+        },
+        tests::tests::signed_identity_proof_test,
     };
     use crate::{
         protocol::Sha256Hash,
@@ -356,7 +359,12 @@ pub mod tests {
         let identity = get_baseline_identity();
 
         let result = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -380,7 +388,12 @@ pub mod tests {
         let drawee_node_id = bill.drawee.node_id.clone();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -396,6 +409,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: last_block.timestamp + 1,
                 signing_address: valid_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,

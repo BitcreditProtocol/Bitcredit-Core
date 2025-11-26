@@ -50,12 +50,31 @@ impl Notification {
             payload,
         }
     }
+
+    pub fn new_company_notification(
+        company_id: &NodeId,
+        node_id: &NodeId,
+        description: &str,
+        payload: Option<Value>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            node_id: Some(node_id.to_owned()),
+            notification_type: NotificationType::Company,
+            reference_id: Some(company_id.to_string()),
+            description: description.to_string(),
+            datetime: Timestamp::now().to_datetime(),
+            active: true,
+            payload,
+        }
+    }
 }
 
 /// The type/topic of a notification we show to the user
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NotificationType {
     General,
+    Company,
     Bill,
 }
 

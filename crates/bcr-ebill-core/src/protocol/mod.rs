@@ -298,8 +298,8 @@ pub enum ProtocolValidationError {
     NotASignatory(String),
 
     /// error returned if the signatory to be hidden is not a removed signatory
-    #[error("Node id is not a removed signatory.")]
-    NotARemovedSignatory,
+    #[error("Node id is not a removed or rejected signatory.")]
+    NotARemovedOrRejectedSignatory,
 
     /// error returned if the signatory is not invited
     #[error("Node id is not invited as a signatory.")]
@@ -364,6 +364,10 @@ pub enum ProtocolValidationError {
     /// error returned if the contact type is not valid
     #[error("Invalid contact type")]
     InvalidContactType,
+
+    /// error returned if the signer does not have an identity proof
+    #[error("No signer identity proof")]
+    NoSignerIdentityProof,
 }
 
 impl From<bcr_common::core::Error> for ProtocolValidationError {

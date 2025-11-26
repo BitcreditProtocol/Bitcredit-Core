@@ -69,6 +69,7 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
         Ok(())
     }
 }
+
 impl ServiceTraitBounds for CompanyChainEventHandler {}
 
 impl CompanyChainEventHandler {

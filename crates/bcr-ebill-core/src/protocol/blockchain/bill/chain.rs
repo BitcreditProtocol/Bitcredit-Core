@@ -1058,8 +1058,8 @@ mod tests {
         constants::DAY_IN_SECS,
         tests::tests::{
             bill_id_test, bill_identified_participant_only_node_id, bill_participant_only_node_id,
-            empty_bitcredit_bill, get_bill_keys, private_key_test, valid_address,
-            valid_payment_address_testnet,
+            empty_bitcredit_bill, get_bill_keys, private_key_test, signed_identity_proof_test,
+            valid_address, valid_payment_address_testnet,
         },
     };
 
@@ -1082,6 +1082,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: Timestamp::new(1731593928).unwrap(),
                 signing_address: Some(valid_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
                 buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().1,
@@ -1098,7 +1099,12 @@ mod tests {
         let identity = get_baseline_identity();
 
         let chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1115,7 +1121,12 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1136,7 +1147,12 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1167,7 +1183,12 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1209,7 +1230,12 @@ mod tests {
         ));
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1247,7 +1273,12 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1274,7 +1305,12 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
@@ -1306,7 +1342,12 @@ mod tests {
         let bill_keys = get_bill_keys();
         let identity = get_baseline_identity();
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             identity.1.clone(),
             None,
             BcrKeys::from_private_key(&bill_keys.get_private_key()),
@@ -1353,6 +1394,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: Timestamp::new(1731593929).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
@@ -1385,6 +1427,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: Timestamp::new(1731593930).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
@@ -1418,6 +1461,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: Timestamp::new(1731593931).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
@@ -1452,6 +1496,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: Timestamp::new(1731593932).unwrap(),
                 signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,

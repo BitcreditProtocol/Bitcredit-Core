@@ -397,7 +397,7 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::test_utils::signed_identity_proof_test;
+    use crate::test_utils::signed_identity_proof_test;
     use crate::{
         handler::{
             IdentityChainEventProcessorApi, MockNostrContactProcessorApi,

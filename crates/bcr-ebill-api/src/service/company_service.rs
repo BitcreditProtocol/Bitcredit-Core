@@ -1624,7 +1624,11 @@ impl CompanyServiceApi for CompanyService {
             .signatories
             .iter()
             .find(|s| &s.node_id == signatory_node_id)
-            && matches!(signatory.status, CompanySignatoryStatus::Removed { .. })
+            && matches!(
+                signatory.status,
+                CompanySignatoryStatus::Removed { .. }
+                    | CompanySignatoryStatus::InviteRejected { .. }
+            )
         {
             self.store
                 .set_local_signatory_override(
@@ -1635,7 +1639,7 @@ impl CompanyServiceApi for CompanyService {
                 .await?;
         } else {
             return Err(super::Error::Validation(
-                ProtocolValidationError::NotARemovedSignatory.into(),
+                ProtocolValidationError::NotARemovedOrRejectedSignatory.into(),
             ));
         }
 
@@ -1654,8 +1658,15 @@ impl CompanyServiceApi for CompanyService {
         let node_ids_to_filter: HashSet<NodeId> =
             local_overrides.into_iter().map(|s| s.node_id).collect();
 
-        // filter out node ids that should be hidden
-        signatories.retain(|sig| !node_ids_to_filter.contains(&sig.node_id));
+        // filter out node ids that should be hidden, but only if they are rejected, or removed
+        signatories.retain(|sig| {
+            !(node_ids_to_filter.contains(&sig.node_id)
+                && matches!(
+                    sig.status,
+                    CompanySignatoryStatus::Removed { .. }
+                        | CompanySignatoryStatus::InviteRejected { .. }
+                ))
+        });
         Ok(())
     }
 }
@@ -3847,7 +3858,12 @@ pub mod tests {
             email_notification_store,
         );
 
-        let mut signatories = vec![get_valid_activated_signatory(&node_id_test())];
+        let mut sig = get_valid_activated_signatory(&node_id_test());
+        sig.status = CompanySignatoryStatus::Removed {
+            ts: Timestamp::new(1731593928).unwrap(),
+            remover: node_id_test(),
+        };
+        let mut signatories = vec![sig];
 
         let res = service
             .filter_out_locally_hidden_signatories(&node_id_test(), &mut signatories)

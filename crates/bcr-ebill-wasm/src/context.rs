@@ -47,6 +47,7 @@ impl Context {
         let mint_client = Arc::new(MintClient::new());
         let court_client = Arc::new(CourtClient::new());
         let email_client = Arc::new(EmailClient::new());
+        let push_service = Arc::new(PushService::new());
 
         let nostr_clients =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
@@ -55,6 +56,7 @@ impl Context {
             db.clone(),
             email_client.clone(),
             cfg.nostr_config.relays.to_owned(),
+            push_service.clone(),
         )
         .await?;
 
@@ -111,7 +113,6 @@ impl Context {
         );
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 
-        let push_service = Arc::new(PushService::new());
         let chain_key_service = Arc::new(ChainKeyService::new(
             db.bill_store.clone(),
             db.company_store.clone(),

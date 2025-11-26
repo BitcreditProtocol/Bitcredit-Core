@@ -109,8 +109,8 @@ let config = {
   transport_initial_subscription_delay_seconds: 1,
   default_mint_url: "http://localhost:4343",
   // default_mint_url: "https://wildcat-dev-docker.minibill.tech",
-  // default_mint_node_id: "bitcrt038d1bd3e2e3a01f20c861f18eb456cc33f869c9aaa5dec685f7f7d8c40ea3b3c7",
-  default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
+  default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99",
+  // default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
   num_confirmations_for_payment: 1,
   dev_mode: true,
   disable_mandatory_email_confirmations: true,
@@ -412,7 +412,7 @@ async function triggerBill(t, blank) {
 }
 
 async function triggerNotif() {
-  fail_on_error(await notificationTriggerApi.trigger_test_msg({ test: "Hello, World" }));
+  fail_on_error(await window.notifApi.trigger_test_msg({ test: "Hello, World" }));
 }
 
 async function fetchTempFile() {
@@ -936,21 +936,21 @@ async function deleteContact() {
 
 async function getActiveNotif() {
   let measured = measure(async () => {
-    return success_or_fail(await notificationTriggerApi.active_notifications_for_node_ids([]));
+    return success_or_fail(await window.notifApi.active_notifications_for_node_ids([]));
   });
   await measured();
 }
 
 async function getNotifList() {
   let measured = measure(async () => {
-    return success_or_fail(await notificationTriggerApi.list({}));
+    return success_or_fail(await window.notifApi.list({}));
   });
   await measured();
 }
 
 async function get_email_notifications_preferences_link() {
   let measured = measure(async () => {
-    return success_or_fail(await notificationTriggerApi.get_email_notifications_preferences_link());
+    return success_or_fail(await window.notifApi.get_email_notifications_preferences_link());
   });
   await measured();
 }

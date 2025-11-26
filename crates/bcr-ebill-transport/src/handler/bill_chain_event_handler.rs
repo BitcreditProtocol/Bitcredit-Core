@@ -154,6 +154,7 @@ mod tests {
         MockBillChainEventProcessorApi,
         test_utils::{MockBillStore, MockNostrChainEventStore, get_test_nostr_event},
     };
+    use crate::test_utils::signed_identity_proof_test;
 
     use super::*;
 
@@ -189,6 +190,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,
@@ -267,6 +269,7 @@ mod tests {
                 signatory: None,
                 signing_timestamp: chain.get_latest_block().timestamp + 1000,
                 signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,
@@ -339,7 +342,12 @@ mod tests {
     fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
         BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None, Timestamp::new(1731593928).unwrap()),
+            &BillIssueBlockData::from(
+                bill,
+                None,
+                Timestamp::new(1731593928).unwrap(),
+                signed_identity_proof_test(),
+            ),
             get_baseline_identity().key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()),

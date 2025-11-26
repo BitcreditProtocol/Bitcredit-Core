@@ -488,20 +488,18 @@ pub mod tests {
                     },
                     mint_config: MintConfig {
                         default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
-                        default_mint_node_id: NodeId::from_str(
-                            "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                        ).unwrap(),
+                        default_mint_node_id: node_id_test(),
                     },
                     payment_config: PaymentConfig {
                         num_confirmations_for_payment: 6,
                     },
                     dev_mode_config: DevModeConfig {
                         on: false,
-                        disable_mandatory_email_confirmations: false
+                        disable_mandatory_email_confirmations: false,
                     },
                     court_config: CourtConfig {
-                        default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap()
-                    }
+                        default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
+                    },
                 });
             }
         }
