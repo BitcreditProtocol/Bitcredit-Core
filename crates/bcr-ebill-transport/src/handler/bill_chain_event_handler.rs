@@ -154,7 +154,7 @@ mod tests {
         MockBillChainEventProcessorApi,
         test_utils::{MockBillStore, MockNostrChainEventStore, get_test_nostr_event},
     };
-    use crate::test_utils::signed_identity_proof_test;
+    use crate::test_utils::{signed_identity_proof_test, test_ts};
 
     use super::*;
 
@@ -342,16 +342,11 @@ mod tests {
     fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
         BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             get_baseline_identity().key_pair,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }

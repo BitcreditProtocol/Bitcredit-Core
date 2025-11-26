@@ -1019,7 +1019,7 @@ mod tests {
             MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
             MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
             empty_optional_address, filled_optional_address, init_test_cfg,
-            signed_identity_proof_test,
+            signed_identity_proof_test, test_ts,
         },
     };
     use mockall::predicate::eq;
@@ -1109,7 +1109,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1156,7 +1156,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1214,7 +1214,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1258,7 +1258,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1307,7 +1307,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1362,7 +1362,7 @@ mod tests {
                 true,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1395,7 +1395,7 @@ mod tests {
                 true,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1442,7 +1442,7 @@ mod tests {
                 true,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
 
@@ -1627,11 +1627,6 @@ mod tests {
 
     fn get_genesis_chain(identity: Option<Identity>) -> IdentityBlockchain {
         let identity = identity.unwrap_or(empty_identity());
-        IdentityBlockchain::new(
-            &identity.into(),
-            &BcrKeys::new(),
-            Timestamp::new(1731593928).unwrap(),
-        )
-        .unwrap()
+        IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), test_ts()).unwrap()
     }
 }

@@ -1345,7 +1345,7 @@ pub mod tests {
         tests::tests::{
             bill_id_test, bill_id_test_other, bill_identified_participant_only_node_id,
             cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys, node_id_test,
-            node_id_test_other, private_key_test, signed_identity_proof_test,
+            node_id_test_other, private_key_test, signed_identity_proof_test, test_ts,
         },
     };
     use bcr_common::core::{BillId, NodeId};
@@ -1410,16 +1410,11 @@ pub mod tests {
         BillBlock::create_block_for_issue(
             id.to_owned(),
             Sha256Hash::new("prevhash"),
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             &BcrKeys::from_private_key(&private_key_test()),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }
@@ -1448,16 +1443,15 @@ pub mod tests {
                         ),
                         currency: Currency::sat(),
                         signatory: None,
-                        signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                        signing_timestamp: test_ts(),
                         signing_address: Some(empty_address()),
                         signer_identity_proof: Some(signed_identity_proof_test().into()),
-                        payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                            + 2 * PAYMENT_DEADLINE_SECONDS,
+                        payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
-                    Timestamp::new(1731593928).unwrap(),
+                    test_ts(),
                 )
                 .unwrap(),
             )
@@ -1521,7 +1515,7 @@ pub mod tests {
             .set_payment_state(
                 &bill_id_test(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: Timestamp::new(1731593928).unwrap(),
+                    block_time: test_ts(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1546,7 +1540,7 @@ pub mod tests {
             .set_payment_state(
                 &bill_id_test(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: Timestamp::new(1731593928).unwrap(),
+                    block_time: test_ts(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1574,7 +1568,7 @@ pub mod tests {
                 &bill_id_test(),
                 BlockId::first(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: Timestamp::new(1731593928).unwrap(),
+                    block_time: test_ts(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1610,7 +1604,7 @@ pub mod tests {
                 &bill_id_test(),
                 BlockId::first(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: Timestamp::new(1731593928).unwrap(),
+                    block_time: test_ts(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,
@@ -1668,16 +1662,15 @@ pub mod tests {
                         ),
                         currency: Currency::sat(),
                         signatory: None,
-                        signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                        signing_timestamp: test_ts(),
                         signing_address: Some(empty_address()),
                         signer_identity_proof: Some(signed_identity_proof_test().into()),
-                        payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                            + 2 * PAYMENT_DEADLINE_SECONDS,
+                        payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     None,
                     &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
-                    Timestamp::new(1731593928).unwrap(),
+                    test_ts(),
                 )
                 .unwrap(),
             )
@@ -1693,7 +1686,7 @@ pub mod tests {
             .set_payment_state(
                 &bill_id_test(),
                 &PaymentState::PaidConfirmed(PaidData {
-                    block_time: Timestamp::new(1731593928).unwrap(),
+                    block_time: test_ts(),
                     block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                         .into(),
                     confirmations: 6,

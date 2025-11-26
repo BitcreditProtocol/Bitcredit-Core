@@ -394,7 +394,7 @@ mod tests {
         db::get_memory_db,
         tests::tests::{
             empty_address, node_id_test, node_id_test_other, private_key_test,
-            signed_identity_proof_test,
+            signed_identity_proof_test, test_ts,
         },
     };
 
@@ -425,12 +425,12 @@ mod tests {
                 t: SignatoryType::Solo,
                 node_id: node_id_test(),
                 status: CompanySignatoryStatus::InviteAcceptedIdentityProven {
-                    ts: Timestamp::new(1731593928).unwrap(),
+                    ts: test_ts(),
                     data,
                     proof,
                 },
             }],
-            creation_time: Timestamp::new(1731593928).unwrap(),
+            creation_time: test_ts(),
             status: CompanyStatus::Active,
         }
     }

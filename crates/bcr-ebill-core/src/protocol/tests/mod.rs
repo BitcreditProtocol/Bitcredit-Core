@@ -196,7 +196,7 @@ pub mod tests {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),
-            created_at: Timestamp::new(1731593929).unwrap(),
+            created_at: test_ts(),
         };
         let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
         (proof, data)
@@ -444,5 +444,9 @@ pub mod tests {
 
     pub fn safe_deadline_ts(min_deadline: u64) -> Timestamp {
         Timestamp::now() + 2 * min_deadline
+    }
+
+    pub fn test_ts() -> Timestamp {
+        Timestamp::new(1731593928).unwrap()
     }
 }

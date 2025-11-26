@@ -245,16 +245,11 @@ pub fn get_test_bitcredit_bill(
 pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
     let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
     BillBlockchain::new(
-        &BillIssueBlockData::from(
-            bill,
-            None,
-            Timestamp::new(1731593928).unwrap(),
-            signed_identity_proof_test(),
-        ),
+        &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
         get_baseline_identity().key_pair,
         None,
         BcrKeys::from_private_key(&private_key_test()),
-        Timestamp::new(1731593928).unwrap(),
+        test_ts(),
     )
     .unwrap()
 }
@@ -385,12 +380,16 @@ pub fn bill_id_test_other2() -> BillId {
     )
 }
 
+pub fn test_ts() -> Timestamp {
+    Timestamp::new(1731593928).unwrap()
+}
+
 pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
     let data = EmailIdentityProofData {
         node_id: node_id_test(),
         company_node_id: None,
         email: Email::new("test@example.com").unwrap(),
-        created_at: Timestamp::new(1731593929).unwrap(),
+        created_at: test_ts(),
     };
     let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
     (proof, data)

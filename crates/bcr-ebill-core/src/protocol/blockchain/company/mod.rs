@@ -738,7 +738,7 @@ mod tests {
         Country,
         tests::tests::{
             bill_id_test, node_id_test, node_id_test_other, private_key_test,
-            signed_identity_proof_test, valid_address, valid_optional_address,
+            signed_identity_proof_test, test_ts, valid_address, valid_optional_address,
         },
     };
 
@@ -757,7 +757,7 @@ mod tests {
                     registration_date: Some(Date::new("2012-01-01").unwrap()),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    creation_time: Timestamp::new(1731593928).unwrap(),
+                    creation_time: test_ts(),
                     creator: node_id_test(),
                 },
                 BcrKeys::from_private_key(&private_key_test()),
@@ -769,12 +769,7 @@ mod tests {
     fn test_plaintext_hash() {
         let (_id, (company, company_keys)) = get_baseline_company_data();
 
-        let chain = CompanyBlockchain::new(
-            &company,
-            &BcrKeys::new(),
-            &company_keys,
-            Timestamp::new(1731593928).unwrap(),
-        );
+        let chain = CompanyBlockchain::new(&company, &BcrKeys::new(), &company_keys, test_ts());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
         assert!(
@@ -787,12 +782,7 @@ mod tests {
     fn create_and_check_validity() {
         let (_id, (company, company_keys)) = get_baseline_company_data();
 
-        let chain = CompanyBlockchain::new(
-            &company,
-            &BcrKeys::new(),
-            &company_keys,
-            Timestamp::new(1731593928).unwrap(),
-        );
+        let chain = CompanyBlockchain::new(&company, &BcrKeys::new(), &company_keys, test_ts());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
     }
@@ -802,12 +792,7 @@ mod tests {
         let (id, (company, company_keys)) = get_baseline_company_data();
         let identity_keys = BcrKeys::new();
 
-        let chain = CompanyBlockchain::new(
-            &company,
-            &identity_keys,
-            &company_keys,
-            Timestamp::new(1731593928).unwrap(),
-        );
+        let chain = CompanyBlockchain::new(&company, &identity_keys, &company_keys, test_ts());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
 
@@ -828,7 +813,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            Timestamp::new(1731593929).unwrap(),
+            test_ts() + 1,
         );
         assert!(update_block.is_ok());
         chain.try_add_block(update_block.unwrap());
@@ -845,7 +830,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            Timestamp::new(1731593930).unwrap(),
+            test_ts() + 2,
         );
         assert!(bill_block.is_ok());
         chain.try_add_block(bill_block.unwrap());
@@ -861,7 +846,7 @@ mod tests {
             &identity_keys,
             &company_keys,
             &node_id_test().pub_key(),
-            Timestamp::new(1731593931).unwrap(),
+            test_ts() + 3,
         );
         assert!(invite_signatory_block.is_ok());
         chain.try_add_block(invite_signatory_block.unwrap());
@@ -874,7 +859,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            Timestamp::new(1731593931).unwrap(),
+            test_ts() + 4,
         );
         assert!(accept_invitation_block.is_ok());
         chain.try_add_block(accept_invitation_block.unwrap());
@@ -887,7 +872,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            Timestamp::new(1731593931).unwrap(),
+            test_ts() + 5,
         );
         assert!(reject_invitation_block.is_ok());
         chain.try_add_block(reject_invitation_block.unwrap());
@@ -901,7 +886,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            Timestamp::new(1731593932).unwrap(),
+            test_ts() + 6,
         );
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
@@ -917,7 +902,7 @@ mod tests {
             },
             &identity_keys,
             &company_keys,
-            Timestamp::new(1731593933).unwrap(),
+            test_ts() + 7,
         );
         assert!(identity_proof_block.is_ok());
         chain.try_add_block(identity_proof_block.unwrap());

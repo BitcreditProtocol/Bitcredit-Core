@@ -1687,6 +1687,7 @@ pub mod tests {
             MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
             empty_address, empty_identity, empty_optional_address, node_id_test,
             node_id_test_other, node_id_test_other2, private_key_test, signed_identity_proof_test,
+            test_ts,
         },
         util::get_uuid_v4,
     };
@@ -1770,7 +1771,7 @@ pub mod tests {
                     proof_of_registration_file: None,
                     logo_file: None,
                     signatories: vec![get_valid_activated_signatory(&node_id_test())],
-                    creation_time: Timestamp::new(1731593928).unwrap(),
+                    creation_time: test_ts(),
                     status: CompanyStatus::Active,
                 },
                 BcrKeys::from_private_key(&private_key_test()),
@@ -1792,7 +1793,7 @@ pub mod tests {
             t: SignatoryType::Solo,
             node_id: node_id.to_owned(),
             status: CompanySignatoryStatus::InviteAcceptedIdentityProven {
-                ts: Timestamp::new(1731593928).unwrap(),
+                ts: test_ts(),
                 data,
                 proof,
             },
@@ -1818,18 +1819,13 @@ pub mod tests {
             },
             &BcrKeys::new(),
             &company_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }
 
     fn get_valid_identity_chain() -> IdentityBlockchain {
-        IdentityBlockchain::new(
-            &empty_identity().into(),
-            &BcrKeys::new(),
-            Timestamp::new(1731593928).unwrap(),
-        )
-        .unwrap()
+        IdentityBlockchain::new(&empty_identity().into(), &BcrKeys::new(), test_ts()).unwrap()
     }
 
     #[tokio::test]
@@ -2169,7 +2165,7 @@ pub mod tests {
                 Some(get_uuid_v4()),
                 Some(get_uuid_v4()),
                 Email::new("test@example.com").unwrap(),
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_ok());
@@ -2249,7 +2245,7 @@ pub mod tests {
                 None,
                 None,
                 Email::new("test@example.com").unwrap(),
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_err());
@@ -2359,7 +2355,7 @@ pub mod tests {
                 false,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_ok());
@@ -2408,7 +2404,7 @@ pub mod tests {
                 true,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_err());
@@ -2469,7 +2465,7 @@ pub mod tests {
                 true,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_err());
@@ -2542,7 +2538,7 @@ pub mod tests {
                 true,
                 None,
                 true,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_err());
@@ -2599,7 +2595,7 @@ pub mod tests {
             let mut data = get_baseline_company_data().1.0;
             let mut sig = get_valid_activated_signatory(&caller_node_id_clone.clone());
             sig.status = CompanySignatoryStatus::Invited {
-                ts: Timestamp::new(1731593928).unwrap(),
+                ts: test_ts(),
                 inviter: node_id_test(),
             };
             data.signatories = vec![sig];
@@ -2637,7 +2633,7 @@ pub mod tests {
             .accept_company_invite(
                 &node_id_test(),
                 &Email::new("test@example.com").unwrap(),
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_ok());
@@ -2691,7 +2687,7 @@ pub mod tests {
             let mut data = get_baseline_company_data().1.0;
             let mut sig = get_valid_activated_signatory(&caller_node_id_clone.clone());
             sig.status = CompanySignatoryStatus::Invited {
-                ts: Timestamp::new(1731593928).unwrap(),
+                ts: test_ts(),
                 inviter: node_id_test(),
             };
             data.signatories = vec![sig];
@@ -2726,7 +2722,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .reject_company_invite(&node_id_test(), Timestamp::new(1731593928).unwrap())
+            .reject_company_invite(&node_id_test(), test_ts())
             .await;
         assert!(res.is_ok());
     }
@@ -2818,11 +2814,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .invite_signatory(
-                &node_id_test(),
-                signatory_node_id,
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
             .await;
         assert!(res.is_ok());
     }
@@ -2879,11 +2871,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .invite_signatory(
-                &node_id_test(),
-                signatory_node_id,
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -2933,11 +2921,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .invite_signatory(
-                &node_id_test(),
-                node_id_test_other(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .invite_signatory(&node_id_test(), node_id_test_other(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -2979,11 +2963,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .invite_signatory(
-                &node_id_test(),
-                node_id_test_other(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .invite_signatory(&node_id_test(), node_id_test_other(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3039,11 +3019,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .invite_signatory(
-                &node_id_test(),
-                node_id_test(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .invite_signatory(&node_id_test(), node_id_test(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3102,11 +3078,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .invite_signatory(
-                &node_id_test(),
-                node_id_test(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .invite_signatory(&node_id_test(), node_id_test(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3189,11 +3161,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .remove_signatory(
-                &node_id_test(),
-                node_id_test_other(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
             .await;
         assert!(res.is_ok());
     }
@@ -3235,11 +3203,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .remove_signatory(
-                &node_id_test(),
-                node_id_test_other(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3335,7 +3299,7 @@ pub mod tests {
             .remove_signatory(
                 &node_id_test(),
                 NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await;
         assert!(res.is_ok());
@@ -3390,11 +3354,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .remove_signatory(
-                &node_id_test(),
-                node_id_test_other2(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .remove_signatory(&node_id_test(), node_id_test_other2(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3443,11 +3403,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .remove_signatory(
-                &node_id_test(),
-                node_id_test(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .remove_signatory(&node_id_test(), node_id_test(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3505,11 +3461,7 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .remove_signatory(
-                &node_id_test(),
-                node_id_test(),
-                Timestamp::new(1731593928).unwrap(),
-            )
+            .remove_signatory(&node_id_test(), node_id_test(), test_ts())
             .await;
         assert!(res.is_err());
     }
@@ -3779,7 +3731,7 @@ pub mod tests {
 
             let mut sig = get_valid_activated_signatory(&node_id_test_other());
             sig.status = CompanySignatoryStatus::Removed {
-                ts: Timestamp::new(1731593928).unwrap(),
+                ts: test_ts(),
                 remover: node_id_test(),
             };
             data.signatories.push(sig);
@@ -3860,7 +3812,7 @@ pub mod tests {
 
         let mut sig = get_valid_activated_signatory(&node_id_test());
         sig.status = CompanySignatoryStatus::Removed {
-            ts: Timestamp::new(1731593928).unwrap(),
+            ts: test_ts(),
             remover: node_id_test(),
         };
         let mut signatories = vec![sig];
@@ -3924,28 +3876,20 @@ pub mod tests {
                     true,
                     None,
                     true,
-                    Timestamp::new(1731593928).unwrap()
+                    test_ts()
                 )
                 .await
                 .is_err()
         );
         assert!(
             service
-                .invite_signatory(
-                    &mainnet_node_id.clone(),
-                    mainnet_node_id.clone(),
-                    Timestamp::new(1731593928).unwrap()
-                )
+                .invite_signatory(&mainnet_node_id.clone(), mainnet_node_id.clone(), test_ts())
                 .await
                 .is_err()
         );
         assert!(
             service
-                .remove_signatory(
-                    &mainnet_node_id.clone(),
-                    mainnet_node_id,
-                    Timestamp::new(1731593928).unwrap()
-                )
+                .remove_signatory(&mainnet_node_id.clone(), mainnet_node_id, test_ts())
                 .await
                 .is_err()
         );

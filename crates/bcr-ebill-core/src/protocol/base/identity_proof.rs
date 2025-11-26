@@ -62,7 +62,7 @@ impl EmailIdentityProofData {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::tests::tests::{node_id_test, private_key_test};
+    use crate::protocol::tests::tests::{node_id_test, private_key_test, test_ts};
 
     use super::*;
 
@@ -72,7 +72,7 @@ mod tests {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),
-            created_at: Timestamp::new(1731593929).unwrap(),
+            created_at: test_ts(),
         };
         let proof = data
             .sign(&node_id_test(), &private_key_test())

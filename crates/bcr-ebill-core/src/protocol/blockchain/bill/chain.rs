@@ -1059,7 +1059,7 @@ mod tests {
         tests::tests::{
             bill_id_test, bill_identified_participant_only_node_id, bill_participant_only_node_id,
             empty_bitcredit_bill, get_bill_keys, private_key_test, signed_identity_proof_test,
-            valid_address, valid_payment_address_testnet,
+            test_ts, valid_address, valid_payment_address_testnet,
         },
     };
 
@@ -1080,15 +1080,15 @@ mod tests {
                 sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
+                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }
@@ -1099,16 +1099,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
 
@@ -1121,16 +1116,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         assert!(chain.try_add_block(get_offer_to_sell_block(
@@ -1147,16 +1137,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let node_id_last_endorsee =
@@ -1168,10 +1153,8 @@ mod tests {
         ),));
 
         let keys = get_bill_keys();
-        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(
-            &keys,
-            Timestamp::new(1751293728).unwrap(),
-        ); // deadline
+        let result =
+            chain.is_last_offer_to_sell_block_waiting_for_payment(&keys, test_ts() + 20000000); // deadline
         // passed
         assert!(result.is_ok());
         assert_eq!(result.as_ref().unwrap(), &OfferToSellWaitingForPayment::No);
@@ -1183,16 +1166,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let node_id_last_endorsee =
@@ -1204,10 +1182,7 @@ mod tests {
         ),));
 
         let keys = get_bill_keys();
-        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(
-            &keys,
-            Timestamp::new(1731593928).unwrap(),
-        );
+        let result = chain.is_last_offer_to_sell_block_waiting_for_payment(&keys, test_ts());
 
         assert!(result.is_ok());
         if let OfferToSellWaitingForPayment::Yes(info) = result.unwrap() {
@@ -1230,16 +1205,11 @@ mod tests {
         ));
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let node_id_last_endorsee =
@@ -1273,16 +1243,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let chain2 = chain.clone();
@@ -1305,16 +1270,11 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1,
             None,
             BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let mut chain2 = chain.clone();
@@ -1342,16 +1302,11 @@ mod tests {
         let bill_keys = get_bill_keys();
         let identity = get_baseline_identity();
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             identity.1.clone(),
             None,
             BcrKeys::from_private_key(&bill_keys.get_private_key()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let signer = bill_identified_participant_only_node_id(NodeId::new(
@@ -1392,14 +1347,14 @@ mod tests {
                 sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593929).unwrap(),
+                signing_timestamp: test_ts() + 1,
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
             &BcrKeys::from_private_key(&bill_keys.get_private_key()),
-            Timestamp::new(1731593929).unwrap(),
+            test_ts() + 1,
         )
         .unwrap();
         assert!(chain.try_add_block(sell.clone()));
@@ -1425,14 +1380,15 @@ mod tests {
                 endorser: BillParticipant::Ident(other_party.clone()).into(),
                 endorsee: BillParticipant::Ident(signer.clone()).into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593930).unwrap(),
+
+                signing_timestamp: test_ts() + 2,
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
             &BcrKeys::from_private_key(&bill_keys.get_private_key()),
-            Timestamp::new(1731593930).unwrap(),
+            test_ts() + 2,
         )
         .unwrap();
         assert!(chain.try_add_block(endorse.clone()));
@@ -1459,14 +1415,14 @@ mod tests {
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593931).unwrap(),
+                signing_timestamp: test_ts() + 3,
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
             &BcrKeys::from_private_key(&bill_keys.get_private_key()),
-            Timestamp::new(1731593931).unwrap(),
+            test_ts() + 3,
         )
         .unwrap();
         assert!(chain.try_add_block(mint.clone()));
@@ -1494,14 +1450,14 @@ mod tests {
                 sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593932).unwrap(),
+                signing_timestamp: test_ts() + 4,
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity.1,
             None,
             &BcrKeys::from_private_key(&bill_keys.get_private_key()),
-            Timestamp::new(1731593932).unwrap(),
+            test_ts() + 4,
         )
         .unwrap();
         assert!(chain.try_add_block(recourse.clone()));

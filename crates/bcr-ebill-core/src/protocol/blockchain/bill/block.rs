@@ -1679,8 +1679,8 @@ pub mod tests {
         tests::tests::{
             bill_id_test, bill_identified_participant_only_node_id, bill_participant_only_node_id,
             empty_bill_identified_participant, empty_bitcredit_bill, get_bill_keys, node_id_test,
-            node_id_test_other, private_key_test, signed_identity_proof_test, valid_address,
-            valid_payment_address_testnet,
+            node_id_test_other, private_key_test, signed_identity_proof_test, test_ts,
+            valid_address, valid_payment_address_testnet,
         },
     };
 
@@ -1701,16 +1701,11 @@ pub mod tests {
         BillBlock::create_block_for_issue(
             bill_id_test(),
             Sha256Hash::new("prevhash"),
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }
@@ -1722,16 +1717,11 @@ pub mod tests {
         let block = BillBlock::create_block_for_issue(
             bill_id_test(),
             Sha256Hash::new("genesis"),
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             &BcrKeys::new(),
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         assert!(block.verify());
@@ -1749,7 +1739,7 @@ pub mod tests {
             &BcrKeys::new(),
             None,
             &BcrKeys::new(),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
             Sha256Hash::new("some plaintext hash"),
         )
         .unwrap();
@@ -1772,16 +1762,11 @@ pub mod tests {
         let block = BillBlock::create_block_for_issue(
             bill_id_test(),
             Sha256Hash::new("prevhash"),
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             &BcrKeys::new(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1803,14 +1788,14 @@ pub mod tests {
                 endorser: endorser.clone().into(),
                 endorsee: endorsee.into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1834,14 +1819,14 @@ pub mod tests {
                 endorsee: mint.into(),
                 sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1862,16 +1847,15 @@ pub mod tests {
             &BillRequestToAcceptBlockData {
                 requester: requester.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                acceptance_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * ACCEPT_DEADLINE_SECONDS,
+                acceptance_deadline_timestamp: test_ts() + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1898,14 +1882,14 @@ pub mod tests {
             &BillAcceptBlockData {
                 accepter: accepter.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: accepter.postal_address,
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1926,16 +1910,15 @@ pub mod tests {
                 requester: requester.clone().into(),
                 currency: Currency::sat(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * PAYMENT_DEADLINE_SECONDS,
+                payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1959,15 +1942,15 @@ pub mod tests {
                 sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
+                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -1995,14 +1978,14 @@ pub mod tests {
                     node_id: buyer.node_id().clone(),
                     name: Name::new("some name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2024,14 +2007,14 @@ pub mod tests {
             &BillRejectBlockData {
                 rejecter: rejecter.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: rejecter.postal_address,
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2052,14 +2035,14 @@ pub mod tests {
             &BillRejectBlockData {
                 rejecter: rejecter.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: rejecter.postal_address,
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2080,14 +2063,14 @@ pub mod tests {
             &BillRejectToBuyBlockData {
                 rejecter: BillParticipant::Ident(rejecter.clone()).into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(rejecter.postal_address),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2108,14 +2091,14 @@ pub mod tests {
             &BillRejectBlockData {
                 rejecter: rejecter.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: rejecter.postal_address,
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2143,16 +2126,15 @@ pub mod tests {
                 sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(recourser.postal_address),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * RECOURSE_DEADLINE_SECONDS,
+                recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2181,14 +2163,14 @@ pub mod tests {
                 sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(recourser.postal_address),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &get_baseline_identity().1,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let res = block.get_nodes_from_block(&get_bill_keys());
@@ -2220,16 +2202,11 @@ pub mod tests {
         let issue_block = BillBlock::create_block_for_issue(
             bill_id_test(),
             Sha256Hash::new("genesis"),
-            &BillIssueBlockData::from(
-                bill,
-                None,
-                Timestamp::new(1731593928).unwrap(),
-                signed_identity_proof_test(),
-            ),
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let issue_result = issue_block.verify_and_get_signer(&bill_keys_obj);
@@ -2248,14 +2225,14 @@ pub mod tests {
                 endorser: BillParticipant::Ident(signer.clone()).into(),
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let endorse_result = endorse_block.verify_and_get_signer(&bill_keys_obj);
@@ -2278,14 +2255,14 @@ pub mod tests {
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let mint_result = mint_block.verify_and_get_signer(&bill_keys_obj);
@@ -2306,16 +2283,15 @@ pub mod tests {
             &BillRequestToAcceptBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                acceptance_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * ACCEPT_DEADLINE_SECONDS,
+                acceptance_deadline_timestamp: test_ts() + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let req_to_accept_result = req_to_accept_block.verify_and_get_signer(&bill_keys_obj);
@@ -2337,16 +2313,15 @@ pub mod tests {
                 requester: BillParticipant::Ident(signer.clone()).into(),
                 currency: Currency::sat(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * PAYMENT_DEADLINE_SECONDS,
+                payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let req_to_pay_result = req_to_pay_block.verify_and_get_signer(&bill_keys_obj);
@@ -2367,14 +2342,14 @@ pub mod tests {
             &BillAcceptBlockData {
                 accepter: signer.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let accept_result = accept_block.verify_and_get_signer(&bill_keys_obj);
@@ -2398,15 +2373,15 @@ pub mod tests {
                 sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
+                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let offer_to_sell_result = offer_to_sell_block.verify_and_get_signer(&bill_keys_obj);
@@ -2430,14 +2405,14 @@ pub mod tests {
                 sum: Sum::new_sat(5000).expect("sat works"),
                 payment_address: valid_payment_address_testnet(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let sell_result = sell_block.verify_and_get_signer(&bill_keys_obj);
@@ -2458,14 +2433,14 @@ pub mod tests {
             &BillRejectBlockData {
                 rejecter: signer.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_accept_result = reject_to_accept_block.verify_and_get_signer(&bill_keys_obj);
@@ -2486,14 +2461,14 @@ pub mod tests {
             &BillRejectToBuyBlockData {
                 rejecter: BillParticipant::Ident(signer.clone()).into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_buy_result = reject_to_buy_block.verify_and_get_signer(&bill_keys_obj);
@@ -2514,14 +2489,14 @@ pub mod tests {
             &BillRejectBlockData {
                 rejecter: signer.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_pay_result = reject_to_pay_block.verify_and_get_signer(&bill_keys_obj);
@@ -2542,14 +2517,14 @@ pub mod tests {
             &BillRejectBlockData {
                 rejecter: signer.clone().into(),
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_pay_recourse_result =
@@ -2574,16 +2549,15 @@ pub mod tests {
                 sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * RECOURSE_DEADLINE_SECONDS,
+                recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let request_recourse_result = request_recourse_block.verify_and_get_signer(&bill_keys_obj);
@@ -2607,14 +2581,14 @@ pub mod tests {
                 sum: Sum::new_sat(15000).expect("sat works"),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             None,
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let recourse_result = recourse_block.verify_and_get_signer(&bill_keys_obj);
@@ -2659,13 +2633,13 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
                 signed_identity_proof_test(),
             ),
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
 
@@ -2688,14 +2662,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let endorse_result = endorse_block.verify_and_get_signer(&bill_keys_obj);
@@ -2721,14 +2695,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let mint_result = mint_block.verify_and_get_signer(&bill_keys_obj);
@@ -2752,16 +2726,15 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                acceptance_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * ACCEPT_DEADLINE_SECONDS,
+                acceptance_deadline_timestamp: test_ts() + 2 * ACCEPT_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let req_to_accept_result = req_to_accept_block.verify_and_get_signer(&bill_keys_obj);
@@ -2786,16 +2759,15 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * PAYMENT_DEADLINE_SECONDS,
+                payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let req_to_pay_result = req_to_pay_block.verify_and_get_signer(&bill_keys_obj);
@@ -2819,14 +2791,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let accept_result = accept_block.verify_and_get_signer(&bill_keys_obj);
@@ -2853,15 +2825,15 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
+                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let offer_to_sell_result = offer_to_sell_block.verify_and_get_signer(&bill_keys_obj);
@@ -2888,14 +2860,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let sell_result = sell_block.verify_and_get_signer(&bill_keys_obj);
@@ -2919,14 +2891,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_accept_result = reject_to_accept_block.verify_and_get_signer(&bill_keys_obj);
@@ -2950,14 +2922,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_buy_result = reject_to_buy_block.verify_and_get_signer(&bill_keys_obj);
@@ -2981,14 +2953,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_pay_result = reject_to_pay_block.verify_and_get_signer(&bill_keys_obj);
@@ -3012,14 +2984,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
                 signer_identity_proof: signed_identity_proof_test().into(),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let reject_to_pay_recourse_result =
@@ -3047,16 +3019,15 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                    + 2 * RECOURSE_DEADLINE_SECONDS,
+                recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let request_recourse_result = request_recourse_block.verify_and_get_signer(&bill_keys_obj);
@@ -3083,14 +3054,14 @@ pub mod tests {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
             },
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         let recourse_result = recourse_block.verify_and_get_signer(&bill_keys_obj);
@@ -3128,13 +3099,13 @@ pub mod tests {
                     node_id: node_id_test(),
                     name: Name::new("signatory name").unwrap(),
                 }),
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
                 signed_identity_proof_test(),
             ),
             &identity_keys,
             Some(&company_keys),
             &bill_keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
 
@@ -3201,7 +3172,7 @@ pub mod tests {
             city_of_payment: City::new("Paris").unwrap(),
             files: vec![],
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: valid_address(),
             signer_identity_proof: signed_identity_proof_test().into(),
         }
@@ -3217,11 +3188,10 @@ pub mod tests {
         BillRequestToAcceptBlockData {
             requester: valid_bill_participant_block_data(),
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            acceptance_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                + 2 * ACCEPT_DEADLINE_SECONDS,
+            acceptance_deadline_timestamp: test_ts() + 2 * ACCEPT_DEADLINE_SECONDS,
         }
     }
 
@@ -3236,11 +3206,10 @@ pub mod tests {
             requester: valid_bill_participant_block_data(),
             currency: Currency::sat(),
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            payment_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                + 2 * PAYMENT_DEADLINE_SECONDS,
+            payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
         }
     }
 
@@ -3256,7 +3225,7 @@ pub mod tests {
             endorsee: other_valid_bill_participant_block_data(),
             sum: Sum::new_sat(500).expect("sat works"),
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
         }
@@ -3275,10 +3244,10 @@ pub mod tests {
             sum: Sum::new_sat(500).expect("sat works"),
             payment_address: valid_payment_address_testnet(),
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            buying_deadline_timestamp: Timestamp::new(1731593928).unwrap() + 2 * DAY_IN_SECS,
+            buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
         }
     }
 
@@ -3295,7 +3264,7 @@ pub mod tests {
             sum: Sum::new_sat(500).expect("sat works"),
             payment_address: valid_payment_address_testnet(),
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
         }
@@ -3312,7 +3281,7 @@ pub mod tests {
             endorser: valid_bill_participant_block_data(),
             endorsee: other_valid_bill_participant_block_data(),
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
         }
@@ -3331,11 +3300,10 @@ pub mod tests {
             sum: Sum::new_sat(500).expect("sat works"),
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            recourse_deadline_timestamp: Timestamp::new(1731593928).unwrap()
-                + 2 * RECOURSE_DEADLINE_SECONDS,
+            recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
         }
     }
 
@@ -3352,7 +3320,7 @@ pub mod tests {
             sum: Sum::new_sat(500).expect("sat works"),
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
-            signing_timestamp: Timestamp::new(1731593928).unwrap(),
+            signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
         }

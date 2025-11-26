@@ -690,7 +690,7 @@ mod tests {
         tests::tests::{
             bill_id_test, node_id_test, node_id_test_and_another, node_id_test_other,
             other_valid_payment_address_testnet, private_key_test, safe_deadline_ts,
-            signed_identity_proof_test, valid_address,
+            signed_identity_proof_test, test_ts, valid_address,
             valid_and_another_bill_identified_participant, valid_bill_identified_participant,
             valid_bill_participant, valid_other_bill_identified_participant,
             valid_other_bill_participant, valid_payment_address_testnet,
@@ -715,7 +715,7 @@ mod tests {
             file_upload_ids: vec![],
             drawer_public_data: BillParticipant::Ident(valid_bill_identified_participant()),
             drawer_keys: BcrKeys::from_private_key(&private_key_test()),
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             blank_issue: false,
         }
     }

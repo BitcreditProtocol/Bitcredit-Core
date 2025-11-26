@@ -656,7 +656,7 @@ pub mod tests {
 
     use crate::handler::test_utils::{MockNotificationStore, get_valid_activated_signatory};
     use crate::push_notification::MockPushApi;
-    use crate::test_utils::signed_identity_proof_test;
+    use crate::test_utils::{signed_identity_proof_test, test_ts};
     use crate::{
         handler::{
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
@@ -1831,12 +1831,12 @@ pub mod tests {
                 registration_date: company.registration_date,
                 proof_of_registration_file: company.proof_of_registration_file,
                 logo_file: company.logo_file,
-                creation_time: Timestamp::new(1731593928).unwrap(),
+                creation_time: test_ts(),
                 creator: node_id_test(),
             },
             &BcrKeys::new(),
             keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -1854,7 +1854,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            Timestamp::new(1731594928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -1873,7 +1873,7 @@ pub mod tests {
             keys,
             company_keys,
             &data.invitee.pub_key(),
-            Timestamp::new(1731594928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -1891,7 +1891,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            Timestamp::new(1731594928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -1909,7 +1909,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            Timestamp::new(1731594928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -1927,7 +1927,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            Timestamp::new(1731594928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -1945,7 +1945,7 @@ pub mod tests {
             data,
             keys,
             company_keys,
-            Timestamp::new(1731594928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }

@@ -1063,7 +1063,7 @@ pub mod tests {
         service::bill_service::test_utils::{bill_keys, get_baseline_bill, get_genesis_chain},
         tests::tests::{
             bill_id_test, bill_identified_participant_only_node_id, empty_address,
-            private_key_test, signed_identity_proof_test,
+            private_key_test, signed_identity_proof_test, test_ts,
         },
     };
 
@@ -1078,7 +1078,7 @@ pub mod tests {
         let endorsee: Option<NodeId> = None;
         let maturity_date = bill.maturity_date.clone();
         let bill_keys = bill_keys();
-        let timestamp = Timestamp::new(1731593928).unwrap();
+        let timestamp = test_ts();
 
         let is_paid = false;
         let is_waiting_for_req_to_pay = false;
