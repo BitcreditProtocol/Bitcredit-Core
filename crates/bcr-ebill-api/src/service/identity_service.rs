@@ -907,7 +907,7 @@ impl IdentityServiceApi for IdentityService {
         let keys = BcrKeys::from_private_key(&derived_keys.secret_key());
         self.block_transport
             .contact_transport()
-            .share_contact_details_keys(share_to, &identity.identity.node_id, &keys)
+            .share_contact_details_keys(share_to, &identity.identity.node_id, &keys, None)
             .await?;
         Ok(())
     }

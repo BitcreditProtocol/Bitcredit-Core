@@ -68,6 +68,24 @@ impl Notification {
             payload,
         }
     }
+
+    pub fn new_contact_notification(
+        pending_share_id: &str,
+        node_id: &NodeId,
+        description: &str,
+        payload: Option<Value>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            node_id: Some(node_id.to_owned()),
+            notification_type: NotificationType::Contact,
+            reference_id: Some(pending_share_id.to_string()),
+            description: description.to_string(),
+            datetime: Timestamp::now().to_datetime(),
+            active: true,
+            payload,
+        }
+    }
 }
 
 /// The type/topic of a notification we show to the user
@@ -76,6 +94,7 @@ pub enum NotificationType {
     General,
     Company,
     Bill,
+    Contact,
 }
 
 impl Display for NotificationType {

@@ -6,7 +6,7 @@ use bcr_ebill_core::protocol::{
     City, Country, Date, Email, File, Identification, Name, OptionalPostalAddress, PostalAddress,
     PublicKey, SecretKey, Sha256Hash,
     blockchain::bill::{block::ContactType, participant::BillParticipant},
-    crypto,
+    crypto::{self, BcrKeys, DeriveKeypair},
 };
 use bcr_ebill_core::{
     application::{
@@ -17,8 +17,8 @@ use bcr_ebill_core::{
     protocol::ProtocolValidationError,
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, file_upload::FileUploadStoreApi, identity::IdentityStoreApi,
-    nostr::NostrContactStoreApi,
+    ContactStoreApi, company::CompanyStoreApi, file_upload::FileUploadStoreApi,
+    identity::IdentityStoreApi, nostr::NostrContactStoreApi,
 };
 #[cfg(test)]
 use mockall::automock;
@@ -128,6 +128,28 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
+
+    /// Lists all pending contact shares for the current user's node
+    async fn list_pending_contact_shares(
+        &self,
+        receiver_node_id: &NodeId,
+    ) -> Result<Vec<bcr_ebill_persistence::PendingContactShare>>;
+
+    /// Gets a specific pending contact share by ID
+    async fn get_pending_contact_share(
+        &self,
+        id: &str,
+    ) -> Result<Option<bcr_ebill_persistence::PendingContactShare>>;
+
+    /// Approves a pending contact share by ID, optionally sharing back the receiver's contact
+    ///
+    /// # Arguments
+    /// * `pending_share_id` - The ID of the pending contact share to approve
+    /// * `share_back` - If true, automatically shares the receiver's contact back to the sender
+    async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> Result<()>;
+
+    /// Rejects a pending contact share by ID (deletes it)
+    async fn reject_contact_share(&self, pending_share_id: &str) -> Result<()>;
 }
 
 /// The contact service is responsible for managing the local contacts
@@ -137,9 +159,8 @@ pub struct ContactService {
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     file_upload_client: Arc<dyn FileStorageClientApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
-    // we still need this for fetching new contacts from nostr when we get keys externally
-    #[allow(dead_code)]
     transport_service: Arc<dyn TransportServiceApi>,
     config: Config,
 }
@@ -150,6 +171,7 @@ impl ContactService {
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
+        company_store: Arc<dyn CompanyStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         transport_service: Arc<dyn TransportServiceApi>,
         config: &Config,
@@ -159,6 +181,7 @@ impl ContactService {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact_store,
             transport_service,
             config: config.clone(),
@@ -721,6 +744,115 @@ impl ContactServiceApi for ContactService {
             return Err(super::Error::NotFound);
         }
     }
+
+    async fn list_pending_contact_shares(
+        &self,
+        receiver_node_id: &NodeId,
+    ) -> Result<Vec<bcr_ebill_persistence::PendingContactShare>> {
+        validate_node_id_network(receiver_node_id)?;
+        // By default, only return incoming shares (not the ones we created when sharing)
+        Ok(self
+            .nostr_contact_store
+            .list_pending_shares_by_receiver_and_direction(
+                receiver_node_id,
+                bcr_ebill_persistence::ShareDirection::Incoming,
+            )
+            .await?)
+    }
+
+    async fn get_pending_contact_share(
+        &self,
+        id: &str,
+    ) -> Result<Option<bcr_ebill_persistence::PendingContactShare>> {
+        Ok(self.nostr_contact_store.get_pending_share(id).await?)
+    }
+
+    async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> Result<()> {
+        // Get the pending share
+        let pending_share = self
+            .nostr_contact_store
+            .get_pending_share(pending_share_id)
+            .await?
+            .ok_or(super::Error::NotFound)?;
+
+        let node_id = &pending_share.node_id;
+        let contact = &pending_share.contact;
+        let private_key = &pending_share.contact_private_key;
+
+        // Add/update the contact in the contact store
+        if self.store.get(node_id).await?.is_some() {
+            self.store.update(node_id, contact.clone()).await?;
+        } else {
+            self.store.insert(node_id, contact.clone()).await?;
+        }
+
+        // Update NostrContact with the private key
+        let upsert =
+            if let Ok(Some(nostr_contact)) = self.nostr_contact_store.by_node_id(node_id).await {
+                nostr_contact.merge_contact(contact, Some(*private_key))
+            } else {
+                NostrContact::from_contact(contact, Some(*private_key))?
+            };
+        self.nostr_contact_store.upsert(&upsert).await?;
+
+        info!("approved contact share for {}", node_id);
+
+        // Delete the pending share
+        self.nostr_contact_store
+            .delete_pending_share(pending_share_id)
+            .await?;
+
+        // If share_back is true, share our contact back to the sender
+        if share_back {
+            let sender_node_id = &pending_share.sender_node_id;
+            let receiver_node_id = &pending_share.receiver_node_id;
+
+            // First, try to match with the user's identity
+            let receiver_identity = self.identity_store.get_full().await?;
+
+            let keys = if &receiver_identity.identity.node_id == receiver_node_id {
+                // Share back as identity
+                let derived_keys = receiver_identity.key_pair.derive_identity_keypair()?;
+                BcrKeys::from_private_key(&derived_keys.secret_key())
+            } else if self.company_store.exists(receiver_node_id).await {
+                // Share back as company
+                let company_keys = self.company_store.get_key_pair(receiver_node_id).await?;
+                let derived_keys = company_keys.derive_company_keypair()?;
+                BcrKeys::from_private_key(&derived_keys.secret_key())
+            } else {
+                // receiver_node_id doesn't match identity or any company
+                // this should never happen as one of our identities was the receiver
+                return Err(super::Error::Validation(
+                    bcr_ebill_core::application::ValidationError::Protocol(
+                        bcr_ebill_core::protocol::ProtocolValidationError::InvalidContactType,
+                    ),
+                ));
+            };
+
+            // Share the receiver's contact back to the sender, including the initial_share_id
+            // from the sender as share_back_pending_id so the sender can auto-accept
+            info!("sharing back contact to {}", sender_node_id);
+            self.transport_service
+                .contact_transport()
+                .share_contact_details_keys(
+                    sender_node_id,
+                    receiver_node_id,
+                    &keys,
+                    pending_share.initial_share_id.clone(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn reject_contact_share(&self, pending_share_id: &str) -> Result<()> {
+        self.nostr_contact_store
+            .delete_pending_share(pending_share_id)
+            .await?;
+        info!("rejected contact share {}", pending_share_id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -734,9 +866,9 @@ pub mod tests {
             transport_service::MockTransportServiceApi,
         },
         tests::tests::{
-            MockContactStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, NODE_ID_TEST_STR, empty_address, empty_optional_address,
-            init_test_cfg, node_id_test, node_id_test_other,
+            MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
+            MockIdentityStoreApiMock, MockNostrContactStore, NODE_ID_TEST_STR, empty_address,
+            empty_optional_address, init_test_cfg, node_id_test, node_id_test_other,
         },
     };
     use bcr_ebill_core::{application::nostr_contact::HandshakeStatus, protocol::crypto::BcrKeys};
@@ -777,6 +909,7 @@ pub mod tests {
         mock_file_upload_storage: MockFileUploadStoreApiMock,
         mock_file_upload_client: MockFileStorageClientApi,
         mock_identity_storage: MockIdentityStoreApiMock,
+        mock_company_storage: MockCompanyStoreApiMock,
         mock_nostr_contact_store: MockNostrContactStore,
         mock_transport_service: MockTransportServiceApi,
     ) -> ContactService {
@@ -785,6 +918,7 @@ pub mod tests {
             Arc::new(mock_file_upload_storage),
             Arc::new(mock_file_upload_client),
             Arc::new(mock_identity_storage),
+            Arc::new(mock_company_storage),
             Arc::new(mock_nostr_contact_store),
             Arc::new(mock_transport_service),
             get_config(),
@@ -796,6 +930,7 @@ pub mod tests {
         MockFileUploadStoreApiMock,
         MockFileStorageClientApi,
         MockIdentityStoreApiMock,
+        MockCompanyStoreApiMock,
         MockNostrContactStore,
         MockTransportServiceApi,
     ) {
@@ -804,6 +939,7 @@ pub mod tests {
             MockFileUploadStoreApiMock::new(),
             MockFileStorageClientApi::new(),
             MockIdentityStoreApiMock::new(),
+            MockCompanyStoreApiMock::new(),
             MockNostrContactStore::new(),
             MockTransportServiceApi::new(),
         )
@@ -816,6 +952,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             transport,
         ) = get_storages();
@@ -831,6 +968,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             transport,
         )
@@ -854,6 +992,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         ) = get_storages();
@@ -867,6 +1006,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         )
@@ -886,6 +1026,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         ) = get_storages();
@@ -895,6 +1036,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         );
@@ -977,6 +1119,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             mut nostr_contact,
             notification,
         ) = get_storages();
@@ -987,6 +1130,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         )
@@ -1002,6 +1146,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             mut identity_store,
+            company_store,
             mut nostr_contact,
             notification,
         ) = get_storages();
@@ -1026,6 +1171,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         )
@@ -1055,6 +1201,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             mut identity_store,
+            company_store,
             mut nostr_contact,
             notification,
         ) = get_storages();
@@ -1075,6 +1222,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         )
@@ -1103,6 +1251,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             mut identity_store,
+            company_store,
             mut nostr_contact_store,
             notification,
         ) = get_storages();
@@ -1126,6 +1275,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact_store,
             notification,
         )
@@ -1156,6 +1306,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             mut identity_store,
+            company_store,
             mut nostr_contact_store,
             notification,
         ) = get_storages();
@@ -1177,6 +1328,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact_store,
             notification,
         )
@@ -1205,6 +1357,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             mut identity_store,
+            company_store,
             nostr_contact_store,
             notification,
         ) = get_storages();
@@ -1221,6 +1374,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact_store,
             notification,
         )
@@ -1254,6 +1408,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             mut identity_store,
+            company_store,
             nostr_contact_store,
             notification,
         ) = get_storages();
@@ -1271,6 +1426,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact_store,
             notification,
         )
@@ -1306,6 +1462,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             mut nostr_contact,
             notification,
         ) = get_storages();
@@ -1326,6 +1483,7 @@ pub mod tests {
             file_upload_store,
             file_upload_client,
             identity_store,
+            company_store,
             nostr_contact,
             notification,
         )

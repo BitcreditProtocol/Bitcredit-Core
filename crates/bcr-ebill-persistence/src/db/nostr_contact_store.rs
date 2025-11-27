@@ -3,16 +3,21 @@ use super::{
     surreal::{Bindings, SurrealWrapper},
 };
 use crate::{
-    constants::{DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL},
-    nostr::NostrContactStoreApi,
+    constants::{
+        DB_CONTACT_SHARE_DIRECTION, DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_RECEIVER_NODE_ID,
+        DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL,
+    },
+    nostr::{NostrContactStoreApi, PendingContactShare, ShareDirection},
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
+    application::contact::Contact,
     application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
     protocol::Name,
     protocol::SecretKey,
+    protocol::Timestamp,
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -24,6 +29,7 @@ pub struct SurrealNostrContactStore {
 
 impl SurrealNostrContactStore {
     const TABLE: &'static str = "nostr_contact";
+    const PENDING_SHARE_TABLE: &'static str = "pending_contact_share";
 
     pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
@@ -139,6 +145,102 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
             .collect::<Option<Vec<NostrContact>>>();
         Ok(values.unwrap_or_default())
     }
+
+    // Pending contact share methods
+    async fn add_pending_share(&self, pending_share: PendingContactShare) -> Result<()> {
+        let db_data: PendingContactShareDb = pending_share.clone().into();
+        let _: Option<PendingContactShareDb> = self
+            .db
+            .upsert(Self::PENDING_SHARE_TABLE, pending_share.id.clone(), db_data)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_pending_share(&self, id: &str) -> Result<Option<PendingContactShare>> {
+        let result: Option<PendingContactShareDb> = self
+            .db
+            .select_one(Self::PENDING_SHARE_TABLE, id.to_string())
+            .await?;
+        let value = result.and_then(|v| v.to_owned().try_into().ok());
+        Ok(value)
+    }
+
+    async fn get_pending_share_by_private_key(
+        &self,
+        private_key: &SecretKey,
+    ) -> Result<Option<PendingContactShare>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
+        bindings.add("contact_private_key", private_key.to_owned())?;
+        let query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE contact_private_key = $contact_private_key LIMIT 1"
+        );
+        let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
+        let value = result.into_iter().next().and_then(|v| v.try_into().ok());
+        Ok(value)
+    }
+
+    async fn list_pending_shares_by_receiver(
+        &self,
+        receiver_node_id: &NodeId,
+    ) -> Result<Vec<PendingContactShare>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
+        bindings.add(DB_RECEIVER_NODE_ID, receiver_node_id.to_owned())?;
+        let query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} ORDER BY received_at DESC"
+        );
+        let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
+        let values = result
+            .into_iter()
+            .map(|c| c.to_owned().try_into().ok())
+            .collect::<Option<Vec<PendingContactShare>>>();
+        Ok(values.unwrap_or_default())
+    }
+
+    async fn list_pending_shares_by_receiver_and_direction(
+        &self,
+        receiver_node_id: &NodeId,
+        direction: ShareDirection,
+    ) -> Result<Vec<PendingContactShare>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
+        bindings.add(DB_RECEIVER_NODE_ID, receiver_node_id.to_owned())?;
+        bindings.add(DB_CONTACT_SHARE_DIRECTION, direction)?;
+        let query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} AND ${DB_CONTACT_SHARE_DIRECTION} = $direction ORDER BY received_at DESC"
+        );
+        let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
+        let values = result
+            .into_iter()
+            .map(|c| c.to_owned().try_into().ok())
+            .collect::<Option<Vec<PendingContactShare>>>();
+        Ok(values.unwrap_or_default())
+    }
+
+    async fn delete_pending_share(&self, id: &str) -> Result<()> {
+        let _: Option<PendingContactShareDb> = self
+            .db
+            .delete(Self::PENDING_SHARE_TABLE, id.to_owned())
+            .await?;
+        Ok(())
+    }
+
+    async fn pending_share_exists_for_node_and_receiver(
+        &self,
+        node_id: &NodeId,
+        receiver_node_id: &NodeId,
+    ) -> Result<bool> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
+        bindings.add(DB_NODE_ID, node_id.to_owned())?;
+        bindings.add(DB_RECEIVER_NODE_ID, receiver_node_id.to_owned())?;
+        let query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_NODE_ID} = ${DB_NODE_ID} AND {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} LIMIT 1"
+        );
+        let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
+        Ok(!result.is_empty())
+    }
 }
 
 fn update_field_query(field_name: &str) -> String {
@@ -195,6 +297,56 @@ impl TryFrom<NostrContactDb> for NostrContact {
             trust_level: db.trust_level,
             handshake_status: db.handshake_status,
             contact_private_key: db.contact_private_key,
+        })
+    }
+}
+
+/// Database representation of a pending contact share
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingContactShareDb {
+    pub id: Thing,
+    pub node_id: NodeId,
+    pub contact: Contact,
+    pub sender_node_id: NodeId,
+    pub contact_private_key: SecretKey,
+    pub receiver_node_id: NodeId,
+    pub received_at: Timestamp,
+    pub direction: ShareDirection,
+    pub initial_share_id: Option<String>,
+}
+
+impl From<PendingContactShare> for PendingContactShareDb {
+    fn from(share: PendingContactShare) -> Self {
+        Self {
+            id: Thing::from((
+                SurrealNostrContactStore::PENDING_SHARE_TABLE.to_owned(),
+                share.id,
+            )),
+            node_id: share.node_id,
+            contact: share.contact,
+            sender_node_id: share.sender_node_id,
+            contact_private_key: share.contact_private_key,
+            receiver_node_id: share.receiver_node_id,
+            received_at: share.received_at,
+            direction: share.direction,
+            initial_share_id: share.initial_share_id,
+        }
+    }
+}
+
+impl TryFrom<PendingContactShareDb> for PendingContactShare {
+    type Error = Error;
+    fn try_from(db: PendingContactShareDb) -> std::result::Result<Self, Self::Error> {
+        Ok(Self {
+            id: db.id.id.to_raw(),
+            node_id: db.node_id,
+            contact: db.contact,
+            sender_node_id: db.sender_node_id,
+            contact_private_key: db.contact_private_key,
+            receiver_node_id: db.receiver_node_id,
+            received_at: db.received_at,
+            direction: db.direction,
+            initial_share_id: db.initial_share_id,
         })
     }
 }

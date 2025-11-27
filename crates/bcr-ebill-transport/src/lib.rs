@@ -275,7 +275,7 @@ pub async fn create_nostr_consumer(
         }),
         Arc::new(BillActionEventHandler::new(
             db_context.notification_store.clone(),
-            push_service,
+            push_service.clone(),
             bill_processor.clone(),
         )),
         bill_invite_handler,
@@ -299,6 +299,8 @@ pub async fn create_nostr_consumer(
             transport.clone(),
             db_context.contact_store.clone(),
             db_context.nostr_contact_store.clone(),
+            db_context.notification_store.clone(),
+            push_service.clone(),
         )),
     ];
     debug!("initializing nostr consumer for {} clients", clients.len());

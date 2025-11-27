@@ -21,7 +21,6 @@ document.getElementById("search_contacts").addEventListener("click", searchConta
 
 // identity
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
-document.getElementById("share_contact_to").addEventListener("click", shareContact);
 document.getElementById("dev_mode_get_identity_chain").addEventListener("click", devModeGetIdentityChain);
 document.getElementById("sync_identity_chain").addEventListener("click", syncIdentityChain);
 document.getElementById("confirm_email").addEventListener("click", confirmEmail);
@@ -30,6 +29,15 @@ document.getElementById("change_email").addEventListener("click", changeEmail);
 document.getElementById("get_confirmations").addEventListener("click", getIdentityConfirmations);
 document.getElementById("get_identity").addEventListener("click", getIdentity);
 document.getElementById("change_name").addEventListener("click", changeName);
+
+// contact share
+document.getElementById("share_contact_to").addEventListener("click", shareContact);
+document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
+document.getElementById("list_pending_contact_shares").addEventListener("click", listPendingContactShares);
+document.getElementById("get_pending_contact_share").addEventListener("click", getPendingContactShare);
+document.getElementById("approve_contact_share").addEventListener("click", approveContactShare);
+document.getElementById("approve_contact_share_with_share_back").addEventListener("click", approveContactShareWithShareBack);
+document.getElementById("reject_contact_share").addEventListener("click", rejectContactShare);
 
 // bill actions
 document.getElementById("bill_fetch_detail").addEventListener("click", fetchBillDetail);
@@ -73,7 +81,6 @@ document.getElementById("company_update").addEventListener("click", updateCompan
 document.getElementById("company_invite_signatory").addEventListener("click", inviteSignatory);
 document.getElementById("company_remove_signatory").addEventListener("click", removeSignatory);
 document.getElementById("company_list").addEventListener("click", listCompanies);
-document.getElementById("share_company_contact_to").addEventListener("click", shareCompanyContact);
 document.getElementById("dev_mode_get_company_chain").addEventListener("click", devModeGetCompanyChain);
 document.getElementById("list_signatories").addEventListener("click", listSignatories);
 document.getElementById("sync_company_chain").addEventListener("click", syncCompanyChain);
@@ -302,13 +309,6 @@ async function removeSignatory() {
   console.log("removed signatory to company: ", signatory_node_id, company_id);
 }
 
-async function shareCompanyContact() {
-  let node_id = document.getElementById("company_id").value;
-  let share_to_node_id = document.getElementById("company_signatory_id").value;
-  console.log("sharing contact details to identity: ", node_id);
-  fail_on_error(await window.companyApi.share_contact_details({ recipient: share_to_node_id, company_id: node_id }));
-}
-
 async function listCompanies() {
   let measured = measure(async () => {
     return success_or_fail(await window.companyApi.list());
@@ -441,9 +441,62 @@ async function switchIdentity() {
 }
 
 async function shareContact() {
-  let node_id = document.getElementById("node_id_identity").value;
+  let node_id = document.getElementById("share_recipient_node_id").value;
   console.log("sharing contact details to identity: ", node_id);
   fail_on_error(await window.identityApi.share_contact_details({ recipient: node_id }));
+}
+
+async function shareCompanyContact() {
+  let company_id = document.getElementById("share_company_id").value;
+  let share_to_node_id = document.getElementById("share_company_recipient_node_id").value;
+  console.log("sharing company contact details to identity: ", company_id, "->", share_to_node_id);
+  fail_on_error(await window.companyApi.share_contact_details({ recipient: share_to_node_id, company_id: company_id }));
+}
+
+async function listPendingContactShares() {
+  let receiver_node_id = document.getElementById("receiver_node_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.list_pending_contact_shares(receiver_node_id));
+  });
+  await measured();
+}
+
+async function getPendingContactShare() {
+  let pending_share_id = document.getElementById("pending_share_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.get_pending_contact_share(pending_share_id));
+  });
+  await measured();
+}
+
+async function approveContactShare() {
+  let pending_share_id = document.getElementById("pending_share_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.approve_contact_share({
+      pending_share_id: pending_share_id,
+      share_back: false
+    }));
+  });
+  await measured();
+}
+
+async function approveContactShareWithShareBack() {
+  let pending_share_id = document.getElementById("pending_share_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.approve_contact_share({
+      pending_share_id: pending_share_id,
+      share_back: true
+    }));
+  });
+  await measured();
+}
+
+async function rejectContactShare() {
+  let pending_share_id = document.getElementById("pending_share_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.reject_contact_share(pending_share_id));
+  });
+  await measured();
 }
 
 async function endorseBill() {
@@ -701,7 +754,7 @@ async function companyDetail() {
 async function companyCreateId() {
   console.log("companyCreateId");
   let id = success_or_fail(await window.companyApi.create_keys());
-    console.log(id);
+  console.log(id);
   document.getElementById("company_id").value = id.id;
 }
 
@@ -983,7 +1036,7 @@ function sleep(ms) {
 // Use to extract the data from a TSResult::Success, or throw if it's an error
 function success_or_fail(res) {
   if (res.Error) {
-    throw(res.Error);
+    throw (res.Error);
   } else {
     return res.Success;
   }
@@ -992,6 +1045,6 @@ function success_or_fail(res) {
 // Use to throw an exception on error, and otherwise just return the result
 function fail_on_error(res) {
   if (res.Error) {
-    throw(res.Error);
+    throw (res.Error);
   }
 }

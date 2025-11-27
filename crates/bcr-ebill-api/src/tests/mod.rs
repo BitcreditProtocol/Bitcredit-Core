@@ -43,8 +43,8 @@ pub mod tests {
     };
     use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
-        ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi, NotificationStoreApi, Result,
-        SurrealDbConfig,
+        ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi, NotificationStoreApi,
+        PendingContactShare, Result, ShareDirection, SurrealDbConfig,
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
@@ -149,6 +149,13 @@ pub mod tests {
             async fn set_trust_level(&self, node_id: &NodeId, trust_level: TrustLevel) -> Result<()>;
             async fn get_npubs(&self, levels: Vec<TrustLevel>) -> Result<Vec<NostrPublicKey>>;
             async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> Result<Vec<NostrContact>>;
+            async fn add_pending_share(&self, pending_share: PendingContactShare) -> Result<()>;
+            async fn get_pending_share(&self, id: &str) -> Result<Option<PendingContactShare>>;
+            async fn get_pending_share_by_private_key(&self, private_key: &SecretKey) -> Result<Option<PendingContactShare>>;
+            async fn list_pending_shares_by_receiver(&self, receiver_node_id: &NodeId) -> Result<Vec<PendingContactShare>>;
+            async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> Result<Vec<PendingContactShare>>;
+            async fn delete_pending_share(&self, id: &str) -> Result<()>;
+            async fn pending_share_exists_for_node_and_receiver(&self, node_id: &NodeId, receiver_node_id: &NodeId) -> Result<bool>;
         }
     }
 
