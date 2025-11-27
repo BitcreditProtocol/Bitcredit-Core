@@ -26,7 +26,7 @@ use bcr_ebill_core::{
     },
 };
 
-use crate::util::validate_node_id_network;
+use crate::{get_config, util::validate_node_id_network};
 
 use super::{BillAction, Result, error::Error, service::BillService};
 
@@ -56,6 +56,14 @@ impl BillService {
             BillParticipant::Ident(_) => false,
         };
 
+        let identity_proof = self
+            .get_signer_identity_proof(
+                signer_public_data,
+                identity,
+                &get_config().mint_config.default_mint_node_id,
+            )
+            .await?;
+
         let block = match bill_action {
             // has to be ident to accept
             BillAction::Accept => {
@@ -65,6 +73,11 @@ impl BillService {
                         signatory: signing_keys.signatory_identity,
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
+                        signer_identity_proof: identity_proof
+                            .ok_or(Error::Protocol(
+                                ProtocolValidationError::NoSignerIdentityProof.into(),
+                            ))?
+                            .into(),
                     };
                     // nothing to validate - all checked via type system
                     BillBlock::create_block_for_accept(
@@ -95,6 +108,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                     acceptance_deadline_timestamp: *acceptance_deadline_timestamp,
                 };
                 block_data.validate()?;
@@ -122,6 +140,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                     payment_deadline_timestamp: *payment_deadline_timestamp,
                 };
                 block_data.validate()?;
@@ -164,6 +187,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                     recourse_deadline_timestamp: *recourse_deadline_timestamp,
                 };
                 block_data.validate()?;
@@ -198,6 +226,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_recourse(
@@ -226,6 +259,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_mint(
@@ -259,6 +297,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                     buying_deadline_timestamp: *buying_deadline_timestamp,
                 };
                 block_data.validate()?;
@@ -289,6 +332,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_sell(
@@ -316,6 +364,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_endorse(
@@ -337,6 +390,11 @@ impl BillService {
                         signatory: signing_keys.signatory_identity,
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
+                        signer_identity_proof: identity_proof
+                            .ok_or(Error::Protocol(
+                                ProtocolValidationError::NoSignerIdentityProof.into(),
+                            ))?
+                            .into(),
                     };
                     // nothing to validate - all checked via type system
                     BillBlock::create_block_for_reject_to_accept(
@@ -367,6 +425,11 @@ impl BillService {
                     signatory: signing_keys.signatory_identity,
                     signing_timestamp: timestamp,
                     signing_address: signer_public_data.postal_address(),
+                    signer_identity_proof: if holder_is_anon {
+                        None
+                    } else {
+                        identity_proof.map(|sp| sp.into())
+                    },
                 };
                 // nothing to validate - all checked via type system
                 BillBlock::create_block_for_reject_to_buy(
@@ -388,6 +451,11 @@ impl BillService {
                         signatory: signing_keys.signatory_identity,
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
+                        signer_identity_proof: identity_proof
+                            .ok_or(Error::Protocol(
+                                ProtocolValidationError::NoSignerIdentityProof.into(),
+                            ))?
+                            .into(),
                     };
                     // nothing to validate - all checked via type system
                     BillBlock::create_block_for_reject_to_pay(
@@ -414,6 +482,11 @@ impl BillService {
                         signatory: signing_keys.signatory_identity,
                         signing_timestamp: timestamp,
                         signing_address: signer.postal_address.clone(),
+                        signer_identity_proof: identity_proof
+                            .ok_or(Error::Protocol(
+                                ProtocolValidationError::NoSignerIdentityProof.into(),
+                            ))?
+                            .into(),
                     };
                     // nothing to validate - all checked via type system
                     BillBlock::create_block_for_reject_to_pay_recourse(

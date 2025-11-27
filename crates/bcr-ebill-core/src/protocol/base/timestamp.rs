@@ -174,6 +174,8 @@ impl From<Timestamp> for u64 {
 mod tests {
     use std::time::UNIX_EPOCH;
 
+    use crate::protocol::tests::tests::test_ts;
+
     use super::*;
     use borsh::BorshDeserialize;
     use chrono::Utc;
@@ -214,10 +216,10 @@ mod tests {
     }
 
     #[test]
-    fn test_ts() {
-        let n = Timestamp::new(1731593928).expect("works");
-        let n_owned = Timestamp::new(1731593928).expect("works");
-        let n_bigger = Timestamp::new(1731593929).expect("works");
+    fn test_timestamp() {
+        let n = test_ts();
+        let n_owned = test_ts();
+        let n_bigger = n_owned + 1;
         assert_eq!(n, n_owned);
         assert!(n < n_bigger);
 

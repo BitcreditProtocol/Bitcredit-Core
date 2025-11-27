@@ -209,10 +209,23 @@ impl BillService {
             &data.drawer_keys,
             &identity,
         )?;
+        let Some(identity_proof) = self
+            .get_signer_identity_proof(
+                &data.drawer_public_data,
+                &identity,
+                &get_config().mint_config.default_mint_node_id,
+            )
+            .await?
+        else {
+            return Err(Error::Protocol(
+                ProtocolValidationError::NoSignerIdentityProof.into(),
+            ));
+        };
         let block_data = BillIssueBlockData::from(
             bill.clone(),
             signing_keys.signatory_identity,
             data.timestamp,
+            identity_proof,
         );
         block_data.validate()?;
 

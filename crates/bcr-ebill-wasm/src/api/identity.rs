@@ -435,6 +435,7 @@ impl Identity {
                 &keys,
                 context.chain_key_service.clone(),
                 context.contact_service.clone(),
+                context.push_service.clone(),
             )
             .await?;
             recovery_service.restore_account().await?;

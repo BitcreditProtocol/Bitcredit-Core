@@ -252,7 +252,9 @@ mod tests {
     use crate::{
         db::get_memory_db,
         protocol::crypto::BcrKeys,
-        tests::tests::{empty_address, empty_optional_address, node_id_test, private_key_test},
+        tests::tests::{
+            empty_address, empty_optional_address, node_id_test, private_key_test, test_ts,
+        },
     };
     use bcr_ebill_core::protocol::{
         City, Country, Date, Email, Identification, Name,
@@ -290,12 +292,12 @@ mod tests {
                 registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                creation_time: Timestamp::new(1731593928).unwrap(),
+                creation_time: test_ts(),
                 creator: node_id_test(),
             },
             &BcrKeys::new(),
             &get_company_keys(),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         store.add_block(&node_id_test(), &block).await.unwrap();
@@ -319,7 +321,7 @@ mod tests {
             },
             &BcrKeys::new(),
             &get_company_keys(),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         store.add_block(&node_id_test(), &block2).await.unwrap();
@@ -345,12 +347,12 @@ mod tests {
                 registration_date: Some(Date::new("2024-01-01").unwrap()),
                 proof_of_registration_file: None,
                 logo_file: None,
-                creation_time: Timestamp::new(1731593928).unwrap(),
+                creation_time: test_ts(),
                 creator: node_id_test(),
             },
             &BcrKeys::new(),
             &get_company_keys(),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         store.add_block(&node_id_test(), &block).await.unwrap();

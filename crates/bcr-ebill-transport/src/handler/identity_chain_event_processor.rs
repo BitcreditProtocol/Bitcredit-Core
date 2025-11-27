@@ -397,7 +397,7 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::test_utils::signed_identity_proof_test;
+    use crate::test_utils::{signed_identity_proof_test, test_ts};
     use crate::{
         handler::{
             IdentityChainEventProcessorApi, MockNostrContactProcessorApi,
@@ -797,7 +797,7 @@ pub mod tests {
             Sha256Hash::new("genesis hash"),
             &identity.into(),
             keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block")
     }
@@ -807,13 +807,8 @@ pub mod tests {
         keys: &BcrKeys,
         data: &IdentityUpdateBlockData,
     ) -> IdentityBlock {
-        IdentityBlock::create_block_for_update(
-            previous_block,
-            data,
-            keys,
-            Timestamp::new(1731594928).unwrap(),
-        )
-        .expect("could not create block")
+        IdentityBlock::create_block_for_update(previous_block, data, keys, test_ts())
+            .expect("could not create block")
     }
 
     pub fn get_identity_proof_block(
@@ -821,13 +816,8 @@ pub mod tests {
         keys: &BcrKeys,
         data: &IdentityProofBlockData,
     ) -> IdentityBlock {
-        IdentityBlock::create_block_for_identity_proof(
-            previous_block,
-            data,
-            keys,
-            Timestamp::new(1731594928).unwrap(),
-        )
-        .expect("could not create block")
+        IdentityBlock::create_block_for_identity_proof(previous_block, data, keys, test_ts())
+            .expect("could not create block")
     }
 
     fn create_mocks() -> (

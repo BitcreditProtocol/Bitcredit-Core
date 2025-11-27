@@ -10,8 +10,8 @@ use crate::{
     tests::tests::{
         bill_id_test, bill_id_test_other, bill_id_test_other2,
         bill_identified_participant_only_node_id, empty_address, empty_bill_identified_participant,
-        init_test_cfg, node_id_test, node_id_test_other, private_key_test,
-        valid_payment_address_testnet,
+        empty_identity, init_test_cfg, node_id_test, node_id_test_other, private_key_test,
+        signed_identity_proof_test, test_ts, valid_payment_address_testnet,
     },
     util::get_uuid_v4,
 };
@@ -25,8 +25,8 @@ use bcr_ebill_core::{
         },
     },
     protocol::{
-        BlockId, City, Country, Currency, Date, DateTimeUtc, File, Name, ProtocolValidationError,
-        Sha256Hash, Sum,
+        Address, BlockId, City, Country, Currency, Date, DateTimeUtc, File, Name,
+        ProtocolValidationError, Sha256Hash, Sum,
         blockchain::{
             Block, Blockchain,
             bill::{
@@ -321,6 +321,9 @@ async fn issue_bill_baseline() {
     ctx.transport_service
         .expect_send_bill_is_signed_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -350,7 +353,7 @@ async fn issue_bill_baseline() {
                 BillIdentParticipant::new(drawer.identity).unwrap(),
             ),
             drawer_keys: drawer.key_pair,
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             blank_issue: false,
         })
         .await
@@ -393,6 +396,9 @@ async fn issue_bill_baseline_anon() {
     ctx.transport_service
         .expect_send_bill_is_signed_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -420,7 +426,7 @@ async fn issue_bill_baseline_anon() {
                 BillIdentParticipant::new(drawer.identity).unwrap(),
             ),
             drawer_keys: drawer.key_pair,
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             blank_issue: true,
         })
         .await
@@ -456,7 +462,7 @@ async fn issue_bill_fails_for_anon_drawer() {
             file_upload_ids: vec![get_uuid_v4()],
             drawer_public_data: BillParticipant::Anon(BillAnonParticipant::new(drawer.identity)),
             drawer_keys: drawer.key_pair,
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             blank_issue: false,
         })
         .await;
@@ -498,7 +504,7 @@ async fn issue_bill_fails_for_self_drafted_blank() {
                 BillIdentParticipant::new(drawer.identity).unwrap(),
             ),
             drawer_keys: drawer.key_pair,
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             blank_issue: true,
         })
         .await;
@@ -543,6 +549,9 @@ async fn issue_bill_as_company() {
     ctx.transport_service
         .expect_send_bill_is_signed_event()
         .returning(|_| Ok(()));
+    ctx.company_store
+        .expect_get_email_confirmations()
+        .returning(|_| Ok(vec![signed_identity_proof_test()]));
 
     // Populates company and identity block
     expect_populates_company_and_identity_block(&mut ctx);
@@ -570,7 +579,7 @@ async fn issue_bill_as_company() {
             file_upload_ids: vec![get_uuid_v4()],
             drawer_public_data: BillParticipant::Ident(BillIdentParticipant::from(drawer.1.0)),
             drawer_keys: BcrKeys::from_private_key(&drawer.1.1.get_private_key()),
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             blank_issue: false,
         })
         .await
@@ -852,6 +861,7 @@ async fn get_bills_req_to_pay() {
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -924,7 +934,7 @@ async fn get_detail_bill_baseline() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -981,7 +991,7 @@ async fn get_detail_bill_baseline_from_cache() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1037,7 +1047,7 @@ async fn get_detail_bill_baseline_from_cache_with_payment_expiration() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1079,7 +1089,7 @@ async fn get_detail_bill_baseline_error_from_cache() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1114,7 +1124,7 @@ async fn get_detail_bill_fails_for_non_participant() {
             &bill_id_test(),
             &identity.identity,
             &NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -1151,7 +1161,7 @@ async fn get_detail_waiting_for_offer_to_sell() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1213,7 +1223,7 @@ async fn get_detail_waiting_for_offer_to_sell_and_sell() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1389,7 +1399,7 @@ async fn get_detail_bill_req_to_recourse() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1464,7 +1474,7 @@ async fn get_detail_bill_req_to_recourse_recoursed() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1530,7 +1540,7 @@ async fn get_detail_bill_req_to_recourse_rejected() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1649,7 +1659,7 @@ async fn get_detail_bill_req_to_pay() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1701,7 +1711,7 @@ async fn get_detail_bill_req_to_pay_paid() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1758,7 +1768,7 @@ async fn get_detail_bill_req_to_pay_rejected() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1814,7 +1824,7 @@ async fn get_detail_bill_req_to_pay_rejected_but_paid() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -1979,7 +1989,7 @@ async fn get_detail_bill_req_to_accept() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2031,7 +2041,7 @@ async fn get_detail_bill_req_to_accept_accepted() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2176,6 +2186,9 @@ async fn accept_bill_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Should send bill accepted event
     ctx.transport_service
@@ -2193,7 +2206,7 @@ async fn accept_bill_baseline() {
             BillAction::Accept,
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2222,7 +2235,7 @@ async fn accept_bill_fails_for_anon() {
             BillAction::Accept,
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2272,6 +2285,9 @@ async fn accept_bill_as_company() {
     ctx.bill_store
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
+    ctx.company_store
+        .expect_get_email_confirmations()
+        .returning(|_| Ok(vec![signed_identity_proof_test()]));
 
     // Should send bill accepted event
     ctx.transport_service
@@ -2289,7 +2305,7 @@ async fn accept_bill_as_company() {
             BillAction::Accept,
             &BillParticipant::Ident(BillIdentParticipant::from(company.1.0)),
             &BcrKeys::from_private_key(&company.1.1.get_private_key()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2324,7 +2340,7 @@ async fn accept_bill_fails_if_drawee_not_caller() {
             BillAction::Accept,
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2349,7 +2365,7 @@ async fn accept_bill_fails_if_already_accepted() {
             &keys,
             None,
             &BcrKeys::from_private_key(&private_key_test()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
             Sha256Hash::new("plain text hash"),
         )
         .unwrap(),
@@ -2365,7 +2381,7 @@ async fn accept_bill_fails_if_already_accepted() {
             BillAction::Accept,
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2391,6 +2407,9 @@ async fn request_pay_baseline() {
     ctx.transport_service
         .expect_send_request_to_pay_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2403,7 +2422,7 @@ async fn request_pay_baseline() {
             BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2443,7 +2462,7 @@ async fn request_pay_anon_baseline() {
             BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)),
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2471,7 +2490,7 @@ async fn request_pay_fails_if_payee_not_caller() {
             BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2495,6 +2514,9 @@ async fn request_acceptance_baseline() {
     ctx.transport_service
         .expect_send_request_to_accept_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2507,7 +2529,7 @@ async fn request_acceptance_baseline() {
             BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2545,7 +2567,7 @@ async fn request_acceptance_anon_baseline() {
             BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2573,7 +2595,7 @@ async fn request_acceptance_fails_if_payee_not_caller() {
             BillAction::RequestAcceptance(safe_deadline_ts(ACCEPT_DEADLINE_SECONDS)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2601,6 +2623,9 @@ async fn mint_bitcredit_bill_baseline() {
     ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2619,7 +2644,7 @@ async fn mint_bitcredit_bill_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2649,6 +2674,9 @@ async fn mint_bitcredit_bill_anon_baseline() {
     ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2669,7 +2697,7 @@ async fn mint_bitcredit_bill_anon_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2707,7 +2735,7 @@ async fn mint_bitcredit_bill_fails_if_not_accepted() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2736,7 +2764,7 @@ async fn mint_bitcredit_bill_fails_if_payee_not_caller() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2760,6 +2788,9 @@ async fn offer_to_sell_bitcredit_bill_baseline() {
     ctx.transport_service
         .expect_send_offer_to_sell_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2779,7 +2810,7 @@ async fn offer_to_sell_bitcredit_bill_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2805,6 +2836,9 @@ async fn offer_to_sell_bitcredit_bill_anon_baseline() {
     ctx.transport_service
         .expect_send_offer_to_sell_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2826,7 +2860,7 @@ async fn offer_to_sell_bitcredit_bill_anon_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2861,7 +2895,7 @@ async fn offer_to_sell_bitcredit_bill_fails_if_payee_not_caller() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -2896,15 +2930,15 @@ async fn sell_bitcredit_bill_baseline() {
                     sum: Sum::new_sat(15000).expect("sat works"),
                     payment_address: valid_payment_address_testnet(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    buying_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * DAY_IN_SECS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    buying_deadline_timestamp: test_ts() - 1 + 2 * DAY_IN_SECS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(offer_to_sell);
@@ -2914,6 +2948,9 @@ async fn sell_bitcredit_bill_baseline() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -2930,7 +2967,7 @@ async fn sell_bitcredit_bill_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -2968,15 +3005,15 @@ async fn sell_bitcredit_bill_anon_baseline() {
                     sum: Sum::new_sat(15000).expect("sat works"),
                     payment_address: valid_payment_address_testnet(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    buying_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * DAY_IN_SECS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    buying_deadline_timestamp: test_ts() - 1 + 2 * DAY_IN_SECS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(offer_to_sell);
@@ -2986,6 +3023,9 @@ async fn sell_bitcredit_bill_anon_baseline() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -3002,7 +3042,7 @@ async fn sell_bitcredit_bill_anon_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -3036,15 +3076,15 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
                     sum: Sum::new_sat(10000).expect("sat works"), // different sum
                     payment_address: valid_payment_address_testnet(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    buying_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * DAY_IN_SECS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    buying_deadline_timestamp: test_ts() - 1 + 2 * DAY_IN_SECS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(offer_to_sell);
@@ -3067,7 +3107,7 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -3103,7 +3143,7 @@ async fn sell_bitcredit_bill_fails_if_not_offer_to_sell_waiting_for_payment() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -3136,7 +3176,7 @@ async fn sell_bitcredit_bill_fails_if_payee_not_caller() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -3162,6 +3202,9 @@ async fn endorse_bitcredit_bill_baseline() {
         .returning(|_| Ok(()));
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     let service = get_service(ctx);
 
@@ -3176,7 +3219,7 @@ async fn endorse_bitcredit_bill_baseline() {
             )),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -3197,7 +3240,7 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
     let party2_participant = bill_identified_participant_only_node_id(party2_node_id.clone());
 
     let mut current_chain = get_genesis_chain(Some(bill.clone()));
-    let mut current_timestamp = Timestamp::new(1731593928).unwrap();
+    let mut current_timestamp = test_ts();
 
     for i in 0..10 {
         let is_even = i % 2 == 0;
@@ -3217,6 +3260,9 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
         ctx.transport_service
             .expect_send_bill_is_endorsed_event()
             .returning(|_| Ok(()));
+        ctx.identity_store
+            .expect_get_email_confirmations()
+            .returning(|| Ok(vec![signed_identity_proof_test()]));
 
         expect_populates_identity_block(&mut ctx);
 
@@ -3331,7 +3377,7 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(endorsements.is_ok());
@@ -3366,6 +3412,9 @@ async fn endorse_bitcredit_bill_anon_baseline() {
     ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -3383,7 +3432,7 @@ async fn endorse_bitcredit_bill_anon_baseline() {
             ))),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -3428,7 +3477,7 @@ async fn endorse_bitcredit_bill_fails_if_waiting_for_offer_to_sell() {
             )),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -3463,7 +3512,7 @@ async fn endorse_bitcredit_bill_fails_if_payee_not_caller() {
             BillAction::Endorse(BillParticipant::Ident(empty_bill_identified_participant())),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_err());
@@ -3590,6 +3639,9 @@ async fn check_bill_offer_to_sell_payment_baseline() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block and company block
     ctx.transport_service.expect_on_block_transport(|t| {
@@ -3646,6 +3698,9 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block and company block
     ctx.transport_service.expect_on_block_transport(|t| {
@@ -3873,7 +3928,7 @@ async fn get_endorsements_baseline() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -3937,6 +3992,7 @@ async fn get_endorsements_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -3959,6 +4015,7 @@ async fn get_endorsements_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -3980,6 +4037,7 @@ async fn get_endorsements_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -3999,7 +4057,7 @@ async fn get_endorsements_multi_with_anon() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -4075,6 +4133,7 @@ async fn get_endorsements_multi() {
                     signatory: None,
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4097,6 +4156,7 @@ async fn get_endorsements_multi() {
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4118,6 +4178,7 @@ async fn get_endorsements_multi() {
                     signatory: None,
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4137,7 +4198,7 @@ async fn get_endorsements_multi() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -4292,6 +4353,7 @@ async fn get_past_endorsees_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4314,6 +4376,7 @@ async fn get_past_endorsees_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4335,6 +4398,7 @@ async fn get_past_endorsees_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4355,6 +4419,7 @@ async fn get_past_endorsees_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 4,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4379,6 +4444,7 @@ async fn get_past_endorsees_multi_with_anon() {
                     signatory: None,
                     signing_timestamp: now + 5,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4528,6 +4594,7 @@ async fn get_past_endorsees_multi() {
                     signatory: None,
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4550,6 +4617,7 @@ async fn get_past_endorsees_multi() {
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4571,6 +4639,7 @@ async fn get_past_endorsees_multi() {
                     signatory: None,
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4591,6 +4660,7 @@ async fn get_past_endorsees_multi() {
                     signatory: None,
                     signing_timestamp: now + 4,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4615,6 +4685,7 @@ async fn get_past_endorsees_multi() {
                     signatory: None,
                     signing_timestamp: now + 5,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4948,6 +5019,7 @@ async fn reject_acceptance_baseline() {
                     signatory: None,
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     acceptance_deadline_timestamp: now + 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -4964,6 +5036,9 @@ async fn reject_acceptance_baseline() {
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::AcceptBill))
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5010,6 +5085,7 @@ async fn reject_acceptance_fails_for_anon() {
                     signatory: None,
                     signing_timestamp: now + 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     acceptance_deadline_timestamp: now + 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5076,6 +5152,9 @@ async fn reject_buying_baseline() {
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::BuyBill))
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5088,7 +5167,7 @@ async fn reject_buying_baseline() {
             BillAction::RejectBuying,
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -5140,7 +5219,7 @@ async fn reject_buying_anon_baseline() {
             BillAction::RejectBuying,
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -5177,6 +5256,7 @@ async fn reject_payment() {
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5193,6 +5273,9 @@ async fn reject_payment() {
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::PayBill))
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5242,6 +5325,7 @@ async fn reject_payment_fails_for_anon() {
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5311,6 +5395,7 @@ async fn reject_recourse() {
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5327,6 +5412,9 @@ async fn reject_recourse() {
         .expect_send_request_to_action_rejected_event()
         .with(always(), eq(ActionType::RecourseBill))
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5382,6 +5470,7 @@ async fn reject_recourse_fails_for_anon() {
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5456,6 +5545,7 @@ async fn check_bills_in_recourse_payment_baseline() {
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5470,6 +5560,9 @@ async fn check_bills_in_recourse_payment_baseline() {
     ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populate identity block
     expect_populates_identity_block(&mut ctx);
@@ -5533,6 +5626,7 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
                     }),
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                     recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
@@ -5547,6 +5641,9 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
     ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populate identity block
     expect_populates_identity_block(&mut ctx);
@@ -5588,13 +5685,14 @@ async fn request_recourse_accept_baseline() {
                     endorser: bill.payee.clone().into(),
                     endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(endorse_block);
@@ -5604,15 +5702,15 @@ async fn request_recourse_accept_baseline() {
                 &BillRequestToAcceptBlockData {
                     requester: bill.payee.clone().into(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    acceptance_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * ACCEPT_DEADLINE_SECONDS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    acceptance_deadline_timestamp: test_ts() - 1 + 2 * ACCEPT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(req_to_accept);
@@ -5622,13 +5720,14 @@ async fn request_recourse_accept_baseline() {
                 &BillRejectBlockData {
                     rejecter: bill.drawee.clone().into(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: empty_address(),
+                    signer_identity_proof: signed_identity_proof_test().into(),
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(reject_accept);
@@ -5638,6 +5737,9 @@ async fn request_recourse_accept_baseline() {
     ctx.transport_service
         .expect_send_recourse_action_event()
         .returning(|_, _, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5654,7 +5756,7 @@ async fn request_recourse_accept_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -5694,13 +5796,14 @@ async fn request_recourse_works_for_anon() {
                     endorser: bill.payee.clone().into(),
                     endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(endorse_block);
@@ -5711,15 +5814,15 @@ async fn request_recourse_works_for_anon() {
                     requester: bill.payee.clone().into(),
                     currency: Currency::sat(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    payment_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * PAYMENT_DEADLINE_SECONDS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    payment_deadline_timestamp: test_ts() - 1 + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(req_to_pay);
@@ -5729,13 +5832,14 @@ async fn request_recourse_works_for_anon() {
                 &BillRejectBlockData {
                     rejecter: bill.drawee.clone().into(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: empty_address(),
+                    signer_identity_proof: signed_identity_proof_test().into(),
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(reject_pay);
@@ -5759,7 +5863,7 @@ async fn request_recourse_works_for_anon() {
             ),
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -5799,13 +5903,14 @@ async fn request_recourse_payment_baseline() {
                     endorser: bill.payee.clone().into(),
                     endorsee: BillParticipantBlockData::Ident(endorsee_caller.clone().into()),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(endorse_block);
@@ -5816,15 +5921,15 @@ async fn request_recourse_payment_baseline() {
                     requester: bill.payee.clone().into(),
                     currency: Currency::sat(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    payment_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * PAYMENT_DEADLINE_SECONDS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    payment_deadline_timestamp: test_ts() - 1 + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(req_to_pay);
@@ -5834,13 +5939,14 @@ async fn request_recourse_payment_baseline() {
                 &BillRejectBlockData {
                     rejecter: bill.drawee.clone().into(),
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: empty_address(),
+                    signer_identity_proof: signed_identity_proof_test().into(),
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(reject_pay);
@@ -5850,6 +5956,9 @@ async fn request_recourse_payment_baseline() {
     ctx.transport_service
         .expect_send_recourse_action_event()
         .returning(|_, _, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5866,7 +5975,7 @@ async fn request_recourse_payment_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -5912,15 +6021,15 @@ async fn recourse_bitcredit_bill_baseline() {
                     sum: Sum::new_sat(15000).expect("sat works"),
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    recourse_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * RECOURSE_DEADLINE_SECONDS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    recourse_deadline_timestamp: test_ts() - 1 + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(req_to_recourse);
@@ -5930,6 +6039,9 @@ async fn recourse_bitcredit_bill_baseline() {
     ctx.transport_service
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -5946,7 +6058,7 @@ async fn recourse_bitcredit_bill_baseline() {
             ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -5992,15 +6104,15 @@ async fn recourse_bitcredit_bill_works_for_anon() {
                     sum: Sum::new_sat(15000).expect("sat works"),
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
-                    signing_timestamp: Timestamp::new(1731593927).unwrap(),
+                    signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
-                    recourse_deadline_timestamp: Timestamp::new(1731593927).unwrap()
-                        + 2 * RECOURSE_DEADLINE_SECONDS,
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    recourse_deadline_timestamp: test_ts() - 1 + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
                 &BcrKeys::from_private_key(&private_key_test()),
-                Timestamp::new(1731593927).unwrap(),
+                test_ts() - 1,
             )
             .unwrap();
             chain.try_add_block(req_to_recourse);
@@ -6026,7 +6138,7 @@ async fn recourse_bitcredit_bill_works_for_anon() {
             ),
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -6053,14 +6165,14 @@ fn check_req_for_expiration_baseline() {
     // true, because payment deadline was several days ago
     assert!(
         service
-            .check_requests_for_expiration(&bill_payment, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_payment, test_ts())
             .unwrap()
     );
     bill_payment.status.payment.request_to_pay_timed_out = true;
     // if it already timed out, we don't need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_payment, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_payment, test_ts())
             .unwrap()
     );
     bill_payment.status.payment.request_to_pay_timed_out = false;
@@ -6175,7 +6287,7 @@ fn check_req_for_expiration_baseline() {
 
     assert!(
         service
-            .check_requests_for_expiration(&bill_acceptance, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_acceptance, test_ts())
             .unwrap()
     );
     bill_acceptance
@@ -6185,7 +6297,7 @@ fn check_req_for_expiration_baseline() {
     // already expired, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_acceptance, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_acceptance, test_ts())
             .unwrap()
     );
     bill_acceptance
@@ -6196,7 +6308,7 @@ fn check_req_for_expiration_baseline() {
     // already rejected, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_acceptance, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_acceptance, test_ts())
             .unwrap()
     );
     bill_acceptance.status.acceptance.rejected_to_accept = false;
@@ -6204,7 +6316,7 @@ fn check_req_for_expiration_baseline() {
     // already accepted, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_acceptance, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_acceptance, test_ts())
             .unwrap()
     );
     bill_acceptance.status.acceptance.accepted = false;
@@ -6221,7 +6333,7 @@ fn check_req_for_expiration_baseline() {
 
     assert!(
         service
-            .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_sell, test_ts())
             .unwrap()
     );
 
@@ -6229,7 +6341,7 @@ fn check_req_for_expiration_baseline() {
     // already expired, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_sell, test_ts())
             .unwrap()
     );
     bill_sell.status.sell.offer_to_sell_timed_out = false;
@@ -6237,7 +6349,7 @@ fn check_req_for_expiration_baseline() {
     // already rejected, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_sell, test_ts())
             .unwrap()
     );
     bill_sell.status.sell.rejected_offer_to_sell = false;
@@ -6245,7 +6357,7 @@ fn check_req_for_expiration_baseline() {
     // already sold, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_sell, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_sell, test_ts())
             .unwrap()
     );
     bill_sell.status.sell.sold = false;
@@ -6264,21 +6376,21 @@ fn check_req_for_expiration_baseline() {
 
     assert!(
         service
-            .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_recourse, test_ts())
             .unwrap()
     );
     bill_recourse.status.recourse.request_to_recourse_timed_out = true;
     // already expired, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_recourse, test_ts())
             .unwrap()
     );
     bill_recourse.status.recourse.rejected_request_to_recourse = true;
     // already rejected, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_recourse, test_ts())
             .unwrap()
     );
     bill_recourse.status.recourse.rejected_request_to_recourse = false;
@@ -6286,7 +6398,7 @@ fn check_req_for_expiration_baseline() {
     // already recoursed, no need to check anymore
     assert!(
         !service
-            .check_requests_for_expiration(&bill_recourse, Timestamp::new(1731593928).unwrap())
+            .check_requests_for_expiration(&bill_recourse, test_ts())
             .unwrap()
     );
     bill_recourse.status.recourse.recoursed = false;
@@ -6333,13 +6445,10 @@ async fn req_to_mint_baseline() {
     let res = service
         .request_to_mint(
             &bill_id_test(),
-            &NodeId::from_str(
-                "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-            )
-            .unwrap(),
+            &node_id_test(),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());
@@ -6354,7 +6463,7 @@ async fn get_mint_state_baseline() {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
-            expiration_timestamp: Timestamp::new(1731593928).unwrap(),
+            expiration_timestamp: test_ts(),
             discounted_sum: Sum::new_sat(1500).unwrap(),
             proofs: None,
             proofs_spent: false,
@@ -6371,7 +6480,7 @@ async fn get_mint_state_baseline() {
                     bill_id: bill_id_test(),
                     mint_node_id: node_id_test_other(),
                     mint_request_id: get_uuid_v4(),
-                    timestamp: Timestamp::new(1731593928).unwrap(),
+                    timestamp: test_ts(),
                     status: MintRequestStatus::Pending,
                 },
                 MintRequest {
@@ -6379,7 +6488,7 @@ async fn get_mint_state_baseline() {
                     bill_id: bill_id_test(),
                     mint_node_id: node_id_test_other(),
                     mint_request_id: get_uuid_v4(),
-                    timestamp: Timestamp::new(1731593928).unwrap(),
+                    timestamp: test_ts(),
                     status: MintRequestStatus::Offered,
                 },
             ])
@@ -6407,12 +6516,9 @@ async fn cancel_mint_state_baseline() {
         Ok(Some(MintRequest {
             requester_node_id: req_node_id.clone(),
             bill_id: bill_id_test(),
-            mint_node_id: NodeId::from_str(
-                "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-            )
-            .unwrap(),
+            mint_node_id: node_id_test(),
             mint_request_id: get_uuid_v4(),
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             status: MintRequestStatus::Pending,
         }))
     });
@@ -6431,7 +6537,15 @@ async fn cancel_mint_state_baseline() {
 async fn accept_mint_offer_baseline() {
     init_test_cfg();
     let mut ctx = get_ctx();
-    let identity = get_baseline_identity();
+    let mut identity = IdentityWithAll {
+        identity: empty_identity(),
+        key_pair: BcrKeys::new(),
+    };
+    identity.identity.node_id = NodeId::new(identity.key_pair.pub_key(), bitcoin::Network::Testnet);
+    identity.identity.postal_address.country = Some(Country::AT);
+    identity.identity.postal_address.city = Some(City::new("Vienna").unwrap());
+    identity.identity.postal_address.address = Some(Address::new("Hayekweg 5").unwrap());
+
     let mut bill = get_baseline_bill(&bill_id_test());
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
@@ -6458,10 +6572,7 @@ async fn accept_mint_offer_baseline() {
         Ok(Some(MintRequest {
             requester_node_id: req_node_id.clone(),
             bill_id: bill_id_test(),
-            mint_node_id: NodeId::from_str(
-                "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-            )
-            .unwrap(),
+            mint_node_id: node_id_test(),
             mint_request_id: get_uuid_v4(),
             timestamp: Timestamp::new(1731593938).unwrap(),
             status: MintRequestStatus::Offered,
@@ -6484,6 +6595,9 @@ async fn accept_mint_offer_baseline() {
             recovery_data: None,
         }))
     });
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
     // Asset request to mint event is sent
     ctx.transport_service
         .expect_send_bill_is_endorsed_event()
@@ -6518,12 +6632,9 @@ async fn reject_mint_offer_baseline() {
         Ok(Some(MintRequest {
             requester_node_id: req_node_id.clone(),
             bill_id: bill_id_test(),
-            mint_node_id: NodeId::from_str(
-                "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-            )
-            .unwrap(),
+            mint_node_id: node_id_test(),
             mint_request_id: get_uuid_v4(),
-            timestamp: Timestamp::new(1731593928).unwrap(),
+            timestamp: test_ts(),
             status: MintRequestStatus::Offered,
         }))
     });
@@ -6558,12 +6669,9 @@ async fn check_mint_state_for_all_bills_baseline() {
             Ok(vec![MintRequest {
                 requester_node_id: req_node_id.clone(),
                 bill_id: bill_id_test(),
-                mint_node_id: NodeId::from_str(
-                    "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                )
-                .unwrap(),
+                mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 status: MintRequestStatus::Offered,
             }])
         });
@@ -6596,12 +6704,9 @@ async fn check_mint_state_baseline() {
             Ok(vec![MintRequest {
                 requester_node_id: req_node_id.clone(),
                 bill_id: bill_id_test(),
-                mint_node_id: NodeId::from_str(
-                    "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                )
-                .unwrap(),
+                mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 status: MintRequestStatus::Offered,
             }])
         });
@@ -6636,12 +6741,9 @@ async fn check_mint_state_pending_accepted() {
             Ok(vec![MintRequest {
                 requester_node_id: req_node_id.clone(),
                 bill_id: bill_id_test(),
-                mint_node_id: NodeId::from_str(
-                    "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                )
-                .unwrap(),
+                mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 status: MintRequestStatus::Pending,
             }])
         });
@@ -6678,12 +6780,9 @@ async fn check_mint_state_pending_offered() {
             Ok(vec![MintRequest {
                 requester_node_id: req_node_id.clone(),
                 bill_id: bill_id_test(),
-                mint_node_id: NodeId::from_str(
-                    "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                )
-                .unwrap(),
+                mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 status: MintRequestStatus::Pending,
             }])
         });
@@ -6731,12 +6830,9 @@ async fn check_mint_state_accepted_proofs() {
             Ok(vec![MintRequest {
                 requester_node_id: req_node_id.clone(),
                 bill_id: bill_id_test(),
-                mint_node_id: NodeId::from_str(
-                    "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                )
-                .unwrap(),
+                mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 status: MintRequestStatus::Accepted,
             }])
         });
@@ -6786,12 +6882,9 @@ async fn check_mint_state_accepted_check_spent() {
             Ok(vec![MintRequest {
                 requester_node_id: req_node_id.clone(),
                 bill_id: bill_id_test(),
-                mint_node_id: NodeId::from_str(
-                    "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                )
-                .unwrap(),
+                mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 status: MintRequestStatus::Accepted,
             }])
         });
@@ -6876,7 +6969,7 @@ async fn wrong_network_failures() {
                 &mainnet_bill_id,
                 &identity.identity,
                 &node_id_test(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -6889,7 +6982,7 @@ async fn wrong_network_failures() {
                 &bill_id_test(),
                 &identity.identity,
                 &mainnet_node_id,
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -6945,12 +7038,7 @@ async fn wrong_network_failures() {
     ));
     assert!(matches!(
         service
-            .get_past_payments(
-                &mainnet_bill_id,
-                &participant,
-                &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
-            )
+            .get_past_payments(&mainnet_bill_id, &participant, &BcrKeys::new(), test_ts())
             .await,
         Err(Error::Validation(ValidationError::Protocol(
             ProtocolValidationError::InvalidBillId
@@ -6962,7 +7050,7 @@ async fn wrong_network_failures() {
                 &bill_id_test(),
                 &mainnet_participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -6975,7 +7063,7 @@ async fn wrong_network_failures() {
                 &mainnet_bill_id,
                 &identity.identity,
                 &node_id_test(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -6988,7 +7076,7 @@ async fn wrong_network_failures() {
                 &bill_id_test(),
                 &identity.identity,
                 &mainnet_node_id,
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7002,7 +7090,7 @@ async fn wrong_network_failures() {
                 &node_id_test(),
                 &participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7016,7 +7104,7 @@ async fn wrong_network_failures() {
                 &mainnet_node_id,
                 &participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7030,7 +7118,7 @@ async fn wrong_network_failures() {
                 &node_id_test(),
                 &mainnet_participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7083,7 +7171,7 @@ async fn wrong_network_failures() {
                 &get_uuid_v4(),
                 &mainnet_participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7115,7 +7203,7 @@ async fn wrong_network_failures() {
                 file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: participant.clone(),
                 drawer_keys: BcrKeys::new(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 blank_issue: false,
             })
             .await,
@@ -7139,7 +7227,7 @@ async fn wrong_network_failures() {
                 file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: participant.clone(),
                 drawer_keys: BcrKeys::new(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 blank_issue: false,
             })
             .await,
@@ -7163,7 +7251,7 @@ async fn wrong_network_failures() {
                 file_upload_ids: vec![get_uuid_v4()],
                 drawer_public_data: mainnet_participant.clone(),
                 drawer_keys: BcrKeys::new(),
-                timestamp: Timestamp::new(1731593928).unwrap(),
+                timestamp: test_ts(),
                 blank_issue: false,
             })
             .await,
@@ -7179,7 +7267,7 @@ async fn wrong_network_failures() {
                 BillAction::Accept,
                 &participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7193,7 +7281,7 @@ async fn wrong_network_failures() {
                 BillAction::Accept,
                 &mainnet_participant,
                 &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap()
+                test_ts()
             )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
@@ -7250,7 +7338,7 @@ async fn get_bill_history_baseline() {
             &bill_id_test(),
             &identity.identity,
             &identity.identity.node_id,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .await;
     assert!(res.is_ok());

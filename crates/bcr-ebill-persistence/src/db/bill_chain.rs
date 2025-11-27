@@ -237,7 +237,10 @@ mod tests {
     use super::*;
     use crate::{
         db::{bill::tests::get_first_block, get_memory_db},
-        tests::tests::{bill_id_test, empty_address, get_bill_keys, node_id_test},
+        tests::tests::{
+            bill_id_test, empty_address, get_bill_keys, node_id_test, signed_identity_proof_test,
+            test_ts,
+        },
     };
     use bcr_ebill_core::protocol::{
         Name,
@@ -281,13 +284,14 @@ mod tests {
                     postal_address: empty_address(),
                 },
                 signatory: None,
-                signing_timestamp: Timestamp::new(1731593928).unwrap(),
+                signing_timestamp: test_ts(),
                 signing_address: empty_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
             },
             &BcrKeys::new(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         store.add_block(&bill_id_test(), &block2).await.unwrap();

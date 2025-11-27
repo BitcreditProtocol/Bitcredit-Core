@@ -228,7 +228,7 @@ mod tests {
     use crate::{
         db::get_memory_db,
         protocol::crypto::BcrKeys,
-        tests::tests::{empty_identity, empty_optional_address},
+        tests::tests::{empty_identity, empty_optional_address, test_ts},
     };
     use bcr_ebill_core::protocol::blockchain::identity::IdentityUpdateBlockData;
 
@@ -249,7 +249,7 @@ mod tests {
             Sha256Hash::new("genesis hash"),
             &empty_identity().into(),
             &BcrKeys::new(),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         store.add_block(&block).await.unwrap();
@@ -272,7 +272,7 @@ mod tests {
                 identity_document_file: None,
             },
             &BcrKeys::new(),
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap();
         store.add_block(&block2).await.unwrap();

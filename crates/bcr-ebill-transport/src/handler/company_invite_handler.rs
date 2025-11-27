@@ -167,7 +167,7 @@ mod tests {
                 private_key_test,
             },
         },
-        test_utils::MockNotificationJsonTransport,
+        test_utils::{MockNotificationJsonTransport, test_ts},
         transport::create_public_chain_event,
     };
 
@@ -488,12 +488,12 @@ mod tests {
                 registration_date: company.registration_date.to_owned(),
                 proof_of_registration_file: company.proof_of_registration_file.to_owned(),
                 logo_file: company.logo_file.to_owned(),
-                creation_time: Timestamp::new(1731593928).unwrap(),
+                creation_time: test_ts(),
                 creator: node_id_test(),
             },
             &BcrKeys::new(),
             keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }

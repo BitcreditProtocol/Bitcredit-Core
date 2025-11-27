@@ -409,7 +409,7 @@ mod tests {
     use super::*;
     use crate::{
         db::get_memory_db,
-        tests::tests::{bill_id_test, node_id_test, node_id_test_other},
+        tests::tests::{bill_id_test, node_id_test, node_id_test_other, test_ts},
     };
     use uuid::uuid;
 
@@ -453,7 +453,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -475,7 +475,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -502,7 +502,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -528,7 +528,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -549,7 +549,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -569,7 +569,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -587,7 +587,7 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
@@ -618,17 +618,12 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
         offer_store
-            .add_offer(
-                &id,
-                "keyset_id",
-                Timestamp::new(1731593928).unwrap(),
-                Sum::new_sat(1500).unwrap(),
-            )
+            .add_offer(&id, "keyset_id", test_ts(), Sum::new_sat(1500).unwrap())
             .await
             .unwrap();
         let offer = offer_store.get_offer(&id).await.unwrap();
@@ -646,17 +641,12 @@ mod tests {
                 &bill_id_test(),
                 &node_id_test_other(),
                 &id,
-                Timestamp::new(1731593928).unwrap(),
+                test_ts(),
             )
             .await
             .unwrap();
         offer_store
-            .add_offer(
-                &id,
-                "keyset_id",
-                Timestamp::new(1731593928).unwrap(),
-                Sum::new_sat(1500).unwrap(),
-            )
+            .add_offer(&id, "keyset_id", test_ts(), Sum::new_sat(1500).unwrap())
             .await
             .unwrap();
         let offer = offer_store.get_offer(&id).await.unwrap();

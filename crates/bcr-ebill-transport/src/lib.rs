@@ -114,6 +114,7 @@ pub async fn create_transport_service(
     db_context: DbContext,
     email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<url::Url>,
+    push_service: Arc<dyn PushApi>,
 ) -> Result<Arc<dyn TransportServiceApi>> {
     let transport = match clients.iter().find(|c| c.is_primary()) {
         Some(client) => client.clone(),
@@ -140,8 +141,10 @@ pub async fn create_transport_service(
         db_context.company_chain_store.clone(),
         db_context.company_store.clone(),
         db_context.identity_store.clone(),
+        db_context.notification_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
+        push_service,
         transport.clone(),
         get_config().bitcoin_network(),
     ));
@@ -240,8 +243,10 @@ pub async fn create_nostr_consumer(
         db_context.company_chain_store.clone(),
         db_context.company_store.clone(),
         db_context.identity_store.clone(),
+        db_context.notification_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
+        push_service.clone(),
         transport.clone(),
         get_config().bitcoin_network(),
     ));
@@ -312,6 +317,7 @@ pub async fn create_restore_account_service(
     keys: &BcrKeys,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     contact_service: Arc<dyn ContactServiceApi>,
+    push_service: Arc<dyn PushApi>,
 ) -> Result<RestoreAccountService> {
     let db_context = get_db_context(config)
         .await
@@ -350,8 +356,10 @@ pub async fn create_restore_account_service(
         db_context.company_chain_store.clone(),
         db_context.company_store.clone(),
         db_context.identity_store.clone(),
+        db_context.notification_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
+        push_service,
         nostr_client.clone(),
         config.bitcoin_network(),
     ));

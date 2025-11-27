@@ -30,6 +30,9 @@
         * API to accept/reject company invites
         * Restructured company persistence - `company` table is now a cache, calculated from the chain (similar to bills)
         * Added possibility to locally hide past invites
+    * Add notification when being invited to a company
+    * Add `signer_identity_proof` to bill block data and verify it
+* Add Contact Handshake
 
 # 0.4.12
 

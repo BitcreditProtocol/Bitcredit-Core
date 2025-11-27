@@ -49,6 +49,7 @@ impl From<Notification> for NotificationWeb {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum NotificationTypeWeb {
     General,
+    Company,
     Bill,
 }
 
@@ -56,6 +57,7 @@ impl From<NotificationType> for NotificationTypeWeb {
     fn from(val: NotificationType) -> Self {
         match val {
             NotificationType::Bill => NotificationTypeWeb::Bill,
+            NotificationType::Company => NotificationTypeWeb::Company,
             NotificationType::General => NotificationTypeWeb::General,
         }
     }

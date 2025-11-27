@@ -144,7 +144,7 @@ mod tests {
             MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi,
             test_utils::{get_baseline_identity, private_key_test},
         },
-        test_utils::{MockNotificationJsonTransport, node_id_test},
+        test_utils::{MockNotificationJsonTransport, node_id_test, test_ts},
         transport::create_public_chain_event,
     };
 
@@ -301,7 +301,7 @@ mod tests {
         IdentityBlockchain::new(
             &IdentityCreateBlockData::from(identity.to_owned()),
             keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .unwrap()
     }

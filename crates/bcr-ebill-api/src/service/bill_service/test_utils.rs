@@ -12,7 +12,8 @@ use crate::{
         MockNostrContactStore, bill_id_test, bill_identified_participant_only_node_id,
         bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
         empty_bitcredit_bill, empty_identity, init_test_cfg, node_id_test, node_id_test_other,
-        node_id_test_other2, private_key_test, valid_payment_address_testnet,
+        node_id_test_other2, private_key_test, signed_identity_proof_test, test_ts,
+        valid_payment_address_testnet,
     },
 };
 use bcr_ebill_core::{
@@ -102,9 +103,9 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             ],
         },
         data: BillData {
-            time_of_drawing: Timestamp::new(1731593928).unwrap(),
+            time_of_drawing: test_ts(),
             issue_date: Date::new("2024-05-01").unwrap(),
-            time_of_maturity: Timestamp::new(1731593928).unwrap(),
+            time_of_maturity: test_ts(),
             maturity_date: Date::new("2024-07-01").unwrap(),
             country_of_issuing: Country::AT,
             city_of_issuing: City::new("Vienna").unwrap(),
@@ -152,7 +153,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             },
             redeemed_funds_available: false,
             has_requested_funds: false,
-            last_block_time: Timestamp::new(1731593928).unwrap(),
+            last_block_time: test_ts(),
         },
         current_waiting_state: None,
         history: BillHistory { blocks: vec![] },
@@ -179,11 +180,11 @@ pub fn get_baseline_bill(bill_id: &BillId) -> BitcreditBill {
 pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
     let bill = bill.unwrap_or(get_baseline_bill(&bill_id_test()));
     BillBlockchain::new(
-        &BillIssueBlockData::from(bill, None, Timestamp::new(1731593920).unwrap()),
+        &BillIssueBlockData::from(bill, None, test_ts() - 15, signed_identity_proof_test()),
         get_baseline_identity().key_pair,
         None,
         BcrKeys::from_private_key(&private_key_test()),
-        Timestamp::new(1731593920).unwrap(),
+        test_ts() - 15,
     )
     .unwrap()
 }
@@ -195,7 +196,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_check_payment_for_address()
         .returning(|_, _| {
             Ok(PaymentState::PaidConfirmed(PaidData {
-                block_time: Timestamp::new(1731593928).unwrap(),
+                block_time: test_ts(),
                 block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1"
                     .into(),
                 confirmations: 7,
@@ -237,14 +238,12 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_latest_block()
         .returning(|| {
             let identity = empty_identity();
-            Ok(IdentityBlockchain::new(
-                &identity.into(),
-                &BcrKeys::new(),
-                Timestamp::new(1731593928).unwrap(),
+            Ok(
+                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), test_ts())
+                    .unwrap()
+                    .get_latest_block()
+                    .clone(),
             )
-            .unwrap()
-            .get_latest_block()
-            .clone())
         });
     ctx.company_chain_store
         .expect_get_latest_block()
@@ -262,7 +261,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_keys()
         .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
     let payment_state_paid = PaymentState::PaidConfirmed(PaidData {
-        block_time: Timestamp::new(1731593928).unwrap(),
+        block_time: test_ts(),
         block_hash: "000000000061ad7b0d52af77e5a9dbcdc421bf00e93992259f16b2cf2693c4b1".into(),
         confirmations: 7,
         tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c".into(),
@@ -359,6 +358,7 @@ pub fn request_to_recourse_block(
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
             recourse_deadline_timestamp: timestamp + 2 * RECOURSE_DEADLINE_SECONDS,
         },
         &BcrKeys::from_private_key(&private_key_test()),
@@ -388,6 +388,7 @@ pub fn recourse_block(
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,
@@ -406,6 +407,7 @@ pub fn reject_recourse_block(id: &BillId, first_block: &BillBlock) -> BillBlock 
             signatory: None,
             signing_timestamp: first_block.timestamp,
             signing_address: empty_address(),
+            signer_identity_proof: signed_identity_proof_test().into(),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,
@@ -431,6 +433,7 @@ pub fn request_to_accept_block(
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
             acceptance_deadline_timestamp: timestamp + 2 * ACCEPT_DEADLINE_SECONDS,
         },
         &BcrKeys::from_private_key(&private_key_test()),
@@ -450,6 +453,7 @@ pub fn reject_accept_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
             signatory: None,
             signing_timestamp: first_block.timestamp,
             signing_address: empty_address(),
+            signer_identity_proof: signed_identity_proof_test().into(),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,
@@ -479,6 +483,7 @@ pub fn offer_to_sell_block(
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
             buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
         },
         &BcrKeys::from_private_key(&private_key_test()),
@@ -498,6 +503,7 @@ pub fn reject_buy_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
             signatory: None,
             signing_timestamp: first_block.timestamp,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,
@@ -521,6 +527,7 @@ pub fn sell_block(id: &BillId, first_block: &BillBlock, buyer: &BillIdentPartici
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,
@@ -539,6 +546,7 @@ pub fn accept_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
             signing_address: empty_address(),
+            signer_identity_proof: signed_identity_proof_test().into(),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,
@@ -565,6 +573,7 @@ pub fn request_to_pay_block(
             signatory: None,
             signing_timestamp: timestamp,
             signing_address: Some(empty_address()),
+            signer_identity_proof: Some(signed_identity_proof_test().into()),
             payment_deadline_timestamp: timestamp + 2 * PAYMENT_DEADLINE_SECONDS,
         },
         &BcrKeys::from_private_key(&private_key_test()),
@@ -584,6 +593,7 @@ pub fn reject_to_pay_block(id: &BillId, first_block: &BillBlock) -> BillBlock {
             signatory: None,
             signing_timestamp: first_block.timestamp + 1,
             signing_address: empty_address(),
+            signer_identity_proof: signed_identity_proof_test().into(),
         },
         &BcrKeys::from_private_key(&private_key_test()),
         None,

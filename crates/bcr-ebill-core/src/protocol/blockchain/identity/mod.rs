@@ -742,7 +742,7 @@ mod tests {
     use super::*;
     use crate::protocol::tests::tests::{
         bill_id_test, empty_identity, node_id_test, private_key_test, signed_identity_proof_test,
-        valid_optional_address,
+        test_ts, valid_optional_address,
     };
 
     #[test]
@@ -750,7 +750,7 @@ mod tests {
         let identity = empty_identity();
         let keys = BcrKeys::new();
 
-        let chain = IdentityBlockchain::new(&identity, &keys, Timestamp::new(1731593928).unwrap());
+        let chain = IdentityBlockchain::new(&identity, &keys, test_ts());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
         assert!(
@@ -762,11 +762,7 @@ mod tests {
     fn create_and_check_validity() {
         let identity = empty_identity();
 
-        let chain = IdentityBlockchain::new(
-            &identity,
-            &BcrKeys::new(),
-            Timestamp::new(1731593928).unwrap(),
-        );
+        let chain = IdentityBlockchain::new(&identity, &BcrKeys::new(), test_ts());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
     }
@@ -776,7 +772,7 @@ mod tests {
         let identity = empty_identity();
         let keys = BcrKeys::new();
 
-        let chain = IdentityBlockchain::new(&identity, &keys, Timestamp::new(1731593928).unwrap());
+        let chain = IdentityBlockchain::new(&identity, &keys, test_ts());
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
         let mut chain = chain.unwrap();
@@ -796,7 +792,7 @@ mod tests {
                 identity_document_file: None,
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(update_block.is_ok());
         chain.try_add_block(update_block.unwrap());
@@ -811,7 +807,7 @@ mod tests {
                 bill_key: Some(private_key_test()),
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(sign_person_bill_block.is_ok());
         chain.try_add_block(sign_person_bill_block.unwrap());
@@ -826,7 +822,7 @@ mod tests {
                 operation: BillOpCode::Issue,
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(sign_company_bill_block.is_ok());
         chain.try_add_block(sign_company_bill_block.unwrap());
@@ -839,7 +835,7 @@ mod tests {
                 block_hash: Sha256Hash::new("some hash"),
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(create_company_block.is_ok());
         chain.try_add_block(create_company_block.unwrap());
@@ -853,7 +849,7 @@ mod tests {
                 signatory: node_id_test(),
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(invite_signatory_block.is_ok());
         chain.try_add_block(invite_signatory_block.unwrap());
@@ -866,7 +862,7 @@ mod tests {
                 block_hash: Sha256Hash::new("some hash"),
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(accept_signatory_invite_block.is_ok());
         chain.try_add_block(accept_signatory_invite_block.unwrap());
@@ -879,7 +875,7 @@ mod tests {
                 block_hash: Sha256Hash::new("some hash"),
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(reject_signatory_invite_block.is_ok());
         chain.try_add_block(reject_signatory_invite_block.unwrap());
@@ -893,7 +889,7 @@ mod tests {
                 signatory: node_id_test(),
             },
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         );
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
@@ -906,7 +902,7 @@ mod tests {
                 data: test_signed_identity.1,
             },
             &keys,
-            Timestamp::new(1731593929).unwrap(),
+            test_ts(),
         );
         assert!(identity_proof_block.is_ok());
         chain.try_add_block(identity_proof_block.unwrap());

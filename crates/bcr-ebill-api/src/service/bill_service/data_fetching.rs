@@ -1,3 +1,5 @@
+use crate::get_config;
+
 use super::service::BillService;
 use super::{Error, Result};
 use bcr_common::core::{BillId, NodeId};
@@ -6,12 +8,12 @@ use bcr_ebill_core::application::bill::{
     PaymentState,
 };
 use bcr_ebill_core::application::contact::Contact;
-use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::Validate;
 use bcr_ebill_core::protocol::blockchain::Block;
 use bcr_ebill_core::protocol::blockchain::bill::BillValidateActionData;
 use bcr_ebill_core::protocol::{Date, ProtocolValidationError};
+use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof, Sum};
 use bcr_ebill_core::{
     application::bill::{
         BillAcceptanceStatus, BillCurrentWaitingState, BillData, BillParticipants,
@@ -141,6 +143,60 @@ impl BillService {
                 signatory_identity: None,
             }),
         }
+    }
+
+    /// Get the signer's identity proof
+    /// If they are Anon - return None
+    /// If it's an identified person - return the email confirmation for the witness and identity
+    /// If it's a company - return the email confirmation for the witness, company and signatory
+    /// If we're in dev mode and mandatory email confirmations are disabled, we accept self-signing
+    pub(super) async fn get_signer_identity_proof(
+        &self,
+        signer_public_data: &BillParticipant,
+        signatory_identity: &IdentityWithAll,
+        witness: &NodeId,
+    ) -> Result<Option<(SignedIdentityProof, EmailIdentityProofData)>> {
+        Ok(match signer_public_data {
+            BillParticipant::Ident(identified) => match identified.t {
+                ContactType::Person => self
+                    .identity_store
+                    .get_email_confirmations()
+                    .await?
+                    .iter()
+                    .find(|ec| {
+                        &ec.0.witness
+                            == if get_config()
+                                .dev_mode_config
+                                .disable_mandatory_email_confirmations
+                            {
+                                &identified.node_id
+                            } else {
+                                witness
+                            }
+                    })
+                    .cloned(),
+                ContactType::Company => self
+                    .company_store
+                    .get_email_confirmations(&identified.node_id)
+                    .await?
+                    .iter()
+                    .find(|ec| {
+                        &ec.0.witness
+                            == if get_config()
+                                .dev_mode_config
+                                .disable_mandatory_email_confirmations
+                            {
+                                &signatory_identity.identity.node_id
+                            } else {
+                                witness
+                            }
+                            && ec.1.node_id == signatory_identity.identity.node_id
+                    })
+                    .cloned(),
+                ContactType::Anon => None,
+            },
+            BillParticipant::Anon(_) => None,
+        })
     }
 
     pub(super) async fn calculate_full_bill(
@@ -1006,7 +1062,8 @@ pub mod tests {
     use crate::{
         service::bill_service::test_utils::{bill_keys, get_baseline_bill, get_genesis_chain},
         tests::tests::{
-            bill_id_test, bill_identified_participant_only_node_id, empty_address, private_key_test,
+            bill_id_test, bill_identified_participant_only_node_id, empty_address,
+            private_key_test, signed_identity_proof_test, test_ts,
         },
     };
 
@@ -1021,7 +1078,7 @@ pub mod tests {
         let endorsee: Option<NodeId> = None;
         let maturity_date = bill.maturity_date.clone();
         let bill_keys = bill_keys();
-        let timestamp = Timestamp::new(1731593928).unwrap();
+        let timestamp = test_ts();
 
         let is_paid = false;
         let is_waiting_for_req_to_pay = false;
@@ -1095,6 +1152,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: latest_block.timestamp + 1,
                 signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
                 acceptance_deadline_timestamp: latest_block.timestamp
                     + 1
                     + 2 * ACCEPT_DEADLINE_SECONDS,
@@ -1168,6 +1226,7 @@ pub mod tests {
                 signatory: None,
                 signing_timestamp: latest_block.timestamp + 1,
                 signing_address: empty_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
             },
             &BcrKeys::new(),
             None,

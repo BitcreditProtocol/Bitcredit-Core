@@ -131,15 +131,18 @@ mod tests {
     };
     use mockall::predicate::always;
 
-    use crate::handler::{
-        MockIdentityChainEventProcessorApi,
-        identity_chain_event_processor::tests::{
-            get_identity_create_block, get_identity_update_block,
+    use crate::{
+        handler::{
+            MockIdentityChainEventProcessorApi,
+            identity_chain_event_processor::tests::{
+                get_identity_create_block, get_identity_update_block,
+            },
+            test_utils::{
+                MockIdentityStore, MockNostrChainEventStore, get_baseline_identity,
+                get_test_nostr_event, node_id_test,
+            },
         },
-        test_utils::{
-            MockIdentityStore, MockNostrChainEventStore, get_baseline_identity,
-            get_test_nostr_event, node_id_test,
-        },
+        test_utils::test_ts,
     };
 
     use super::*;
@@ -219,7 +222,7 @@ mod tests {
             chain.get_latest_block(),
             &data,
             &keys,
-            Timestamp::new(1731593928).unwrap(),
+            test_ts(),
         )
         .expect("could not create block");
 

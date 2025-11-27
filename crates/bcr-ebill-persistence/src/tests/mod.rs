@@ -121,9 +121,9 @@ pub mod tests {
                 all_participant_node_ids: vec![],
             },
             data: BillData {
-                time_of_drawing: Timestamp::new(1731593928).unwrap(),
+                time_of_drawing: test_ts(),
                 issue_date: Date::new("2024-05-01").unwrap(),
-                time_of_maturity: Timestamp::new(1731593928).unwrap(),
+                time_of_maturity: test_ts(),
                 maturity_date: Date::new("2024-07-01").unwrap(),
                 country_of_issuing: Country::AT,
                 city_of_issuing: City::new("Vienna").unwrap(),
@@ -171,7 +171,7 @@ pub mod tests {
                 },
                 redeemed_funds_available: false,
                 has_requested_funds: false,
-                last_block_time: Timestamp::new(1731593928).unwrap(),
+                last_block_time: test_ts(),
             },
             current_waiting_state: None,
             history: BillHistory { blocks: vec![] },
@@ -210,7 +210,7 @@ pub mod tests {
             node_id: node_id_test(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),
-            created_at: Timestamp::new(1731593929).unwrap(),
+            created_at: test_ts(),
         };
         let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
         (proof, data)
@@ -236,5 +236,9 @@ pub mod tests {
             .unwrap(),
             bitcoin::Network::Testnet,
         )
+    }
+
+    pub fn test_ts() -> Timestamp {
+        Timestamp::new(1731593928).unwrap()
     }
 }
