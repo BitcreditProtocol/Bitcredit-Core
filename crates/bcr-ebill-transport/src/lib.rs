@@ -209,18 +209,14 @@ pub async fn create_transport_service(
 /// with the given handlers. The consumer is just set up here and needs to be started
 /// via the run method later.
 pub async fn create_nostr_consumer(
-    clients: Vec<Arc<NostrClient>>,
+    client: Arc<NostrClient>,
     contact_service: Arc<dyn ContactServiceApi>,
     push_service: Arc<dyn PushApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     db_context: DbContext,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
-    // TODO: is_primary will be removed in Task 11
-    let transport = match clients.first() {
-        Some(client) => client.clone(),
-        None => panic!("Cant create Nostr consumer as there is no nostr client available"),
-    };
+    let transport = client.clone();
 
     let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         transport.clone(),
@@ -305,9 +301,9 @@ pub async fn create_nostr_consumer(
             push_service.clone(),
         )),
     ];
-    debug!("initializing nostr consumer for {} clients", clients.len());
+    debug!("initializing nostr consumer with single multi-identity client");
     let consumer = NostrConsumer::new(
-        clients,
+        client,
         contact_service,
         handlers,
         db_context.nostr_event_offset_store.clone(),

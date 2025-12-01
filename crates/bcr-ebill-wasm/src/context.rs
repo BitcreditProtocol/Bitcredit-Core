@@ -120,8 +120,14 @@ impl Context {
             db.identity_store.clone(),
         ));
 
+        // TODO: Task 10 will update create_nostr_clients to return a single multi-identity client
+        // For now, use the first client (which should be the primary identity)
+        let nostr_client = nostr_clients.first()
+            .ok_or_else(|| bcr_ebill_core::Error::Other("No Nostr clients available".to_string()))?
+            .clone();
+        
         let nostr_consumer = create_nostr_consumer(
-            nostr_clients.clone(),
+            nostr_client,
             contact_service.clone(),
             push_service.clone(),
             chain_key_service.clone(),
