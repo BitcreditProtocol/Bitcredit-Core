@@ -309,39 +309,65 @@ impl NostrClient {
 
     async fn send_nip17_message(
         &self,
-        _sender_node_id: &NodeId,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
-        // NIP-17 limitation: nostr-sdk's send_private_msg only supports client's default signer.
-        // Multi-identity clients cannot specify which identity to use for NIP-17 messages.
-        // This will be fixed in a future task when we implement manual GiftWrap construction.
-        if self.signers.len() > 1 {
-            return Err(Error::Message(
-                "NIP-17 not yet supported for multi-identity clients. Use NIP-04 instead.".to_string()
-            ));
-        }
+        // Get the BcrKeys for the specified sender identity to construct nostr Keys
+        let bcr_keys = self.keys.get(sender_node_id)
+            .ok_or_else(|| Error::Crypto(format!("Keys not found for sender {sender_node_id}")))?;
+        let sender_keys = bcr_keys.get_nostr_keys();
         
-        let public_key = recipient.node_id().npub();
+        let receiver_pubkey = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
+        
+        // Manually construct NIP-17 gift wrap to support multi-identity clients
+        // Step 1: Create the rumor (unsigned event with the message content)
+        let rumor = EventBuilder::private_msg_rumor(receiver_pubkey, message)
+            .build(sender_keys.public_key());
+        
+        // Step 2: Create and sign the seal (encrypts the rumor for the receiver)
+        let seal_builder = nostr::nips::nip59::make_seal(&sender_keys, &receiver_pubkey, rumor)
+            .await
+            .map_err(|e| {
+                error!("Failed to create NIP-17 seal: {e}");
+                Error::Message(format!("Failed to create NIP-17 seal: {e}"))
+            })?;
+        
+        let seal = seal_builder.sign(&sender_keys).await.map_err(|e| {
+            error!("Failed to sign NIP-17 seal: {e}");
+            Error::Message(format!("Failed to sign NIP-17 seal: {e}"))
+        })?;
+        
+        // Step 3: Create the gift wrap (encrypts the seal with ephemeral key)
+        let gift_wrap = EventBuilder::gift_wrap_from_seal(&receiver_pubkey, &seal, [])
+            .map_err(|e| {
+                error!("Failed to create NIP-17 gift wrap: {e}");
+                Error::Message(format!("Failed to create NIP-17 gift wrap: {e}"))
+            })?;
+        
+        // Step 4: Send the gift wrap event
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
                 .client()
                 .await?
-                .send_private_msg_to(&relays, public_key, message, None)
+                .send_event_to(&relays, &gift_wrap)
                 .await
             {
-                error!("Error sending Nostr message: {e}")
+                error!("Error sending NIP-17 gift wrap to specific relays: {e}");
+                return Err(Error::Network(format!("Failed to send NIP-17 message: {e}")));
             };
         } else if let Err(e) = self
             .client()
             .await?
-            .send_private_msg(public_key, message, None)
+            .send_event(&gift_wrap)
             .await
         {
-            error!("Error sending Nostr message: {e}")
+            error!("Error sending NIP-17 gift wrap: {e}");
+            return Err(Error::Network(format!("Failed to send NIP-17 message: {e}")));
         }
+        
         Ok(())
     }
 
@@ -1131,15 +1157,11 @@ mod tests {
         );
         let event = create_test_event(&BillEventType::BillSigned);
         
-        // Multi-identity clients cannot use NIP-17 yet because nostr-sdk doesn't support
-        // specifying which signer to use. This will be fixed when we either:
-        // 1. Switch to NIP-04 (which supports explicit signers), or
-        // 2. Implement manual GiftWrap construction for NIP-17
+        // NIP-17 now supports multi-identity clients via manual gift wrap construction
         let result = client.send_private_event(&node_id1, &BillParticipant::Ident(recipient), event.try_into().unwrap())
             .await;
         
-        assert!(result.is_err(), "Should fail for multi-identity client with NIP-17");
-        assert!(result.unwrap_err().to_string().contains("NIP-17 not yet supported"));
+        assert!(result.is_ok(), "NIP-17 should work for multi-identity clients: {:?}", result.err());
     }
 
     #[tokio::test]
