@@ -143,7 +143,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
             };
             for (_, recipient) in unique {
                 let event = Event::new_bill(payload.clone());
-                node.send_private_event(&recipient, event.clone().try_into()?)
+                node.send_private_event(sender_node_id, &recipient, event.clone().try_into()?)
                     .await?;
 
                 // Only send email to holder, and only if we are drawee, or recoursee
@@ -285,14 +285,14 @@ mod tests {
 
             // expect to send payment timeout event to all recipients
             mock.expect_send_private_event()
-                .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
-                .returning(|_, _| Ok(()))
+                .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
+                .returning(|_, _, _| Ok(()))
                 .times(3);
 
             // expect to send acceptance timeout event to all recipients
             mock.expect_send_private_event()
-                .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceTimeout))
-                .returning(|_, _| Ok(()))
+                .withf(|_, _, e| check_chain_payload(e, BillEventType::BillAcceptanceTimeout))
+                .returning(|_, _, _| Ok(()))
                 .times(3);
 
             email_client

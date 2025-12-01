@@ -357,7 +357,7 @@ impl TransportServiceApi for TransportService {
             .get_node_transport(sender_node_id)
             .await
         {
-            node.send_private_event(mint, event.clone().try_into()?)
+            node.send_private_event(sender_node_id, mint, event.clone().try_into()?)
                 .await?;
         }
         // Only send email to mint
@@ -679,29 +679,29 @@ mod tests {
                 // expect to send payment rejected event to all recipients
                 transport
                     .expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentRejected))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentRejected))
+                    .returning(|_, _, _| Ok(()))
                     .times(3);
 
                 // expect to send acceptance rejected event to all recipients
                 transport
                     .expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceRejected))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillAcceptanceRejected))
+                    .returning(|_, _, _| Ok(()))
                     .times(3);
 
                 // expect to send buying rejected event to all recipients
                 transport
                     .expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillBuyingRejected))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillBuyingRejected))
+                    .returning(|_, _, _| Ok(()))
                     .times(3);
 
                 // expect to send recourse rejected event to all recipients
                 transport
                     .expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
+                    .returning(|_, _, _| Ok(()))
                     .times(3);
 
                 block_transport
@@ -718,8 +718,8 @@ mod tests {
                 // invite to new participants as well and the test data doesn't have them all.
                 transport
                     .expect_send_private_event()
-                    .withf(|_, e| e.event_type == EventType::BillChainInvite)
-                    .returning(|_, _| Ok(()));
+                    .withf(|_, _, e| e.event_type == EventType::BillChainInvite)
+                    .returning(|_, _, _| Ok(()));
             },
         );
 
@@ -906,22 +906,22 @@ mod tests {
 
                 // expect to send payment recourse event to all recipients
                 mock.expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillPaymentRecourse))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentRecourse))
+                    .returning(|_, _, _| Ok(()))
                     .times(1);
                 mock.expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillBlock))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillBlock))
+                    .returning(|_, _, _| Ok(()))
                     .times(2);
 
                 // expect to send acceptance recourse event to all recipients
                 mock.expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillAcceptanceRecourse))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillAcceptanceRecourse))
+                    .returning(|_, _, _| Ok(()))
                     .times(1);
                 mock.expect_send_private_event()
-                    .withf(|_, e| check_chain_payload(e, BillEventType::BillBlock))
-                    .returning(|_, _| Ok(()))
+                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillBlock))
+                    .returning(|_, _, _| Ok(()))
                     .times(2);
 
                 block_transport
@@ -935,12 +935,12 @@ mod tests {
                     .times(2);
 
                 mock.expect_send_private_event()
-                    .withf(move |_, e| {
+                    .withf(move |_, _, e| {
                         let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
                             e.clone().try_into();
                         r.is_ok()
                     })
-                    .returning(|_, _| Ok(()));
+                    .returning(|_, _, _| Ok(()));
             },
         );
 
@@ -1049,7 +1049,7 @@ mod tests {
 
             let clone2 = p.clone();
             mock.expect_send_private_event()
-                .withf(move |r, e| {
+                .withf(move |_, r, e| {
                     let part = clone2.clone();
                     let valid_node_id = r.node_id() == part.0.node_id;
                     let event_result: bcr_ebill_core::protocol::Result<
@@ -1062,15 +1062,15 @@ mod tests {
                         false
                     }
                 })
-                .returning(|_, _| Ok(()));
+                .returning(|_, _, _| Ok(()));
 
             mock.expect_send_private_event()
-                .withf(move |_, e| {
+                .withf(move |_, _, e| {
                     let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
                         e.clone().try_into();
                     r.is_ok()
                 })
-                .returning(|_, _| Ok(()));
+                .returning(|_, _, _| Ok(()));
         }
         mock_block_transport
             .expect_send_bill_chain_events()
@@ -1753,7 +1753,7 @@ mod tests {
                     .returning(node_id_test);
                 mock_transport
                     .expect_send_private_event()
-                    .returning(|_, _| Ok(()));
+                    .returning(|_, _, _| Ok(()));
 
                 mock_queue
                     .expect_get_retry_messages()
@@ -1817,7 +1817,7 @@ mod tests {
 
                 mock_transport
                     .expect_send_private_event()
-                    .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
+                    .returning(|_, _, _| Err(Error::Network("Failed to send".to_string())));
 
                 mock_queue
                     .expect_get_retry_messages()
@@ -1907,11 +1907,11 @@ mod tests {
                 // First message succeeds, second fails
                 mock_transport
                     .expect_send_private_event()
-                    .returning(|_, _| Ok(()))
+                    .returning(|_, _, _| Ok(()))
                     .times(1);
                 mock_transport
                     .expect_send_private_event()
-                    .returning(|_, _| Err(Error::Network("Failed to send".to_string())))
+                    .returning(|_, _, _| Err(Error::Network("Failed to send".to_string())))
                     .times(1);
 
                 // Return first message, then second message
@@ -2024,7 +2024,7 @@ mod tests {
                     .returning(node_id_test);
                 mock_transport
                     .expect_send_private_event()
-                    .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
+                    .returning(|_, _, _| Err(Error::Network("Failed to send".to_string())));
 
                 mock_queue
                     .expect_get_retry_messages()
@@ -2092,7 +2092,7 @@ mod tests {
                     .returning(node_id_test);
                 mock_transport
                     .expect_send_private_event()
-                    .returning(|_, _| Ok(()));
+                    .returning(|_, _, _| Ok(()));
 
                 mock_queue
                     .expect_get_retry_messages()
@@ -2189,17 +2189,17 @@ mod tests {
 
                 // one dm succeeds
                 mock.expect_send_private_event()
-                    .returning(|_, _| Ok(()))
+                    .returning(|_, _, _| Ok(()))
                     .once();
 
                 // now a chain invite should be sent but fails
                 mock.expect_send_private_event()
-                    .withf(move |_, e| {
+                    .withf(move |_, _, e| {
                         let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
                             e.clone().try_into();
                         r.is_err()
                     })
-                    .returning(|_, _| Err(Error::Network("Failed to send".to_string())));
+                    .returning(|_, _, _| Err(Error::Network("Failed to send".to_string())));
 
                 queue_mock
                     .expect_add_message()

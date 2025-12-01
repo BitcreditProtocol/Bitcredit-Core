@@ -179,7 +179,7 @@ impl NostrTransportService {
             for (node_id, event_to_process) in events.iter() {
                 if let Some(identity) = self.resolve_identity(node_id).await {
                     if let Err(e) = node
-                        .send_private_event(&identity, event_to_process.clone().try_into()?)
+                        .send_private_event(sender, &identity, event_to_process.clone().try_into()?)
                         .await
                     {
                         error!(
@@ -217,7 +217,7 @@ impl NostrTransportService {
                 node_id: recipient.to_owned(),
                 nostr_relays: relays.to_vec(),
             });
-            transport.send_private_event(&recipient, message).await?;
+            transport.send_private_event(sender, &recipient, message).await?;
         } else {
             warn!("No transport node found for sender node_id: {sender}");
             return Err(Error::Network(
@@ -357,7 +357,7 @@ impl NostrTransportService {
             self.get_node_transport(sender).await,
             self.resolve_node_contact(node_id).await,
         ) {
-            node.send_private_event(&identity, message).await?;
+            node.send_private_event(sender, &identity, message).await?;
         }
         Ok(())
     }

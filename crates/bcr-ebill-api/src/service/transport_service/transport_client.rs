@@ -27,6 +27,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Sends a private json event to the given recipient.
     async fn send_private_event(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()>;

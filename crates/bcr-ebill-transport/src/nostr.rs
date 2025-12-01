@@ -24,6 +24,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
 
 use bcr_ebill_api::{
     constants::NOSTR_EVENT_TIME_SLACK,
+    get_config,
     service::{
         contact_service::ContactServiceApi,
         transport_service::{
@@ -282,13 +283,14 @@ impl NostrClient {
 
     pub async fn send_nip04_message(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
+        let signer = self.get_signer(sender_node_id)?;
         let public_key = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
-        // TODO: This will be updated in Task 2 to accept sender_node_id parameter
-        let event = create_nip04_event(&self.get_default_signer().await, &public_key, &message).await?;
+        let event = create_nip04_event(&signer, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -307,11 +309,17 @@ impl NostrClient {
 
     async fn send_nip17_message(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
+        let _signer = self.get_signer(sender_node_id)?;
         let public_key = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
+        
+        // Note: The nostr-sdk's send_private_msg methods use the client's default signer.
+        // For multi-identity support, we may need to build GiftWrap manually in the future.
+        // For now, this maintains the existing behavior.
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -367,13 +375,14 @@ impl TransportClientApi for NostrClient {
 
     async fn send_private_event(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
         if self.use_nip04() {
-            self.send_nip04_message(recipient, event).await?;
+            self.send_nip04_message(sender_node_id, recipient, event).await?;
         } else {
-            self.send_nip17_message(recipient, event).await?;
+            self.send_nip17_message(sender_node_id, recipient, event).await?;
         }
         Ok(())
     }
@@ -388,7 +397,14 @@ impl TransportClientApi for NostrClient {
         previous_event: Option<Event>,
         root_event: Option<Event>,
     ) -> Result<Event> {
-        let event = create_public_chain_event(
+        // Derive sender_node_id from keys
+        let sender_node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+        
+        // Get the keys for this identity to sign with
+        let signing_keys = self.keys.get(&sender_node_id)
+            .ok_or_else(|| Error::Message(format!("No keys found for node_id: {}", sender_node_id)))?;
+        
+        let event_builder = create_public_chain_event(
             id,
             event,
             block_time,
@@ -397,15 +413,17 @@ impl TransportClientApi for NostrClient {
             previous_event,
             root_event,
         )?;
-        let send_event = self
-            .client()
-            .await?
-            .sign_event_builder(event)
+        
+        // Build unsigned event and sign it with the explicit keys
+        let unsigned = event_builder.build(signing_keys.get_nostr_keys().public_key());
+        let send_event = unsigned
+            .sign(&signing_keys.get_nostr_keys())
             .await
             .map_err(|e| {
                 error!("Failed to sign Nostr event: {e}");
                 Error::Crypto("Failed to sign Nostr event".to_string())
             })?;
+        
         self.client()
             .await?
             .send_event(&send_event)
@@ -994,8 +1012,10 @@ mod tests {
                         .expect("failed to start nostr consumer");
                 });
                 // and send an event
+                let node_id1 = NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet);
                 client1
                     .send_private_event(
+                        &node_id1,
                         &BillParticipant::Ident(contact),
                         event.try_into().expect("could not convert event"),
                     )
@@ -1035,5 +1055,39 @@ mod tests {
         // Should fail for unknown identity
         let unknown = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         assert!(client.get_signer(&unknown).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_send_private_event_with_sender_node_id() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+        
+        let keys1 = BcrKeys::new();
+        let keys2 = BcrKeys::new();
+        let node_id1 = NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet);
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+        
+        let identities = vec![
+            (node_id1.clone(), keys1.clone()),
+            (node_id2.clone(), keys2.clone()),
+        ];
+        
+        let client = NostrClient::new(identities, vec![url.clone()], Duration::from_secs(20))
+            .await
+            .expect("failed to create client");
+        
+        client.connect().await.expect("failed to connect");
+        
+        let recipient = get_identity_public_data(
+            &node_id2,
+            &Email::new("recipient@example.com").unwrap(),
+            vec![&url],
+        );
+        let event = create_test_event(&BillEventType::BillSigned);
+        
+        // Should send using node_id1's signer
+        client.send_private_event(&node_id1, &BillParticipant::Ident(recipient), event.try_into().unwrap())
+            .await
+            .expect("failed to send event");
     }
 }

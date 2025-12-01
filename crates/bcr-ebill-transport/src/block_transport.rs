@@ -150,7 +150,7 @@ impl BlockTransportServiceApi for BlockTransportService {
             if let Some((recipient, invite)) = events.generate_company_invite_message()
                 && let Some(identity) = self.nostr_transport.resolve_identity(&recipient).await
             {
-                node.send_private_event(&identity, invite.try_into()?)
+                node.send_private_event(&events.sender(), &identity, invite.try_into()?)
                     .await?;
             }
         } else {
@@ -211,7 +211,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                 for (recipient, event) in invites {
                     if let Some(identity) = self.nostr_transport.resolve_identity(&recipient).await
                     {
-                        node.send_private_event(&identity, event.try_into()?)
+                        node.send_private_event(&events.sender(), &identity, event.try_into()?)
                             .await?;
                     }
                 }
