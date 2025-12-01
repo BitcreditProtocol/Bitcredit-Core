@@ -60,7 +60,8 @@ pub enum SortOrder {
 #[derive(Clone)]
 pub struct NostrClient {
     client: Client,
-    pub(crate) signers: HashMap<NodeId, Arc<dyn NostrSigner>>,
+    signers: HashMap<NodeId, Arc<dyn NostrSigner>>,
+    keys: HashMap<NodeId, BcrKeys>,  // Store original keys for backward compatibility
     relays: Vec<url::Url>,
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
@@ -95,13 +96,16 @@ impl NostrClient {
         
         // Build signers HashMap from all identities
         let mut signers = HashMap::new();
+        let mut keys_map = HashMap::new();
         for (node_id, keys) in identities {
-            signers.insert(node_id, Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>);
+            signers.insert(node_id.clone(), Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>);
+            keys_map.insert(node_id, keys);
         }
         
         Ok(Self {
             client,
             signers,
+            keys: keys_map,
             relays,
             default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
@@ -123,9 +127,39 @@ impl NostrClient {
     }
 
     /// Add a new identity to this client
-    pub async fn add_identity(&mut self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
-        self.signers.insert(node_id, Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>);
+    pub fn add_identity(&mut self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+        self.signers.insert(node_id.clone(), Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>);
+        self.keys.insert(node_id, keys);
         Ok(())
+    }
+
+    /// DEPRECATED: Get the first node_id for backward compatibility
+    /// This will be removed in Task 2 when callers are updated to use explicit node_id parameters
+    pub fn get_node_id(&self) -> NodeId {
+        self.signers
+            .keys()
+            .next()
+            .expect("NostrClient must have at least one identity")
+            .clone()
+    }
+
+    /// DEPRECATED: Get the default signer (first identity) for backward compatibility
+    /// This will be removed in Task 2 when callers are updated to use explicit node_id parameters
+    pub async fn get_default_signer(&self) -> Arc<dyn NostrSigner> {
+        self.signers
+            .values()
+            .next()
+            .expect("NostrClient must have at least one identity")
+            .clone()
+    }
+    
+    /// DEPRECATED: Get public keys from first identity for backward compatibility
+    /// This will be removed in Task 2
+    pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
+        let node_id = self.get_node_id();
+        self.keys.get(&node_id)
+            .expect("keys exist for node_id")
+            .get_nostr_keys()
     }
 
     pub async fn publish_relay_list(&self, relays: Vec<url::Url>) -> Result<()> {
@@ -254,10 +288,7 @@ impl NostrClient {
         let public_key = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
         // TODO: This will be updated in Task 2 to accept sender_node_id parameter
-        let first_signer = self.signers.values().next()
-            .ok_or_else(|| Error::Message("No signers available".to_string()))?
-            .clone();
-        let event = create_nip04_event(&first_signer, &public_key, &message).await?;
+        let event = create_nip04_event(&self.get_default_signer().await, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -321,12 +352,17 @@ impl ServiceTraitBounds for NostrClient {}
 impl TransportClientApi for NostrClient {
     fn get_sender_node_id(&self) -> NodeId {
         // TODO: This method will be removed in Task 2 - multi-identity clients don't have a single node_id
-        panic!("get_sender_node_id() is deprecated - use explicit node_id parameters instead")
+        // For backward compatibility, return the first identity temporarily
+        self.get_node_id()
     }
 
     fn get_sender_keys(&self) -> BcrKeys {
         // TODO: This method will be removed in Task 2 - multi-identity clients don't have single keys
-        panic!("get_sender_keys() is deprecated - use explicit node_id parameters instead")
+        // For backward compatibility, return keys from the first identity temporarily
+        let node_id = self.get_node_id();
+        self.keys.get(&node_id)
+            .expect("keys exist for node_id")
+            .clone()
     }
 
     async fn send_private_event(
@@ -478,13 +514,7 @@ impl NostrConsumer {
     ) -> Self {
         let clients = clients
             .into_iter()
-            .map(|c| {
-                // TODO: This will be refactored in Task 3 - multi-identity clients don't have a single node_id
-                let node_id = c.signers.keys().next()
-                    .expect("No signers available")
-                    .clone();
-                (node_id, c)
-            })
+            .map(|c| (c.get_node_id(), c))
             .collect::<HashMap<NodeId, Arc<NostrClient>>>();
         Self {
             clients,
@@ -527,14 +557,10 @@ impl NostrConsumer {
                 let offset_ts = get_offset(&offset_store, &client_id).await;
 
                 // subscribe to private events
-                // TODO: This will be refactored in Task 3 for multi-identity support
-                let first_pubkey = current_client.signers.keys().next()
-                    .expect("No signers available")
-                    .npub();
                 current_client
                     .subscribe(
                         Filter::new()
-                            .pubkey(first_pubkey)
+                            .pubkey(current_client.get_nostr_keys().public_key())
                             .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
                             .since(offset_ts.into()),
                     )
@@ -562,10 +588,7 @@ impl NostrConsumer {
                         .expect("Failed to subscribe to Nostr public events");
                 }
 
-                // TODO: This will be refactored in Task 3
-                let first_signer = current_client.signers.values().next()
-                    .expect("No signers available")
-                    .clone();
+                let signer = current_client.get_default_signer().await;
 
                 current_client
                     .client
@@ -576,7 +599,7 @@ impl NostrConsumer {
                         let client_id = client_id.clone();
                         let contact_service = contact_service.clone();
                         let local_node_ids = local_node_ids.clone();
-                        let first_signer = first_signer.clone();
+                        let signer = signer.clone();
 
                         async move {
                             if let RelayPoolNotification::Event { event, .. } = note
@@ -590,7 +613,7 @@ impl NostrConsumer {
                             {
                                 let (success, time) = process_event(
                                     event.clone(),
-                                    first_signer,
+                                    signer,
                                     client_id.clone(),
                                     chain_key_store,
                                     &event_handlers,

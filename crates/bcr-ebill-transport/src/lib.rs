@@ -99,7 +99,7 @@ pub async fn create_nostr_clients(
     let mut clients = vec![];
     for config in configs {
         debug!("initializing nostr client for {}", &config.get_npub());
-        if let Ok(client) = NostrClient::new(&config).await {
+        if let Ok(client) = NostrClient::default(&config).await {
             debug!("initialized nostr client for {}", &config.get_npub());
             clients.push(Arc::new(client));
         }
@@ -116,7 +116,8 @@ pub async fn create_transport_service(
     nostr_relays: Vec<url::Url>,
     push_service: Arc<dyn PushApi>,
 ) -> Result<Arc<dyn TransportServiceApi>> {
-    let transport = match clients.iter().find(|c| c.is_primary()) {
+    // TODO: is_primary will be removed in Task 11
+    let transport = match clients.first() {
         Some(client) => client.clone(),
         None => panic!("Cant create Nostr consumer as there is no nostr client available"),
     };
@@ -215,7 +216,8 @@ pub async fn create_nostr_consumer(
     db_context: DbContext,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
-    let transport = match clients.iter().find(|c| c.is_primary()) {
+    // TODO: is_primary will be removed in Task 11
+    let transport = match clients.first() {
         Some(client) => client.clone(),
         None => panic!("Cant create Nostr consumer as there is no nostr client available"),
     };

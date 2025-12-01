@@ -32,7 +32,8 @@ impl DirectMessageEventProcessor {
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
         handlers: Vec<Arc<dyn NotificationHandlerApi>>,
     ) -> Self {
-        let signer = client.get_signer().await;
+        // TODO: This will be refactored in Task 3 to handle multi-identity
+        let signer = client.get_default_signer().await;
         Self {
             client,
             contact_service,
@@ -48,10 +49,13 @@ impl DirectMessageEventProcessor {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
     async fn process_direct_message(&self, event: Box<nostr::Event>) -> Result<()> {
+        // TODO: This will be refactored in Task 3 to handle multi-identity
+        let node_id = self.client.get_node_id();
+        
         // check if the event should be processed
         if should_process(
             event.clone(),
-            &[self.client.get_node_id()],
+            &[node_id.clone()],
             &self.contact_service,
             &self.offset_store,
         )
@@ -61,7 +65,7 @@ impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
             let (success, time) = process_event(
                 event.clone(),
                 self.signer.clone(),
-                self.client.get_node_id(),
+                node_id.clone(),
                 self.chain_key_service.clone(),
                 &self.handlers,
             )
@@ -73,7 +77,7 @@ impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
                 event.id,
                 time,
                 success,
-                &self.client.get_node_id(),
+                &node_id,
             )
             .await;
         }

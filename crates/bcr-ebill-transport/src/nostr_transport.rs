@@ -162,7 +162,7 @@ impl NostrTransportService {
             node_id.clone(),
         );
 
-        if let Ok(client) = NostrClient::new(&nostr_config).await {
+        if let Ok(client) = NostrClient::default(&nostr_config).await {
             debug!("adding nostr client for {}", &nostr_config.get_npub());
             client.connect().await?;
             transports.insert(node_id, Arc::new(client));

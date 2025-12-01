@@ -415,7 +415,7 @@ pub async fn get_mock_nostr_client() -> NostrClient {
         true,
         NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
     );
-    NostrClient::new(&config)
+    NostrClient::default(&config)
         .await
         .expect("could not create mock nostr client")
 }
