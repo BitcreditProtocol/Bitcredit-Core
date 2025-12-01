@@ -309,17 +309,21 @@ impl NostrClient {
 
     async fn send_nip17_message(
         &self,
-        sender_node_id: &NodeId,
+        _sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
-        let _signer = self.get_signer(sender_node_id)?;
+        // NIP-17 limitation: nostr-sdk's send_private_msg only supports client's default signer.
+        // Multi-identity clients cannot specify which identity to use for NIP-17 messages.
+        // This will be fixed in a future task when we implement manual GiftWrap construction.
+        if self.signers.len() > 1 {
+            return Err(Error::Message(
+                "NIP-17 not yet supported for multi-identity clients. Use NIP-04 instead.".to_string()
+            ));
+        }
+        
         let public_key = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
-        
-        // Note: The nostr-sdk's send_private_msg methods use the client's default signer.
-        // For multi-identity support, we may need to build GiftWrap manually in the future.
-        // For now, this maintains the existing behavior.
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -403,6 +407,13 @@ impl TransportClientApi for NostrClient {
         // Get the keys for this identity to sign with
         let signing_keys = self.keys.get(&sender_node_id)
             .ok_or_else(|| Error::Message(format!("No keys found for node_id: {}", sender_node_id)))?;
+        
+        // Verify parameter keys match what we have stored in the HashMap
+        debug_assert_eq!(
+            keys.pub_key(), 
+            signing_keys.pub_key(),
+            "Keys mismatch in send_public_chain_event: parameter keys don't match HashMap keys"
+        );
         
         let event_builder = create_public_chain_event(
             id,
@@ -1085,9 +1096,14 @@ mod tests {
         );
         let event = create_test_event(&BillEventType::BillSigned);
         
-        // Should send using node_id1's signer
-        client.send_private_event(&node_id1, &BillParticipant::Ident(recipient), event.try_into().unwrap())
-            .await
-            .expect("failed to send event");
+        // Multi-identity clients cannot use NIP-17 yet because nostr-sdk doesn't support
+        // specifying which signer to use. This will be fixed when we either:
+        // 1. Switch to NIP-04 (which supports explicit signers), or
+        // 2. Implement manual GiftWrap construction for NIP-17
+        let result = client.send_private_event(&node_id1, &BillParticipant::Ident(recipient), event.try_into().unwrap())
+            .await;
+        
+        assert!(result.is_err(), "Should fail for multi-identity client with NIP-17");
+        assert!(result.unwrap_err().to_string().contains("NIP-17 not yet supported"));
     }
 }
