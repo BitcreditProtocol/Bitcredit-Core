@@ -20,10 +20,6 @@ impl ServiceTraitBounds for MockTransportClientApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait TransportClientApi: ServiceTraitBounds {
-    /// Returns the senders node id for this instance.
-    fn get_sender_node_id(&self) -> NodeId;
-    /// Returns the senders keys for this instance.
-    fn get_sender_keys(&self) -> BcrKeys;
     /// Sends a private json event to the given recipient.
     async fn send_private_event(
         &self,

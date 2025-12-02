@@ -323,10 +323,7 @@ impl NostrTransportService {
     pub(crate) async fn connect(&self) {
         // With single multi-identity client, just connect it
         if let Err(e) = self.nostr_client.connect().await {
-            error!(
-                "Failed to connect to transport for node id {}: {e}",
-                self.nostr_client.get_sender_node_id()
-            );
+            error!("Failed to connect to transport: {e}");
         }
     }
 }

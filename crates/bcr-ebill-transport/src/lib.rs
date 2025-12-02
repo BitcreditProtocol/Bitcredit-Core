@@ -320,7 +320,7 @@ pub async fn create_restore_account_service(
         keys.clone(),
         config.nostr_config.relays.clone(),
         true,
-        node_id,
+        node_id.clone(),
     );
 
     let nostr_client = Arc::new(NostrClient::default(&nostr_config).await?);
@@ -383,5 +383,8 @@ pub async fn create_restore_account_service(
         .await,
     );
 
-    Ok(RestoreAccountService::new(nostr_client, processor, dm_processor, keys.clone()).await)
+    Ok(
+        RestoreAccountService::new(nostr_client, processor, dm_processor, keys.clone(), node_id)
+            .await,
+    )
 }

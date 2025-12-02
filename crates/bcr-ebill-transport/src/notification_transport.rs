@@ -247,7 +247,7 @@ mod tests {
             MockNostrChainEventStore, MockNostrContactStore, MockNostrQueuedMessageStore,
             MockNotificationJsonTransport, MockNotificationStore, bill_id_test,
             get_identity_public_data, get_nostr_transport, init_test_cfg, node_id_test,
-            node_id_test_other, node_id_test_other2, private_key_test,
+            node_id_test_other, node_id_test_other2,
         },
     };
 
@@ -275,11 +275,6 @@ mod tests {
         ];
 
         let service = expect_service(|mock, _, _, _, _, _, _, email_client| {
-            // resolves node_id
-            mock.expect_get_sender_node_id().returning(node_id_test);
-            mock.expect_get_sender_keys()
-                .returning(|| BcrKeys::from_private_key(&private_key_test()));
-
             // expect to send payment timeout event to all recipients
             mock.expect_send_private_event()
                 .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
@@ -348,8 +343,6 @@ mod tests {
         ];
 
         let service = expect_service(|mock, _, _, _, _, _, _, _| {
-            mock.expect_get_sender_node_id().returning(node_id_test);
-
             // expect to never send timeout event on non expiring events
             mock.expect_send_private_event().never();
         });
@@ -379,16 +372,12 @@ mod tests {
             ..Default::default()
         };
 
-        let service = expect_service(|mock_transport, _, _, _, _, mock_store, _, _| {
+        let service = expect_service(|_, _, _, _, _, mock_store, _, _| {
             let returning = result.clone();
             mock_store
                 .expect_list()
                 .with(eq(filter.clone()))
                 .returning(move |_| Ok(vec![returning.clone()]));
-
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
         });
 
         let res = service
@@ -409,11 +398,7 @@ mod tests {
             ..Default::default()
         };
 
-        let service = expect_service(|mock_transport, _, _, _, _, _, _, _| {
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
-        });
+        let service = expect_service(|_, _, _, _, _, _, _, _| {});
 
         assert!(service.get_client_notifications(filter).await.is_err());
         assert!(
@@ -440,15 +425,11 @@ mod tests {
     async fn get_mark_notification_done() {
         init_test_cfg();
 
-        let service = expect_service(|mock_transport, _, _, _, _, mock_store, _, _| {
+        let service = expect_service(|_, _, _, _, _, mock_store, _, _| {
             mock_store
                 .expect_mark_as_done()
                 .with(eq("notification_id"))
                 .returning(|_| Ok(()));
-
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
         });
 
         service
@@ -461,14 +442,11 @@ mod tests {
     async fn test_get_email_notifications_preferences_link() {
         init_test_cfg();
 
-        let service = expect_service(|mock_transport, _, _, _, _, _, email_store, _| {
+        let service = expect_service(|_, _, _, _, _, _, email_store, _| {
             email_store
                 .expect_get_email_preferences_link_for_node_id()
                 .returning(|_| Ok(Some(url::Url::parse("http://bit.cr/").unwrap())))
                 .times(1);
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
         });
 
         let result = service
@@ -484,14 +462,11 @@ mod tests {
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link_no_entry() {
         init_test_cfg();
-        let service = expect_service(|mock_transport, _, _, _, _, _, email_store, _| {
+        let service = expect_service(|_, _, _, _, _, _, email_store, _| {
             email_store
                 .expect_get_email_preferences_link_for_node_id()
                 .returning(|_| Ok(None))
                 .times(1);
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
         });
         let result = service
             .get_email_notifications_preferences_link(&node_id_test())

@@ -36,8 +36,8 @@ impl RestoreAccountService {
         identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
         dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
         keys: BcrKeys,
+        node_id: NodeId,
     ) -> Self {
-        let node_id = nostr.get_sender_node_id();
         Self {
             nostr,
             identity_chain_processor,
@@ -158,11 +158,6 @@ mod tests {
         let keys = BcrKeys::new();
 
         nostr
-            .expect_get_sender_node_id()
-            .returning(node_id_test)
-            .once();
-
-        nostr
             .expect_resolve_public_chain()
             .returning(|_, _| Ok(vec![]))
             .once();
@@ -177,6 +172,7 @@ mod tests {
             Arc::new(processor),
             Arc::new(dm_processor),
             keys,
+            node_id_test(),
         )
         .await;
 
@@ -194,11 +190,6 @@ mod tests {
         let dm_processor = MockDirectMessageEventProcessorApi::new();
 
         // given some node id
-        nostr
-            .expect_get_sender_node_id()
-            .returning(node_id_test)
-            .once();
-
         let return_events = events.clone();
         // and identity chain events
         nostr
@@ -229,6 +220,7 @@ mod tests {
             Arc::new(processor),
             Arc::new(dm_processor),
             keys,
+            node_id_test(),
         )
         .await;
 

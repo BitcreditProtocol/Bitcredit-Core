@@ -396,22 +396,6 @@ impl ServiceTraitBounds for NostrClient {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl TransportClientApi for NostrClient {
-    fn get_sender_node_id(&self) -> NodeId {
-        // TODO: This method will be removed in Task 2 - multi-identity clients don't have a single node_id
-        // For backward compatibility, return the first identity temporarily
-        self.get_node_id()
-    }
-
-    fn get_sender_keys(&self) -> BcrKeys {
-        // TODO: This method will be removed in Task 2 - multi-identity clients don't have single keys
-        // For backward compatibility, return keys from the first identity temporarily
-        let node_id = self.get_node_id();
-        self.keys
-            .get(&node_id)
-            .expect("keys exist for node_id")
-            .clone()
-    }
-
     async fn send_private_event(
         &self,
         sender_node_id: &NodeId,

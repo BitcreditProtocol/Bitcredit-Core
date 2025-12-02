@@ -577,11 +577,6 @@ mod tests {
         init_test_cfg();
         let mut mock_transport = MockNotificationJsonTransport::new();
 
-        // get node_id
-        mock_transport
-            .expect_get_sender_node_id()
-            .returning(node_id_test);
-
         // call connect on the inner transport
         mock_transport.expect_connect().returning(|| Ok(()));
 
@@ -665,11 +660,6 @@ mod tests {
                 contact_store
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&payee))));
-
-                // get node_id
-                transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
 
                 // expect to send payment rejected event to all recipients
                 transport
@@ -796,7 +786,6 @@ mod tests {
         let (service, _) = expect_service(|mock, mock_contact_store, _, _, _, _, _, _| {
             // no participant should receive events
             mock_contact_store.expect_get().never();
-            mock.expect_get_sender_node_id().returning(node_id_test);
 
             // expect to not send rejected event for non rejectable actions
             mock.expect_send_private_event().never();
@@ -895,9 +884,6 @@ mod tests {
                 mock_contact_store
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&payer))));
-
-                // resolve node_id
-                mock.expect_get_sender_node_id().returning(node_id_test);
 
                 // expect to send payment recourse event to all recipients
                 mock.expect_send_private_event()
@@ -1005,8 +991,6 @@ mod tests {
         .unwrap();
 
         let (service, _) = expect_service(|mock, _, _, _, _, _, _, _| {
-            mock.expect_get_sender_node_id().returning(node_id_test);
-
             // expect not to send non recourse event
             mock.expect_send_private_event().never();
         });
@@ -1037,10 +1021,6 @@ mod tests {
                 .expect_get()
                 .with(eq(clone1.0.node_id.clone()))
                 .returning(move |_| Ok(Some(as_contact(&clone1.0))));
-
-            mock.expect_get_sender_node_id().returning(node_id_test);
-            mock.expect_get_sender_keys()
-                .returning(|| BcrKeys::from_private_key(&private_key_test()));
 
             let clone2 = p.clone();
             mock.expect_send_private_event()
@@ -1744,9 +1724,6 @@ mod tests {
                     .returning(move |_| Ok(Some(as_contact(&identity))));
 
                 mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
-                mock_transport
                     .expect_send_private_event()
                     .returning(|_, _, _| Ok(()));
 
@@ -1805,10 +1782,6 @@ mod tests {
                 mock_contact_store
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&identity))));
-
-                mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
 
                 mock_transport
                     .expect_send_private_event()
@@ -1895,10 +1868,6 @@ mod tests {
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&identity2))));
 
-                mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
-
                 // First message succeeds, second fails
                 mock_transport
                     .expect_send_private_event()
@@ -1945,7 +1914,7 @@ mod tests {
     async fn test_send_retry_messages_with_invalid_payload() {
         init_test_cfg();
 
-        let (service, _) = expect_service(|mock_transport, _, _, mock_queue, _, _, _, _| {
+        let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
             let node_id = node_id_test_other();
             let message_id = "test_message_id";
             let sender = node_id_test();
@@ -1969,10 +1938,6 @@ mod tests {
                 .with(eq(1))
                 .returning(|_| Ok(vec![]))
                 .times(1);
-
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
         });
 
         let result = service.send_retry_messages().await;
@@ -2013,10 +1978,6 @@ mod tests {
                 mock_contact_store
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&identity))));
-
-                mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
                 mock_transport
                     .expect_send_private_event()
                     .returning(|_, _, _| Err(Error::Network("Failed to send".to_string())));
@@ -2083,9 +2044,6 @@ mod tests {
                     .returning(move |_| Ok(Some(as_contact(&identity))));
 
                 mock_transport
-                    .expect_get_sender_node_id()
-                    .returning(node_id_test);
-                mock_transport
                     .expect_send_private_event()
                     .returning(|_, _, _| Ok(()));
 
@@ -2119,15 +2077,11 @@ mod tests {
     async fn test_send_retry_messages_with_no_messages() {
         init_test_cfg();
 
-        let (service, _) = expect_service(|mock_transport, _, _, mock_queue, _, _, _, _| {
+        let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
             mock_queue
                 .expect_get_retry_messages()
-                .with(eq(1))
                 .returning(|_| Ok(vec![]))
                 .times(1);
-            mock_transport
-                .expect_get_sender_node_id()
-                .returning(node_id_test);
         });
 
         let result = service.send_retry_messages().await;
