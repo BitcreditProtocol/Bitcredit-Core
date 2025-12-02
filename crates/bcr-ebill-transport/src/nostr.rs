@@ -24,7 +24,6 @@ use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
 
 use bcr_ebill_api::{
     constants::NOSTR_EVENT_TIME_SLACK,
-    get_config,
     service::{
         contact_service::ContactServiceApi,
         transport_service::{
@@ -335,47 +334,49 @@ impl NostrClient {
         let receiver_pubkey = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
 
-        // Manually construct NIP-17 gift wrap to support multi-identity clients
-        // Step 1: Create the rumor (unsigned event with the message content)
-        let rumor = EventBuilder::private_msg_rumor(receiver_pubkey, message)
-            .build(sender_keys.public_key());
-
-        // Step 2: Create and sign the seal (encrypts the rumor for the receiver)
-        let seal_builder = nostr::nips::nip59::make_seal(&sender_keys, &receiver_pubkey, rumor)
+        let event = EventBuilder::private_msg(&sender_keys, receiver_pubkey, message, [])
             .await
             .map_err(|e| {
-                error!("Failed to create NIP-17 seal: {e}");
-                Error::Message(format!("Failed to create NIP-17 seal: {e}"))
+                error!("Failed to create NIP-17 event: {e}");
+                Error::Message(format!("Failed to create NIP-17 event: {e}"))
             })?;
 
-        let seal = seal_builder.sign(&sender_keys).await.map_err(|e| {
-            error!("Failed to sign NIP-17 seal: {e}");
-            Error::Message(format!("Failed to sign NIP-17 seal: {e}"))
-        })?;
+        // Manually construct NIP-17 gift wrap to support multi-identity clients
+        // Step 1: Create the rumor (unsigned event with the message content)
+        // let rumor = EventBuilder::private_msg_rumor(receiver_pubkey, message)
+        //     .build(sender_keys.public_key());
 
-        // Step 3: Create the gift wrap (encrypts the seal with ephemeral key)
-        let gift_wrap =
-            EventBuilder::gift_wrap_from_seal(&receiver_pubkey, &seal, []).map_err(|e| {
-                error!("Failed to create NIP-17 gift wrap: {e}");
-                Error::Message(format!("Failed to create NIP-17 gift wrap: {e}"))
-            })?;
+        // Step 2: Create and sign the seal (encrypts the rumor for the receiver)
+        // let seal_builder = nostr::nips::nip59::make_seal(&sender_keys, &receiver_pubkey, rumor)
+        // .await
+        // .map_err(|e| {
+        //     error!("Failed to create NIP-17 seal: {e}");
+        //     Error::Message(format!("Failed to create NIP-17 seal: {e}"))
+        // })?;
+        //
+        // let seal = seal_builder.sign(&sender_keys).await.map_err(|e| {
+        //     error!("Failed to sign NIP-17 seal: {e}");
+        //     Error::Message(format!("Failed to sign NIP-17 seal: {e}"))
+        // })?;
+        //
+        // // Step 3: Create the gift wrap (encrypts the seal with ephemeral key)
+        // let gift_wrap =
+        //     EventBuilder::gift_wrap_from_seal(&receiver_pubkey, &seal, []).map_err(|e| {
+        //         error!("Failed to create NIP-17 gift wrap: {e}");
+        //         Error::Message(format!("Failed to create NIP-17 gift wrap: {e}"))
+        //     })?;
 
         // Step 4: Send the gift wrap event
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            if let Err(e) = self
-                .client()
-                .await?
-                .send_event_to(&relays, &gift_wrap)
-                .await
-            {
-                error!("Error sending NIP-17 gift wrap to specific relays: {e}");
+            if let Err(e) = self.client().await?.send_event_to(&relays, &event).await {
+                error!("Error sending NIP-17 message to specific relays: {e}");
                 return Err(Error::Network(format!(
                     "Failed to send NIP-17 message: {e}"
                 )));
             };
-        } else if let Err(e) = self.client().await?.send_event(&gift_wrap).await {
-            error!("Error sending NIP-17 gift wrap: {e}");
+        } else if let Err(e) = self.client().await?.send_event(&event).await {
+            error!("Error sending NIP-17 message: {e}");
             return Err(Error::Network(format!(
                 "Failed to send NIP-17 message: {e}"
             )));
@@ -419,6 +420,7 @@ impl TransportClientApi for NostrClient {
 
     async fn send_public_chain_event(
         &self,
+        sender_node_id: &NodeId,
         id: &str,
         blockchain: BlockchainType,
         block_time: Timestamp,
@@ -427,20 +429,10 @@ impl TransportClientApi for NostrClient {
         previous_event: Option<Event>,
         root_event: Option<Event>,
     ) -> Result<Event> {
-        // Derive sender_node_id from keys
-        let sender_node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
-
         // Get the keys for this identity to sign with
-        let signing_keys = self.keys.get(&sender_node_id).ok_or_else(|| {
+        let signing_keys = self.keys.get(sender_node_id).ok_or_else(|| {
             Error::Message(format!("No keys found for node_id: {}", sender_node_id))
         })?;
-
-        // Verify parameter keys match what we have stored in the HashMap
-        debug_assert_eq!(
-            keys.pub_key(),
-            signing_keys.pub_key(),
-            "Keys mismatch in send_public_chain_event: parameter keys don't match HashMap keys"
-        );
 
         let event_builder = create_public_chain_event(
             id,

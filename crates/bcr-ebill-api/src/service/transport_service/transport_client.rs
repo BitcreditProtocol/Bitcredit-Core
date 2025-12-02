@@ -32,6 +32,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// event. This will return the sent event so we can add it to the local store.
     async fn send_public_chain_event(
         &self,
+        sender_node_id: &NodeId,
         id: &str,
         blockchain: BlockchainType,
         block_time: Timestamp,

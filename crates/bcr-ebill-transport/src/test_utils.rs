@@ -557,6 +557,7 @@ mockall::mock! {
         async fn send_private_event(&self, sender_node_id: &NodeId, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
         async fn send_public_chain_event(
             &self,
+            sender_node_id: &NodeId,
             id: &str,
             blockchain: bcr_ebill_core::protocol::blockchain::BlockchainType,
             block_time: Timestamp,

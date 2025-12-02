@@ -65,6 +65,7 @@ impl BlockTransportServiceApi for BlockTransportService {
             // send the event
             let nostr_event = node
                 .send_public_chain_event(
+                    &events.sender(),
                     &event.data.node_id.to_string(),
                     BlockchainType::Identity,
                     event.data.block.timestamp,
@@ -111,6 +112,7 @@ impl BlockTransportServiceApi for BlockTransportService {
             // send the event
             let nostr_event = node
                 .send_public_chain_event(
+                    &events.sender(),
                     &event.data.node_id.to_string(),
                     BlockchainType::Company,
                     event.data.block.timestamp,
@@ -162,6 +164,7 @@ impl BlockTransportServiceApi for BlockTransportService {
             // now send the event
             let event = node
                 .send_public_chain_event(
+                    &events.sender(),
                     &block_event.data.bill_id.to_string(),
                     BlockchainType::Bill,
                     block_event.data.block.timestamp,
