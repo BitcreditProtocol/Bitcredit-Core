@@ -446,7 +446,7 @@ pub fn get_nostr_transport(
     chain_events: MockNostrChainEventStore,
 ) -> NostrTransportService {
     NostrTransportService::new(
-        vec![Arc::new(mock_transport)],
+        Arc::new(mock_transport),
         Arc::new(contact_store),
         Arc::new(nostr_contact_store),
         Arc::new(queued_message_store),

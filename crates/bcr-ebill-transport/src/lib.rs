@@ -165,10 +165,7 @@ pub async fn create_transport_service(
     ));
 
     let nostr_transport = Arc::new(NostrTransportService::new(
-        clients
-            .iter()
-            .map(|c| c.clone() as Arc<dyn TransportClientApi>)
-            .collect(),
+        clients.first().expect("at least one client required").clone(),
         db_context.contact_store,
         db_context.nostr_contact_store.clone(),
         db_context.queued_message_store.clone(),

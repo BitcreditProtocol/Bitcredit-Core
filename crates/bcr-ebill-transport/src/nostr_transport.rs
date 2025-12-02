@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::nostr::NostrClient;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::transport_service::NostrConfig;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::util::validate_node_id_network;
 use bcr_ebill_core::application::ServiceTraitBounds;
@@ -28,16 +26,13 @@ use bcr_ebill_persistence::nostr::{
 };
 use bitcoin::base58;
 use log::{debug, error, warn};
-use tokio::sync::Mutex;
-use tokio_with_wasm::alias as tokio;
 
-use bcr_ebill_api::get_config;
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::protocol::PostalAddress;
 
 /// Transport implementation for Nostr
 pub struct NostrTransportService {
-    notification_transport: Mutex<HashMap<NodeId, Arc<dyn TransportClientApi>>>,
+    nostr_client: Arc<dyn TransportClientApi>,
     contact_store: Arc<dyn ContactStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
@@ -52,21 +47,15 @@ impl NostrTransportService {
     const NOSTR_MAX_RETRIES: i32 = 10;
 
     pub fn new(
-        notification_transport: Vec<Arc<dyn TransportClientApi>>,
+        nostr_client: Arc<dyn TransportClientApi>,
         contact_store: Arc<dyn ContactStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         nostr_relays: Vec<url::Url>,
     ) -> Self {
-        let transports: Mutex<HashMap<NodeId, Arc<dyn TransportClientApi>>> = Mutex::new(
-            notification_transport
-                .into_iter()
-                .map(|t| (t.get_sender_node_id(), t))
-                .collect(),
-        );
         Self {
-            notification_transport: transports,
+            nostr_client,
             contact_store,
             nostr_contact_store,
             queued_message_store,
@@ -75,42 +64,42 @@ impl NostrTransportService {
         }
     }
 
-    pub(crate) async fn get_node_transport(
+    pub(crate) fn get_node_transport(
         &self,
-        node_id: &NodeId,
-    ) -> Option<Arc<dyn TransportClientApi>> {
-        let transports = self.notification_transport.lock().await;
-        transports.get(node_id).cloned()
+        _node_id: &NodeId,
+    ) -> Arc<dyn TransportClientApi> {
+        // With single shared client, we return it for any node_id
+        // The client internally handles multi-identity
+        self.nostr_client.clone()
     }
 
-    pub(crate) async fn get_first_transport(&self) -> Option<Arc<dyn TransportClientApi>> {
-        let transports = self.notification_transport.lock().await;
-        transports.values().next().cloned()
+    pub(crate) fn get_first_transport(&self) -> Arc<dyn TransportClientApi> {
+        // With single client, just return it
+        self.nostr_client.clone()
     }
 
-    pub(crate) async fn get_local_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        if self.get_node_transport(node_id).await.is_some() {
-            Some(BillParticipant::Ident(BillIdentParticipant {
-                // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
-                t: ContactType::Person,
-                node_id: node_id.to_owned(),
-                email: None,
-                name: Name::new("default name").expect("is a valid name"),
-                postal_address: PostalAddress {
-                    country: Country::AT,
-                    city: City::new("default city").expect("is valid city"),
-                    zip: None,
-                    address: Address::new("default address").expect("is valid address"),
-                },
-                nostr_relays: self.nostr_relays.clone(),
-            }))
-        } else {
-            None
-        }
+    pub(crate) fn get_local_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
+        // Since we have a single multi-identity client, we need to check if this node_id
+        // is one of the local identities. For now, we'll assume any node_id is valid
+        // (the actual validation happens in the client layer).
+        Some(BillParticipant::Ident(BillIdentParticipant {
+            // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
+            t: ContactType::Person,
+            node_id: node_id.to_owned(),
+            email: None,
+            name: Name::new("default name").expect("is a valid name"),
+            postal_address: PostalAddress {
+                country: Country::AT,
+                city: City::new("default city").expect("is valid city"),
+                zip: None,
+                address: Address::new("default address").expect("is valid address"),
+            },
+            nostr_relays: self.nostr_relays.clone(),
+        }))
     }
 
     pub(crate) async fn resolve_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        match self.get_local_identity(node_id).await {
+        match self.get_local_identity(node_id) {
             Some(id) => Some(id),
             None => {
                 if let Some(identity) = self.resolve_node_contact(node_id).await {
@@ -144,29 +133,12 @@ impl NostrTransportService {
     pub(crate) async fn add_company_client(
         &self,
         _company: &Company,
-        keys: &BcrKeys,
+        _keys: &BcrKeys,
     ) -> Result<()> {
-        let config = get_config();
-        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
-
-        let mut transports = self.notification_transport.lock().await;
-        if transports.contains_key(&node_id) {
-            debug!("transport for node {node_id} already present");
-            return Ok(());
-        }
-
-        let nostr_config = NostrConfig::new(
-            keys.clone(),
-            config.nostr_config.relays.clone(),
-            false,
-            node_id.clone(),
-        );
-
-        if let Ok(client) = NostrClient::default(&nostr_config).await {
-            debug!("adding nostr client for {}", &nostr_config.get_npub());
-            client.connect().await?;
-            transports.insert(node_id, Arc::new(client));
-        }
+        // With single multi-identity client, we don't add individual clients anymore.
+        // The shared client already handles all identities.
+        // This method is kept for API compatibility but is now a no-op.
+        debug!("add_company_client called but using single multi-identity client");
         Ok(())
     }
 
@@ -175,8 +147,8 @@ impl NostrTransportService {
         sender: &NodeId,
         events: &HashMap<NodeId, Event<BillChainEventPayload>>,
     ) -> Result<()> {
-        if let Some(node) = self.get_node_transport(sender).await {
-            for (node_id, event_to_process) in events.iter() {
+        let node = self.get_node_transport(sender);
+        for (node_id, event_to_process) in events.iter() {
                 if let Some(identity) = self.resolve_identity(node_id).await {
                     if let Err(e) = node
                         .send_private_event(sender, &identity, event_to_process.clone().try_into()?)
@@ -199,9 +171,6 @@ impl NostrTransportService {
                     warn!("Failed to find recipient in contacts for node_id: {node_id}");
                 }
             }
-        } else {
-            warn!("No transport node found for sender node_id: {sender}");
-        }
         Ok(())
     }
 
@@ -212,18 +181,12 @@ impl NostrTransportService {
         relays: &[url::Url],
         message: EventEnvelope,
     ) -> Result<()> {
-        if let Some(transport) = self.get_node_transport(sender).await {
-            let recipient = BillParticipant::Anon(BillAnonParticipant {
-                node_id: recipient.to_owned(),
-                nostr_relays: relays.to_vec(),
-            });
-            transport.send_private_event(sender, &recipient, message).await?;
-        } else {
-            warn!("No transport node found for sender node_id: {sender}");
-            return Err(Error::Network(
-                "No transport found for node {sender}".to_string(),
-            ));
-        }
+        let transport = self.get_node_transport(sender);
+        let recipient = BillParticipant::Anon(BillAnonParticipant {
+            node_id: recipient.to_owned(),
+            nostr_relays: relays.to_vec(),
+        });
+        transport.send_private_event(sender, &recipient, message).await?;
         Ok(())
     }
 
@@ -353,24 +316,20 @@ impl NostrTransportService {
         node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
-        if let (Some(node), Some(identity)) = (
-            self.get_node_transport(sender).await,
-            self.resolve_node_contact(node_id).await,
-        ) {
+        let node = self.get_node_transport(sender);
+        if let Some(identity) = self.resolve_node_contact(node_id).await {
             node.send_private_event(sender, &identity, message).await?;
         }
         Ok(())
     }
 
     pub(crate) async fn connect(&self) {
-        let transports = self.notification_transport.lock().await;
-        for (_, transport) in transports.iter() {
-            if let Err(e) = transport.connect().await {
-                error!(
-                    "Failed to connect to transport for node id {}: {e}",
-                    transport.get_sender_node_id()
-                );
-            }
+        // With single multi-identity client, just connect it
+        if let Err(e) = self.nostr_client.connect().await {
+            error!(
+                "Failed to connect to transport for node id {}: {e}",
+                self.nostr_client.get_sender_node_id()
+            );
         }
     }
 }

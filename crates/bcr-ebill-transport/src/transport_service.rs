@@ -352,14 +352,11 @@ impl TransportServiceApi for TransportService {
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum.clone()),
         });
-        if let Some(node) = self
+        let node = self
             .nostr_transport
-            .get_node_transport(sender_node_id)
-            .await
-        {
-            node.send_private_event(sender_node_id, mint, event.clone().try_into()?)
-                .await?;
-        }
+            .get_node_transport(sender_node_id);
+        node.send_private_event(sender_node_id, mint, event.clone().try_into()?)
+            .await?;
         // Only send email to mint
         self.notification_transport_service
             .send_email_notification(sender_node_id, &mint.node_id(), &event)
@@ -591,7 +588,7 @@ mod tests {
         mock_transport.expect_connect().returning(|| Ok(()));
 
         let service = NostrTransportService::new(
-            vec![Arc::new(mock_transport)],
+            Arc::new(mock_transport),
             Arc::new(MockContactStore::new()),
             Arc::new(MockNostrContactStore::new()),
             Arc::new(MockNostrQueuedMessageStore::new()),
@@ -1696,9 +1693,9 @@ mod tests {
         chain.try_add_block(block);
 
         let (service, _) = expect_service(|mock, _, _, _, _, notification_transport, _, _| {
-            let payee = payee.clone();
-            mock.expect_get_sender_node_id()
-                .returning(move || payee.node_id.clone());
+            mock.expect_send_private_event()
+                .returning(|_, _, _| Ok(()))
+                .once();
             notification_transport
                 .expect_send_email_notification()
                 .returning(|_, _, _| ());
@@ -2181,11 +2178,6 @@ mod tests {
                 mock_contact_store
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&payee))));
-
-                // get the correct transport node
-                mock.expect_get_sender_node_id()
-                    .returning(node_id_test)
-                    .once();
 
                 // one dm succeeds
                 mock.expect_send_private_event()

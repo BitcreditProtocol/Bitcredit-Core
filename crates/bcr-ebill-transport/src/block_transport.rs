@@ -12,7 +12,7 @@ use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent};
-use log::{debug, error};
+use log::debug;
 
 use bcr_ebill_api::service::transport_service::Result;
 
@@ -51,11 +51,10 @@ impl BlockTransportServiceApi for BlockTransportService {
             "sending identity chain events for node: {}",
             events.identity_id
         );
-        if let Some(node) = self
+        let node = self
             .nostr_transport
-            .get_node_transport(&events.sender())
-            .await
-        {
+            .get_node_transport(&events.sender());
+        
             if let Some(event) = events.generate_blockchain_message() {
                 let (previous_event, root_event) = self
                     .nostr_transport
@@ -90,12 +89,6 @@ impl BlockTransportServiceApi for BlockTransportService {
                     )
                     .await?;
             }
-        } else {
-            error!(
-                "could not find transport instance for sender node {}",
-                events.sender()
-            );
-        }
 
         Ok(())
     }
@@ -106,11 +99,10 @@ impl BlockTransportServiceApi for BlockTransportService {
             "sending company chain events for company id: {}",
             events.company_id
         );
-        if let Some(node) = self
+        let node = self
             .nostr_transport
-            .get_node_transport(&events.sender())
-            .await
-        {
+            .get_node_transport(&events.sender());
+        
             if let Some(event) = events.generate_blockchain_message() {
                 let (previous_event, root_event) = self
                     .nostr_transport
@@ -153,24 +145,17 @@ impl BlockTransportServiceApi for BlockTransportService {
                 node.send_private_event(&events.sender(), &identity, invite.try_into()?)
                     .await?;
             }
-        } else {
-            error!(
-                "could not find transport instance for sender node {}",
-                events.sender()
-            );
-        }
 
         Ok(())
     }
 
     /// Sent when: A bill chain is created or updated
     async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()> {
-        if let Some(node) = self
+        let node = self
             .nostr_transport
-            .get_node_transport(&events.sender())
-            .await
-        {
-            if let Some(block_event) = events.generate_blockchain_message() {
+            .get_node_transport(&events.sender());
+        
+        if let Some(block_event) = events.generate_blockchain_message() {
                 let (previous_event, root_event) = self
                     .nostr_transport
                     .find_root_and_previous_event(
@@ -201,19 +186,18 @@ impl BlockTransportServiceApi for BlockTransportService {
                         &block_event.data.bill_id.to_string(),
                         BlockchainType::Bill,
                         block_event.data.block.id.inner() as usize,
-                        &block_event.data.block.hash,
-                    )
-                    .await?;
-            }
+                    &block_event.data.block.hash,
+                )
+                .await?;
+        }
 
-            let invites = events.generate_bill_invite_events();
-            if !invites.is_empty() {
-                for (recipient, event) in invites {
-                    if let Some(identity) = self.nostr_transport.resolve_identity(&recipient).await
-                    {
-                        node.send_private_event(&events.sender(), &identity, event.try_into()?)
-                            .await?;
-                    }
+        let invites = events.generate_bill_invite_events();
+        if !invites.is_empty() {
+            for (recipient, event) in invites {
+                if let Some(identity) = self.nostr_transport.resolve_identity(&recipient).await
+                {
+                    node.send_private_event(&events.sender(), &identity, event.try_into()?)
+                        .await?;
                 }
             }
         }

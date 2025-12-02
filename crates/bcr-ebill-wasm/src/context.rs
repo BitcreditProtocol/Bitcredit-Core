@@ -123,7 +123,7 @@ impl Context {
         // TODO: Task 10 will update create_nostr_clients to return a single multi-identity client
         // For now, use the first client (which should be the primary identity)
         let nostr_client = nostr_clients.first()
-            .ok_or_else(|| bcr_ebill_core::Error::Other("No Nostr clients available".to_string()))?
+            .ok_or_else(|| crate::error::WasmError::Init(anyhow::anyhow!("No Nostr clients available")))?
             .clone();
         
         let nostr_consumer = create_nostr_consumer(
