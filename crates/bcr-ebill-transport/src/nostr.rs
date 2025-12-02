@@ -150,6 +150,11 @@ impl NostrClient {
             .clone()
     }
 
+    /// Get all node_ids managed by this client
+    pub fn get_all_node_ids(&self) -> Vec<NodeId> {
+        self.signers.keys().cloned().collect()
+    }
+
     /// DEPRECATED: Get the default signer (first identity) for backward compatibility
     /// This will be removed in Task 2 when callers are updated to use explicit node_id parameters
     pub async fn get_default_signer(&self) -> Arc<dyn NostrSigner> {
@@ -694,7 +699,7 @@ impl NostrConsumer {
 /// For private messages: tries to decrypt with each signer, returns the one that succeeds.
 /// For public chain events: the recipient is determined by chain key ownership (all identities have access).
 /// Returns the NodeId of the recipient identity and its signer.
-async fn determine_recipient(
+pub async fn determine_recipient(
     event: &Event,
     client: &NostrClient,
 ) -> Result<(NodeId, Arc<dyn NostrSigner>)> {
