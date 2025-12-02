@@ -19,7 +19,7 @@ use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
 };
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
 
 use bcr_ebill_api::{
@@ -60,8 +60,8 @@ pub enum SortOrder {
 #[derive(Clone)]
 pub struct NostrClient {
     client: Client,
-    signers: HashMap<NodeId, Arc<dyn NostrSigner>>,
-    keys: HashMap<NodeId, BcrKeys>, // Store original keys for backward compatibility
+    signers: Arc<Mutex<HashMap<NodeId, Arc<dyn NostrSigner>>>>,
+    keys: Arc<Mutex<HashMap<NodeId, BcrKeys>>>, // Store original keys for backward compatibility
     relays: Vec<url::Url>,
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
@@ -107,8 +107,8 @@ impl NostrClient {
 
         Ok(Self {
             client,
-            signers,
-            keys: keys_map,
+            signers: Arc::new(Mutex::new(signers)),
+            keys: Arc::new(Mutex::new(keys_map)),
             relays,
             default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
@@ -124,18 +124,20 @@ impl NostrClient {
     /// Get the signer for a specific identity
     pub fn get_signer(&self, node_id: &NodeId) -> Result<Arc<dyn NostrSigner>> {
         self.signers
+            .lock()
+            .unwrap()
             .get(node_id)
             .cloned()
             .ok_or_else(|| Error::Message(format!("No signer found for node_id: {}", node_id)))
     }
 
     /// Add a new identity to this client
-    pub fn add_identity(&mut self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
-        self.signers.insert(
+    pub fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+        self.signers.lock().unwrap().insert(
             node_id.clone(),
             Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>,
         );
-        self.keys.insert(node_id, keys);
+        self.keys.lock().unwrap().insert(node_id, keys);
         Ok(())
     }
 
@@ -143,6 +145,8 @@ impl NostrClient {
     /// This will be removed in Task 2 when callers are updated to use explicit node_id parameters
     pub fn get_node_id(&self) -> NodeId {
         self.signers
+            .lock()
+            .unwrap()
             .keys()
             .next()
             .expect("NostrClient must have at least one identity")
@@ -151,17 +155,7 @@ impl NostrClient {
 
     /// Get all node_ids managed by this client
     pub fn get_all_node_ids(&self) -> Vec<NodeId> {
-        self.signers.keys().cloned().collect()
-    }
-
-    /// DEPRECATED: Get the default signer (first identity) for backward compatibility
-    /// This will be removed in Task 2 when callers are updated to use explicit node_id parameters
-    pub async fn get_default_signer(&self) -> Arc<dyn NostrSigner> {
-        self.signers
-            .values()
-            .next()
-            .expect("NostrClient must have at least one identity")
-            .clone()
+        self.signers.lock().unwrap().keys().cloned().collect()
     }
 
     /// DEPRECATED: Get public keys from first identity for backward compatibility
@@ -169,6 +163,8 @@ impl NostrClient {
     pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
         let node_id = self.get_node_id();
         self.keys
+            .lock()
+            .unwrap()
             .get(&node_id)
             .expect("keys exist for node_id")
             .get_nostr_keys()
@@ -327,7 +323,10 @@ impl NostrClient {
         // Get the BcrKeys for the specified sender identity to construct nostr Keys
         let bcr_keys = self
             .keys
+            .lock()
+            .unwrap()
             .get(sender_node_id)
+            .cloned()
             .ok_or_else(|| Error::Crypto(format!("Keys not found for sender {sender_node_id}")))?;
         let sender_keys = bcr_keys.get_nostr_keys();
 
@@ -341,32 +340,6 @@ impl NostrClient {
                 Error::Message(format!("Failed to create NIP-17 event: {e}"))
             })?;
 
-        // Manually construct NIP-17 gift wrap to support multi-identity clients
-        // Step 1: Create the rumor (unsigned event with the message content)
-        // let rumor = EventBuilder::private_msg_rumor(receiver_pubkey, message)
-        //     .build(sender_keys.public_key());
-
-        // Step 2: Create and sign the seal (encrypts the rumor for the receiver)
-        // let seal_builder = nostr::nips::nip59::make_seal(&sender_keys, &receiver_pubkey, rumor)
-        // .await
-        // .map_err(|e| {
-        //     error!("Failed to create NIP-17 seal: {e}");
-        //     Error::Message(format!("Failed to create NIP-17 seal: {e}"))
-        // })?;
-        //
-        // let seal = seal_builder.sign(&sender_keys).await.map_err(|e| {
-        //     error!("Failed to sign NIP-17 seal: {e}");
-        //     Error::Message(format!("Failed to sign NIP-17 seal: {e}"))
-        // })?;
-        //
-        // // Step 3: Create the gift wrap (encrypts the seal with ephemeral key)
-        // let gift_wrap =
-        //     EventBuilder::gift_wrap_from_seal(&receiver_pubkey, &seal, []).map_err(|e| {
-        //         error!("Failed to create NIP-17 gift wrap: {e}");
-        //         Error::Message(format!("Failed to create NIP-17 gift wrap: {e}"))
-        //     })?;
-
-        // Step 4: Send the gift wrap event
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self.client().await?.send_event_to(&relays, &event).await {
@@ -430,9 +403,15 @@ impl TransportClientApi for NostrClient {
         root_event: Option<Event>,
     ) -> Result<Event> {
         // Get the keys for this identity to sign with
-        let signing_keys = self.keys.get(sender_node_id).ok_or_else(|| {
-            Error::Message(format!("No keys found for node_id: {}", sender_node_id))
-        })?;
+        let signing_keys = self
+            .keys
+            .lock()
+            .unwrap()
+            .get(sender_node_id)
+            .cloned()
+            .ok_or_else(|| {
+                Error::Message(format!("No keys found for node_id: {}", sender_node_id))
+            })?;
 
         let event_builder = create_public_chain_event(
             id,
@@ -503,7 +482,13 @@ impl TransportClientApi for NostrClient {
             vec![Kind::GiftWrap]
         };
         // Subscribe with all public keys from all identities
-        let pubkeys: Vec<PublicKey> = self.signers.keys().map(|node_id| node_id.npub()).collect();
+        let pubkeys: Vec<PublicKey> = self
+            .signers
+            .lock()
+            .unwrap()
+            .keys()
+            .map(|node_id| node_id.npub())
+            .collect();
         let filter = filter.clone().pubkeys(pubkeys).kinds(kinds);
         Ok(self
             .fetch_events(filter, Some(SortOrder::Asc), None)
@@ -534,6 +519,15 @@ impl TransportClientApi for NostrClient {
             self.client.connect().await;
             self.publish_relay_list(self.relays.clone()).await?;
         }
+        Ok(())
+    }
+
+    fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+        self.signers.lock().unwrap().insert(
+            node_id.clone(),
+            Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>,
+        );
+        self.keys.lock().unwrap().insert(node_id, keys);
         Ok(())
     }
 }
@@ -576,7 +570,7 @@ impl NostrConsumer {
         let mut tasks = JoinSet::new();
 
         // Get all local node IDs from the single client
-        let local_node_ids: Vec<NodeId> = client.signers.keys().cloned().collect();
+        let local_node_ids: Vec<NodeId> = client.signers.lock().unwrap().keys().cloned().collect();
 
         // Connect the client if not already connected
         if !client.is_connected()
@@ -698,15 +692,24 @@ pub async fn determine_recipient(
     match event.kind {
         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
             // Try to decrypt with each identity's signer
-            for (node_id, bcr_keys) in client.keys.iter() {
+            // Clone the keys to avoid holding the lock during async operations
+            let keys_to_try: Vec<(NodeId, BcrKeys)> = client
+                .keys
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(id, keys)| (id.clone(), keys.clone()))
+                .collect();
+
+            for (node_id, bcr_keys) in keys_to_try {
                 let nostr_keys = bcr_keys.get_nostr_keys();
                 // Try to unwrap the message with this signer
                 if unwrap_direct_message(Box::new(event.clone()), &nostr_keys)
                     .await
                     .is_some()
                 {
-                    let signer = client.get_signer(node_id)?;
-                    return Ok((node_id.clone(), signer));
+                    let signer = client.get_signer(&node_id)?;
+                    return Ok((node_id, signer));
                 }
             }
             Err(Error::Message(
@@ -716,13 +719,15 @@ pub async fn determine_recipient(
         Kind::TextNote | Kind::RelayList | Kind::Metadata => {
             // For public events, any local identity can process them
             // Use the first available identity (they all have access to chain keys)
-            let (node_id, _) = client
-                .signers
+            let signers_lock = client.signers.lock().unwrap();
+            let (node_id, _) = signers_lock
                 .iter()
                 .next()
                 .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
-            let signer = client.get_signer(node_id)?;
-            Ok((node_id.clone(), signer))
+            let node_id = node_id.clone();
+            drop(signers_lock); // Release lock before calling get_signer
+            let signer = client.get_signer(&node_id)?;
+            Ok((node_id, signer))
         }
         _ => Err(Error::Message(format!(
             "Unsupported event kind: {:?}",

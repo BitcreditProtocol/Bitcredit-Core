@@ -571,6 +571,7 @@ mockall::mock! {
         async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
         async fn publish_metadata(&self, data: &nostr::nips::nip01::Metadata) -> Result<()>;
         async fn publish_relay_list(&self, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
+        fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
 
     }
 }

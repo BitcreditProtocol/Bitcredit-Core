@@ -127,15 +127,10 @@ impl NostrTransportService {
         }
     }
 
-    pub(crate) async fn add_company_client(
-        &self,
-        _company: &Company,
-        _keys: &BcrKeys,
-    ) -> Result<()> {
-        // With single multi-identity client, we don't add individual clients anymore.
-        // The shared client already handles all identities.
-        // This method is kept for API compatibility but is now a no-op.
-        debug!("add_company_client called but using single multi-identity client");
+    pub(crate) fn add_company_keys(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
+        let node_id = NodeId::new(keys.pub_key(), company.id.network());
+        debug!("Adding company keys for node_id: {node_id}");
+        self.nostr_client.add_identity(node_id, keys.clone())?;
         Ok(())
     }
 

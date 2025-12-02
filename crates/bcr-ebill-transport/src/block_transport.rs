@@ -224,6 +224,6 @@ impl BlockTransportServiceApi for BlockTransportService {
 
     /// Adds a new transport client for a company if it does not already exist
     async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
-        self.nostr_transport.add_company_client(company, keys).await
+        self.nostr_transport.add_company_keys(company, keys)
     }
 }
