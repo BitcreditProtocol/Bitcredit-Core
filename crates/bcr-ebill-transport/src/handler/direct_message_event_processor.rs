@@ -51,11 +51,11 @@ impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
     async fn process_direct_message(&self, event: Box<nostr::Event>) -> Result<()> {
         // TODO: This will be refactored in Task 3 to handle multi-identity
         let node_id = self.client.get_node_id();
-        
+
         // check if the event should be processed
         if should_process(
             event.clone(),
-            &[node_id.clone()],
+            std::slice::from_ref(&node_id),
             &self.contact_service,
             &self.offset_store,
         )
@@ -72,14 +72,7 @@ impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
             .await?;
 
             // add event offset
-            add_offset(
-                &self.offset_store,
-                event.id,
-                time,
-                success,
-                &node_id,
-            )
-            .await;
+            add_offset(&self.offset_store, event.id, time, success, &node_id).await;
         }
         Ok(())
     }

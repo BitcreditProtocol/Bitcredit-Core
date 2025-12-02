@@ -49,10 +49,10 @@ impl Context {
         let email_client = Arc::new(EmailClient::new());
         let push_service = Arc::new(PushService::new());
 
-        let nostr_clients =
+        let nostr_client =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
         let transport_service = create_transport_service(
-            nostr_clients.clone(),
+            nostr_client.clone(),
             db.clone(),
             email_client.clone(),
             cfg.nostr_config.relays.to_owned(),
@@ -120,12 +120,6 @@ impl Context {
             db.identity_store.clone(),
         ));
 
-        // TODO: Task 10 will update create_nostr_clients to return a single multi-identity client
-        // For now, use the first client (which should be the primary identity)
-        let nostr_client = nostr_clients.first()
-            .ok_or_else(|| crate::error::WasmError::Init(anyhow::anyhow!("No Nostr clients available")))?
-            .clone();
-        
         let nostr_consumer = create_nostr_consumer(
             nostr_client,
             contact_service.clone(),

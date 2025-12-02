@@ -64,10 +64,7 @@ impl NostrTransportService {
         }
     }
 
-    pub(crate) fn get_node_transport(
-        &self,
-        _node_id: &NodeId,
-    ) -> Arc<dyn TransportClientApi> {
+    pub(crate) fn get_node_transport(&self, _node_id: &NodeId) -> Arc<dyn TransportClientApi> {
         // With single shared client, we return it for any node_id
         // The client internally handles multi-identity
         self.nostr_client.clone()
@@ -149,28 +146,26 @@ impl NostrTransportService {
     ) -> Result<()> {
         let node = self.get_node_transport(sender);
         for (node_id, event_to_process) in events.iter() {
-                if let Some(identity) = self.resolve_identity(node_id).await {
-                    if let Err(e) = node
-                        .send_private_event(sender, &identity, event_to_process.clone().try_into()?)
-                        .await
-                    {
-                        error!(
-                            "Failed to send block notification, will add it to retry queue: {e}"
-                        );
-                        self.queue_retry_message(
-                            sender,
-                            node_id,
-                            base58::encode(
-                                &borsh::to_vec(event_to_process)
-                                    .map_err(|e| Error::Message(e.to_string()))?,
-                            ),
-                        )
-                        .await?;
-                    }
-                } else {
-                    warn!("Failed to find recipient in contacts for node_id: {node_id}");
+            if let Some(identity) = self.resolve_identity(node_id).await {
+                if let Err(e) = node
+                    .send_private_event(sender, &identity, event_to_process.clone().try_into()?)
+                    .await
+                {
+                    error!("Failed to send block notification, will add it to retry queue: {e}");
+                    self.queue_retry_message(
+                        sender,
+                        node_id,
+                        base58::encode(
+                            &borsh::to_vec(event_to_process)
+                                .map_err(|e| Error::Message(e.to_string()))?,
+                        ),
+                    )
+                    .await?;
                 }
+            } else {
+                warn!("Failed to find recipient in contacts for node_id: {node_id}");
             }
+        }
         Ok(())
     }
 
@@ -186,7 +181,9 @@ impl NostrTransportService {
             node_id: recipient.to_owned(),
             nostr_relays: relays.to_vec(),
         });
-        transport.send_private_event(sender, &recipient, message).await?;
+        transport
+            .send_private_event(sender, &recipient, message)
+            .await?;
         Ok(())
     }
 

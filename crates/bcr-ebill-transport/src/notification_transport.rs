@@ -125,12 +125,9 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         drawee: &NodeId,
         recoursee: &Option<NodeId>,
     ) -> Result<()> {
-        let node = self
-            .nostr_transport
-            .get_node_transport(sender_node_id);
-        
-        if let Some(event_type) = timed_out_action.get_timeout_event_type()
-        {
+        let node = self.nostr_transport.get_node_transport(sender_node_id);
+
+        if let Some(event_type) = timed_out_action.get_timeout_event_type() {
             // only send to a recipient once
             let unique: HashMap<NodeId, BillParticipant> =
                 HashMap::from_iter(recipients.iter().map(|r| (r.node_id().clone(), r.clone())));

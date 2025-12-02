@@ -49,23 +49,22 @@ use crate::handler::{ContactShareEventHandler, DirectMessageEventProcessor};
 use crate::notification_transport::NotificationTransportService;
 use crate::transport_service::TransportService;
 
-/// Creates new nostr clients configured with the current identity user and all local companies.
+/// Creates a single multi-identity nostr client configured with the current identity user and all local companies.
 pub async fn create_nostr_clients(
     config: &Config,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
-) -> Result<Vec<Arc<NostrClient>>> {
+) -> Result<Arc<NostrClient>> {
     // primary identity is required to launch
     let keys = identity_store.get_or_create_key_pair().await.map_err(|e| {
         error!("Failed to get or create nostr key pair for nostr client: {e}");
         Error::Crypto("Failed to get or create nostr key pair".to_string())
     })?;
-    let mut configs: Vec<NostrConfig> = vec![NostrConfig::new(
-        keys.clone(),
-        config.nostr_config.relays.clone(),
-        true,
-        NodeId::new(keys.pub_key(), get_config().bitcoin_network()),
-    )];
+
+    let primary_node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+    let mut identities = vec![(primary_node_id.clone(), keys.clone())];
+
+    debug!("Adding primary identity: {}", primary_node_id);
 
     // optionally collect all company accounts
     let mut companies = match company_store.get_all().await {
@@ -86,41 +85,37 @@ pub async fn create_nostr_clients(
     };
     companies.extend(invite_companies);
 
-    for (_, (_company, keys)) in companies.iter() {
-        configs.push(NostrConfig::new(
-            keys.clone(),
-            config.nostr_config.relays.clone(),
-            false,
-            NodeId::new(keys.pub_key(), get_config().bitcoin_network()),
-        ));
+    // Add all company identities
+    for (_, (_company, company_keys)) in companies.iter() {
+        let company_node_id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
+        debug!("Adding company identity: {}", company_node_id);
+        identities.push((company_node_id, company_keys.clone()));
     }
 
-    // init all the clients
-    let mut clients = vec![];
-    for config in configs {
-        debug!("initializing nostr client for {}", &config.get_npub());
-        if let Ok(client) = NostrClient::default(&config).await {
-            debug!("initialized nostr client for {}", &config.get_npub());
-            clients.push(Arc::new(client));
-        }
-    }
+    // Create single multi-identity client with all identities
+    debug!(
+        "Creating single multi-identity Nostr client with {} identities",
+        identities.len()
+    );
+    let client = NostrClient::new(
+        identities,
+        config.nostr_config.relays.clone(),
+        std::time::Duration::from_secs(20),
+    )
+    .await?;
 
-    Ok(clients)
+    Ok(Arc::new(client))
 }
 
 /// Creates a new transport service that will send events via the given Nostr transport.
 pub async fn create_transport_service(
-    clients: Vec<Arc<NostrClient>>,
+    client: Arc<NostrClient>,
     db_context: DbContext,
     email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<url::Url>,
     push_service: Arc<dyn PushApi>,
 ) -> Result<Arc<dyn TransportServiceApi>> {
-    // TODO: is_primary will be removed in Task 11
-    let transport = match clients.first() {
-        Some(client) => client.clone(),
-        None => panic!("Cant create Nostr consumer as there is no nostr client available"),
-    };
+    let transport = client.clone();
 
     let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         transport.clone(),
@@ -165,7 +160,7 @@ pub async fn create_transport_service(
     ));
 
     let nostr_transport = Arc::new(NostrTransportService::new(
-        clients.first().expect("at least one client required").clone(),
+        client,
         db_context.contact_store,
         db_context.nostr_contact_store.clone(),
         db_context.queued_message_store.clone(),

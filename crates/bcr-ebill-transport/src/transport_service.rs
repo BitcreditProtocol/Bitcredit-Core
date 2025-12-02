@@ -352,9 +352,7 @@ impl TransportServiceApi for TransportService {
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum.clone()),
         });
-        let node = self
-            .nostr_transport
-            .get_node_transport(sender_node_id);
+        let node = self.nostr_transport.get_node_transport(sender_node_id);
         node.send_private_event(sender_node_id, mint, event.clone().try_into()?)
             .await?;
         // Only send email to mint
