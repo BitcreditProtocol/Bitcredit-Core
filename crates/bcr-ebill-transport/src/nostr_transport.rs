@@ -127,10 +127,12 @@ impl NostrTransportService {
         }
     }
 
-    pub(crate) fn add_company_keys(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
+    pub(crate) async fn add_company_keys(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         let node_id = NodeId::new(keys.pub_key(), company.id.network());
         debug!("Adding company keys for node_id: {node_id}");
-        self.nostr_client.add_identity(node_id, keys.clone())?;
+        self.nostr_client
+            .add_identity(node_id, keys.clone())
+            .await?;
         Ok(())
     }
 

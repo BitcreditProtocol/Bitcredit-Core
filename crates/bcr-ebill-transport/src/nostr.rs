@@ -522,12 +522,26 @@ impl TransportClientApi for NostrClient {
         Ok(())
     }
 
-    fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+    async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+        // Add the identity to signers and keys
         self.signers.lock().unwrap().insert(
             node_id.clone(),
             Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>,
         );
-        self.keys.lock().unwrap().insert(node_id, keys);
+        self.keys.lock().unwrap().insert(node_id.clone(), keys);
+
+        // Subscribe to direct messages for this identity if connected
+        if self.is_connected() {
+            let kinds = if self.use_nip04() {
+                vec![Kind::EncryptedDirectMessage]
+            } else {
+                vec![Kind::GiftWrap]
+            };
+            debug!("Adding subscription for direct messages to identity: {node_id}");
+            self.subscribe(Filter::new().pubkey(node_id.npub()).kinds(kinds))
+                .await?;
+        }
+
         Ok(())
     }
 }

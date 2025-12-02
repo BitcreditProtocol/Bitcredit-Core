@@ -65,5 +65,6 @@ pub trait TransportClientApi: ServiceTraitBounds {
     async fn connect(&self) -> Result<()>;
 
     /// Adds a new identity (company keys) to the multi-identity client
-    fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
+    /// This will also add a subscription for direct messages to this identity
+    async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
 }
