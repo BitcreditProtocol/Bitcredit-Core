@@ -14,7 +14,7 @@ use bcr_ebill_core::{
 };
 use bitcoin::base58;
 use log::{debug, error, info, trace, warn};
-use nostr::{nips::nip65::RelayMetadata, signer::NostrSigner};
+use nostr::{Keys, nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
@@ -60,8 +60,7 @@ pub enum SortOrder {
 #[derive(Clone)]
 pub struct NostrClient {
     client: Client,
-    signers: Arc<Mutex<HashMap<NodeId, Arc<dyn NostrSigner>>>>,
-    keys: Arc<Mutex<HashMap<NodeId, BcrKeys>>>, // Store original keys for backward compatibility
+    signers: Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
     relays: Vec<url::Url>,
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
@@ -96,19 +95,13 @@ impl NostrClient {
 
         // Build signers HashMap from all identities
         let mut signers = HashMap::new();
-        let mut keys_map = HashMap::new();
         for (node_id, keys) in identities {
-            signers.insert(
-                node_id.clone(),
-                Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>,
-            );
-            keys_map.insert(node_id, keys);
+            signers.insert(node_id, Arc::new(keys.get_nostr_keys()));
         }
 
         Ok(Self {
             client,
             signers: Arc::new(Mutex::new(signers)),
-            keys: Arc::new(Mutex::new(keys_map)),
             relays,
             default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
@@ -122,7 +115,7 @@ impl NostrClient {
     }
 
     /// Get the signer for a specific identity
-    pub fn get_signer(&self, node_id: &NodeId) -> Result<Arc<dyn NostrSigner>> {
+    pub fn get_signer(&self, node_id: &NodeId) -> Result<Arc<Keys>> {
         self.signers
             .lock()
             .unwrap()
@@ -133,41 +126,16 @@ impl NostrClient {
 
     /// Add a new identity to this client
     pub fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
-        self.signers.lock().unwrap().insert(
-            node_id.clone(),
-            Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>,
-        );
-        self.keys.lock().unwrap().insert(node_id, keys);
-        Ok(())
-    }
-
-    /// DEPRECATED: Get the first node_id for backward compatibility
-    /// This will be removed in Task 2 when callers are updated to use explicit node_id parameters
-    pub fn get_node_id(&self) -> NodeId {
         self.signers
             .lock()
             .unwrap()
-            .keys()
-            .next()
-            .expect("NostrClient must have at least one identity")
-            .clone()
+            .insert(node_id, Arc::new(keys.get_nostr_keys()));
+        Ok(())
     }
 
     /// Get all node_ids managed by this client
     pub fn get_all_node_ids(&self) -> Vec<NodeId> {
         self.signers.lock().unwrap().keys().cloned().collect()
-    }
-
-    /// DEPRECATED: Get public keys from first identity for backward compatibility
-    /// This will be removed in Task 2
-    pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
-        let node_id = self.get_node_id();
-        self.keys
-            .lock()
-            .unwrap()
-            .get(&node_id)
-            .expect("keys exist for node_id")
-            .get_nostr_keys()
     }
 
     pub async fn publish_relay_list(&self, relays: Vec<url::Url>) -> Result<()> {
@@ -297,7 +265,7 @@ impl NostrClient {
         let signer = self.get_signer(sender_node_id)?;
         let public_key = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
-        let event = create_nip04_event(&signer, &public_key, &message).await?;
+        let event = create_nip04_event(&*signer, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -320,20 +288,13 @@ impl NostrClient {
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
-        // Get the BcrKeys for the specified sender identity to construct nostr Keys
-        let bcr_keys = self
-            .keys
-            .lock()
-            .unwrap()
-            .get(sender_node_id)
-            .cloned()
-            .ok_or_else(|| Error::Crypto(format!("Keys not found for sender {sender_node_id}")))?;
-        let sender_keys = bcr_keys.get_nostr_keys();
+        // Get the Keys for the specified sender identity
+        let sender_keys = self.get_signer(sender_node_id)?;
 
         let receiver_pubkey = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
 
-        let event = EventBuilder::private_msg(&sender_keys, receiver_pubkey, message, [])
+        let event = EventBuilder::private_msg(&*sender_keys, receiver_pubkey, message, [])
             .await
             .map_err(|e| {
                 error!("Failed to create NIP-17 event: {e}");
@@ -403,15 +364,7 @@ impl TransportClientApi for NostrClient {
         root_event: Option<Event>,
     ) -> Result<Event> {
         // Get the keys for this identity to sign with
-        let signing_keys = self
-            .keys
-            .lock()
-            .unwrap()
-            .get(sender_node_id)
-            .cloned()
-            .ok_or_else(|| {
-                Error::Message(format!("No keys found for node_id: {}", sender_node_id))
-            })?;
+        let signing_keys = self.get_signer(sender_node_id)?;
 
         let event_builder = create_public_chain_event(
             id,
@@ -424,14 +377,11 @@ impl TransportClientApi for NostrClient {
         )?;
 
         // Build unsigned event and sign it with the explicit keys
-        let unsigned = event_builder.build(signing_keys.get_nostr_keys().public_key());
-        let send_event = unsigned
-            .sign(&signing_keys.get_nostr_keys())
-            .await
-            .map_err(|e| {
-                error!("Failed to sign Nostr event: {e}");
-                Error::Crypto("Failed to sign Nostr event".to_string())
-            })?;
+        let unsigned = event_builder.build(signing_keys.public_key());
+        let send_event = unsigned.sign(&*signing_keys).await.map_err(|e| {
+            error!("Failed to sign Nostr event: {e}");
+            Error::Crypto("Failed to sign Nostr event".to_string())
+        })?;
 
         self.client()
             .await?
@@ -523,12 +473,11 @@ impl TransportClientApi for NostrClient {
     }
 
     async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
-        // Add the identity to signers and keys
-        self.signers.lock().unwrap().insert(
-            node_id.clone(),
-            Arc::new(keys.get_nostr_keys()) as Arc<dyn NostrSigner>,
-        );
-        self.keys.lock().unwrap().insert(node_id.clone(), keys);
+        // Add the identity to signers
+        self.signers
+            .lock()
+            .unwrap()
+            .insert(node_id.clone(), Arc::new(keys.get_nostr_keys()));
 
         // Subscribe to direct messages for this identity if connected
         if self.is_connected() {
@@ -707,23 +656,22 @@ pub async fn determine_recipient(
         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
             // Try to decrypt with each identity's signer
             // Clone the keys to avoid holding the lock during async operations
-            let keys_to_try: Vec<(NodeId, BcrKeys)> = client
-                .keys
+            let keys_to_try: Vec<(NodeId, Arc<Keys>)> = client
+                .signers
                 .lock()
                 .unwrap()
                 .iter()
                 .map(|(id, keys)| (id.clone(), keys.clone()))
                 .collect();
 
-            for (node_id, bcr_keys) in keys_to_try {
-                let nostr_keys = bcr_keys.get_nostr_keys();
+            for (node_id, nostr_keys) in keys_to_try {
                 // Try to unwrap the message with this signer
-                if unwrap_direct_message(Box::new(event.clone()), &nostr_keys)
+                if unwrap_direct_message(Box::new(event.clone()), &*nostr_keys)
                     .await
                     .is_some()
                 {
                     let signer = client.get_signer(&node_id)?;
-                    return Ok((node_id, signer));
+                    return Ok((node_id, signer as Arc<dyn NostrSigner>));
                 }
             }
             Err(Error::Message(
@@ -741,7 +689,7 @@ pub async fn determine_recipient(
             let node_id = node_id.clone();
             drop(signers_lock); // Release lock before calling get_signer
             let signer = client.get_signer(&node_id)?;
-            Ok((node_id, signer))
+            Ok((node_id, signer as Arc<dyn NostrSigner>))
         }
         _ => Err(Error::Message(format!(
             "Unsupported event kind: {:?}",
