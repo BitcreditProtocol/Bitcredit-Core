@@ -138,18 +138,6 @@ impl NostrClient {
         self.signers.lock().unwrap().keys().cloned().collect()
     }
 
-    pub async fn publish_relay_list(&self, relays: Vec<url::Url>) -> Result<()> {
-        let urls = relays
-            .iter()
-            .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None)))
-            .collect();
-        self.update_relay_list(urls).await.map_err(|e| {
-            error!("Failed to update relay list: {e}");
-            Error::Network("Failed to update relay list".to_string())
-        })?;
-        Ok(())
-    }
-
     fn use_nip04(&self) -> bool {
         false
     }
@@ -208,23 +196,6 @@ impl NostrClient {
                     .collect()
             })
             .unwrap_or_default())
-    }
-
-    /// Updates our relay list on all our configured write relays.
-    async fn update_relay_list(
-        &self,
-        relays: Vec<(RelayUrl, Option<RelayMetadata>)>,
-    ) -> Result<()> {
-        let event = EventBuilder::relay_list(relays);
-        self.client()
-            .await?
-            .send_event_builder(event)
-            .await
-            .map_err(|e| {
-                error!("Failed to send Nostr relay list: {e}");
-                Error::Network("Failed to send Nostr relay list".to_string())
-            })?;
-        Ok(())
     }
 
     /// Returns events that match filter from either the provided relays or from this clients
@@ -445,21 +416,47 @@ impl TransportClientApi for NostrClient {
             .await?)
     }
 
-    async fn publish_metadata(&self, data: &Metadata) -> Result<()> {
-        self.client().await?.set_metadata(data).await.map_err(|e| {
+    async fn publish_metadata(&self, node_id: &NodeId, data: &Metadata) -> Result<()> {
+        // Get the signer for this identity
+        let signer = self.get_signer(node_id)?;
+
+        // Build and sign the metadata event with the specific identity
+        let event = EventBuilder::metadata(data)
+            .build(signer.public_key())
+            .sign(&*signer)
+            .await
+            .map_err(|e| {
+                error!("Failed to sign metadata event: {e}");
+                Error::Crypto("Failed to sign metadata event".to_string())
+            })?;
+
+        self.client().await?.send_event(&event).await.map_err(|e| {
             error!("Failed to send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
         Ok(())
     }
 
-    async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()> {
-        self.update_relay_list(relays.into_iter().map(|r| (r, None)).collect())
+    async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<RelayUrl>) -> Result<()> {
+        // Get the signer for this identity
+        let signer = self.get_signer(node_id)?;
+
+        // Build and sign the relay list event with the specific identity
+        let relay_list: Vec<(RelayUrl, Option<RelayMetadata>)> =
+            relays.into_iter().map(|r| (r, None)).collect();
+        let event = EventBuilder::relay_list(relay_list)
+            .build(signer.public_key())
+            .sign(&*signer)
             .await
             .map_err(|e| {
-                error!("Failed to send relay list with Nostr client: {e}");
-                Error::Network("Failed to send relay list with Nostr client".to_string())
+                error!("Failed to sign relay list event: {e}");
+                Error::Crypto("Failed to sign relay list event".to_string())
             })?;
+
+        self.client().await?.send_event(&event).await.map_err(|e| {
+            error!("Failed to send relay list with Nostr client: {e}");
+            Error::Network("Failed to send relay list with Nostr client".to_string())
+        })?;
         Ok(())
     }
 
@@ -467,7 +464,23 @@ impl TransportClientApi for NostrClient {
         if !self.connected.load(Ordering::Relaxed) {
             self.connected.store(true, Ordering::Relaxed);
             self.client.connect().await;
-            self.publish_relay_list(self.relays.clone()).await?;
+
+            // Publish relay list for ALL identities
+            let node_ids = self.get_all_node_ids();
+            let relay_urls: Vec<RelayUrl> = self
+                .relays
+                .iter()
+                .filter_map(|r| RelayUrl::parse(r.as_str()).ok())
+                .collect();
+
+            for node_id in node_ids {
+                if let Err(e) = self.publish_relay_list(&node_id, relay_urls.clone()).await {
+                    error!(
+                        "Failed to publish relay list for identity {}: {}",
+                        node_id, e
+                    );
+                }
+            }
         }
         Ok(())
     }

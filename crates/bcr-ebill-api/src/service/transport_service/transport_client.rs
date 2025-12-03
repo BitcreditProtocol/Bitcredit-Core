@@ -54,11 +54,15 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Resolves all private messages matching the filter
     async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
 
-    /// Publishes the metadata (contact info) via the Nostr client
-    async fn publish_metadata(&self, data: &nostr::nips::nip01::Metadata) -> Result<()>;
+    /// Publishes the metadata (contact info) via the Nostr client for the specified identity
+    async fn publish_metadata(
+        &self,
+        node_id: &NodeId,
+        data: &nostr::nips::nip01::Metadata,
+    ) -> Result<()>;
 
-    /// Publishes the relay list via the Nostr client
-    async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()>;
+    /// Publishes the relay list via the Nostr client for the specified identity
+    async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<RelayUrl>) -> Result<()>;
 
     /// Opens the connection(s) to the underlying network. This can be called multiple times and
     /// will only open the connection once.

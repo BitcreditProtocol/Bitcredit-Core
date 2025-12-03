@@ -56,8 +56,10 @@ impl ContactTransportServiceApi for ContactTransportService {
     /// registered nostr client and therefore is our own.
     async fn publish_contact(&self, node_id: &NodeId, data: &NostrContactData) -> Result<()> {
         let transport = self.nostr_transport.get_node_transport(node_id);
-        transport.publish_metadata(&data.metadata).await?;
-        transport.publish_relay_list(data.relays.clone()).await?;
+        transport.publish_metadata(node_id, &data.metadata).await?;
+        transport
+            .publish_relay_list(node_id, data.relays.clone())
+            .await?;
         Ok(())
     }
 

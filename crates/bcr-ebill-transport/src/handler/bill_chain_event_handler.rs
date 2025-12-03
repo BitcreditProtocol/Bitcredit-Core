@@ -52,11 +52,11 @@ impl NotificationHandlerApi for BillChainEventHandler {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        node_id: &NodeId,
+        _node_id: &NodeId, // this is only useful for DM based notifications
         _sender: Option<nostr::PublicKey>,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
-        debug!("incoming bill chain event for {node_id} in chain event handler");
+        debug!("incoming bill chain event in chain event handler");
         if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.bill_store.get_keys(&decoded.data.bill_id).await {
                 let valid = self
