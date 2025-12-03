@@ -894,6 +894,7 @@ pub mod tests {
         },
     };
     use bcr_ebill_core::{application::nostr_contact::HandshakeStatus, protocol::crypto::BcrKeys};
+    use bcr_ebill_persistence::PendingContactShare;
     use std::collections::HashMap;
 
     pub fn get_baseline_contact() -> Contact {
@@ -1513,5 +1514,278 @@ pub mod tests {
         .await;
         assert!(result.is_ok());
         assert!(result.as_ref().unwrap());
+    }
+
+    fn pending_contact_share(pending_share_id: &str) -> PendingContactShare {
+        PendingContactShare {
+            id: pending_share_id.to_string(),
+            node_id: node_id_test_other(),
+            contact: get_baseline_contact(),
+            sender_node_id: node_id_test(),
+            contact_private_key: BcrKeys::new().get_private_key(),
+            receiver_node_id: node_id_test(),
+            received_at: bcr_ebill_core::protocol::Timestamp::now(),
+            direction: bcr_ebill_persistence::ShareDirection::Incoming,
+            initial_share_id: Some("initial_id".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn approve_contact_share_adds_contact_without_share_back() {
+        init_test_cfg();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            mut nostr_contact,
+            transport,
+        ) = get_storages();
+
+        let pending_share_id = "test_share_id";
+        let pending_share = pending_contact_share(pending_share_id);
+        let shared_node_id = pending_share.node_id.clone();
+
+        // Mock getting the pending share
+        nostr_contact
+            .expect_get_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(move |_| Ok(Some(pending_share.clone())));
+
+        // Expect contact to be inserted
+        store
+            .expect_get()
+            .with(mockall::predicate::eq(shared_node_id.clone()))
+            .returning(|_| Ok(None));
+        store.expect_insert().returning(|_, _| Ok(())).once();
+
+        // Expect NostrContact to be upserted
+        nostr_contact
+            .expect_by_node_id()
+            .returning(|_| Ok(None))
+            .once();
+        nostr_contact.expect_upsert().returning(|_| Ok(())).once();
+
+        // Expect pending share to be deleted
+        nostr_contact
+            .expect_delete_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(|_| Ok(()))
+            .once();
+
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            nostr_contact,
+            transport,
+        );
+
+        let result = service
+            .approve_contact_share(pending_share_id, true, false)
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn approve_contact_share_adds_contact_with_share_back() {
+        init_test_cfg();
+        let (
+            mut store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            company_store,
+            mut nostr_contact,
+            mut transport,
+        ) = get_storages();
+
+        let receiver_identity = get_baseline_identity();
+
+        let pending_share_id = "test_share_id";
+        let pending_share = pending_contact_share(pending_share_id);
+        let shared_node_id = pending_share.node_id.clone();
+
+        // Mock getting the pending share
+        nostr_contact
+            .expect_get_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(move |_| Ok(Some(pending_share.clone())));
+
+        // Expect contact to be inserted
+        store
+            .expect_get()
+            .with(mockall::predicate::eq(shared_node_id.clone()))
+            .returning(|_| Ok(None));
+        store.expect_insert().returning(|_, _| Ok(())).once();
+
+        // Expect NostrContact to be upserted
+        nostr_contact
+            .expect_by_node_id()
+            .returning(|_| Ok(None))
+            .once();
+        nostr_contact.expect_upsert().returning(|_| Ok(())).once();
+
+        // Expect pending share to be deleted
+        nostr_contact
+            .expect_delete_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(|_| Ok(()))
+            .once();
+
+        // Expect identity to be fetched for share back
+        identity_store
+            .expect_get_full()
+            .returning(move || Ok(receiver_identity.clone()))
+            .once();
+
+        // Share back will use identity since receiver_node_id matches identity.node_id
+        // So company_store.exists() will NOT be called
+
+        // Expect share back to be called
+        let mut contact_transport =
+            crate::service::transport_service::MockContactTransportServiceApi::new();
+        contact_transport
+            .expect_share_contact_details_keys()
+            .times(1)
+            .returning(|_, _, _, _| Ok(()));
+        transport
+            .expect_contact_transport()
+            .times(1)
+            .return_const(Arc::new(contact_transport));
+
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            nostr_contact,
+            transport,
+        );
+
+        let result = service
+            .approve_contact_share(pending_share_id, true, true)
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn approve_contact_share_shares_back_without_adding_contact() {
+        init_test_cfg();
+        let (
+            store,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            company_store,
+            mut nostr_contact,
+            mut transport,
+        ) = get_storages();
+
+        let receiver_identity = get_baseline_identity();
+        let pending_share_id = "test_share_id";
+        let pending_share = pending_contact_share(pending_share_id);
+
+        // Mock getting the pending share
+        nostr_contact
+            .expect_get_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(move |_| Ok(Some(pending_share.clone())));
+
+        // Expect pending share to be deleted
+        nostr_contact
+            .expect_delete_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(|_| Ok(()))
+            .once();
+
+        // Expect identity to be fetched for share back
+        identity_store
+            .expect_get_full()
+            .returning(move || Ok(receiver_identity.clone()))
+            .once();
+
+        // Share back will use identity since receiver_node_id matches identity.node_id
+        // So company_store.exists() will NOT be called
+
+        // Expect share back to be called
+        let mut contact_transport =
+            crate::service::transport_service::MockContactTransportServiceApi::new();
+        contact_transport
+            .expect_share_contact_details_keys()
+            .times(1)
+            .returning(|_, _, _, _| Ok(()));
+        transport
+            .expect_contact_transport()
+            .times(1)
+            .return_const(Arc::new(contact_transport));
+
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            nostr_contact,
+            transport,
+        );
+
+        let result = service
+            .approve_contact_share(pending_share_id, false, true)
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn approve_contact_share_does_nothing_when_both_false() {
+        init_test_cfg();
+        let (
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            mut nostr_contact,
+            transport,
+        ) = get_storages();
+
+        let pending_share_id = "test_share_id";
+        let pending_share = pending_contact_share(pending_share_id);
+
+        // Mock getting the pending share
+        nostr_contact
+            .expect_get_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(move |_| Ok(Some(pending_share.clone())));
+
+        // Expect pending share to be deleted (only operation that should happen)
+        nostr_contact
+            .expect_delete_pending_share()
+            .with(mockall::predicate::eq(pending_share_id))
+            .returning(|_| Ok(()))
+            .once();
+
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            nostr_contact,
+            transport,
+        );
+
+        let result = service
+            .approve_contact_share(pending_share_id, false, false)
+            .await;
+
+        assert!(result.is_ok());
     }
 }
