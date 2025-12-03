@@ -768,7 +768,7 @@ mockall::mock! {
         ) -> bcr_ebill_api::service::Result<Vec<u8>>;
         async fn list_pending_contact_shares(&self, receiver_node_id: &NodeId) -> bcr_ebill_api::service::Result<Vec<PendingContactShare>>;
         async fn get_pending_contact_share(&self, id: &str) -> bcr_ebill_api::service::Result<Option<PendingContactShare>>;
-        async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> bcr_ebill_api::service::Result<()>;
+        async fn approve_contact_share(&self, pending_share_id: &str, add_to_contacts: bool, share_back: bool) -> bcr_ebill_api::service::Result<()>;
         async fn reject_contact_share(&self, pending_share_id: &str) -> bcr_ebill_api::service::Result<()>;
     }
 }

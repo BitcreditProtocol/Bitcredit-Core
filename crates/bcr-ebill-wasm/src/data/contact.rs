@@ -187,5 +187,6 @@ pub struct PendingContactSharesResponse {
 #[tsify(from_wasm_abi)]
 pub struct ApproveContactSharePayload {
     pub pending_share_id: String,
+    pub add_to_contacts: bool,
     pub share_back: bool,
 }

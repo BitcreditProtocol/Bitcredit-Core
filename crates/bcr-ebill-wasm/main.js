@@ -37,6 +37,7 @@ document.getElementById("list_pending_contact_shares").addEventListener("click",
 document.getElementById("get_pending_contact_share").addEventListener("click", getPendingContactShare);
 document.getElementById("approve_contact_share").addEventListener("click", approveContactShare);
 document.getElementById("approve_contact_share_with_share_back").addEventListener("click", approveContactShareWithShareBack);
+document.getElementById("approve_contact_share_only_share_back").addEventListener("click", approveContactShareOnlyShareBack);
 document.getElementById("reject_contact_share").addEventListener("click", rejectContactShare);
 
 // bill actions
@@ -474,6 +475,7 @@ async function approveContactShare() {
   let measured = measure(async () => {
     return success_or_fail(await window.contactApi.approve_contact_share({
       pending_share_id: pending_share_id,
+      add_to_contacts: true,
       share_back: false
     }));
   });
@@ -485,6 +487,19 @@ async function approveContactShareWithShareBack() {
   let measured = measure(async () => {
     return success_or_fail(await window.contactApi.approve_contact_share({
       pending_share_id: pending_share_id,
+      add_to_contacts: true,
+      share_back: true
+    }));
+  });
+  await measured();
+}
+
+async function approveContactShareOnlyShareBack() {
+  let pending_share_id = document.getElementById("pending_share_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.approve_contact_share({
+      pending_share_id: pending_share_id,
+      add_to_contacts: false,
       share_back: true
     }));
   });

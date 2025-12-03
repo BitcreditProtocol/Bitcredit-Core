@@ -141,12 +141,18 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         id: &str,
     ) -> Result<Option<bcr_ebill_persistence::PendingContactShare>>;
 
-    /// Approves a pending contact share by ID, optionally sharing back the receiver's contact
+    /// Approves a pending contact share by ID, with options to add to contacts and share back
     ///
     /// # Arguments
     /// * `pending_share_id` - The ID of the pending contact share to approve
+    /// * `add_to_contacts` - If true, adds the shared contact to our contacts
     /// * `share_back` - If true, automatically shares the receiver's contact back to the sender
-    async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> Result<()>;
+    async fn approve_contact_share(
+        &self,
+        pending_share_id: &str,
+        add_to_contacts: bool,
+        share_back: bool,
+    ) -> Result<()>;
 
     /// Rejects a pending contact share by ID (deletes it)
     async fn reject_contact_share(&self, pending_share_id: &str) -> Result<()>;
@@ -767,7 +773,12 @@ impl ContactServiceApi for ContactService {
         Ok(self.nostr_contact_store.get_pending_share(id).await?)
     }
 
-    async fn approve_contact_share(&self, pending_share_id: &str, share_back: bool) -> Result<()> {
+    async fn approve_contact_share(
+        &self,
+        pending_share_id: &str,
+        add_to_contacts: bool,
+        share_back: bool,
+    ) -> Result<()> {
         // Get the pending share
         let pending_share = self
             .nostr_contact_store
@@ -779,23 +790,34 @@ impl ContactServiceApi for ContactService {
         let contact = &pending_share.contact;
         let private_key = &pending_share.contact_private_key;
 
-        // Add/update the contact in the contact store
-        if self.store.get(node_id).await?.is_some() {
-            self.store.update(node_id, contact.clone()).await?;
-        } else {
-            self.store.insert(node_id, contact.clone()).await?;
-        }
+        // Add/update the contact in the contact store if requested
+        if add_to_contacts {
+            if self.store.get(node_id).await?.is_some() {
+                self.store.update(node_id, contact.clone()).await?;
+            } else {
+                self.store.insert(node_id, contact.clone()).await?;
+            }
 
-        // Update NostrContact with the private key
-        let upsert =
-            if let Ok(Some(nostr_contact)) = self.nostr_contact_store.by_node_id(node_id).await {
+            // Update NostrContact with the private key
+            let upsert = if let Ok(Some(nostr_contact)) =
+                self.nostr_contact_store.by_node_id(node_id).await
+            {
                 nostr_contact.merge_contact(contact, Some(*private_key))
             } else {
                 NostrContact::from_contact(contact, Some(*private_key))?
             };
-        self.nostr_contact_store.upsert(&upsert).await?;
+            self.nostr_contact_store.upsert(&upsert).await?;
 
-        info!("approved contact share for {}", node_id);
+            info!(
+                "approved contact share for {} and added to contacts",
+                node_id
+            );
+        } else {
+            info!(
+                "approved contact share for {} without adding to contacts",
+                node_id
+            );
+        }
 
         // Delete the pending share
         self.nostr_contact_store

@@ -401,6 +401,7 @@ impl Contact {
                 .contact_service
                 .approve_contact_share(
                     &approve_payload.pending_share_id,
+                    approve_payload.add_to_contacts,
                     approve_payload.share_back,
                 )
                 .await?;
