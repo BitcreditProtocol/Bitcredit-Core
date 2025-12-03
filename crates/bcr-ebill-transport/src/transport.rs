@@ -25,7 +25,7 @@ use nostr::{
 const CHAIN_EVENT_LIMIT: usize = 10000;
 
 pub async fn unwrap_direct_message<T: NostrSigner>(
-    event: Box<Event>,
+    event: &Event,
     signer: &T,
 ) -> Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> {
     match event.kind {
@@ -43,7 +43,7 @@ pub async fn unwrap_direct_message<T: NostrSigner>(
 
 /// Unwrap envelope from private direct message
 async fn unwrap_nip04_envelope<T: NostrSigner>(
-    event: Box<Event>,
+    event: &Event,
     signer: &T,
 ) -> Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> {
     let mut result: Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> = None;
@@ -68,12 +68,12 @@ async fn unwrap_nip04_envelope<T: NostrSigner>(
 
 /// Unwrap envelope from private direct message
 async fn unwrap_nip17_envelope<T: NostrSigner>(
-    event: Box<Event>,
+    event: &Event,
     signer: &T,
 ) -> Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> {
     let mut result: Option<(EventEnvelope, PublicKey, EventId, nostr::types::Timestamp)> = None;
     if event.kind == Kind::GiftWrap {
-        result = match UnwrappedGift::from_gift_wrap(signer, &event).await {
+        result = match UnwrappedGift::from_gift_wrap(signer, event).await {
             Ok(UnwrappedGift { rumor, sender }) => {
                 extract_event_envelope(rumor).map(|e| (e, sender, event.id, event.created_at))
             }

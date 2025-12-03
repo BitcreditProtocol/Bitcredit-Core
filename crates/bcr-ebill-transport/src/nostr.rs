@@ -718,16 +718,8 @@ pub async fn determine_recipient(
                 .collect();
 
             for (node_id, nostr_keys) in keys_to_try {
-                // Try to unwrap the message with this signer
-                // NOTE: We clone the event for each identity attempt because unwrap_direct_message
-                // takes ownership. For systems with many identities, this could be inefficient.
-                // However, this only happens for encrypted messages that need decryption,
-                // and typically only one or two identities will need to be tried before finding
-                // the correct recipient.
-                if unwrap_direct_message(Box::new(event.clone()), &*nostr_keys)
-                    .await
-                    .is_some()
-                {
+                // Try to unwrap the message with one of our signers
+                if unwrap_direct_message(event, &*nostr_keys).await.is_some() {
                     let signer = client.get_signer(&node_id)?;
                     return Ok((node_id, signer as Arc<dyn NostrSigner>));
                 }
@@ -828,7 +820,7 @@ pub async fn handle_direct_message<T: NostrSigner>(
     client_id: &NodeId,
     event_handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<()> {
-    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
+    if let Some((envelope, sender, _, _)) = unwrap_direct_message(&event, signer).await {
         let sender_npub = sender.to_bech32();
         let sender_pub_key = sender.to_hex();
         debug!(
