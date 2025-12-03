@@ -76,23 +76,26 @@ impl NostrTransportService {
     }
 
     pub(crate) fn get_local_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        // Since we have a single multi-identity client, we need to check if this node_id
-        // is one of the local identities. For now, we'll assume any node_id is valid
-        // (the actual validation happens in the client layer).
-        Some(BillParticipant::Ident(BillIdentParticipant {
-            // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
-            t: ContactType::Person,
-            node_id: node_id.to_owned(),
-            email: None,
-            name: Name::new("default name").expect("is a valid name"),
-            postal_address: PostalAddress {
-                country: Country::AT,
-                city: City::new("default city").expect("is valid city"),
-                zip: None,
-                address: Address::new("default address").expect("is valid address"),
-            },
-            nostr_relays: self.nostr_relays.clone(),
-        }))
+        // Check if this node_id is one of the local identities managed by the client.
+        // Only return Some if the node_id exists in the signers map.
+        if self.nostr_client.has_local_signer(node_id) {
+            Some(BillParticipant::Ident(BillIdentParticipant {
+                // we create an ident, but it doesn't matter, since we just need the node id and nostr relay
+                t: ContactType::Person,
+                node_id: node_id.to_owned(),
+                email: None,
+                name: Name::new("default name").expect("is a valid name"),
+                postal_address: PostalAddress {
+                    country: Country::AT,
+                    city: City::new("default city").expect("is valid city"),
+                    zip: None,
+                    address: Address::new("default address").expect("is valid address"),
+                },
+                nostr_relays: self.nostr_relays.clone(),
+            }))
+        } else {
+            None
+        }
     }
 
     pub(crate) async fn resolve_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {

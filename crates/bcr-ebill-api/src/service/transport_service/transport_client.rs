@@ -71,4 +71,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Adds a new identity (company keys) to the multi-identity client
     /// This will also add a subscription for direct messages to this identity
     async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
+
+    /// Check if this client has a local signer for the given node_id
+    fn has_local_signer(&self, node_id: &NodeId) -> bool;
 }

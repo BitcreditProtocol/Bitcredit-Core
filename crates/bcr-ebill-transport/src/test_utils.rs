@@ -572,6 +572,7 @@ mockall::mock! {
         async fn publish_metadata(&self, node_id: &NodeId, data: &nostr::nips::nip01::Metadata) -> Result<()>;
         async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
         async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
+        fn has_local_signer(&self, node_id: &NodeId) -> bool;
 
     }
 }

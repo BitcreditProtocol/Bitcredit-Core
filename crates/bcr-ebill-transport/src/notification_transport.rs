@@ -485,8 +485,15 @@ mod tests {
         MockEmailNotificationStore,
         MockEmailClient,
     ) {
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        // Set default expectation for has_local_signer to return false for any node_id
+        // Tests can override this expectation as needed
+        mock_transport
+            .expect_has_local_signer()
+            .returning(|_| false);
+
         (
-            MockNotificationJsonTransport::new(),
+            mock_transport,
             MockContactStore::new(),
             MockNostrContactStore::new(),
             MockNostrQueuedMessageStore::new(),

@@ -118,7 +118,7 @@ impl NostrClient {
     pub fn get_signer(&self, node_id: &NodeId) -> Result<Arc<Keys>> {
         self.signers
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .get(node_id)
             .cloned()
             .ok_or_else(|| Error::Message(format!("No signer found for node_id: {}", node_id)))
@@ -128,14 +128,27 @@ impl NostrClient {
     pub fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
         self.signers
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(node_id, Arc::new(keys.get_nostr_keys()));
         Ok(())
     }
 
+    /// Check if this client has a local signer for the given node_id
+    pub fn has_local_signer(&self, node_id: &NodeId) -> bool {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(node_id)
+    }
+
     /// Get all node_ids managed by this client
     pub fn get_all_node_ids(&self) -> Vec<NodeId> {
-        self.signers.lock().unwrap().keys().cloned().collect()
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect()
     }
 
     fn use_nip04(&self) -> bool {
@@ -291,7 +304,7 @@ impl NostrClient {
     }
 
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
+        self.connected.load(Ordering::SeqCst)
     }
 
     pub async fn client(&self) -> Result<&Client> {
@@ -406,7 +419,7 @@ impl TransportClientApi for NostrClient {
         let pubkeys: Vec<PublicKey> = self
             .signers
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .keys()
             .map(|node_id| node_id.npub())
             .collect();
@@ -461,8 +474,11 @@ impl TransportClientApi for NostrClient {
     }
 
     async fn connect(&self) -> Result<()> {
-        if !self.connected.load(Ordering::Relaxed) {
-            self.connected.store(true, Ordering::Relaxed);
+        if self
+            .connected
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             self.client.connect().await;
 
             // Publish relay list for ALL identities
@@ -489,7 +505,7 @@ impl TransportClientApi for NostrClient {
         // Add the identity to signers
         self.signers
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(node_id.clone(), Arc::new(keys.get_nostr_keys()));
 
         // Subscribe to direct messages for this identity if connected
@@ -505,6 +521,13 @@ impl TransportClientApi for NostrClient {
         }
 
         Ok(())
+    }
+
+    fn has_local_signer(&self, node_id: &NodeId) -> bool {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(node_id)
     }
 }
 
@@ -546,7 +569,13 @@ impl NostrConsumer {
         let mut tasks = JoinSet::new();
 
         // Get all local node IDs from the single client
-        let local_node_ids: Vec<NodeId> = client.signers.lock().unwrap().keys().cloned().collect();
+        let local_node_ids: Vec<NodeId> = client
+            .signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
 
         // Connect the client if not already connected
         if !client.is_connected()
@@ -556,12 +585,15 @@ impl NostrConsumer {
         }
 
         // Get the earliest offset timestamp across all identities
-        // Start with a very large value and find the minimum
-        let mut earliest_offset = Timestamp::now();
-        for node_id in &local_node_ids {
-            let offset = get_offset(&offset_store, node_id).await;
-            if offset < earliest_offset {
-                earliest_offset = offset;
+        // If there are no local node IDs, default to zero to fetch all historical events
+        let mut earliest_offset = Timestamp::zero();
+        if !local_node_ids.is_empty() {
+            earliest_offset = Timestamp::now();
+            for node_id in &local_node_ids {
+                let offset = get_offset(&offset_store, node_id).await;
+                if offset < earliest_offset {
+                    earliest_offset = offset;
+                }
             }
         }
 
@@ -576,7 +608,10 @@ impl NostrConsumer {
                     .since(earliest_offset.into()),
             )
             .await
-            .expect("Failed to subscribe to Nostr dm events");
+            .map_err(|e| {
+                error!("Failed to subscribe to Nostr dm events: {e}");
+                Error::Network("Failed to subscribe to Nostr dm events".to_string())
+            })?;
 
         // Subscribe to public events from contacts and local identities
         let mut contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
@@ -592,7 +627,10 @@ impl NostrConsumer {
                     .since(earliest_offset.into()),
             )
             .await
-            .expect("Failed to subscribe to Nostr public events");
+            .map_err(|e| {
+                error!("Failed to subscribe to Nostr public events: {e}");
+                Error::Network("Failed to subscribe to Nostr public events".to_string())
+            })?;
 
         // Spawn a SINGLE task for the single client
         let client_for_task = client.clone();
@@ -650,7 +688,9 @@ impl NostrConsumer {
                     }
                 })
                 .await
-                .expect("Nostr notification handler failed");
+                .unwrap_or_else(|e| {
+                    error!("Nostr notification handler failed: {e}");
+                });
         });
 
         Ok(tasks)
@@ -672,13 +712,18 @@ pub async fn determine_recipient(
             let keys_to_try: Vec<(NodeId, Arc<Keys>)> = client
                 .signers
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .iter()
                 .map(|(id, keys)| (id.clone(), keys.clone()))
                 .collect();
 
             for (node_id, nostr_keys) in keys_to_try {
                 // Try to unwrap the message with this signer
+                // NOTE: We clone the event for each identity attempt because unwrap_direct_message
+                // takes ownership. For systems with many identities, this could be inefficient.
+                // However, this only happens for encrypted messages that need decryption,
+                // and typically only one or two identities will need to be tried before finding
+                // the correct recipient.
                 if unwrap_direct_message(Box::new(event.clone()), &*nostr_keys)
                     .await
                     .is_some()
@@ -694,7 +739,7 @@ pub async fn determine_recipient(
         Kind::TextNote | Kind::RelayList | Kind::Metadata => {
             // For public events, any local identity can process them
             // Use the first available identity (they all have access to chain keys)
-            let signers_lock = client.signers.lock().unwrap();
+            let signers_lock = client.signers.lock().unwrap_or_else(|e| e.into_inner());
             let (node_id, _) = signers_lock
                 .iter()
                 .next()
