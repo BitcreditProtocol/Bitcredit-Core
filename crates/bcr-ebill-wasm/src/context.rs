@@ -49,10 +49,10 @@ impl Context {
         let email_client = Arc::new(EmailClient::new());
         let push_service = Arc::new(PushService::new());
 
-        let nostr_clients =
+        let nostr_client =
             create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
         let transport_service = create_transport_service(
-            nostr_clients.clone(),
+            nostr_client.clone(),
             db.clone(),
             email_client.clone(),
             cfg.nostr_config.relays.to_owned(),
@@ -121,7 +121,7 @@ impl Context {
         ));
 
         let nostr_consumer = create_nostr_consumer(
-            nostr_clients.clone(),
+            nostr_client,
             contact_service.clone(),
             push_service.clone(),
             chain_key_service.clone(),

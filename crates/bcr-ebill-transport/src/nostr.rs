@@ -14,13 +14,13 @@ use bcr_ebill_core::{
 };
 use bitcoin::base58;
 use log::{debug, error, info, trace, warn};
-use nostr::{nips::nip65::RelayMetadata, signer::NostrSigner};
+use nostr::{Keys, nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
 };
-use std::sync::{Arc, atomic::Ordering};
-use std::{collections::HashMap, sync::atomic::AtomicBool};
+use std::sync::{Arc, Mutex, atomic::Ordering};
+use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
 
 use bcr_ebill_api::{
     constants::NOSTR_EVENT_TIME_SLACK,
@@ -59,77 +59,100 @@ pub enum SortOrder {
 /// @see https://nips.nostr.com/59 and https://nips.nostr.com/17
 #[derive(Clone)]
 pub struct NostrClient {
-    pub keys: BcrKeys,
     client: Client,
-    config: NostrConfig,
+    signers: Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
+    relays: Vec<url::Url>,
+    default_timeout: Duration,
     connected: Arc<AtomicBool>,
 }
 
 impl NostrClient {
-    /// Creates a new nostr client with the given config and publishes the relay list.
-    pub async fn new(config: &NostrConfig) -> Result<Self> {
-        let client = NostrClient::default(config).await?;
-        Ok(client)
-    }
+    /// Creates a new nostr client with multiple identities sharing a relay pool
+    pub async fn new(
+        identities: Vec<(NodeId, BcrKeys)>,
+        relays: Vec<url::Url>,
+        default_timeout: Duration,
+    ) -> Result<Self> {
+        if identities.is_empty() {
+            return Err(Error::Message("At least one identity required".to_string()));
+        }
 
-    /// Creates a new nostr client with the given config.
-    pub async fn default(config: &NostrConfig) -> Result<Self> {
-        let keys = config.keys.clone();
+        // Use first identity to construct the underlying Client
+        let first_keys = &identities[0].1;
         let options = ClientOptions::new();
         let client = Client::builder()
-            .signer(keys.get_nostr_keys().clone())
+            .signer(first_keys.get_nostr_keys().clone())
             .opts(options)
             .build();
-        for relay in &config.relays {
+
+        // Add all relays to the shared pool
+        for relay in &relays {
             client.add_relay(relay).await.map_err(|e| {
                 error!("Failed to add relay to Nostr client: {e}");
                 Error::Network("Failed to add relay to Nostr client".to_string())
             })?;
         }
 
-        let client = Self {
-            keys,
+        // Build signers HashMap from all identities
+        let mut signers = HashMap::new();
+        for (node_id, keys) in identities {
+            signers.insert(node_id, Arc::new(keys.get_nostr_keys()));
+        }
+
+        Ok(Self {
             client,
-            config: config.clone(),
+            signers: Arc::new(Mutex::new(signers)),
+            relays,
+            default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
-        };
-        Ok(client)
+        })
     }
 
-    pub async fn publish_relay_list(&self, relays: Vec<url::Url>) -> Result<()> {
-        let urls = relays
-            .iter()
-            .filter_map(|r| RelayUrl::parse(r.as_str()).ok().map(|u| (u, None)))
-            .collect();
-        self.update_relay_list(urls).await.map_err(|e| {
-            error!("Failed to update relay list: {e}");
-            Error::Network("Failed to update relay list".to_string())
-        })?;
+    /// Creates a new nostr client with the given config.
+    pub async fn default(config: &NostrConfig) -> Result<Self> {
+        let identities = vec![(config.node_id.clone(), config.keys.clone())];
+        Self::new(identities, config.relays.clone(), config.default_timeout).await
+    }
+
+    /// Get the signer for a specific identity
+    pub fn get_signer(&self, node_id: &NodeId) -> Result<Arc<Keys>> {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(node_id)
+            .cloned()
+            .ok_or_else(|| Error::Message(format!("No signer found for node_id: {}", node_id)))
+    }
+
+    /// Add a new identity to this client
+    pub fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(node_id, Arc::new(keys.get_nostr_keys()));
         Ok(())
     }
 
-    pub fn get_node_id(&self) -> NodeId {
-        self.config.node_id.clone()
+    /// Check if this client has a local signer for the given node_id
+    pub fn has_local_signer(&self, node_id: &NodeId) -> bool {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(node_id)
     }
 
-    pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
-        self.keys.get_nostr_keys()
-    }
-
-    pub fn is_primary(&self) -> bool {
-        self.config.is_primary
+    /// Get all node_ids managed by this client
+    pub fn get_all_node_ids(&self) -> Vec<NodeId> {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect()
     }
 
     fn use_nip04(&self) -> bool {
         false
-    }
-
-    // We create the client with a private key so getting the signer should never fail.
-    pub async fn get_signer(&self) -> Arc<dyn NostrSigner> {
-        self.client
-            .signer()
-            .await
-            .expect("Unable to get Nostr signer for active client")
     }
 
     /// Subscribe to some nostr events with a filter
@@ -151,7 +174,7 @@ impl NostrClient {
         let result = self
             .client()
             .await?
-            .fetch_metadata(npub, self.config.default_timeout.to_owned())
+            .fetch_metadata(npub, self.default_timeout.to_owned())
             .await
             .map_err(|e| {
                 error!("Failed to fetch Nostr metadata: {e}");
@@ -188,23 +211,6 @@ impl NostrClient {
             .unwrap_or_default())
     }
 
-    /// Updates our relay list on all our configured write relays.
-    async fn update_relay_list(
-        &self,
-        relays: Vec<(RelayUrl, Option<RelayMetadata>)>,
-    ) -> Result<()> {
-        let event = EventBuilder::relay_list(relays);
-        self.client()
-            .await?
-            .send_event_builder(event)
-            .await
-            .map_err(|e| {
-                error!("Failed to send Nostr relay list: {e}");
-                Error::Network("Failed to send Nostr relay list".to_string())
-            })?;
-        Ok(())
-    }
-
     /// Returns events that match filter from either the provided relays or from this clients
     /// relays. If a order is provided, the events are sorted accordingly otherwise the default
     /// descending order is used.
@@ -218,9 +224,9 @@ impl NostrClient {
             .client()
             .await?
             .fetch_events_from(
-                relays.unwrap_or(self.config.relays.clone()),
+                relays.unwrap_or(self.relays.clone()),
                 filter,
-                self.config.default_timeout.to_owned(),
+                self.default_timeout.to_owned(),
             )
             .await
             .map_err(|e| {
@@ -236,12 +242,14 @@ impl NostrClient {
 
     pub async fn send_nip04_message(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
+        let signer = self.get_signer(sender_node_id)?;
         let public_key = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
-        let event = create_nip04_event(&self.get_signer().await, &public_key, &message).await?;
+        let event = create_nip04_event(&*signer, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
             if let Err(e) = self
@@ -260,34 +268,43 @@ impl NostrClient {
 
     async fn send_nip17_message(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
-        let public_key = recipient.node_id().npub();
+        // Get the Keys for the specified sender identity
+        let sender_keys = self.get_signer(sender_node_id)?;
+
+        let receiver_pubkey = recipient.node_id().npub();
         let message = base58::encode(&borsh::to_vec(&event)?);
+
+        let event = EventBuilder::private_msg(&*sender_keys, receiver_pubkey, message, [])
+            .await
+            .map_err(|e| {
+                error!("Failed to create NIP-17 event: {e}");
+                Error::Message(format!("Failed to create NIP-17 event: {e}"))
+            })?;
+
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            if let Err(e) = self
-                .client()
-                .await?
-                .send_private_msg_to(&relays, public_key, message, None)
-                .await
-            {
-                error!("Error sending Nostr message: {e}")
+            if let Err(e) = self.client().await?.send_event_to(&relays, &event).await {
+                error!("Error sending NIP-17 message to specific relays: {e}");
+                return Err(Error::Network(format!(
+                    "Failed to send NIP-17 message: {e}"
+                )));
             };
-        } else if let Err(e) = self
-            .client()
-            .await?
-            .send_private_msg(public_key, message, None)
-            .await
-        {
-            error!("Error sending Nostr message: {e}")
+        } else if let Err(e) = self.client().await?.send_event(&event).await {
+            error!("Error sending NIP-17 message: {e}");
+            return Err(Error::Network(format!(
+                "Failed to send NIP-17 message: {e}"
+            )));
         }
+
         Ok(())
     }
 
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
+        self.connected.load(Ordering::SeqCst)
     }
 
     pub async fn client(&self) -> Result<&Client> {
@@ -303,29 +320,25 @@ impl ServiceTraitBounds for NostrClient {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl TransportClientApi for NostrClient {
-    fn get_sender_node_id(&self) -> NodeId {
-        self.get_node_id()
-    }
-
-    fn get_sender_keys(&self) -> BcrKeys {
-        self.keys.clone()
-    }
-
     async fn send_private_event(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()> {
         if self.use_nip04() {
-            self.send_nip04_message(recipient, event).await?;
+            self.send_nip04_message(sender_node_id, recipient, event)
+                .await?;
         } else {
-            self.send_nip17_message(recipient, event).await?;
+            self.send_nip17_message(sender_node_id, recipient, event)
+                .await?;
         }
         Ok(())
     }
 
     async fn send_public_chain_event(
         &self,
+        sender_node_id: &NodeId,
         id: &str,
         blockchain: BlockchainType,
         block_time: Timestamp,
@@ -334,7 +347,10 @@ impl TransportClientApi for NostrClient {
         previous_event: Option<Event>,
         root_event: Option<Event>,
     ) -> Result<Event> {
-        let event = create_public_chain_event(
+        // Get the keys for this identity to sign with
+        let signing_keys = self.get_signer(sender_node_id)?;
+
+        let event_builder = create_public_chain_event(
             id,
             event,
             block_time,
@@ -343,15 +359,14 @@ impl TransportClientApi for NostrClient {
             previous_event,
             root_event,
         )?;
-        let send_event = self
-            .client()
-            .await?
-            .sign_event_builder(event)
-            .await
-            .map_err(|e| {
-                error!("Failed to sign Nostr event: {e}");
-                Error::Crypto("Failed to sign Nostr event".to_string())
-            })?;
+
+        // Build unsigned event and sign it with the explicit keys
+        let unsigned = event_builder.build(signing_keys.public_key());
+        let send_event = unsigned.sign(&*signing_keys).await.map_err(|e| {
+            error!("Failed to sign Nostr event: {e}");
+            Error::Crypto("Failed to sign Nostr event".to_string())
+        })?;
+
         self.client()
             .await?
             .send_event(&send_event)
@@ -367,7 +382,7 @@ impl TransportClientApi for NostrClient {
         match self.fetch_metadata(node_id.npub()).await? {
             Some(meta) => {
                 let relays = self
-                    .fetch_relay_list(node_id.npub(), self.config.relays.clone())
+                    .fetch_relay_list(node_id.npub(), self.relays.clone())
                     .await?;
                 Ok(Some(NostrContactData {
                     metadata: meta,
@@ -400,46 +415,125 @@ impl TransportClientApi for NostrClient {
         } else {
             vec![Kind::GiftWrap]
         };
-        let filter = filter
-            .clone()
-            .pubkey(self.keys.get_nostr_keys().public_key())
-            .kinds(kinds);
+        // Subscribe with all public keys from all identities
+        let pubkeys: Vec<PublicKey> = self
+            .signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .map(|node_id| node_id.npub())
+            .collect();
+        let filter = filter.clone().pubkeys(pubkeys).kinds(kinds);
         Ok(self
             .fetch_events(filter, Some(SortOrder::Asc), None)
             .await?)
     }
 
-    async fn publish_metadata(&self, data: &Metadata) -> Result<()> {
-        self.client().await?.set_metadata(data).await.map_err(|e| {
+    async fn publish_metadata(&self, node_id: &NodeId, data: &Metadata) -> Result<()> {
+        // Get the signer for this identity
+        let signer = self.get_signer(node_id)?;
+
+        // Build and sign the metadata event with the specific identity
+        let event = EventBuilder::metadata(data)
+            .build(signer.public_key())
+            .sign(&*signer)
+            .await
+            .map_err(|e| {
+                error!("Failed to sign metadata event: {e}");
+                Error::Crypto("Failed to sign metadata event".to_string())
+            })?;
+
+        self.client().await?.send_event(&event).await.map_err(|e| {
             error!("Failed to send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
         Ok(())
     }
 
-    async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()> {
-        self.update_relay_list(relays.into_iter().map(|r| (r, None)).collect())
+    async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<RelayUrl>) -> Result<()> {
+        // Get the signer for this identity
+        let signer = self.get_signer(node_id)?;
+
+        // Build and sign the relay list event with the specific identity
+        let relay_list: Vec<(RelayUrl, Option<RelayMetadata>)> =
+            relays.into_iter().map(|r| (r, None)).collect();
+        let event = EventBuilder::relay_list(relay_list)
+            .build(signer.public_key())
+            .sign(&*signer)
             .await
             .map_err(|e| {
-                error!("Failed to send relay list with Nostr client: {e}");
-                Error::Network("Failed to send relay list with Nostr client".to_string())
+                error!("Failed to sign relay list event: {e}");
+                Error::Crypto("Failed to sign relay list event".to_string())
             })?;
+
+        self.client().await?.send_event(&event).await.map_err(|e| {
+            error!("Failed to send relay list with Nostr client: {e}");
+            Error::Network("Failed to send relay list with Nostr client".to_string())
+        })?;
         Ok(())
     }
 
     async fn connect(&self) -> Result<()> {
-        if !self.connected.load(Ordering::Relaxed) {
-            self.connected.store(true, Ordering::Relaxed);
+        if self
+            .connected
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             self.client.connect().await;
-            self.publish_relay_list(self.config.relays.clone()).await?;
+
+            // Publish relay list for ALL identities
+            let node_ids = self.get_all_node_ids();
+            let relay_urls: Vec<RelayUrl> = self
+                .relays
+                .iter()
+                .filter_map(|r| RelayUrl::parse(r.as_str()).ok())
+                .collect();
+
+            for node_id in node_ids {
+                if let Err(e) = self.publish_relay_list(&node_id, relay_urls.clone()).await {
+                    error!(
+                        "Failed to publish relay list for identity {}: {}",
+                        node_id, e
+                    );
+                }
+            }
         }
         Ok(())
+    }
+
+    async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()> {
+        // Add the identity to signers
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(node_id.clone(), Arc::new(keys.get_nostr_keys()));
+
+        // Subscribe to direct messages for this identity if connected
+        if self.is_connected() {
+            let kinds = if self.use_nip04() {
+                vec![Kind::EncryptedDirectMessage]
+            } else {
+                vec![Kind::GiftWrap]
+            };
+            debug!("Adding subscription for direct messages to identity: {node_id}");
+            self.subscribe(Filter::new().pubkey(node_id.npub()).kinds(kinds))
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    fn has_local_signer(&self, node_id: &NodeId) -> bool {
+        self.signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(node_id)
     }
 }
 
 #[derive(Clone)]
 pub struct NostrConsumer {
-    clients: HashMap<NodeId, Arc<NostrClient>>,
+    client: Arc<NostrClient>,
     event_handlers: Vec<Arc<dyn NotificationHandlerApi>>,
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
@@ -448,18 +542,14 @@ pub struct NostrConsumer {
 
 impl NostrConsumer {
     pub fn new(
-        clients: Vec<Arc<NostrClient>>,
+        client: Arc<NostrClient>,
         contact_service: Arc<dyn ContactServiceApi>,
         event_handlers: Vec<Arc<dyn NotificationHandlerApi>>,
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
     ) -> Self {
-        let clients = clients
-            .into_iter()
-            .map(|c| (c.get_node_id(), c))
-            .collect::<HashMap<NodeId, Arc<NostrClient>>>();
         Self {
-            clients,
+            client,
             #[allow(clippy::arc_with_non_send_sync)]
             event_handlers,
             contact_service,
@@ -470,109 +560,192 @@ impl NostrConsumer {
 
     pub async fn start(&self) -> Result<JoinSet<()>> {
         // move dependencies into thread scope
-        let clients = self.clients.clone();
+        let client = self.client.clone();
         let event_handlers = self.event_handlers.clone();
         let contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
         let chain_key_store = self.chain_key_service.clone();
 
         let mut tasks = JoinSet::new();
-        let local_node_ids = clients.keys().cloned().collect::<Vec<NodeId>>();
 
-        for (node_id, node_client) in clients.into_iter() {
-            if !node_client.is_connected()
-                && let Err(e) = node_client.connect().await
-            {
-                error!("Failed to connect Nostr client for node {node_id} with: {e}");
-            }
-            let current_client = node_client.clone();
-            let event_handlers = event_handlers.clone();
-            let offset_store = offset_store.clone();
-            let chain_key_store = chain_key_store.clone();
-            let client_id = node_id;
-            let contact_service = contact_service.clone();
-            let local_node_ids = local_node_ids.clone();
+        // Get all local node IDs from the single client
+        let local_node_ids: Vec<NodeId> = client
+            .signers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
 
-            // Spawn a task for each client
-            tasks.spawn(async move {
-                // continue where we left off
-                let offset_ts = get_offset(&offset_store, &client_id).await;
-
-                // subscribe to private events
-                current_client
-                    .subscribe(
-                        Filter::new()
-                            .pubkey(current_client.keys.get_nostr_keys().public_key())
-                            .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
-                            .since(offset_ts.into()),
-                    )
-                    .await
-                    .expect("Failed to subscribe to Nostr dm events");
-
-                // we only need one client to subscribe to public events
-                if current_client.is_primary() {
-                    let mut contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
-                    info!("Found {} contacts to subscribe to", contacts.len());
-                    // we also subscribe to our own local public keys
-                    let mut local_npubs =
-                        local_node_ids.iter().map(|n| n.npub()).collect::<Vec<_>>();
-                    contacts.append(&mut local_npubs);
-                    info!("Subscribing to public Nostr events for client {client_id}");
-                    current_client
-                        .subscribe(
-                            Filter::new()
-                                .authors(contacts)
-                                .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
-                                .since(offset_ts.into()),
-                        )
-                        .await
-                        .expect("Failed to subscribe to Nostr public events");
-                }
-
-                let signer = current_client.get_signer().await;
-
-                current_client
-                    .client
-                    .handle_notifications(move |note| {
-                        let event_handlers = event_handlers.clone();
-                        let offset_store = offset_store.clone();
-                        let chain_key_store = chain_key_store.clone();
-                        let client_id = client_id.clone();
-                        let contact_service = contact_service.clone();
-                        let local_node_ids = local_node_ids.clone();
-                        let signer = signer.clone();
-
-                        async move {
-                            if let RelayPoolNotification::Event { event, .. } = note
-                                && should_process(
-                                    event.clone(),
-                                    &local_node_ids,
-                                    &contact_service,
-                                    &offset_store,
-                                )
-                                .await
-                            {
-                                let (success, time) = process_event(
-                                    event.clone(),
-                                    signer,
-                                    client_id.clone(),
-                                    chain_key_store,
-                                    &event_handlers,
-                                )
-                                .await?;
-                                // store the new event offset
-                                add_offset(&offset_store, event.id, time, success, &client_id)
-                                    .await;
-                            }
-                            Ok(false)
-                        }
-                    })
-                    .await
-                    .expect("Nostr notification handler failed");
-            });
+        // Connect the client if not already connected
+        if !client.is_connected()
+            && let Err(e) = client.connect().await
+        {
+            error!("Failed to connect Nostr client: {e}");
         }
 
+        // Get the earliest offset timestamp across all identities
+        // If there are no local node IDs, default to zero to fetch all historical events
+        let mut earliest_offset = Timestamp::zero();
+        if !local_node_ids.is_empty() {
+            earliest_offset = Timestamp::now();
+            for node_id in &local_node_ids {
+                let offset = get_offset(&offset_store, node_id).await;
+                if offset < earliest_offset {
+                    earliest_offset = offset;
+                }
+            }
+        }
+
+        // Subscribe to private events for ALL local identities (single subscription)
+        let local_pubkeys: Vec<PublicKey> = local_node_ids.iter().map(|n| n.npub()).collect();
+
+        client
+            .subscribe(
+                Filter::new()
+                    .pubkeys(local_pubkeys.clone())
+                    .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
+                    .since(earliest_offset.into()),
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to subscribe to Nostr dm events: {e}");
+                Error::Network("Failed to subscribe to Nostr dm events".to_string())
+            })?;
+
+        // Subscribe to public events from contacts and local identities
+        let mut contacts = contact_service.get_nostr_npubs().await.unwrap_or_default();
+        info!("Found {} contacts to subscribe to", contacts.len());
+        contacts.append(&mut local_pubkeys.clone());
+        info!("Subscribing to public Nostr events");
+
+        client
+            .subscribe(
+                Filter::new()
+                    .authors(contacts)
+                    .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
+                    .since(earliest_offset.into()),
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to subscribe to Nostr public events: {e}");
+                Error::Network("Failed to subscribe to Nostr public events".to_string())
+            })?;
+
+        // Spawn a SINGLE task for the single client
+        let client_for_task = client.clone();
+        tasks.spawn(async move {
+            client_for_task
+                .client
+                .handle_notifications(move |note| {
+                    let event_handlers = event_handlers.clone();
+                    let offset_store = offset_store.clone();
+                    let chain_key_store = chain_key_store.clone();
+                    let contact_service = contact_service.clone();
+                    let local_node_ids = local_node_ids.clone();
+                    let client = client.clone();
+
+                    async move {
+                        if let RelayPoolNotification::Event { event, .. } = note
+                            && should_process(
+                                event.clone(),
+                                &local_node_ids,
+                                &contact_service,
+                                &offset_store,
+                            )
+                            .await
+                        {
+                            // Determine which local identity should receive this event
+                            match determine_recipient(&event, &client).await {
+                                Ok((recipient_node_id, signer)) => {
+                                    let (success, time) = process_event(
+                                        event.clone(),
+                                        signer,
+                                        recipient_node_id.clone(),
+                                        chain_key_store,
+                                        &event_handlers,
+                                    )
+                                    .await?;
+                                    // store the new event offset for the recipient identity
+                                    add_offset(
+                                        &offset_store,
+                                        event.id,
+                                        time,
+                                        success,
+                                        &recipient_node_id,
+                                    )
+                                    .await;
+                                }
+                                Err(e) => {
+                                    debug!(
+                                        "Could not determine recipient for event {}: {e}",
+                                        event.id
+                                    );
+                                }
+                            }
+                        }
+                        Ok(false)
+                    }
+                })
+                .await
+                .unwrap_or_else(|e| {
+                    error!("Nostr notification handler failed: {e}");
+                });
+        });
+
         Ok(tasks)
+    }
+}
+
+/// Determines which local identity should receive this event.
+/// For private messages: tries to decrypt with each signer, returns the one that succeeds.
+/// For public chain events: the recipient is determined by chain key ownership (all identities have access).
+/// Returns the NodeId of the recipient identity and its signer.
+pub async fn determine_recipient(
+    event: &Event,
+    client: &NostrClient,
+) -> Result<(NodeId, Arc<dyn NostrSigner>)> {
+    match event.kind {
+        Kind::EncryptedDirectMessage | Kind::GiftWrap => {
+            // Try to decrypt with each identity's signer
+            // Clone the keys to avoid holding the lock during async operations
+            let keys_to_try: Vec<(NodeId, Arc<Keys>)> = client
+                .signers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|(id, keys)| (id.clone(), keys.clone()))
+                .collect();
+
+            for (node_id, nostr_keys) in keys_to_try {
+                // Try to unwrap the message with one of our signers
+                if unwrap_direct_message(event, &*nostr_keys).await.is_some() {
+                    let signer = client.get_signer(&node_id)?;
+                    return Ok((node_id, signer as Arc<dyn NostrSigner>));
+                }
+            }
+            Err(Error::Message(
+                "No local identity could decrypt this message".to_string(),
+            ))
+        }
+        Kind::TextNote | Kind::RelayList | Kind::Metadata => {
+            // For public events, any local identity can process them
+            // Use any available identity (they all have access to chain keys)
+            let node_id = client
+                .signers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
+            let signer = client.get_signer(&node_id)?;
+            Ok((node_id, signer as Arc<dyn NostrSigner>))
+        }
+        _ => Err(Error::Message(format!(
+            "Unsupported event kind: {:?}",
+            event.kind
+        ))),
     }
 }
 
@@ -648,7 +821,7 @@ pub async fn handle_direct_message<T: NostrSigner>(
     client_id: &NodeId,
     event_handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<()> {
-    if let Some((envelope, sender, _, _)) = unwrap_direct_message(event.clone(), signer).await {
+    if let Some((envelope, sender, _, _)) = unwrap_direct_message(&event, signer).await {
         let sender_npub = sender.to_bech32();
         let sender_pub_key = sender.to_hex();
         debug!(
@@ -810,7 +983,7 @@ mod tests {
             true,
             NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
         );
-        let client = NostrClient::new(&config)
+        let client = NostrClient::default(&config)
             .await
             .expect("failed to create nostr client");
 
@@ -836,7 +1009,7 @@ mod tests {
             true,
             NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet),
         );
-        let client1 = NostrClient::new(&config1)
+        let client1 = NostrClient::default(&config1)
             .await
             .expect("failed to create nostr client 1");
 
@@ -848,7 +1021,7 @@ mod tests {
             true,
             NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
         );
-        let client2 = NostrClient::new(&config2)
+        let client2 = NostrClient::default(&config2)
             .await
             .expect("failed to create nostr client 2");
 
@@ -917,7 +1090,7 @@ mod tests {
 
         // we start the consumer
         let consumer = NostrConsumer::new(
-            vec![Arc::new(client2)],
+            Arc::new(client2),
             Arc::new(contact_service),
             vec![Arc::new(handler)],
             Arc::new(offset_store),
@@ -935,8 +1108,10 @@ mod tests {
                         .expect("failed to start nostr consumer");
                 });
                 // and send an event
+                let node_id1 = NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet);
                 client1
                     .send_private_event(
+                        &node_id1,
                         &BillParticipant::Ident(contact),
                         event.try_into().expect("could not convert event"),
                     )
@@ -948,5 +1123,131 @@ mod tests {
                 handle.abort();
             })
             .await;
+    }
+
+    #[tokio::test]
+    async fn test_multi_identity_client() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+
+        let keys1 = BcrKeys::new();
+        let keys2 = BcrKeys::new();
+        let node_id1 = NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet);
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+
+        let identities = vec![
+            (node_id1.clone(), keys1.clone()),
+            (node_id2.clone(), keys2.clone()),
+        ];
+
+        let client = NostrClient::new(identities, vec![url], Duration::from_secs(20))
+            .await
+            .expect("failed to create multi-identity client");
+
+        // Should be able to get signer for each identity
+        assert!(client.get_signer(&node_id1).is_ok());
+        assert!(client.get_signer(&node_id2).is_ok());
+
+        // Should fail for unknown identity
+        let unknown = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        assert!(client.get_signer(&unknown).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_send_private_event_with_sender_node_id() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+
+        let keys1 = BcrKeys::new();
+        let keys2 = BcrKeys::new();
+        let node_id1 = NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet);
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+
+        let identities = vec![
+            (node_id1.clone(), keys1.clone()),
+            (node_id2.clone(), keys2.clone()),
+        ];
+
+        let client = NostrClient::new(identities, vec![url.clone()], Duration::from_secs(20))
+            .await
+            .expect("failed to create client");
+
+        client.connect().await.expect("failed to connect");
+
+        let recipient = get_identity_public_data(
+            &node_id2,
+            &Email::new("recipient@example.com").unwrap(),
+            vec![&url],
+        );
+        let event = create_test_event(&BillEventType::BillSigned);
+
+        // NIP-17 now supports multi-identity clients via manual gift wrap construction
+        let result = client
+            .send_private_event(
+                &node_id1,
+                &BillParticipant::Ident(recipient),
+                event.try_into().unwrap(),
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "NIP-17 should work for multi-identity clients: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_nostr_consumer_single_client_multi_identity() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+
+        // Create two identities
+        let keys1 = BcrKeys::new();
+        let keys2 = BcrKeys::new();
+        let node_id1 = NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet);
+        let node_id2 = NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet);
+
+        // Create single client with multiple identities
+        let identities = vec![
+            (node_id1.clone(), keys1.clone()),
+            (node_id2.clone(), keys2.clone()),
+        ];
+
+        let client = Arc::new(
+            NostrClient::new(identities, vec![url.clone()], Duration::from_secs(20))
+                .await
+                .expect("failed to create multi-identity client"),
+        );
+
+        // Create mock services for NostrConsumer with expectations
+        let mut contact_service = MockContactService::new();
+        contact_service
+            .expect_get_nostr_npubs()
+            .returning(|| Ok(vec![]));
+
+        let mut offset_store = MockNostrEventOffsetStore::new();
+        // Set expectations for both node IDs
+        offset_store
+            .expect_current_offset()
+            .returning(|_| Ok(Timestamp::zero()));
+
+        let chain_key_service = Arc::new(MockChainKeyService::new());
+
+        // Create NostrConsumer with single client (not Vec of clients)
+        let consumer = NostrConsumer::new(
+            client,
+            Arc::new(contact_service),
+            vec![],
+            Arc::new(offset_store),
+            chain_key_service,
+        );
+
+        // Verify consumer can start and subscribe to events for all identities
+        let mut tasks = consumer.start().await.expect("failed to start consumer");
+        assert_eq!(tasks.len(), 1, "Should have single task for single client");
+
+        // Clean up tasks
+        tasks.abort_all();
     }
 }

@@ -20,13 +20,10 @@ impl ServiceTraitBounds for MockTransportClientApi {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait TransportClientApi: ServiceTraitBounds {
-    /// Returns the senders node id for this instance.
-    fn get_sender_node_id(&self) -> NodeId;
-    /// Returns the senders keys for this instance.
-    fn get_sender_keys(&self) -> BcrKeys;
     /// Sends a private json event to the given recipient.
     async fn send_private_event(
         &self,
+        sender_node_id: &NodeId,
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()>;
@@ -35,6 +32,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// event. This will return the sent event so we can add it to the local store.
     async fn send_public_chain_event(
         &self,
+        sender_node_id: &NodeId,
         id: &str,
         blockchain: BlockchainType,
         block_time: Timestamp,
@@ -56,13 +54,24 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Resolves all private messages matching the filter
     async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
 
-    /// Publishes the metadata (contact info) via the Nostr client
-    async fn publish_metadata(&self, data: &nostr::nips::nip01::Metadata) -> Result<()>;
+    /// Publishes the metadata (contact info) via the Nostr client for the specified identity
+    async fn publish_metadata(
+        &self,
+        node_id: &NodeId,
+        data: &nostr::nips::nip01::Metadata,
+    ) -> Result<()>;
 
-    /// Publishes the relay list via the Nostr client
-    async fn publish_relay_list(&self, relays: Vec<RelayUrl>) -> Result<()>;
+    /// Publishes the relay list via the Nostr client for the specified identity
+    async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<RelayUrl>) -> Result<()>;
 
     /// Opens the connection(s) to the underlying network. This can be called multiple times and
     /// will only open the connection once.
     async fn connect(&self) -> Result<()>;
+
+    /// Adds a new identity (company keys) to the multi-identity client
+    /// This will also add a subscription for direct messages to this identity
+    async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
+
+    /// Check if this client has a local signer for the given node_id
+    fn has_local_signer(&self, node_id: &NodeId) -> bool;
 }

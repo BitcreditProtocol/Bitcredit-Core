@@ -415,7 +415,7 @@ pub async fn get_mock_nostr_client() -> NostrClient {
         true,
         NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
     );
-    NostrClient::new(&config)
+    NostrClient::default(&config)
         .await
         .expect("could not create mock nostr client")
 }
@@ -446,7 +446,7 @@ pub fn get_nostr_transport(
     chain_events: MockNostrChainEventStore,
 ) -> NostrTransportService {
     NostrTransportService::new(
-        vec![Arc::new(mock_transport)],
+        Arc::new(mock_transport),
         Arc::new(contact_store),
         Arc::new(nostr_contact_store),
         Arc::new(queued_message_store),
@@ -554,11 +554,10 @@ mockall::mock! {
     #[async_trait]
     impl TransportClientApi for NotificationJsonTransport {
         async fn connect(&self) -> Result<()>;
-        fn get_sender_node_id(&self) -> NodeId;
-        fn get_sender_keys(&self) -> BcrKeys;
-        async fn send_private_event(&self, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
+        async fn send_private_event(&self, sender_node_id: &NodeId, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
         async fn send_public_chain_event(
             &self,
+            sender_node_id: &NodeId,
             id: &str,
             blockchain: bcr_ebill_core::protocol::blockchain::BlockchainType,
             block_time: Timestamp,
@@ -570,8 +569,10 @@ mockall::mock! {
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
         async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
-        async fn publish_metadata(&self, data: &nostr::nips::nip01::Metadata) -> Result<()>;
-        async fn publish_relay_list(&self, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
+        async fn publish_metadata(&self, node_id: &NodeId, data: &nostr::nips::nip01::Metadata) -> Result<()>;
+        async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
+        async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
+        fn has_local_signer(&self, node_id: &NodeId) -> bool;
 
     }
 }

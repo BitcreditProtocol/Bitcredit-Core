@@ -32,11 +32,11 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
     async fn handle_event(
         &self,
         event: EventEnvelope,
-        node_id: &NodeId,
+        _node_id: &NodeId, // this is only useful for DM based notifications
         _sender: Option<nostr::PublicKey>,
         original_event: Option<Box<nostr::Event>>,
     ) -> Result<()> {
-        debug!("incoming company chain event for {node_id}");
+        debug!("incoming company chain event");
         if let Ok(decoded) = Event::<CompanyBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.company_store.get_key_pair(&decoded.data.node_id).await {
                 let valid = self
@@ -61,7 +61,7 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
                     .await?;
                 }
             } else {
-                trace!("no keys for incoming company block {node_id}");
+                trace!("no keys for incoming company block");
             }
         } else {
             warn!("Could not decode event to CompanyBlockEvent {event:?}");

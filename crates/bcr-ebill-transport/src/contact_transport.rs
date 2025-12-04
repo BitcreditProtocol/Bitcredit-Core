@@ -47,21 +47,19 @@ impl ContactTransportServiceApi for ContactTransportService {
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
         validate_node_id_network(node_id)?;
         // take any transport - doesn't matter
-        if let Some(transport) = self.nostr_transport.get_first_transport().await {
-            let res = transport.resolve_contact(node_id).await?;
-            Ok(res)
-        } else {
-            Ok(None)
-        }
+        let transport = self.nostr_transport.get_first_transport();
+        let res = transport.resolve_contact(node_id).await?;
+        Ok(res)
     }
 
     /// Publish contact data for NodeId to nostr. Will only publish if the NodeId points to a
     /// registered nostr client and therefore is our own.
     async fn publish_contact(&self, node_id: &NodeId, data: &NostrContactData) -> Result<()> {
-        if let Some(transport) = self.nostr_transport.get_node_transport(node_id).await {
-            transport.publish_metadata(&data.metadata).await?;
-            transport.publish_relay_list(data.relays.clone()).await?;
-        }
+        let transport = self.nostr_transport.get_node_transport(node_id);
+        transport.publish_metadata(node_id, &data.metadata).await?;
+        transport
+            .publish_relay_list(node_id, data.relays.clone())
+            .await?;
         Ok(())
     }
 

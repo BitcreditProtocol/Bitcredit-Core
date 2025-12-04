@@ -4,13 +4,12 @@ use crate::{
     NostrClient, Result,
     chain_keys::ChainKeyServiceApi,
     handler::NotificationHandlerApi,
-    nostr::{add_offset, process_event, should_process},
+    nostr::{add_offset, determine_recipient, process_event, should_process},
 };
 use async_trait::async_trait;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_persistence::NostrEventOffsetStoreApi;
-use nostr::signer::NostrSigner;
 
 use crate::handler::DirectMessageEventProcessorApi;
 
@@ -21,7 +20,6 @@ pub struct DirectMessageEventProcessor {
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     handlers: Vec<Arc<dyn NotificationHandlerApi>>,
-    signer: Arc<dyn NostrSigner>,
 }
 
 impl DirectMessageEventProcessor {
@@ -32,14 +30,12 @@ impl DirectMessageEventProcessor {
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
         handlers: Vec<Arc<dyn NotificationHandlerApi>>,
     ) -> Self {
-        let signer = client.get_signer().await;
         Self {
             client,
             contact_service,
             offset_store,
             chain_key_service,
             handlers,
-            signer,
         }
     }
 }
@@ -48,34 +44,45 @@ impl DirectMessageEventProcessor {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
     async fn process_direct_message(&self, event: Box<nostr::Event>) -> Result<()> {
-        // check if the event should be processed
+        // Get all local node IDs for multi-identity handling
+        let local_node_ids = self.client.get_all_node_ids();
+
+        // Check if the event should be processed
         if should_process(
             event.clone(),
-            &[self.client.get_node_id()],
+            &local_node_ids,
             &self.contact_service,
             &self.offset_store,
         )
         .await
         {
-            // process event
-            let (success, time) = process_event(
-                event.clone(),
-                self.signer.clone(),
-                self.client.get_node_id(),
-                self.chain_key_service.clone(),
-                &self.handlers,
-            )
-            .await?;
+            // Determine which identity should receive this event
+            match determine_recipient(&event, &self.client).await {
+                Ok((recipient_node_id, signer)) => {
+                    // Process event with the correct identity's signer
+                    let (success, time) = process_event(
+                        event.clone(),
+                        signer,
+                        recipient_node_id.clone(),
+                        self.chain_key_service.clone(),
+                        &self.handlers,
+                    )
+                    .await?;
 
-            // add event offset
-            add_offset(
-                &self.offset_store,
-                event.id,
-                time,
-                success,
-                &self.client.get_node_id(),
-            )
-            .await;
+                    // Add event offset for the recipient identity
+                    add_offset(
+                        &self.offset_store,
+                        event.id,
+                        time,
+                        success,
+                        &recipient_node_id,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    log::debug!("Could not determine recipient for event {}: {e}", event.id);
+                }
+            }
         }
         Ok(())
     }
