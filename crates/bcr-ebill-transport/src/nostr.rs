@@ -730,14 +730,15 @@ pub async fn determine_recipient(
         }
         Kind::TextNote | Kind::RelayList | Kind::Metadata => {
             // For public events, any local identity can process them
-            // Use the first available identity (they all have access to chain keys)
-            let signers_lock = client.signers.lock().unwrap_or_else(|e| e.into_inner());
-            let (node_id, _) = signers_lock
-                .iter()
+            // Use any available identity (they all have access to chain keys)
+            let node_id = client
+                .signers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
                 .next()
+                .cloned()
                 .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
-            let node_id = node_id.clone();
-            drop(signers_lock); // Release lock before calling get_signer
             let signer = client.get_signer(&node_id)?;
             Ok((node_id, signer as Arc<dyn NostrSigner>))
         }
