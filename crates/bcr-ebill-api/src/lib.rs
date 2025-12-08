@@ -84,12 +84,25 @@ pub struct PaymentConfig {
 }
 
 /// Nostr specific configuration
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NostrConfig {
     /// Only known contacts can message us via DM.
     pub only_known_contacts: bool,
     /// All relays we want to publish our messages to and receive messages from.
     pub relays: Vec<url::Url>,
+    /// Maximum number of contact relays to connect to (user relays are exempt).
+    /// Defaults to 50 if not specified.
+    pub max_relays: Option<usize>,
+}
+
+impl Default for NostrConfig {
+    fn default() -> Self {
+        Self {
+            only_known_contacts: false,
+            relays: vec![],
+            max_relays: Some(50),
+        }
+    }
 }
 
 /// Mint configuration
