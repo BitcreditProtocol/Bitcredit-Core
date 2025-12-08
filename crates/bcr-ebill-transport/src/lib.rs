@@ -130,6 +130,7 @@ pub async fn create_transport_service(
         transport.clone(),
         db_context.nostr_contact_store.clone(),
         get_config().bitcoin_network(),
+        Some(client.clone()),
     ));
     let bill_processor = Arc::new(BillChainEventProcessor::new(
         db_context.bill_blockchain_store.clone(),
@@ -223,6 +224,7 @@ pub async fn create_nostr_consumer(
         transport.clone(),
         db_context.nostr_contact_store.clone(),
         get_config().bitcoin_network(),
+        Some(client.clone()),
     ));
 
     let bill_processor = Arc::new(BillChainEventProcessor::new(
@@ -338,6 +340,7 @@ pub async fn create_restore_account_service(
         nostr_client.clone(),
         db_context.nostr_contact_store.clone(),
         config.bitcoin_network(),
+        Some(nostr_client.clone()),
     ));
 
     let bill_processor = Arc::new(BillChainEventProcessor::new(

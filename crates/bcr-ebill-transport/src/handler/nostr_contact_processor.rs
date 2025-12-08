@@ -17,6 +17,7 @@ pub struct NostrContactProcessor {
     transport: Arc<dyn TransportClientApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     bitcoin_network: bitcoin::Network,
+    nostr_client: Option<Arc<crate::nostr::NostrClient>>,
 }
 
 impl NostrContactProcessor {
@@ -24,11 +25,13 @@ impl NostrContactProcessor {
         transport: Arc<dyn TransportClientApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         bitcoin_network: bitcoin::Network,
+        nostr_client: Option<Arc<crate::nostr::NostrClient>>,
     ) -> Self {
         Self {
             transport,
             nostr_contact_store,
             bitcoin_network,
+            nostr_client,
         }
     }
 }
@@ -73,8 +76,17 @@ impl NostrContactProcessor {
     async fn upsert_contact(&self, node_id: &NodeId, contact: &NostrContact) {
         if let Err(e) = self.nostr_contact_store.upsert(contact).await {
             error!("Failed to save nostr contact information for node_id {node_id}: {e}");
-        } else if let Err(e) = self.transport.add_contact_subscription(node_id).await {
-            error!("Failed to add nostr contact subscription for contact node_id {node_id}: {e}");
+        } else {
+            if let Err(e) = self.transport.add_contact_subscription(node_id).await {
+                error!("Failed to add nostr contact subscription for contact node_id {node_id}: {e}");
+            }
+            
+            // Trigger relay refresh to include new contact's relays
+            if let Some(ref client) = self.nostr_client {
+                if let Err(e) = client.refresh_relays().await {
+                    warn!("Failed to refresh relays after contact update for {node_id}: {e}");
+                }
+            }
         }
     }
 }
