@@ -82,11 +82,10 @@ impl NostrContactProcessor {
             }
             
             // Trigger relay refresh to include new contact's relays
-            if let Some(ref client) = self.nostr_client {
-                if let Err(e) = client.refresh_relays().await {
+            if let Some(ref client) = self.nostr_client
+                && let Err(e) = client.refresh_relays().await {
                     warn!("Failed to refresh relays after contact update for {node_id}: {e}");
                 }
-            }
         }
     }
 }
