@@ -507,6 +507,7 @@ mod test_utils {
         impl NostrContactStoreApi for NostrContactStore {
             async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
             async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>>;
+            async fn get_all(&self) -> Result<Vec<NostrContact>>;
             async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
             async fn upsert(&self, data: &NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &NodeId) -> Result<()>;

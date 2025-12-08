@@ -20,7 +20,7 @@ use nostr_sdk::{
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
 };
 use std::sync::{Arc, Mutex, atomic::Ordering};
-use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
+use std::{collections::{HashMap, HashSet}, sync::atomic::AtomicBool, time::Duration};
 
 use bcr_ebill_api::{
     constants::NOSTR_EVENT_TIME_SLACK,
@@ -1249,5 +1249,224 @@ mod tests {
 
         // Clean up tasks
         tasks.abort_all();
+    }
+}
+
+/// Internal relay calculation function (pure function for testing)
+fn calculate_relay_set_internal(
+    user_relays: &[url::Url],
+    contacts: &[bcr_ebill_core::application::nostr_contact::NostrContact],
+    max_relays: Option<usize>,
+) -> HashSet<url::Url> {
+    use bcr_ebill_core::application::nostr_contact::TrustLevel;
+    use std::collections::HashSet;
+    
+    let mut relay_set = HashSet::new();
+    
+    // Pass 1: Add all user relays (exempt from limit)
+    for relay in user_relays {
+        relay_set.insert(relay.clone());
+    }
+    
+    // Filter and sort contacts by trust level
+    let mut eligible_contacts: Vec<&bcr_ebill_core::application::nostr_contact::NostrContact> = contacts
+        .iter()
+        .filter(|c| matches!(c.trust_level, TrustLevel::Trusted | TrustLevel::Participant))
+        .collect();
+    
+    // Sort: Trusted (0) before Participant (1)
+    eligible_contacts.sort_by_key(|c| match c.trust_level {
+        TrustLevel::Trusted => 0,
+        TrustLevel::Participant => 1,
+        _ => 2, // unreachable due to filter
+    });
+    
+    let limit = max_relays.unwrap_or(usize::MAX);
+    
+    // Pass 2: Add first relay from each contact (priority order)
+    for contact in &eligible_contacts {
+        if relay_set.len() >= limit {
+            break;
+        }
+        if let Some(first_relay) = contact.relays.first() {
+            relay_set.insert(first_relay.clone());
+        }
+    }
+    
+    // Pass 3: Fill remaining slots with additional contact relays
+    for contact in &eligible_contacts {
+        for relay in contact.relays.iter().skip(1) {
+            if relay_set.len() >= limit {
+                return relay_set;
+            }
+            relay_set.insert(relay.clone());
+        }
+    }
+    
+    relay_set
+}
+
+#[cfg(test)]
+mod relay_calculation_tests {
+    use super::*;
+    use bcr_ebill_core::application::nostr_contact::{NostrContact, TrustLevel, HandshakeStatus, NostrPublicKey};
+    use std::collections::HashSet;
+
+    fn create_test_contact(trust_level: TrustLevel, relays: Vec<&str>) -> NostrContact {
+        use bcr_ebill_core::protocol::crypto::BcrKeys;
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        NostrContact {
+            npub: node_id.npub(),
+            node_id,
+            name: None,
+            relays: relays.iter().map(|r| url::Url::parse(r).unwrap()).collect(),
+            trust_level,
+            handshake_status: HandshakeStatus::None,
+            contact_private_key: None,
+        }
+    }
+
+    #[test]
+    fn test_user_relays_always_included() {
+        let user_relays = vec![
+            url::Url::parse("wss://relay1.com").unwrap(),
+            url::Url::parse("wss://relay2.com").unwrap(),
+        ];
+        let contacts = vec![];
+        let max_relays = Some(1); // Very low limit
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        // User relays should all be present despite low limit
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&url::Url::parse("wss://relay1.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://relay2.com").unwrap()));
+    }
+
+    #[test]
+    fn test_trusted_contacts_prioritized() {
+        let user_relays = vec![];
+        let contacts = vec![
+            create_test_contact(TrustLevel::Participant, vec!["wss://participant.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://trusted.com"]),
+        ];
+        let max_relays = Some(1);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        // Should only include trusted contact's relay (higher priority)
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&url::Url::parse("wss://trusted.com").unwrap()));
+    }
+
+    #[test]
+    fn test_one_relay_per_contact_guaranteed() {
+        let user_relays = vec![];
+        let contacts = vec![
+            create_test_contact(TrustLevel::Trusted, vec!["wss://contact1-relay1.com", "wss://contact1-relay2.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://contact2-relay1.com", "wss://contact2-relay2.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://contact3-relay1.com"]),
+        ];
+        let max_relays = Some(3);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        // Should have exactly 3 relays (first relay from each contact)
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&url::Url::parse("wss://contact1-relay1.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://contact2-relay1.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://contact3-relay1.com").unwrap()));
+    }
+
+    #[test]
+    fn test_deduplication_across_contacts() {
+        let user_relays = vec![];
+        let contacts = vec![
+            create_test_contact(TrustLevel::Trusted, vec!["wss://shared.com", "wss://unique1.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://shared.com", "wss://unique2.com"]),
+        ];
+        let max_relays = Some(10);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        // Should only include shared.com once
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&url::Url::parse("wss://shared.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://unique1.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://unique2.com").unwrap()));
+    }
+
+    #[test]
+    fn test_banned_contacts_excluded() {
+        let user_relays = vec![];
+        let contacts = vec![
+            create_test_contact(TrustLevel::Banned, vec!["wss://banned.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://trusted.com"]),
+        ];
+        let max_relays = Some(10);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&url::Url::parse("wss://trusted.com").unwrap()));
+        assert!(!result.contains(&url::Url::parse("wss://banned.com").unwrap()));
+    }
+
+    #[test]
+    fn test_none_trust_level_excluded() {
+        let user_relays = vec![];
+        let contacts = vec![
+            create_test_contact(TrustLevel::None, vec!["wss://unknown.com"]),
+            create_test_contact(TrustLevel::Participant, vec!["wss://participant.com"]),
+        ];
+        let max_relays = Some(10);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&url::Url::parse("wss://participant.com").unwrap()));
+        assert!(!result.contains(&url::Url::parse("wss://unknown.com").unwrap()));
+    }
+
+    #[test]
+    fn test_no_limit_when_max_relays_none() {
+        let user_relays = vec![url::Url::parse("wss://user.com").unwrap()];
+        let contacts = vec![
+            create_test_contact(TrustLevel::Trusted, vec!["wss://relay1.com", "wss://relay2.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://relay3.com", "wss://relay4.com"]),
+        ];
+        let max_relays = None;
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        // All relays should be included
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_empty_contacts() {
+        let user_relays = vec![url::Url::parse("wss://user.com").unwrap()];
+        let contacts = vec![];
+        let max_relays = Some(50);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&url::Url::parse("wss://user.com").unwrap()));
+    }
+
+    #[test]
+    fn test_contact_with_no_relays() {
+        let user_relays = vec![];
+        let mut contact = create_test_contact(TrustLevel::Trusted, vec![]);
+        contact.relays = vec![]; // Explicitly no relays
+        let contacts = vec![contact];
+        let max_relays = Some(10);
+        
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+        
+        // Should handle gracefully
+        assert_eq!(result.len(), 0);
     }
 }
