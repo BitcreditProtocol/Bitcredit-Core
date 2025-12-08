@@ -50,7 +50,12 @@ impl Context {
         let push_service = Arc::new(PushService::new());
 
         let nostr_client =
-            create_nostr_clients(&cfg, db.identity_store.clone(), db.company_store.clone()).await?;
+            create_nostr_clients(
+                &cfg,
+                db.identity_store.clone(),
+                db.company_store.clone(),
+                db.nostr_contact_store.clone(),
+            ).await?;
         let transport_service = create_transport_service(
             nostr_client.clone(),
             db.clone(),

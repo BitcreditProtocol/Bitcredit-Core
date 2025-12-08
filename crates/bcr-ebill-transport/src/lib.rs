@@ -21,7 +21,7 @@ use handler::{
     IdentityChainEventHandler, IdentityChainEventProcessor, LoggingEventHandler,
     NostrContactProcessor, NotificationHandlerApi,
 };
-use log::{debug, error};
+use log::{debug, error, warn};
 pub use nostr_transport::NostrTransportService;
 
 mod block_transport;
@@ -54,6 +54,7 @@ pub async fn create_nostr_clients(
     config: &Config,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    nostr_contact_store: Arc<dyn bcr_ebill_persistence::nostr::NostrContactStoreApi>,
 ) -> Result<Arc<NostrClient>> {
     // primary identity is required to launch
     let keys = identity_store.get_or_create_key_pair().await.map_err(|e| {
@@ -101,8 +102,16 @@ pub async fn create_nostr_clients(
         identities,
         config.nostr_config.relays.clone(),
         std::time::Duration::from_secs(20),
+        config.nostr_config.max_relays,
+        Some(nostr_contact_store),
     )
     .await?;
+
+    // Initial relay refresh to include contact relays
+    if let Err(e) = client.refresh_relays().await {
+        warn!("Failed initial relay refresh: {}", e);
+        // Continue anyway - we have user relays at minimum
+    }
 
     Ok(Arc::new(client))
 }
