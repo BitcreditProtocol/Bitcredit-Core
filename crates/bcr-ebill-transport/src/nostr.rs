@@ -343,13 +343,17 @@ impl NostrClient {
             vec![]
         };
 
-        Ok(calculate_relay_set_internal(&self.relays, &contacts, self.max_relays))
+        Ok(calculate_relay_set_internal(
+            &self.relays,
+            &contacts,
+            self.max_relays,
+        ))
     }
 
     /// Update the client's relay connections to match the target set
     async fn update_relays(&self, target_relays: HashSet<url::Url>) -> Result<()> {
         let client = &self.client;
-        
+
         // Get current relays
         let current_relays: HashSet<url::Url> = client
             .relays()
@@ -389,8 +393,10 @@ impl NostrClient {
         info!("Refreshing relay connections based on contacts");
         let relay_set = self.calculate_relay_set().await?;
         self.update_relays(relay_set).await?;
-        info!("Relay refresh complete, connected to {} relays", 
-              self.client.relays().await.len());
+        info!(
+            "Relay refresh complete, connected to {} relays",
+            self.client.relays().await.len()
+        );
         Ok(())
     }
 }
@@ -1248,9 +1254,15 @@ mod tests {
             (node_id2.clone(), keys2.clone()),
         ];
 
-        let client = NostrClient::new(identities, vec![url.clone()], Duration::from_secs(20), None, None)
-            .await
-            .expect("failed to create client");
+        let client = NostrClient::new(
+            identities,
+            vec![url.clone()],
+            Duration::from_secs(20),
+            None,
+            None,
+        )
+        .await
+        .expect("failed to create client");
 
         client.connect().await.expect("failed to connect");
 
@@ -1295,9 +1307,15 @@ mod tests {
         ];
 
         let client = Arc::new(
-            NostrClient::new(identities, vec![url.clone()], Duration::from_secs(20), None, None)
-                .await
-                .expect("failed to create multi-identity client"),
+            NostrClient::new(
+                identities,
+                vec![url.clone()],
+                Duration::from_secs(20),
+                None,
+                None,
+            )
+            .await
+            .expect("failed to create multi-identity client"),
         );
 
         // Create mock services for NostrConsumer with expectations
@@ -1333,7 +1351,6 @@ mod tests {
 }
 
 /// Internal relay calculation function (pure function for testing)
-#[allow(dead_code)]
 fn calculate_relay_set_internal(
     user_relays: &[url::Url],
     contacts: &[bcr_ebill_core::application::nostr_contact::NostrContact],
