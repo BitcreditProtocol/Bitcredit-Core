@@ -131,6 +131,7 @@ pub async fn initialize_api(
         nostr_config: NostrConfig {
             relays: nostr_relays,
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
+            max_relays: Some(50),
         },
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
         payment_config: PaymentConfig {

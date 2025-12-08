@@ -1253,6 +1253,7 @@ mod tests {
 }
 
 /// Internal relay calculation function (pure function for testing)
+#[allow(dead_code)]
 fn calculate_relay_set_internal(
     user_relays: &[url::Url],
     contacts: &[bcr_ebill_core::application::nostr_contact::NostrContact],
@@ -1309,8 +1310,7 @@ fn calculate_relay_set_internal(
 #[cfg(test)]
 mod relay_calculation_tests {
     use super::*;
-    use bcr_ebill_core::application::nostr_contact::{NostrContact, TrustLevel, HandshakeStatus, NostrPublicKey};
-    use std::collections::HashSet;
+    use bcr_ebill_core::application::nostr_contact::{NostrContact, TrustLevel, HandshakeStatus};
 
     fn create_test_contact(trust_level: TrustLevel, relays: Vec<&str>) -> NostrContact {
         use bcr_ebill_core::protocol::crypto::BcrKeys;
