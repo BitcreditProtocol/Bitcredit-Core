@@ -65,6 +65,16 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         Ok(values.unwrap_or_default())
     }
 
+    /// Get all Nostr contacts from the store.
+    async fn get_all(&self) -> Result<Vec<NostrContact>> {
+        let result: Vec<NostrContactDb> = self.db.select_all(Self::TABLE).await?;
+        let values = result
+            .into_iter()
+            .map(|c| c.to_owned().try_into().ok())
+            .collect::<Option<Vec<NostrContact>>>();
+        Ok(values.unwrap_or_default())
+    }
+
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>> {
         let result: Option<NostrContactDb> = self.db.select_one(Self::TABLE, npub.to_hex()).await?;

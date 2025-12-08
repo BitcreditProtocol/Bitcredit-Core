@@ -84,6 +84,8 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
     /// Find multiple Nostr contacts by their node ids.
     async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>>;
+    /// Get all Nostr contacts from the store.
+    async fn get_all(&self) -> Result<Vec<NostrContact>>;
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
     /// Creates a new or updates an existing Nostr contact.
