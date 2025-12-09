@@ -9,8 +9,12 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    protocol::Timestamp, protocol::blockchain::BlockchainType,
-    protocol::blockchain::bill::participant::BillParticipant, protocol::crypto::BcrKeys,
+    application::nostr_contact::{NostrContact, TrustLevel},
+    protocol::{
+        Timestamp,
+        blockchain::{BlockchainType, bill::participant::BillParticipant},
+        crypto::BcrKeys,
+    },
 };
 use bitcoin::base58;
 use log::{debug, error, info, trace, warn};
@@ -27,7 +31,7 @@ use std::{
 };
 
 use bcr_ebill_api::{
-    constants::NOSTR_EVENT_TIME_SLACK,
+    constants::{NOSTR_EVENT_TIME_SLACK, NOSTR_MAX_RELAYS},
     service::{
         contact_service::ContactServiceApi,
         transport_service::{
@@ -358,8 +362,8 @@ impl NostrClient {
         let current_relays: HashSet<url::Url> = client
             .relays()
             .await
-            .into_iter()
-            .filter_map(|(_, relay)| relay.url().as_str().parse::<url::Url>().ok())
+            .keys()
+            .map(|url| url.to_owned().into())
             .collect();
 
         // Add new relays
@@ -1353,12 +1357,9 @@ mod tests {
 /// Internal relay calculation function (pure function for testing)
 fn calculate_relay_set_internal(
     user_relays: &[url::Url],
-    contacts: &[bcr_ebill_core::application::nostr_contact::NostrContact],
+    contacts: &[NostrContact],
     max_relays: Option<usize>,
 ) -> HashSet<url::Url> {
-    use bcr_ebill_core::application::nostr_contact::TrustLevel;
-    use std::collections::HashSet;
-
     let mut relay_set = HashSet::new();
 
     // Pass 1: Add all user relays (exempt from limit)
@@ -1367,11 +1368,10 @@ fn calculate_relay_set_internal(
     }
 
     // Filter and sort contacts by trust level
-    let mut eligible_contacts: Vec<&bcr_ebill_core::application::nostr_contact::NostrContact> =
-        contacts
-            .iter()
-            .filter(|c| matches!(c.trust_level, TrustLevel::Trusted | TrustLevel::Participant))
-            .collect();
+    let mut eligible_contacts: Vec<&NostrContact> = contacts
+        .iter()
+        .filter(|c| matches!(c.trust_level, TrustLevel::Trusted | TrustLevel::Participant))
+        .collect();
 
     // Sort: Trusted (0) before Participant (1)
     eligible_contacts.sort_by_key(|c| match c.trust_level {
@@ -1380,7 +1380,7 @@ fn calculate_relay_set_internal(
         _ => 2, // unreachable due to filter
     });
 
-    let contact_relay_limit = max_relays.unwrap_or(usize::MAX);
+    let contact_relay_limit = NOSTR_MAX_RELAYS.min(max_relays.unwrap_or(NOSTR_MAX_RELAYS));
     let user_relay_count = relay_set.len();
 
     // Pass 2: Add first relay from each contact (priority order)
