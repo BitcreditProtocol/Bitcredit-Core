@@ -1380,11 +1380,13 @@ fn calculate_relay_set_internal(
         _ => 2, // unreachable due to filter
     });
 
-    let limit = max_relays.unwrap_or(usize::MAX);
+    let contact_relay_limit = max_relays.unwrap_or(usize::MAX);
+    let user_relay_count = relay_set.len();
 
     // Pass 2: Add first relay from each contact (priority order)
     for contact in &eligible_contacts {
-        if relay_set.len() >= limit {
+        let contact_relays_added = relay_set.len() - user_relay_count;
+        if contact_relays_added >= contact_relay_limit {
             break;
         }
         if let Some(first_relay) = contact.relays.first() {
@@ -1395,7 +1397,8 @@ fn calculate_relay_set_internal(
     // Pass 3: Fill remaining slots with additional contact relays
     for contact in &eligible_contacts {
         for relay in contact.relays.iter().skip(1) {
-            if relay_set.len() >= limit {
+            let contact_relays_added = relay_set.len() - user_relay_count;
+            if contact_relays_added >= contact_relay_limit {
                 return relay_set;
             }
             relay_set.insert(relay.clone());
@@ -1456,6 +1459,30 @@ mod relay_calculation_tests {
         // Should only include trusted contact's relay (higher priority)
         assert_eq!(result.len(), 1);
         assert!(result.contains(&url::Url::parse("wss://trusted.com").unwrap()));
+    }
+
+    #[test]
+    fn test_contact_relays_added_when_user_relays_exceed_limit() {
+        let user_relays = vec![
+            url::Url::parse("wss://user1.com").unwrap(),
+            url::Url::parse("wss://user2.com").unwrap(),
+            url::Url::parse("wss://user3.com").unwrap(),
+        ];
+        let contacts = vec![
+            create_test_contact(TrustLevel::Trusted, vec!["wss://contact1.com"]),
+            create_test_contact(TrustLevel::Trusted, vec!["wss://contact2.com"]),
+        ];
+        let max_relays = Some(2); // Lower than user relay count
+
+        let result = calculate_relay_set_internal(&user_relays, &contacts, max_relays);
+
+        // Should have all 3 user relays + 2 contact relays (user relays exempt from limit)
+        assert_eq!(result.len(), 5);
+        assert!(result.contains(&url::Url::parse("wss://user1.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://user2.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://user3.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://contact1.com").unwrap()));
+        assert!(result.contains(&url::Url::parse("wss://contact2.com").unwrap()));
     }
 
     #[test]

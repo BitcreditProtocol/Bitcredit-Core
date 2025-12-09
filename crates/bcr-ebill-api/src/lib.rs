@@ -90,7 +90,7 @@ pub struct NostrConfig {
     pub only_known_contacts: bool,
     /// All relays we want to publish our messages to and receive messages from.
     pub relays: Vec<url::Url>,
-    /// Maximum number of contact relays to connect to (user relays are exempt).
+    /// Maximum number of contact relays to add (in addition to user relays which are always included).
     /// Defaults to 50 if not specified.
     pub max_relays: Option<usize>,
 }

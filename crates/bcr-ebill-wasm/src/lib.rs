@@ -37,6 +37,7 @@ pub struct Config {
     pub esplora_base_url: String,
     pub nostr_relays: Vec<String>,
     pub nostr_only_known_contacts: Option<bool>,
+    pub nostr_max_relays: Option<usize>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
     pub transport_initial_subscription_delay_seconds: Option<u32>,
@@ -131,7 +132,7 @@ pub async fn initialize_api(
         nostr_config: NostrConfig {
             relays: nostr_relays,
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
-            max_relays: Some(50),
+            max_relays: config.nostr_max_relays.or(Some(50)),
         },
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
         payment_config: PaymentConfig {
