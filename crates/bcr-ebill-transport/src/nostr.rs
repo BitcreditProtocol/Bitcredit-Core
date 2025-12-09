@@ -36,7 +36,7 @@ use bcr_ebill_api::{
     },
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
-use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi};
+use bcr_ebill_persistence::{NostrContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
 
 use tokio::task::JoinSet;
 use tokio_with_wasm::alias as tokio;
@@ -69,7 +69,7 @@ pub struct NostrClient {
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
     max_relays: Option<usize>,
-    nostr_contact_store: Option<Arc<dyn bcr_ebill_persistence::nostr::NostrContactStoreApi>>,
+    nostr_contact_store: Option<Arc<dyn NostrContactStoreApi>>,
 }
 
 impl NostrClient {
@@ -79,7 +79,7 @@ impl NostrClient {
         relays: Vec<url::Url>,
         default_timeout: Duration,
         max_relays: Option<usize>,
-        nostr_contact_store: Option<Arc<dyn bcr_ebill_persistence::nostr::NostrContactStoreApi>>,
+        nostr_contact_store: Option<Arc<dyn NostrContactStoreApi>>,
     ) -> Result<Self> {
         if identities.is_empty() {
             return Err(Error::Message("At least one identity required".to_string()));
