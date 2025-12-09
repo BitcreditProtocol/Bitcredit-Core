@@ -992,15 +992,28 @@ impl CompanyServiceApi for CompanyService {
                     .into(),
             ));
         }
-        // Add signatory as invited
-        company.signatories.push(CompanySignatory {
-            node_id: signatory_node_id.clone(),
-            t: SignatoryType::Solo,
-            status: CompanySignatoryStatus::Invited {
+        // If the signatory already exists - set to invited
+        if let Some(signatory) = company
+            .signatories
+            .iter_mut()
+            .find(|s| s.node_id == signatory_node_id)
+        {
+            signatory.status = CompanySignatoryStatus::Invited {
                 ts: timestamp,
                 inviter: full_identity.identity.node_id.clone(),
-            },
-        });
+            };
+        } else {
+            // Otherwise, add as invited
+            company.signatories.push(CompanySignatory {
+                node_id: signatory_node_id.clone(),
+                t: SignatoryType::Solo,
+                status: CompanySignatoryStatus::Invited {
+                    ts: timestamp,
+                    inviter: full_identity.identity.node_id.clone(),
+                },
+            });
+        }
+
         self.store.update(id, &company).await?;
 
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;

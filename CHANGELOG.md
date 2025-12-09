@@ -1,4 +1,12 @@
-# 0.4.14
+# 0.5.1
+
+* Use one Nostr client for multiple identities
+* Handshake - share back without contacts
+* Multi-Relay Support
+
+# 0.5.0
+
+* Stabilise Identity Proof Implementation
 
 # 0.4.13
 
