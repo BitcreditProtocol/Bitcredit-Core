@@ -5,6 +5,7 @@ use crate::protocol::{
 };
 use bcr_common::core::NodeId;
 
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -180,7 +181,13 @@ impl Company {
                                 inviter: payload.inviter.clone(),
                             }
                         }
-                        _ => (), // already invited / accepted - ignore,
+                        _ => {
+                            // already invited / accepted - ignore,
+                            warn!(
+                                "Trying to invite {}, although they're already invited/accepted",
+                                payload.invitee
+                            );
+                        }
                     }
                 } else {
                     // if the signatory wasn't in the list before - add as invited

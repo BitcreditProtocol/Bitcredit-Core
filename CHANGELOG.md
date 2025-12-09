@@ -1,3 +1,7 @@
+# 0.5.0
+
+* Stabilise Identity Proof Implementation
+
 # 0.4.13
 
 * Document versioning scheme
