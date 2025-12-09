@@ -134,6 +134,7 @@ pub fn init_test_cfg() {
                 nostr_config: bcr_ebill_api::NostrConfig {
                     only_known_contacts: false,
                     relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+                    max_relays: Some(50),
                 },
                 mint_config: bcr_ebill_api::MintConfig {
                     default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
@@ -842,6 +843,7 @@ mockall::mock! {
     impl NostrContactStoreApi for NostrContactStore {
         async fn by_node_id(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
         async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
+        async fn get_all(&self) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
         async fn by_npub(&self, npub: &NostrPublicKey) -> bcr_ebill_persistence::Result<Option<NostrContact>>;
         async fn upsert(&self, data: &NostrContact) -> bcr_ebill_persistence::Result<()>;
         async fn delete(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<()>;

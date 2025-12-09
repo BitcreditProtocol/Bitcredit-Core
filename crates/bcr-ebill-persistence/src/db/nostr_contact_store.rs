@@ -19,6 +19,7 @@ use bcr_ebill_core::{
     protocol::SecretKey,
     protocol::Timestamp,
 };
+use log::error;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
@@ -63,6 +64,22 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
             .map(|c| c.to_owned().try_into().ok())
             .collect::<Option<Vec<NostrContact>>>();
         Ok(values.unwrap_or_default())
+    }
+
+    /// Get all Nostr contacts from the store.
+    async fn get_all(&self) -> Result<Vec<NostrContact>> {
+        let result: Vec<NostrContactDb> = self.db.select_all(Self::TABLE).await?;
+        let values = result
+            .into_iter()
+            .filter_map(|c| match c.try_into() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    error!("Failed to convert NostrContactDb to NostrContact: {e}");
+                    None
+                }
+            })
+            .collect::<Vec<NostrContact>>();
+        Ok(values)
     }
 
     /// Find a Nostr contact by the npub. This is the public Nostr key of the contact.

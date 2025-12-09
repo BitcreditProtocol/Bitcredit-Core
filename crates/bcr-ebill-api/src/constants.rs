@@ -8,3 +8,4 @@ pub const VALID_FILE_MIME_TYPES: [&str; 3] = ["image/jpeg", "image/png", "applic
 // When subscribing events we subtract this from the last received event time
 pub const NOSTR_EVENT_TIME_SLACK: u64 = 3600 * 24 * 7; // 1 week
 pub const DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS: u32 = 1;
+pub const NOSTR_MAX_RELAYS: usize = 200;

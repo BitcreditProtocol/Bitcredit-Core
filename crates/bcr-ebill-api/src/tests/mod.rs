@@ -142,6 +142,7 @@ pub mod tests {
         impl NostrContactStoreApi for NostrContactStore {
             async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
             async fn by_node_ids(&self, node_ids: Vec<NodeId>) -> Result<Vec<NostrContact>>;
+            async fn get_all(&self) -> Result<Vec<NostrContact>>;
             async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>>;
             async fn upsert(&self, data: &NostrContact) -> Result<()>;
             async fn delete(&self, node_id: &NodeId) -> Result<()>;
@@ -492,6 +493,7 @@ pub mod tests {
                     nostr_config: NostrConfig {
                         only_known_contacts: false,
                         relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+                        max_relays: Some(50),
                     },
                     mint_config: MintConfig {
                         default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
@@ -680,5 +682,36 @@ pub mod tests {
 
     pub fn test_ts() -> Timestamp {
         Timestamp::new(1731593928).unwrap()
+    }
+
+    #[cfg(test)]
+    mod config_tests {
+        use crate::NostrConfig;
+
+        #[test]
+        fn test_nostr_config_default_max_relays() {
+            let config = NostrConfig::default();
+            assert_eq!(config.max_relays, Some(50));
+        }
+
+        #[test]
+        fn test_nostr_config_with_custom_max_relays() {
+            let config = NostrConfig {
+                only_known_contacts: true,
+                relays: vec![],
+                max_relays: Some(100),
+            };
+            assert_eq!(config.max_relays, Some(100));
+        }
+
+        #[test]
+        fn test_nostr_config_with_no_relay_limit() {
+            let config = NostrConfig {
+                only_known_contacts: false,
+                relays: vec![],
+                max_relays: None,
+            };
+            assert_eq!(config.max_relays, None);
+        }
     }
 }

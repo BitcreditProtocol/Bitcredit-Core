@@ -15,4 +15,5 @@
 /pkg/*
 
 .idea/
+.worktrees/
 Cargo.lock
