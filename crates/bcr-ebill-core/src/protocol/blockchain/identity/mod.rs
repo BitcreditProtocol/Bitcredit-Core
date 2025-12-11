@@ -91,12 +91,12 @@ impl IdentityBlockPlaintextWrapper {
             IdentityOpCode::InviteSignatory => {
                 borsh_to_json_value::<IdentityInviteSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
-            IdentityOpCode::AcceptSignatoryInvite => {
-                borsh_to_json_value::<IdentityInviteSignatoryBlockData>(&self.plaintext_data_bytes)?
-            }
-            IdentityOpCode::RejectSignatoryInvite => {
-                borsh_to_json_value::<IdentityInviteSignatoryBlockData>(&self.plaintext_data_bytes)?
-            }
+            IdentityOpCode::AcceptSignatoryInvite => borsh_to_json_value::<
+                IdentityAcceptSignatoryInviteBlockData,
+            >(&self.plaintext_data_bytes)?,
+            IdentityOpCode::RejectSignatoryInvite => borsh_to_json_value::<
+                IdentityRejectSignatoryInviteBlockData,
+            >(&self.plaintext_data_bytes)?,
             IdentityOpCode::RemoveSignatory => {
                 borsh_to_json_value::<IdentityRemoveSignatoryBlockData>(&self.plaintext_data_bytes)?
             }
