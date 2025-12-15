@@ -32,6 +32,7 @@ mod nostr;
 mod nostr_transport;
 mod notification_transport;
 pub mod push_notification;
+pub mod relay_sync;
 #[cfg(test)]
 pub mod test_utils;
 mod transport;

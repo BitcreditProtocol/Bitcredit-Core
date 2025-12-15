@@ -269,6 +269,24 @@ impl NostrClient {
         Ok(events)
     }
 
+    /// Send an event to specific relays
+    pub async fn send_event_to(&self, relays: Vec<url::Url>, event: &Event) -> Result<()> {
+        self.client()
+            .await?
+            .send_event_to(&relays, event)
+            .await
+            .map_err(|e| {
+                error!("Failed to send event to relays: {e}");
+                Error::Network(format!("Failed to send event to relays: {e}"))
+            })?;
+        Ok(())
+    }
+
+    /// Get the default timeout for this client
+    pub fn get_default_timeout(&self) -> Duration {
+        self.default_timeout
+    }
+
     pub async fn send_nip04_message(
         &self,
         sender_node_id: &NodeId,

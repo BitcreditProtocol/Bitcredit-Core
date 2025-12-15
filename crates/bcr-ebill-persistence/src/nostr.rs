@@ -319,3 +319,6 @@ pub struct RelaySyncRetry {
     /// When the last retry was attempted
     pub last_retry_at: Option<Timestamp>,
 }
+
+// Backwards compatibility alias
+pub use NostrStoreApi as NostrContactStoreApi;
