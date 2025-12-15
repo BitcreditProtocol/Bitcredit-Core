@@ -645,6 +645,77 @@ impl TransportClientApi for NostrClient {
             .unwrap_or_else(|e| e.into_inner())
             .contains_key(node_id)
     }
+
+    async fn sync_relays(&self) -> Result<()> {
+        // Check if already running
+        if self
+            .sync_running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            debug!("Relay sync already in progress, skipping");
+            return Ok(());
+        }
+        
+        // Perform sync (always release lock after)
+        let result = async {
+            if let Some(nostr_store) = &self.nostr_store {
+                // Update last_seen_in_config for all user relays
+                for relay in &self.user_relays {
+                    nostr_store
+                        .update_relay_last_seen(relay, Timestamp::now())
+                        .await
+                        .map_err(|e| Error::Message(format!("Failed to update relay last seen: {}", e)))?;
+                }
+                
+                // Run sync
+                crate::relay_sync::sync_pending_relays(self, &self.user_relays, nostr_store).await?;
+            }
+            Ok(())
+        }
+        .await;
+        
+        // Always release the lock
+        self.sync_running.store(false, Ordering::SeqCst);
+        
+        result
+    }
+    
+    async fn retry_failed_syncs(&self) -> Result<()> {
+        use bcr_ebill_api::constants::{RELAY_SYNC_MAX_RETRIES, RELAY_SYNC_RETRY_BATCH_SIZE};
+        
+        if let Some(nostr_store) = &self.nostr_store {
+            for relay in &self.user_relays {
+                let failed_events = nostr_store
+                    .get_pending_relay_retries(relay, RELAY_SYNC_RETRY_BATCH_SIZE)
+                    .await
+                    .map_err(|e| Error::Message(format!("Failed to get retry events: {}", e)))?;
+                
+                for event in failed_events {
+                    match self.send_event_to(vec![relay.clone()], &event).await {
+                        Ok(_) => {
+                            nostr_store
+                                .mark_relay_retry_success(relay, &event.id.to_string())
+                                .await
+                                .map_err(|e| Error::Message(format!("Failed to mark retry success: {}", e)))?;
+                        }
+                        Err(e) => {
+                            warn!("Retry failed for event {} to {}: {}", event.id, relay, e);
+                            nostr_store
+                                .mark_relay_retry_failed(
+                                    relay,
+                                    &event.id.to_string(),
+                                    RELAY_SYNC_MAX_RETRIES,
+                                )
+                                .await
+                                .map_err(|e| Error::Message(format!("Failed to mark retry failure: {}", e)))?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

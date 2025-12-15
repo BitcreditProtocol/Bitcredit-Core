@@ -102,6 +102,7 @@ pub async fn create_nostr_clients(
     let client = NostrClient::new(
         identities,
         config.nostr_config.relays.clone(),
+        config.nostr_config.relays.clone(), // user_relays same as relays
         std::time::Duration::from_secs(20),
         config.nostr_config.max_relays,
         Some(nostr_contact_store),
