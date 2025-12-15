@@ -425,6 +425,20 @@ impl TransportServiceApi for TransportService {
     async fn send_retry_messages(&self) -> Result<()> {
         self.nostr_transport.send_retry_messages().await
     }
+
+    async fn sync_relays(&self) -> Result<()> {
+        self.nostr_transport
+            .get_first_transport()
+            .sync_relays()
+            .await
+    }
+    
+    async fn retry_failed_syncs(&self) -> Result<()> {
+        self.nostr_transport
+            .get_first_transport()
+            .retry_failed_syncs()
+            .await
+    }
 }
 
 #[cfg(test)]
