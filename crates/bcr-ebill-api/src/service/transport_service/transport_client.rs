@@ -74,4 +74,13 @@ pub trait TransportClientApi: ServiceTraitBounds {
 
     /// Check if this client has a local signer for the given node_id
     fn has_local_signer(&self, node_id: &NodeId) -> bool;
+
+    /// Syncs historical events to newly added relays.
+    /// This is called by the background job runner.
+    /// Returns early if sync is already in progress.
+    async fn sync_relays(&self) -> Result<()>;
+    
+    /// Retries events that failed to sync.
+    /// This is called by the background job runner.
+    async fn retry_failed_syncs(&self) -> Result<()>;
 }
