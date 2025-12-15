@@ -7,7 +7,7 @@ use crate::{
         DB_CONTACT_SHARE_DIRECTION, DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_RECEIVER_NODE_ID,
         DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL,
     },
-    nostr::{NostrContactStoreApi, PendingContactShare, ShareDirection},
+    nostr::{NostrStoreApi, PendingContactShare, ShareDirection, RelaySyncStatus, SyncStatus},
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -24,13 +24,15 @@ use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
 #[derive(Clone)]
-pub struct SurrealNostrContactStore {
+pub struct SurrealNostrStore {
     db: SurrealWrapper,
 }
 
-impl SurrealNostrContactStore {
+impl SurrealNostrStore {
     const TABLE: &'static str = "nostr_contact";
     const PENDING_SHARE_TABLE: &'static str = "pending_contact_share";
+    const RELAY_SYNC_TABLE: &'static str = "relay_sync_status";
+    const RELAY_RETRY_TABLE: &'static str = "relay_sync_retry";
 
     pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
@@ -41,11 +43,11 @@ impl SurrealNostrContactStore {
     }
 }
 
-impl ServiceTraitBounds for SurrealNostrContactStore {}
+impl ServiceTraitBounds for SurrealNostrStore {}
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl NostrContactStoreApi for SurrealNostrContactStore {
+impl NostrStoreApi for SurrealNostrStore {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
         let npub = node_id.npub();
@@ -258,6 +260,205 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
         Ok(!result.is_empty())
     }
+
+    // === Relay Sync Status Methods ===
+    
+    async fn get_pending_relays(&self) -> Result<Vec<url::Url>> {
+        let statuses: Vec<RelaySyncStatusDb> = self.db.select_all(Self::RELAY_SYNC_TABLE).await?;
+        let pending: Vec<url::Url> = statuses
+            .into_iter()
+            .filter(|s| matches!(s.sync_status, SyncStatus::Pending | SyncStatus::InProgress | SyncStatus::Failed))
+            .filter_map(|s| url::Url::parse(&s.relay_url).ok())
+            .collect();
+        Ok(pending)
+    }
+    
+    async fn get_relay_sync_status(&self, relay: &url::Url) -> Result<Option<RelaySyncStatus>> {
+        let result: Option<RelaySyncStatusDb> = self.db.select_one(Self::RELAY_SYNC_TABLE, relay.to_string()).await?;
+        match result {
+            Some(db) => Ok(Some(db.try_into()?)),
+            None => Ok(None),
+        }
+    }
+    
+    async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> Result<()> {
+        // Get existing record or create new one
+        let existing = self.get_relay_sync_status(relay).await?;
+        let updated = match existing {
+            Some(mut s) => {
+                s.sync_status = status.clone();
+                if matches!(status, SyncStatus::Failed) {
+                    // Keep last_error if it exists
+                } else if matches!(status, SyncStatus::Completed) {
+                    s.last_error = None;
+                }
+                s
+            }
+            None => RelaySyncStatus {
+                relay_url: relay.clone(),
+                last_seen_in_config: Timestamp::now(),
+                sync_status: status,
+                events_synced: 0,
+                last_synced_timestamp: None,
+                last_error: None,
+            },
+        };
+        let db_data: RelaySyncStatusDb = updated.into();
+        let _: Option<RelaySyncStatusDb> = self.db.upsert(Self::RELAY_SYNC_TABLE, relay.to_string(), db_data).await?;
+        Ok(())
+    }
+    
+    async fn update_relay_sync_progress(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()> {
+        let existing = self.get_relay_sync_status(relay).await?;
+        let updated = match existing {
+            Some(mut s) => {
+                s.events_synced += 1;
+                s.last_synced_timestamp = Some(timestamp);
+                s
+            }
+            None => {
+                return Err(Error::Persistence(format!("Relay sync status not found for {}", relay)));
+            }
+        };
+        let db_data: RelaySyncStatusDb = updated.into();
+        let _: Option<RelaySyncStatusDb> = self.db.upsert(Self::RELAY_SYNC_TABLE, relay.to_string(), db_data).await?;
+        Ok(())
+    }
+    
+    async fn update_relay_last_seen(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()> {
+        let existing = self.get_relay_sync_status(relay).await?;
+        let updated = match existing {
+            Some(mut s) => {
+                s.last_seen_in_config = timestamp;
+                s
+            }
+            None => RelaySyncStatus {
+                relay_url: relay.clone(),
+                last_seen_in_config: timestamp,
+                sync_status: SyncStatus::Pending,
+                events_synced: 0,
+                last_synced_timestamp: None,
+                last_error: None,
+            },
+        };
+        let db_data: RelaySyncStatusDb = updated.into();
+        let _: Option<RelaySyncStatusDb> = self.db.upsert(Self::RELAY_SYNC_TABLE, relay.to_string(), db_data).await?;
+        Ok(())
+    }
+    
+    // === Relay Sync Retry Queue Methods ===
+    
+    async fn add_failed_relay_sync(&self, relay: &url::Url, event: nostr::Event) -> Result<()> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let retry = RelaySyncRetryDb {
+            id: Thing::from((Self::RELAY_RETRY_TABLE.to_string(), id.clone())),
+            relay_url: relay.to_string(),
+            event,
+            retry_count: 0,
+            created_at: Timestamp::now(),
+            last_retry_at: None,
+        };
+        let _: Option<RelaySyncRetryDb> = self.db.upsert(Self::RELAY_RETRY_TABLE, id, retry).await?;
+        Ok(())
+    }
+    
+    async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> Result<Vec<nostr::Event>> {
+        let all: Vec<RelaySyncRetryDb> = self.db.select_all(Self::RELAY_RETRY_TABLE).await?;
+        let events: Vec<nostr::Event> = all
+            .into_iter()
+            .filter(|r| r.relay_url == relay.to_string())
+            .take(limit)
+            .map(|r| r.event)
+            .collect();
+        Ok(events)
+    }
+    
+    async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()> {
+        // Find and delete the retry record
+        let all: Vec<RelaySyncRetryDb> = self.db.select_all(Self::RELAY_RETRY_TABLE).await?;
+        for retry in all {
+            if retry.relay_url == relay.to_string() && retry.event.id.to_hex() == event_id {
+                let _: Option<RelaySyncRetryDb> = self.db.delete(Self::RELAY_RETRY_TABLE, retry.id.id.to_raw()).await?;
+                break;
+            }
+        }
+        Ok(())
+    }
+    
+    async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> Result<()> {
+        // Find, increment retry count, or delete if max exceeded
+        let all: Vec<RelaySyncRetryDb> = self.db.select_all(Self::RELAY_RETRY_TABLE).await?;
+        for retry in all {
+            if retry.relay_url == relay.to_string() && retry.event.id.to_hex() == event_id {
+                if retry.retry_count >= max_retries {
+                    // Max retries exceeded, remove from queue
+                    let _: Option<RelaySyncRetryDb> = self.db.delete(Self::RELAY_RETRY_TABLE, retry.id.id.to_raw()).await?;
+                } else {
+                    // Increment retry count
+                    let updated = RelaySyncRetryDb {
+                        retry_count: retry.retry_count + 1,
+                        last_retry_at: Some(Timestamp::now()),
+                        ..retry
+                    };
+                    let id = updated.id.id.to_raw();
+                    let _: Option<RelaySyncRetryDb> = self.db.upsert(Self::RELAY_RETRY_TABLE, id, updated).await?;
+                }
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RelaySyncStatusDb {
+    id: Thing,
+    relay_url: String,
+    last_seen_in_config: Timestamp,
+    sync_status: SyncStatus,
+    events_synced: usize,
+    last_synced_timestamp: Option<Timestamp>,
+    last_error: Option<String>,
+}
+
+impl From<RelaySyncStatus> for RelaySyncStatusDb {
+    fn from(value: RelaySyncStatus) -> Self {
+        Self {
+            id: Thing::from((SurrealNostrStore::RELAY_SYNC_TABLE.to_string(), value.relay_url.to_string())),
+            relay_url: value.relay_url.to_string(),
+            last_seen_in_config: value.last_seen_in_config,
+            sync_status: value.sync_status,
+            events_synced: value.events_synced,
+            last_synced_timestamp: value.last_synced_timestamp,
+            last_error: value.last_error,
+        }
+    }
+}
+
+impl TryFrom<RelaySyncStatusDb> for RelaySyncStatus {
+    type Error = Error;
+    
+    fn try_from(value: RelaySyncStatusDb) -> Result<Self> {
+        Ok(Self {
+            relay_url: url::Url::parse(&value.relay_url)
+                .map_err(|_| Error::Persistence("Invalid relay URL".to_string()))?,
+            last_seen_in_config: value.last_seen_in_config,
+            sync_status: value.sync_status,
+            events_synced: value.events_synced,
+            last_synced_timestamp: value.last_synced_timestamp,
+            last_error: value.last_error,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RelaySyncRetryDb {
+    id: Thing,
+    relay_url: String,
+    event: nostr::Event,
+    retry_count: usize,
+    created_at: Timestamp,
+    last_retry_at: Option<Timestamp>,
 }
 
 fn update_field_query(field_name: &str) -> String {
@@ -290,7 +491,7 @@ impl From<NostrContact> for NostrContactDb {
     fn from(contact: NostrContact) -> Self {
         Self {
             id: Thing::from((
-                SurrealNostrContactStore::TABLE.to_owned(),
+                SurrealNostrStore::TABLE.to_owned(),
                 contact.npub.to_hex(),
             )),
             node_id: contact.node_id,
@@ -336,7 +537,7 @@ impl From<PendingContactShare> for PendingContactShareDb {
     fn from(share: PendingContactShare) -> Self {
         Self {
             id: Thing::from((
-                SurrealNostrContactStore::PENDING_SHARE_TABLE.to_owned(),
+                SurrealNostrStore::PENDING_SHARE_TABLE.to_owned(),
                 share.id,
             )),
             node_id: share.node_id,
@@ -652,11 +853,11 @@ mod tests {
         );
     }
 
-    async fn get_store() -> SurrealNostrContactStore {
+    async fn get_store() -> SurrealNostrStore {
         let mem_db = get_memory_db("test", "nostr_contact")
             .await
             .expect("could not create memory db");
-        SurrealNostrContactStore::new(SurrealWrapper {
+        SurrealNostrStore::new(SurrealWrapper {
             db: mem_db,
             files: false,
         })
