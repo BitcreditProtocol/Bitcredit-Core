@@ -40,7 +40,7 @@ use bcr_ebill_api::{
     },
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
-use bcr_ebill_persistence::{NostrContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
+use bcr_ebill_persistence::{NostrStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
 
 use tokio::task::JoinSet;
 use tokio_with_wasm::alias as tokio;
@@ -70,10 +70,13 @@ pub struct NostrClient {
     client: Client,
     signers: Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
     relays: Vec<url::Url>,
+    user_relays: Vec<url::Url>,  // User's configured relay set
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
+    sync_running: Arc<AtomicBool>,  // Prevents concurrent sync
     max_relays: Option<usize>,
-    nostr_contact_store: Option<Arc<dyn NostrContactStoreApi>>,
+    nostr_contact_store: Option<Arc<dyn NostrStoreApi>>,  // Keep for backwards compatibility
+    nostr_store: Option<Arc<dyn NostrStoreApi>>,
 }
 
 impl NostrClient {
@@ -81,9 +84,10 @@ impl NostrClient {
     pub async fn new(
         identities: Vec<(NodeId, BcrKeys)>,
         relays: Vec<url::Url>,
+        user_relays: Vec<url::Url>,
         default_timeout: Duration,
         max_relays: Option<usize>,
-        nostr_contact_store: Option<Arc<dyn NostrContactStoreApi>>,
+        nostr_store: Option<Arc<dyn NostrStoreApi>>,
     ) -> Result<Self> {
         if identities.is_empty() {
             return Err(Error::Message("At least one identity required".to_string()));
@@ -115,10 +119,13 @@ impl NostrClient {
             client,
             signers: Arc::new(Mutex::new(signers)),
             relays,
+            user_relays,
             default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
+            sync_running: Arc::new(AtomicBool::new(false)),
             max_relays,
-            nostr_contact_store,
+            nostr_contact_store: nostr_store.clone(),  // Keep for backwards compatibility
+            nostr_store,
         })
     }
 
@@ -128,9 +135,10 @@ impl NostrClient {
         Self::new(
             identities,
             config.relays.clone(),
+            config.relays.clone(),  // user relays same as all relays for default config
             config.default_timeout,
             None, // max_relays not available in old config
-            None, // contact_store not available
+            None, // store not available
         )
         .await
     }
@@ -1230,7 +1238,7 @@ mod tests {
             (node_id2.clone(), keys2.clone()),
         ];
 
-        let client = NostrClient::new(identities, vec![url], Duration::from_secs(20), None, None)
+        let client = NostrClient::new(identities, vec![url.clone()], vec![url], Duration::from_secs(20), None, None)
             .await
             .expect("failed to create multi-identity client");
 
@@ -1260,6 +1268,7 @@ mod tests {
 
         let client = NostrClient::new(
             identities,
+            vec![url.clone()],
             vec![url.clone()],
             Duration::from_secs(20),
             None,
@@ -1313,6 +1322,7 @@ mod tests {
         let client = Arc::new(
             NostrClient::new(
                 identities,
+                vec![url.clone()],
                 vec![url.clone()],
                 Duration::from_secs(20),
                 None,
