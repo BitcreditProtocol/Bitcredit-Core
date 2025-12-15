@@ -74,12 +74,10 @@ pub struct NostrQueuedMessage {
     pub payload: String,
 }
 
-/// Keeps track of our Nostr contacts. We need to communicate with some network participants before
-/// we actually can add them as real contacts. This is also used to track the contact handshake
-/// process.
+/// Manages all Nostr-related persistence including contacts, events, sync status, and retries
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait NostrContactStoreApi: ServiceTraitBounds {
+pub trait NostrStoreApi: ServiceTraitBounds {
     /// Find a Nostr contact by the node id. This node ids npub  is the primary key for the contact.
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
     /// Find multiple Nostr contacts by their node ids.
@@ -132,6 +130,37 @@ pub trait NostrContactStoreApi: ServiceTraitBounds {
         node_id: &NodeId,
         receiver_node_id: &NodeId,
     ) -> Result<bool>;
+
+    // === Relay Sync Status Methods ===
+    
+    /// Get all relays that need syncing (status = Pending, InProgress, or Failed)
+    async fn get_pending_relays(&self) -> Result<Vec<url::Url>>;
+    
+    /// Get sync status for a specific relay
+    async fn get_relay_sync_status(&self, relay: &url::Url) -> Result<Option<RelaySyncStatus>>;
+    
+    /// Update sync status (Pending, InProgress, Completed, Failed)
+    async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> Result<()>;
+    
+    /// Update sync progress (increment events_synced and update last_synced_timestamp)
+    async fn update_relay_sync_progress(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()>;
+    
+    /// Update last_seen_in_config timestamp (called on every startup)
+    async fn update_relay_last_seen(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()>;
+    
+    // === Relay Sync Retry Queue Methods ===
+    
+    /// Add a failed event to the retry queue
+    async fn add_failed_relay_sync(&self, relay: &url::Url, event: Event) -> Result<()>;
+    
+    /// Get events pending retry for a specific relay (ordered by created_at, limited)
+    async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> Result<Vec<Event>>;
+    
+    /// Mark a retry as successful (remove from queue)
+    async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()>;
+    
+    /// Mark a retry as failed (increment retry_count, remove if max exceeded)
+    async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> Result<()>;
 }
 
 /// Direction of a contact share - incoming (we received) or outgoing (we sent)
@@ -242,4 +271,51 @@ impl NostrChainEvent {
     pub fn is_root_event(&self) -> bool {
         self.event_id == self.root_id
     }
+}
+
+/// Status of relay synchronization
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyncStatus {
+    /// Needs sync but hasn't started
+    Pending,
+    /// Currently syncing
+    InProgress,
+    /// Fully synced
+    Completed,
+    /// Last sync attempt failed
+    Failed,
+}
+
+/// Tracks synchronization status for a user relay
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelaySyncStatus {
+    /// The relay URL
+    pub relay_url: url::Url,
+    /// Last time this relay was seen in user's config (updated every startup)
+    pub last_seen_in_config: Timestamp,
+    /// Current sync status
+    pub sync_status: SyncStatus,
+    /// Number of events successfully synced
+    pub events_synced: usize,
+    /// Resume point for sync (timestamp of last synced event)
+    pub last_synced_timestamp: Option<Timestamp>,
+    /// Error message from last sync failure
+    pub last_error: Option<String>,
+}
+
+/// An event that failed to sync to a relay (for retry queue)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelaySyncRetry {
+    /// Unique ID for this retry record
+    pub id: String,
+    /// The relay that failed to receive this event
+    pub relay_url: url::Url,
+    /// The event that failed to sync
+    pub event: Event,
+    /// Number of retry attempts so far
+    pub retry_count: usize,
+    /// When this record was created
+    pub created_at: Timestamp,
+    /// When the last retry was attempted
+    pub last_retry_at: Option<Timestamp>,
 }
