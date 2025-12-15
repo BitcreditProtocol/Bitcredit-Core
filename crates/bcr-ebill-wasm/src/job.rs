@@ -11,6 +11,8 @@ pub fn run_jobs() {
             run_check_bill_offer_to_sell_payment_job(),
             run_check_bill_recourse_payment_job(),
             run_process_nostr_message_queue_job(),
+            run_relay_sync_job(),
+            run_relay_retry_sync_job(),
         );
         run_check_bill_timeouts().await;
     });
@@ -80,4 +82,20 @@ async fn run_process_nostr_message_queue_job() {
         error!("Error while running process Nostr message queue Job: {e}");
     }
     info!("Finished running process Nostr message queue Job");
+}
+
+async fn run_relay_sync_job() {
+    info!("Running Relay Sync Job");
+    if let Err(e) = get_ctx().transport_service.sync_relays().await {
+        error!("Error while running Relay Sync Job: {e}");
+    }
+    info!("Finished running Relay Sync Job");
+}
+
+async fn run_relay_retry_sync_job() {
+    info!("Running Relay Retry Sync Job");
+    if let Err(e) = get_ctx().transport_service.retry_failed_syncs().await {
+        error!("Error while running Relay Retry Sync Job: {e}");
+    }
+    info!("Finished running Relay Retry Sync Job");
 }
