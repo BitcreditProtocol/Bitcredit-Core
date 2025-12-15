@@ -5,11 +5,12 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_persistence::nostr::{NostrStoreApi, SyncStatus};
+use futures::future::join_all;
 use log::{debug, info, warn};
 use nostr_sdk::{Filter, Kind, PublicKey};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio_with_wasm::alias as tokio;
 
 /// Helper to convert persistence errors to transport errors
 fn to_transport_error(e: bcr_ebill_persistence::Error) -> Error {
@@ -18,8 +19,8 @@ fn to_transport_error(e: bcr_ebill_persistence::Error) -> Error {
 
 /// Type of filter for querying events
 enum FilterType {
-    Pubkey,  // For private messages TO us
-    Author,  // For public events FROM us
+    Pubkey, // For private messages TO us
+    Author, // For public events FROM us
 }
 
 /// Syncs all pending relays by streaming events and publishing to targets
@@ -29,49 +30,52 @@ pub async fn sync_pending_relays(
     nostr_store: &Arc<dyn NostrStoreApi>,
 ) -> Result<()> {
     // Get all relays that need syncing
-    let pending_relays = nostr_store.get_pending_relays().await.map_err(to_transport_error)?;
-    
+    let pending_relays = nostr_store
+        .get_pending_relays()
+        .await
+        .map_err(to_transport_error)?;
+
     if pending_relays.is_empty() {
         debug!("No pending relays to sync");
         return Ok(());
     }
-    
+
     info!("Starting sync for {} relays", pending_relays.len());
-    
+
     // Source relays = all user relays EXCEPT pending ones
     let source_relays: Vec<url::Url> = user_relays
         .iter()
         .filter(|r| !pending_relays.contains(r))
         .cloned()
         .collect();
-    
+
     if source_relays.is_empty() {
         warn!("No source relays available to sync from");
         return Ok(());
     }
-    
+
     // Mark all as InProgress
     for relay in &pending_relays {
-        nostr_store.update_relay_sync_status(relay, SyncStatus::InProgress).await.map_err(to_transport_error)?;
+        nostr_store
+            .update_relay_sync_status(relay, SyncStatus::InProgress)
+            .await
+            .map_err(to_transport_error)?;
     }
-    
+
     // Find earliest resume timestamp
-    let earliest_timestamp = calculate_earliest_resume_timestamp(nostr_store, &pending_relays).await?;
-    
+    let earliest_timestamp =
+        calculate_earliest_resume_timestamp(nostr_store, &pending_relays).await?;
+
     info!(
         "Syncing from {} source relays to {} target relays, starting from timestamp {}",
         source_relays.len(),
         pending_relays.len(),
         earliest_timestamp.inner()
     );
-    
+
     // Get all identities' public keys
-    let all_pubkeys: Vec<PublicKey> = client
-        .get_all_node_ids()
-        .iter()
-        .map(|n| n.npub())
-        .collect();
-    
+    let all_pubkeys: Vec<PublicKey> = client.get_all_node_ids().iter().map(|n| n.npub()).collect();
+
     // Sync private messages
     let private_synced = sync_event_type_to_multiple(
         client,
@@ -85,9 +89,9 @@ pub async fn sync_pending_relays(
         Duration::from_millis(RELAY_SYNC_EVENT_DELAY_MS),
     )
     .await?;
-    
+
     info!("Synced {} private messages", private_synced);
-    
+
     // Sync public chain events
     let public_synced = sync_event_type_to_multiple(
         client,
@@ -101,14 +105,17 @@ pub async fn sync_pending_relays(
         Duration::from_millis(RELAY_SYNC_EVENT_DELAY_MS),
     )
     .await?;
-    
+
     info!("Synced {} public chain events", public_synced);
-    
+
     // Mark all as Completed
     for relay in &pending_relays {
-        nostr_store.update_relay_sync_status(relay, SyncStatus::Completed).await.map_err(to_transport_error)?;
+        nostr_store
+            .update_relay_sync_status(relay, SyncStatus::Completed)
+            .await
+            .map_err(to_transport_error)?;
     }
-    
+
     info!("Relay sync completed successfully");
     Ok(())
 }
@@ -119,13 +126,17 @@ async fn calculate_earliest_resume_timestamp(
     pending_relays: &[url::Url],
 ) -> Result<Timestamp> {
     let mut earliest = Timestamp::now();
-    
+
     for relay in pending_relays {
-        if let Some(status) = nostr_store.get_relay_sync_status(relay).await.map_err(to_transport_error)? {
+        if let Some(status) = nostr_store
+            .get_relay_sync_status(relay)
+            .await
+            .map_err(to_transport_error)?
+        {
             // Check if this relay was removed and re-added (gap detection)
             let gap_threshold = Timestamp::now().inner() - RELAY_SYNC_GAP_THRESHOLD_SECONDS;
             let has_gap = status.last_seen_in_config.inner() < gap_threshold;
-            
+
             if let Some(last_synced) = status.last_synced_timestamp {
                 if !has_gap && last_synced < earliest {
                     earliest = last_synced;
@@ -141,7 +152,7 @@ async fn calculate_earliest_resume_timestamp(
             break;
         }
     }
-    
+
     Ok(earliest)
 }
 
@@ -163,30 +174,30 @@ async fn sync_event_type_to_multiple(
     }
     .kinds(kinds)
     .since(since.into());
-    
+
     // Fetch events from source relays (batch instead of streaming)
     let events = client
         .fetch_events(filter, None, Some(source_relays.to_vec()))
         .await?;
-    
+
     let mut total_synced = 0;
-    
+
     for event in events {
-        // Publish to all target relays in parallel
-        let mut tasks = Vec::new();
-        
+        // Publish to all target relays in parallel using futures
+        let mut futures_list = Vec::new();
+
         for target_relay in target_relays {
             // Check if this relay should skip this event
             if should_skip_event(nostr_store, target_relay, &event).await? {
                 continue;
             }
-            
+
             let client_clone = client.clone();
             let target = target_relay.clone();
             let evt = event.clone();
             let store = nostr_store.clone();
-            
-            let task = tokio::spawn(async move {
+
+            let future = async move {
                 match client_clone.send_event_to(vec![target.clone()], &evt).await {
                     Ok(_) => {
                         // Update progress
@@ -207,22 +218,25 @@ async fn sync_event_type_to_multiple(
                         Err(e)
                     }
                 }
-            });
-            
-            tasks.push(task);
+            };
+
+            futures_list.push(future);
         }
-        
-        // Wait for all publishes
-        for task in tasks {
-            if task.await.is_ok() {
+
+        // Wait for all publishes to complete concurrently
+        let results = join_all(futures_list).await;
+        for result in results {
+            if result.is_ok() {
                 total_synced += 1;
             }
         }
-        
-        // Rate limiting
-        sleep(delay).await;
+
+        // Rate limiting - tokio_with_wasm::time::sleep works in both WASM and native
+        if delay.as_millis() > 0 {
+            tokio::time::sleep(delay).await;
+        }
     }
-    
+
     Ok(total_synced)
 }
 
@@ -232,11 +246,14 @@ async fn should_skip_event(
     relay: &url::Url,
     event: &nostr_sdk::Event,
 ) -> Result<bool> {
-    if let Some(status) = nostr_store.get_relay_sync_status(relay).await.map_err(to_transport_error)? {
-        if let Some(last_ts) = status.last_synced_timestamp {
-            let event_ts: Timestamp = event.created_at.into();
-            return Ok(event_ts <= last_ts);
-        }
+    if let Some(status) = nostr_store
+        .get_relay_sync_status(relay)
+        .await
+        .map_err(to_transport_error)?
+        && let Some(last_ts) = status.last_synced_timestamp
+    {
+        let event_ts: Timestamp = event.created_at.into();
+        return Ok(event_ts <= last_ts);
     }
     Ok(false)
 }
