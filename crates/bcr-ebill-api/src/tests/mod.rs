@@ -3,7 +3,10 @@
 pub mod tests {
     use crate::CourtConfig;
     use crate::service::transport_service::{self, chain_keys::ChainKeyServiceApi};
-    use crate::{CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig, NostrContactStoreApi};
+    use crate::{
+        CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, NostrContactStoreApi,
+        PaymentConfig,
+    };
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::protocol::Address;

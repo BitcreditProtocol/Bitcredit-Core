@@ -432,7 +432,7 @@ impl TransportServiceApi for TransportService {
             .sync_relays()
             .await
     }
-    
+
     async fn retry_failed_syncs(&self) -> Result<()> {
         self.nostr_transport
             .get_first_transport()

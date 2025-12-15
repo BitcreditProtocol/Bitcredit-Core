@@ -38,7 +38,9 @@ use bcr_ebill_core::{
     protocol::event::{ActionType, BillEventType},
     protocol::{OptionalPostalAddress, PostalAddress},
 };
-use bcr_ebill_persistence::nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus};
+use bcr_ebill_persistence::nostr::{
+    NostrContactStoreApi, NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
+};
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
 use bcr_ebill_persistence::{
     ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,

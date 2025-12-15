@@ -79,7 +79,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// This is called by the background job runner.
     /// Returns early if sync is already in progress.
     async fn sync_relays(&self) -> Result<()>;
-    
+
     /// Retries events that failed to sync.
     /// This is called by the background job runner.
     async fn retry_failed_syncs(&self) -> Result<()>;

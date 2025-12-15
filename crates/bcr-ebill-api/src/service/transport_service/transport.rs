@@ -127,7 +127,7 @@ pub trait TransportServiceApi: ServiceTraitBounds {
 
     /// Syncs historical events to newly added relays
     async fn sync_relays(&self) -> Result<()>;
-    
+
     /// Retries failed relay sync attempts
     async fn retry_failed_syncs(&self) -> Result<()>;
 }

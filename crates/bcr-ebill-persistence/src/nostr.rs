@@ -132,35 +132,45 @@ pub trait NostrStoreApi: ServiceTraitBounds {
     ) -> Result<bool>;
 
     // === Relay Sync Status Methods ===
-    
+
     /// Get all relays that need syncing (status = Pending, InProgress, or Failed)
     async fn get_pending_relays(&self) -> Result<Vec<url::Url>>;
-    
+
     /// Get sync status for a specific relay
     async fn get_relay_sync_status(&self, relay: &url::Url) -> Result<Option<RelaySyncStatus>>;
-    
+
     /// Update sync status (Pending, InProgress, Completed, Failed)
     async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> Result<()>;
-    
+
     /// Update sync progress (increment events_synced and update last_synced_timestamp)
-    async fn update_relay_sync_progress(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()>;
-    
+    async fn update_relay_sync_progress(
+        &self,
+        relay: &url::Url,
+        timestamp: Timestamp,
+    ) -> Result<()>;
+
     /// Update last_seen_in_config timestamp (called on every startup)
     async fn update_relay_last_seen(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()>;
-    
+
     // === Relay Sync Retry Queue Methods ===
-    
+
     /// Add a failed event to the retry queue
     async fn add_failed_relay_sync(&self, relay: &url::Url, event: Event) -> Result<()>;
-    
+
     /// Get events pending retry for a specific relay (ordered by created_at, limited)
-    async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> Result<Vec<Event>>;
-    
+    async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize)
+    -> Result<Vec<Event>>;
+
     /// Mark a retry as successful (remove from queue)
     async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()>;
-    
+
     /// Mark a retry as failed (increment retry_count, remove if max exceeded)
-    async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> Result<()>;
+    async fn mark_relay_retry_failed(
+        &self,
+        relay: &url::Url,
+        event_id: &str,
+        max_retries: usize,
+    ) -> Result<()>;
 }
 
 /// Direction of a contact share - incoming (we received) or outgoing (we sent)

@@ -40,7 +40,7 @@ use bcr_ebill_api::{
     },
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
-use bcr_ebill_persistence::{NostrStoreApi, NostrEventOffset, NostrEventOffsetStoreApi};
+use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi, NostrStoreApi};
 
 use tokio::task::JoinSet;
 use tokio_with_wasm::alias as tokio;
@@ -70,12 +70,12 @@ pub struct NostrClient {
     client: Client,
     signers: Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
     relays: Vec<url::Url>,
-    user_relays: Vec<url::Url>,  // User's configured relay set
+    user_relays: Vec<url::Url>, // User's configured relay set
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
-    sync_running: Arc<AtomicBool>,  // Prevents concurrent sync
+    sync_running: Arc<AtomicBool>, // Prevents concurrent sync
     max_relays: Option<usize>,
-    nostr_contact_store: Option<Arc<dyn NostrStoreApi>>,  // Keep for backwards compatibility
+    nostr_contact_store: Option<Arc<dyn NostrStoreApi>>, // Keep for backwards compatibility
     nostr_store: Option<Arc<dyn NostrStoreApi>>,
 }
 
@@ -124,7 +124,7 @@ impl NostrClient {
             connected: Arc::new(AtomicBool::new(false)),
             sync_running: Arc::new(AtomicBool::new(false)),
             max_relays,
-            nostr_contact_store: nostr_store.clone(),  // Keep for backwards compatibility
+            nostr_contact_store: nostr_store.clone(), // Keep for backwards compatibility
             nostr_store,
         })
     }
@@ -135,7 +135,7 @@ impl NostrClient {
         Self::new(
             identities,
             config.relays.clone(),
-            config.relays.clone(),  // user relays same as all relays for default config
+            config.relays.clone(), // user relays same as all relays for default config
             config.default_timeout,
             None, // max_relays not available in old config
             None, // store not available
@@ -656,7 +656,7 @@ impl TransportClientApi for NostrClient {
             debug!("Relay sync already in progress, skipping");
             return Ok(());
         }
-        
+
         // Perform sync (always release lock after)
         let result = async {
             if let Some(nostr_store) = &self.nostr_store {
@@ -665,39 +665,44 @@ impl TransportClientApi for NostrClient {
                     nostr_store
                         .update_relay_last_seen(relay, Timestamp::now())
                         .await
-                        .map_err(|e| Error::Message(format!("Failed to update relay last seen: {}", e)))?;
+                        .map_err(|e| {
+                            Error::Message(format!("Failed to update relay last seen: {}", e))
+                        })?;
                 }
-                
+
                 // Run sync
-                crate::relay_sync::sync_pending_relays(self, &self.user_relays, nostr_store).await?;
+                crate::relay_sync::sync_pending_relays(self, &self.user_relays, nostr_store)
+                    .await?;
             }
             Ok(())
         }
         .await;
-        
+
         // Always release the lock
         self.sync_running.store(false, Ordering::SeqCst);
-        
+
         result
     }
-    
+
     async fn retry_failed_syncs(&self) -> Result<()> {
         use bcr_ebill_api::constants::{RELAY_SYNC_MAX_RETRIES, RELAY_SYNC_RETRY_BATCH_SIZE};
-        
+
         if let Some(nostr_store) = &self.nostr_store {
             for relay in &self.user_relays {
                 let failed_events = nostr_store
                     .get_pending_relay_retries(relay, RELAY_SYNC_RETRY_BATCH_SIZE)
                     .await
                     .map_err(|e| Error::Message(format!("Failed to get retry events: {}", e)))?;
-                
+
                 for event in failed_events {
                     match self.send_event_to(vec![relay.clone()], &event).await {
                         Ok(_) => {
                             nostr_store
                                 .mark_relay_retry_success(relay, &event.id.to_string())
                                 .await
-                                .map_err(|e| Error::Message(format!("Failed to mark retry success: {}", e)))?;
+                                .map_err(|e| {
+                                    Error::Message(format!("Failed to mark retry success: {}", e))
+                                })?;
                         }
                         Err(e) => {
                             warn!("Retry failed for event {} to {}: {}", event.id, relay, e);
@@ -708,7 +713,9 @@ impl TransportClientApi for NostrClient {
                                     RELAY_SYNC_MAX_RETRIES,
                                 )
                                 .await
-                                .map_err(|e| Error::Message(format!("Failed to mark retry failure: {}", e)))?;
+                                .map_err(|e| {
+                                    Error::Message(format!("Failed to mark retry failure: {}", e))
+                                })?;
                         }
                     }
                 }
@@ -1327,9 +1334,16 @@ mod tests {
             (node_id2.clone(), keys2.clone()),
         ];
 
-        let client = NostrClient::new(identities, vec![url.clone()], vec![url], Duration::from_secs(20), None, None)
-            .await
-            .expect("failed to create multi-identity client");
+        let client = NostrClient::new(
+            identities,
+            vec![url.clone()],
+            vec![url],
+            Duration::from_secs(20),
+            None,
+            None,
+        )
+        .await
+        .expect("failed to create multi-identity client");
 
         // Should be able to get signer for each identity
         assert!(client.get_signer(&node_id1).is_ok());

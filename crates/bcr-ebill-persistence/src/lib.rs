@@ -75,9 +75,9 @@ pub use db::{
 // Backwards compatibility alias
 pub use db::nostr_contact_store::SurrealNostrStore as SurrealNostrContactStore;
 pub use nostr::{
-    NostrChainEventStoreApi, NostrStoreApi, NostrEventOffset,
-    NostrEventOffsetStoreApi, NostrQueuedMessageStoreApi, PendingContactShare,
-    RelaySyncRetry, RelaySyncStatus, ShareDirection, SyncStatus,
+    NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
+    NostrQueuedMessageStoreApi, NostrStoreApi, PendingContactShare, RelaySyncRetry,
+    RelaySyncStatus, ShareDirection, SyncStatus,
 };
 // Backwards compatibility alias
 pub use nostr::NostrStoreApi as NostrContactStoreApi;

@@ -4,11 +4,11 @@ use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 #[cfg(not(target_arch = "wasm32"))]
 use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
-    ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
-    NostrContactStoreApi, SurrealBillChainStore, SurrealBillStore,
-    SurrealCompanyChainStore, SurrealCompanyStore, SurrealContactStore, SurrealDbConfig,
-    SurrealIdentityChainStore, SurrealIdentityStore, SurrealNostrChainEventStore,
-    SurrealNostrContactStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    ContactStoreApi, NostrChainEventStoreApi, NostrContactStoreApi, NostrEventOffsetStoreApi,
+    NotificationStoreApi, SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore,
+    SurrealCompanyStore, SurrealContactStore, SurrealDbConfig, SurrealIdentityChainStore,
+    SurrealIdentityStore, SurrealNostrChainEventStore, SurrealNostrContactStore,
+    SurrealNostrEventOffsetStore, SurrealNotificationStore,
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
