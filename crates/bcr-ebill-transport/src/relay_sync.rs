@@ -168,6 +168,8 @@ async fn sync_event_type_to_multiple(
     nostr_store: &Arc<dyn NostrStoreApi>,
     delay: Duration,
 ) -> Result<usize> {
+    use futures::StreamExt;
+    
     let filter = match filter_type {
         FilterType::Pubkey => Filter::new().pubkeys(pubkeys.to_vec()),
         FilterType::Author => Filter::new().authors(pubkeys.to_vec()),
@@ -175,14 +177,15 @@ async fn sync_event_type_to_multiple(
     .kinds(kinds)
     .since(since.into());
 
-    // Fetch events from source relays (batch instead of streaming)
-    let events = client
-        .fetch_events(filter, None, Some(source_relays.to_vec()))
+    // Stream events from source relays - more efficient for large result sets
+    let mut event_stream = client
+        .stream_events_from(filter, Some(source_relays.to_vec()), None)
         .await?;
 
     let mut total_synced = 0;
 
-    for event in events {
+    // Process events as they arrive from the stream
+    while let Some(event) = event_stream.next().await {
         // Publish to all target relays in parallel using futures
         let mut futures_list = Vec::new();
 

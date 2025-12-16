@@ -269,6 +269,34 @@ impl NostrClient {
         Ok(events)
     }
 
+    /// Stream events from specific relays using the provided filter.
+    /// Returns a stream that yields events as they arrive from relays.
+    /// This is more efficient than fetch_events for large result sets as it doesn't
+    /// wait for all relays to respond before returning results.
+    pub async fn stream_events_from(
+        &self,
+        filter: Filter,
+        relays: Option<Vec<url::Url>>,
+        timeout: Option<Duration>,
+    ) -> Result<impl futures::Stream<Item = Event>> {
+        let stream = self
+            .client()
+            .await?
+            .stream_events_from(
+                relays.unwrap_or(self.relays.clone()),
+                filter,
+                timeout.unwrap_or(self.default_timeout),
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to stream Nostr events: {e}");
+                Error::Network("Failed to stream Nostr events".to_string())
+            })?;
+        
+        // The stream already yields Events directly
+        Ok(stream)
+    }
+
     /// Send an event to specific relays
     pub async fn send_event_to(&self, relays: Vec<url::Url>, event: &Event) -> Result<()> {
         self.client()
