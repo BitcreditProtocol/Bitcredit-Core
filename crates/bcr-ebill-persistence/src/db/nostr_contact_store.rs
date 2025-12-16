@@ -912,4 +912,387 @@ mod tests {
             contact_private_key: None,
         }
     }
+
+    // === Relay Sync Database Tests ===
+
+    #[tokio::test]
+    async fn test_update_relay_last_seen_creates_new_status() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let now = Timestamp::now();
+
+        // Update last_seen for a relay that doesn't exist yet
+        store
+            .update_relay_last_seen(&relay, now)
+            .await
+            .expect("Failed to update relay last seen");
+
+        // Should create new status record with Pending status
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get relay sync status")
+            .expect("Status should exist");
+
+        assert_eq!(status.relay_url, relay);
+        assert_eq!(status.last_seen_in_config, now);
+        assert_eq!(status.sync_status, SyncStatus::Pending);
+        assert_eq!(status.events_synced, 0);
+        assert!(status.last_synced_timestamp.is_none());
+        assert!(status.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_relay_last_seen_updates_existing() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let initial_time = Timestamp::new(1000).unwrap();
+        let later_time = Timestamp::new(2000).unwrap();
+
+        // Create initial status
+        store
+            .update_relay_last_seen(&relay, initial_time)
+            .await
+            .expect("Failed to create initial status");
+
+        // Update to later time
+        store
+            .update_relay_last_seen(&relay, later_time)
+            .await
+            .expect("Failed to update last seen");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.last_seen_in_config, later_time);
+    }
+
+    #[tokio::test]
+    async fn test_update_relay_sync_status() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        // Create initial Pending status
+        store
+            .update_relay_sync_status(&relay, SyncStatus::Pending)
+            .await
+            .expect("Failed to create status");
+
+        // Update to InProgress
+        store
+            .update_relay_sync_status(&relay, SyncStatus::InProgress)
+            .await
+            .expect("Failed to update status");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.sync_status, SyncStatus::InProgress);
+
+        // Update to Completed
+        store
+            .update_relay_sync_status(&relay, SyncStatus::Completed)
+            .await
+            .expect("Failed to update to completed");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.sync_status, SyncStatus::Completed);
+        assert!(status.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_relays() {
+        let store = get_store().await;
+        let relay1 = url::Url::parse("wss://relay1.example.com").unwrap();
+        let relay2 = url::Url::parse("wss://relay2.example.com").unwrap();
+        let relay3 = url::Url::parse("wss://relay3.example.com").unwrap();
+        let relay4 = url::Url::parse("wss://relay4.example.com").unwrap();
+
+        // Create different statuses
+        store
+            .update_relay_sync_status(&relay1, SyncStatus::Pending)
+            .await
+            .expect("Failed to create pending");
+        store
+            .update_relay_sync_status(&relay2, SyncStatus::InProgress)
+            .await
+            .expect("Failed to create in progress");
+        store
+            .update_relay_sync_status(&relay3, SyncStatus::Completed)
+            .await
+            .expect("Failed to create completed");
+        store
+            .update_relay_sync_status(&relay4, SyncStatus::Failed)
+            .await
+            .expect("Failed to create failed");
+
+        let pending = store
+            .get_pending_relays()
+            .await
+            .expect("Failed to get pending relays");
+
+        // Should return Pending, InProgress, and Failed but not Completed
+        assert_eq!(pending.len(), 3);
+        assert!(pending.contains(&relay1));
+        assert!(pending.contains(&relay2));
+        assert!(pending.contains(&relay4));
+        assert!(!pending.contains(&relay3));
+    }
+
+    #[tokio::test]
+    async fn test_update_relay_sync_progress() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let timestamp1 = Timestamp::new(1000).unwrap();
+        let timestamp2 = Timestamp::new(2000).unwrap();
+
+        // Create initial status
+        store
+            .update_relay_sync_status(&relay, SyncStatus::InProgress)
+            .await
+            .expect("Failed to create status");
+
+        // Update progress
+        store
+            .update_relay_sync_progress(&relay, timestamp1)
+            .await
+            .expect("Failed to update progress");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.events_synced, 1);
+        assert_eq!(status.last_synced_timestamp, Some(timestamp1));
+
+        // Update again with later timestamp
+        store
+            .update_relay_sync_progress(&relay, timestamp2)
+            .await
+            .expect("Failed to update progress again");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.events_synced, 2);
+        assert_eq!(status.last_synced_timestamp, Some(timestamp2));
+    }
+
+    #[tokio::test]
+    async fn test_add_and_get_pending_relay_retries() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        // Create test events
+        let keys = nostr::Keys::generate();
+        let event1 = nostr::EventBuilder::text_note("test 1")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+        let event2 = nostr::EventBuilder::text_note("test 2")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add to retry queue
+        store
+            .add_failed_relay_sync(&relay, event1.clone())
+            .await
+            .expect("Failed to add retry");
+        store
+            .add_failed_relay_sync(&relay, event2.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Get pending retries
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+
+        assert_eq!(retries.len(), 2);
+        assert!(retries.iter().any(|e| e.id == event1.id));
+        assert!(retries.iter().any(|e| e.id == event2.id));
+    }
+
+    #[tokio::test]
+    async fn test_mark_relay_retry_success() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+        let event = nostr::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add to retry queue
+        store
+            .add_failed_relay_sync(&relay, event.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Verify it's there
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // Mark as success
+        store
+            .mark_relay_retry_success(&relay, &event.id.to_hex())
+            .await
+            .expect("Failed to mark success");
+
+        // Should be removed from queue
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_mark_relay_retry_failed_increments_count() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+        let event = nostr::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add to retry queue
+        store
+            .add_failed_relay_sync(&relay, event.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Mark as failed (max retries = 3)
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Should still be in queue (retry_count incremented)
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // Mark as failed again
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Still in queue
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // Mark as failed one more time
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Still in queue (retry_count = 3, max = 3, not yet exceeded)
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // One more time should remove it (retry_count would be 4 > max 3)
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Should be removed
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_relay_retries_filters_by_relay() {
+        let store = get_store().await;
+        let relay1 = url::Url::parse("wss://relay1.example.com").unwrap();
+        let relay2 = url::Url::parse("wss://relay2.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+        let event1 = nostr::EventBuilder::text_note("test 1")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+        let event2 = nostr::EventBuilder::text_note("test 2")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add events to different relays
+        store
+            .add_failed_relay_sync(&relay1, event1.clone())
+            .await
+            .expect("Failed to add retry");
+        store
+            .add_failed_relay_sync(&relay2, event2.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Get retries for relay1 only
+        let retries = store
+            .get_pending_relay_retries(&relay1, 10)
+            .await
+            .expect("Failed to get retries");
+
+        assert_eq!(retries.len(), 1);
+        assert_eq!(retries[0].id, event1.id);
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_relay_retries_respects_limit() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+
+        // Add 5 events
+        for i in 0..5 {
+            let event = nostr::EventBuilder::text_note(format!("test {}", i))
+                .sign_with_keys(&keys)
+                .expect("Failed to sign event");
+            store
+                .add_failed_relay_sync(&relay, event)
+                .await
+                .expect("Failed to add retry");
+        }
+
+        // Request only 3
+        let retries = store
+            .get_pending_relay_retries(&relay, 3)
+            .await
+            .expect("Failed to get retries");
+
+        assert_eq!(retries.len(), 3);
+    }
 }

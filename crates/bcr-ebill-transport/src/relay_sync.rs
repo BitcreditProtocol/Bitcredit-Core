@@ -271,3 +271,289 @@ async fn should_skip_event(
     }
     Ok(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::MockNostrContactStore;
+    use bcr_ebill_persistence::nostr::{NostrStoreApi, RelaySyncStatus};
+
+    use bcr_common::core::NodeId;
+    use mockall::predicate::eq;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_sync_pending_relays_no_pending() {
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_pending_relays to return empty vec
+        mock_store
+            .expect_get_pending_relays()
+            .times(1)
+            .returning(|| Ok(vec![]));
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let user_relays = vec![url::Url::parse("wss://relay.example.com").unwrap()];
+
+        // Mock client - won't be used since no pending relays
+        let keys = bcr_ebill_core::protocol::crypto::BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let client = crate::nostr::NostrClient::new(
+            vec![(node_id, keys)],
+            user_relays.clone(),
+            std::time::Duration::from_secs(10),
+            None,
+            Some(store.clone()),
+        )
+        .await
+        .unwrap();
+
+        // Should succeed without error when no pending relays
+        let result = sync_pending_relays(&client, &user_relays, &store).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_sync_pending_relays_new_account_marks_completed() {
+        let relay1 = url::Url::parse("wss://relay1.example.com").unwrap();
+        let relay2 = url::Url::parse("wss://relay2.example.com").unwrap();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_pending_relays to return both relays
+        let pending_relays = vec![relay1.clone(), relay2.clone()];
+        mock_store
+            .expect_get_pending_relays()
+            .times(1)
+            .returning(move || Ok(pending_relays.clone()));
+
+        // Expect update_relay_sync_status calls
+        mock_store
+            .expect_update_relay_sync_status()
+            .with(eq(relay1.clone()), eq(SyncStatus::Completed))
+            .returning(|_, _| Ok(()))
+            .once();
+        mock_store
+            .expect_update_relay_sync_status()
+            .with(eq(relay2.clone()), eq(SyncStatus::Completed))
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // Expect get_relay_sync_status calls
+        let relay1_clone = relay1.clone();
+        let relay2_clone = relay2.clone();
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let user_relays = vec![relay1_clone.clone(), relay2_clone.clone()];
+        let keys = bcr_ebill_core::protocol::crypto::BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let client = crate::nostr::NostrClient::new(
+            vec![(node_id, keys)],
+            user_relays.clone(),
+            std::time::Duration::from_secs(10),
+            None,
+            Some(store.clone()),
+        )
+        .await
+        .unwrap();
+
+        // All relays are pending, no source relays - should mark as Completed
+        let result = sync_pending_relays(&client, &user_relays, &store).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_calculate_earliest_resume_timestamp_no_previous_sync() {
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let relay_clone = relay.clone();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_relay_sync_status to return status with no last_synced_timestamp
+        mock_store
+            .expect_get_relay_sync_status()
+            .returning(move |_| {
+                Ok(Some(RelaySyncStatus {
+                    relay_url: relay_clone.clone(),
+                    last_seen_in_config: Timestamp::now(),
+                    sync_status: SyncStatus::Pending,
+                    events_synced: 0,
+                    last_synced_timestamp: None,
+                    last_error: None,
+                }))
+            });
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let earliest = calculate_earliest_resume_timestamp(&store, &[relay])
+            .await
+            .unwrap();
+
+        // Should return zero timestamp when no previous sync
+        assert_eq!(earliest, Timestamp::zero());
+    }
+
+    #[tokio::test]
+    async fn test_calculate_earliest_resume_timestamp_with_previous_sync() {
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let relay_clone = relay.clone();
+        let timestamp = Timestamp::new(1000).unwrap();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_relay_sync_status to return status with last_synced_timestamp
+        mock_store
+            .expect_get_relay_sync_status()
+            .returning(move |_| {
+                Ok(Some(RelaySyncStatus {
+                    relay_url: relay_clone.clone(),
+                    last_seen_in_config: Timestamp::now(),
+                    sync_status: SyncStatus::Pending,
+                    events_synced: 1,
+                    last_synced_timestamp: Some(timestamp),
+                    last_error: None,
+                }))
+            });
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let earliest = calculate_earliest_resume_timestamp(&store, &[relay])
+            .await
+            .unwrap();
+
+        // Should return the last synced timestamp
+        assert_eq!(earliest, timestamp);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_earliest_resume_timestamp_gap_detection() {
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let relay_clone = relay.clone();
+        let old_timestamp = Timestamp::new(1000).unwrap();
+
+        // Create status with old last_seen (> 24 hours ago)
+        let very_old =
+            Timestamp::new(Timestamp::now().inner() - RELAY_SYNC_GAP_THRESHOLD_SECONDS - 1000)
+                .unwrap();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_relay_sync_status to return status with old last_seen
+        mock_store
+            .expect_get_relay_sync_status()
+            .returning(move |_| {
+                Ok(Some(RelaySyncStatus {
+                    relay_url: relay_clone.clone(),
+                    last_seen_in_config: very_old,
+                    sync_status: SyncStatus::Pending,
+                    events_synced: 1,
+                    last_synced_timestamp: Some(old_timestamp),
+                    last_error: None,
+                }))
+            });
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let earliest = calculate_earliest_resume_timestamp(&store, &[relay])
+            .await
+            .unwrap();
+
+        // Should NOT use the old timestamp due to gap, should start from current time
+        assert!(earliest > old_timestamp);
+    }
+
+    #[tokio::test]
+    async fn test_should_skip_event_no_status() {
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_relay_sync_status to return None (no status)
+        mock_store
+            .expect_get_relay_sync_status()
+            .times(1)
+            .returning(|_| Ok(None));
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let keys = nostr_sdk::Keys::generate();
+        let event = nostr_sdk::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .unwrap();
+
+        let should_skip = should_skip_event(&store, &relay, &event).await.unwrap();
+
+        // No status means don't skip
+        assert!(!should_skip);
+    }
+
+    #[tokio::test]
+    async fn test_should_skip_event_already_synced() {
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let relay_clone = relay.clone();
+
+        // Set last synced to a future timestamp
+        let future_timestamp = Timestamp::new(Timestamp::now().inner() + 10000).unwrap();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_relay_sync_status to return status with future timestamp
+        mock_store
+            .expect_get_relay_sync_status()
+            .times(1)
+            .returning(move |_| {
+                Ok(Some(RelaySyncStatus {
+                    relay_url: relay_clone.clone(),
+                    last_seen_in_config: Timestamp::now(),
+                    sync_status: SyncStatus::InProgress,
+                    events_synced: 1,
+                    last_synced_timestamp: Some(future_timestamp),
+                    last_error: None,
+                }))
+            });
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let keys = nostr_sdk::Keys::generate();
+        let event = nostr_sdk::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .unwrap();
+
+        let should_skip = should_skip_event(&store, &relay, &event).await.unwrap();
+
+        // Event timestamp is before last_synced, should skip
+        assert!(should_skip);
+    }
+
+    #[tokio::test]
+    async fn test_should_skip_event_not_synced_yet() {
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let relay_clone = relay.clone();
+
+        // Set last synced to a past timestamp
+        let past_timestamp = Timestamp::new(1000).unwrap();
+
+        let mut mock_store = MockNostrContactStore::new();
+
+        // Expect get_relay_sync_status to return status with past timestamp
+        mock_store
+            .expect_get_relay_sync_status()
+            .times(1)
+            .returning(move |_| {
+                Ok(Some(RelaySyncStatus {
+                    relay_url: relay_clone.clone(),
+                    last_seen_in_config: Timestamp::now(),
+                    sync_status: SyncStatus::InProgress,
+                    events_synced: 1,
+                    last_synced_timestamp: Some(past_timestamp),
+                    last_error: None,
+                }))
+            });
+
+        let store: Arc<dyn NostrStoreApi> = Arc::new(mock_store);
+        let keys = nostr_sdk::Keys::generate();
+        let event = nostr_sdk::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .unwrap();
+
+        let should_skip = should_skip_event(&store, &relay, &event).await.unwrap();
+
+        // Event timestamp is after last_synced, should NOT skip
+        assert!(!should_skip);
+    }
+}
