@@ -70,7 +70,6 @@ pub struct NostrClient {
     client: Client,
     signers: Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
     relays: Vec<url::Url>,
-    user_relays: Vec<url::Url>, // User's configured relay set
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
     sync_running: Arc<AtomicBool>, // Prevents concurrent sync
@@ -84,7 +83,6 @@ impl NostrClient {
     pub async fn new(
         identities: Vec<(NodeId, BcrKeys)>,
         relays: Vec<url::Url>,
-        user_relays: Vec<url::Url>,
         default_timeout: Duration,
         max_relays: Option<usize>,
         nostr_store: Option<Arc<dyn NostrStoreApi>>,
@@ -119,7 +117,6 @@ impl NostrClient {
             client,
             signers: Arc::new(Mutex::new(signers)),
             relays,
-            user_relays,
             default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
             sync_running: Arc::new(AtomicBool::new(false)),
@@ -135,7 +132,6 @@ impl NostrClient {
         Self::new(
             identities,
             config.relays.clone(),
-            config.relays.clone(), // user relays same as all relays for default config
             config.default_timeout,
             None, // max_relays not available in old config
             None, // store not available
@@ -689,7 +685,7 @@ impl TransportClientApi for NostrClient {
         let result = async {
             if let Some(nostr_store) = &self.nostr_store {
                 // Update last_seen_in_config for all user relays
-                for relay in &self.user_relays {
+                for relay in &self.relays {
                     nostr_store
                         .update_relay_last_seen(relay, Timestamp::now())
                         .await
@@ -699,7 +695,7 @@ impl TransportClientApi for NostrClient {
                 }
 
                 // Run sync
-                crate::relay_sync::sync_pending_relays(self, &self.user_relays, nostr_store)
+                crate::relay_sync::sync_pending_relays(self, &self.relays, nostr_store)
                     .await?;
             }
             Ok(())
@@ -716,7 +712,7 @@ impl TransportClientApi for NostrClient {
         use bcr_ebill_api::constants::{RELAY_SYNC_MAX_RETRIES, RELAY_SYNC_RETRY_BATCH_SIZE};
 
         if let Some(nostr_store) = &self.nostr_store {
-            for relay in &self.user_relays {
+            for relay in &self.relays {
                 let failed_events = nostr_store
                     .get_pending_relay_retries(relay, RELAY_SYNC_RETRY_BATCH_SIZE)
                     .await
@@ -1364,7 +1360,6 @@ mod tests {
 
         let client = NostrClient::new(
             identities,
-            vec![url.clone()],
             vec![url],
             Duration::from_secs(20),
             None,
@@ -1399,7 +1394,6 @@ mod tests {
 
         let client = NostrClient::new(
             identities,
-            vec![url.clone()],
             vec![url.clone()],
             Duration::from_secs(20),
             None,
@@ -1453,7 +1447,6 @@ mod tests {
         let client = Arc::new(
             NostrClient::new(
                 identities,
-                vec![url.clone()],
                 vec![url.clone()],
                 Duration::from_secs(20),
                 None,
