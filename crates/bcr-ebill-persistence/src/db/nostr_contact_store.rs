@@ -396,11 +396,11 @@ impl NostrStoreApi for SurrealNostrStore {
         bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
         bindings.add("relay_url", relay.to_string())?;
         bindings.add("limit", limit as i64)?;
-        
+
         let query = format!(
             "SELECT * FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url LIMIT $limit"
         );
-        
+
         let retries: Vec<RelaySyncRetryDb> = self.db.query(&query, bindings).await?;
         let events: Vec<nostr::Event> = retries.into_iter().map(|r| r.event).collect();
         Ok(events)
@@ -412,11 +412,11 @@ impl NostrStoreApi for SurrealNostrStore {
         bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
         bindings.add("relay_url", relay.to_string())?;
         bindings.add("event_id", event_id.to_string())?;
-        
+
         let query = format!(
             "DELETE FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
         );
-        
+
         let _: Vec<RelaySyncRetryDb> = self.db.query(&query, bindings).await?;
         Ok(())
     }
@@ -427,20 +427,18 @@ impl NostrStoreApi for SurrealNostrStore {
         event_id: &str,
         max_retries: usize,
     ) -> Result<()> {
-        // Use SurrealDB query to update or delete based on retry count
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
         bindings.add("relay_url", relay.to_string())?;
         bindings.add("event_id", event_id.to_string())?;
         bindings.add("max_retries", max_retries as i64)?;
         bindings.add("now", Timestamp::now())?;
-        
-        // First, select the matching record to check retry_count
+
         let select_query = format!(
             "SELECT * FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
         );
         let retries: Vec<RelaySyncRetryDb> = self.db.query(&select_query, bindings.clone()).await?;
-        
+
         if let Some(retry) = retries.first() {
             if retry.retry_count >= max_retries {
                 // Max retries exceeded, delete

@@ -231,7 +231,9 @@ async fn sync_event_type_to_multiple(
                     Err(e) => {
                         warn!("Failed to sync event {} to {}: {}", evt.id, target, e);
                         // Add to retry queue - if this fails, the event is lost
-                        if let Err(retry_err) = store.add_failed_relay_sync(&target, evt.clone()).await {
+                        if let Err(retry_err) =
+                            store.add_failed_relay_sync(&target, evt.clone()).await
+                        {
                             error!(
                                 "CRITICAL: Failed to add event {} to retry queue for {}: {}. Event will be lost!",
                                 evt.id, target, retry_err
