@@ -169,7 +169,7 @@ async fn sync_event_type_to_multiple(
     delay: Duration,
 ) -> Result<usize> {
     use futures::StreamExt;
-    
+
     let filter = match filter_type {
         FilterType::Pubkey => Filter::new().pubkeys(pubkeys.to_vec()),
         FilterType::Author => Filter::new().authors(pubkeys.to_vec()),

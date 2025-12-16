@@ -292,7 +292,7 @@ impl NostrClient {
                 error!("Failed to stream Nostr events: {e}");
                 Error::Network("Failed to stream Nostr events".to_string())
             })?;
-        
+
         // The stream already yields Events directly
         Ok(stream)
     }
