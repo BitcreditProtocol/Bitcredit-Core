@@ -695,8 +695,7 @@ impl TransportClientApi for NostrClient {
                 }
 
                 // Run sync
-                crate::relay_sync::sync_pending_relays(self, &self.relays, nostr_store)
-                    .await?;
+                crate::relay_sync::sync_pending_relays(self, &self.relays, nostr_store).await?;
             }
             Ok(())
         }
@@ -1358,15 +1357,9 @@ mod tests {
             (node_id2.clone(), keys2.clone()),
         ];
 
-        let client = NostrClient::new(
-            identities,
-            vec![url],
-            Duration::from_secs(20),
-            None,
-            None,
-        )
-        .await
-        .expect("failed to create multi-identity client");
+        let client = NostrClient::new(identities, vec![url], Duration::from_secs(20), None, None)
+            .await
+            .expect("failed to create multi-identity client");
 
         // Should be able to get signer for each identity
         assert!(client.get_signer(&node_id1).is_ok());
