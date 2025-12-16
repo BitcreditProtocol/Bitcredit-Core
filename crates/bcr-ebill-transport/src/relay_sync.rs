@@ -52,7 +52,10 @@ pub async fn sync_pending_relays(
     if source_relays.is_empty() {
         // All relays are new (e.g., new account) - nothing to sync from
         // Mark them all as Completed immediately
-        info!("No source relays available - marking all {} relays as Completed (new account scenario)", pending_relays.len());
+        info!(
+            "No source relays available - marking all {} relays as Completed (new account)",
+            pending_relays.len()
+        );
         for relay in &pending_relays {
             nostr_store
                 .update_relay_sync_status(relay, SyncStatus::Completed)
