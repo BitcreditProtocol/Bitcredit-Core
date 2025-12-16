@@ -6,7 +6,7 @@ use bcr_ebill_api::{
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_persistence::nostr::{NostrStoreApi, SyncStatus};
 use futures::future::join_all;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use nostr_sdk::{Filter, Kind, PublicKey};
 use std::sync::Arc;
 use std::time::Duration;
@@ -144,7 +144,12 @@ async fn calculate_earliest_resume_timestamp(
             .await
             .map_err(to_transport_error)?
         {
-            // Check if this relay was removed and re-added (gap detection)
+            // Gap detection: Determine if relay was removed and re-added vs briefly offline.
+            // If last_seen_in_config is more than RELAY_SYNC_GAP_THRESHOLD_SECONDS ago,
+            // we consider it removed and re-added, so we start sync from current time
+            // instead of resuming from last_synced_timestamp. This prevents syncing
+            // large amounts of historical data when a relay is deliberately removed and
+            // later re-added to the configuration.
             let gap_threshold = Timestamp::now().inner() - RELAY_SYNC_GAP_THRESHOLD_SECONDS;
             let has_gap = status.last_seen_in_config.inner() < gap_threshold;
 
@@ -225,9 +230,12 @@ async fn sync_event_type_to_multiple(
                     }
                     Err(e) => {
                         warn!("Failed to sync event {} to {}: {}", evt.id, target, e);
-                        // Add to retry queue
-                        if let Err(e) = store.add_failed_relay_sync(&target, evt.clone()).await {
-                            warn!("Failed to add to retry queue: {}", e);
+                        // Add to retry queue - if this fails, the event is lost
+                        if let Err(retry_err) = store.add_failed_relay_sync(&target, evt.clone()).await {
+                            error!(
+                                "CRITICAL: Failed to add event {} to retry queue for {}: {}. Event will be lost!",
+                                evt.id, target, retry_err
+                            );
                         }
                         Err(e)
                     }

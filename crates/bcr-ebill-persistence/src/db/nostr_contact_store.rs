@@ -392,28 +392,32 @@ impl NostrStoreApi for SurrealNostrStore {
         relay: &url::Url,
         limit: usize,
     ) -> Result<Vec<nostr::Event>> {
-        let all: Vec<RelaySyncRetryDb> = self.db.select_all(Self::RELAY_RETRY_TABLE).await?;
-        let events: Vec<nostr::Event> = all
-            .into_iter()
-            .filter(|r| r.relay_url == relay.to_string())
-            .take(limit)
-            .map(|r| r.event)
-            .collect();
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
+        bindings.add("relay_url", relay.to_string())?;
+        bindings.add("limit", limit as i64)?;
+        
+        let query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url LIMIT $limit"
+        );
+        
+        let retries: Vec<RelaySyncRetryDb> = self.db.query(&query, bindings).await?;
+        let events: Vec<nostr::Event> = retries.into_iter().map(|r| r.event).collect();
         Ok(events)
     }
 
     async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()> {
-        // Find and delete the retry record
-        let all: Vec<RelaySyncRetryDb> = self.db.select_all(Self::RELAY_RETRY_TABLE).await?;
-        for retry in all {
-            if retry.relay_url == relay.to_string() && retry.event.id.to_hex() == event_id {
-                let _: Option<RelaySyncRetryDb> = self
-                    .db
-                    .delete(Self::RELAY_RETRY_TABLE, retry.id.id.to_raw())
-                    .await?;
-                break;
-            }
-        }
+        // Query for matching records - SurrealDB supports querying nested fields
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
+        bindings.add("relay_url", relay.to_string())?;
+        bindings.add("event_id", event_id.to_string())?;
+        
+        let query = format!(
+            "DELETE FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
+        );
+        
+        let _: Vec<RelaySyncRetryDb> = self.db.query(&query, bindings).await?;
         Ok(())
     }
 
@@ -423,28 +427,33 @@ impl NostrStoreApi for SurrealNostrStore {
         event_id: &str,
         max_retries: usize,
     ) -> Result<()> {
-        // Find, increment retry count, or delete if max exceeded
-        let all: Vec<RelaySyncRetryDb> = self.db.select_all(Self::RELAY_RETRY_TABLE).await?;
-        for retry in all {
-            if retry.relay_url == relay.to_string() && retry.event.id.to_hex() == event_id {
-                if retry.retry_count >= max_retries {
-                    // Max retries exceeded, remove from queue
-                    let _: Option<RelaySyncRetryDb> = self
-                        .db
-                        .delete(Self::RELAY_RETRY_TABLE, retry.id.id.to_raw())
-                        .await?;
-                } else {
-                    // Increment retry count
-                    let updated = RelaySyncRetryDb {
-                        retry_count: retry.retry_count + 1,
-                        last_retry_at: Some(Timestamp::now()),
-                        ..retry
-                    };
-                    let id = updated.id.id.to_raw();
-                    let _: Option<RelaySyncRetryDb> =
-                        self.db.upsert(Self::RELAY_RETRY_TABLE, id, updated).await?;
-                }
-                break;
+        // Use SurrealDB query to update or delete based on retry count
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
+        bindings.add("relay_url", relay.to_string())?;
+        bindings.add("event_id", event_id.to_string())?;
+        bindings.add("max_retries", max_retries as i64)?;
+        bindings.add("now", Timestamp::now())?;
+        
+        // First, select the matching record to check retry_count
+        let select_query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
+        );
+        let retries: Vec<RelaySyncRetryDb> = self.db.query(&select_query, bindings.clone()).await?;
+        
+        if let Some(retry) = retries.first() {
+            if retry.retry_count >= max_retries {
+                // Max retries exceeded, delete
+                let delete_query = format!(
+                    "DELETE FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
+                );
+                let _: Vec<RelaySyncRetryDb> = self.db.query(&delete_query, bindings).await?;
+            } else {
+                // Increment retry count
+                let update_query = format!(
+                    "UPDATE type::table(${DB_TABLE}) SET retry_count += 1, last_retry_at = $now WHERE relay_url = $relay_url AND event.id == $event_id"
+                );
+                let _: Vec<RelaySyncRetryDb> = self.db.query(&update_query, bindings).await?;
             }
         }
         Ok(())
