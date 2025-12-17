@@ -268,8 +268,7 @@ pub trait Blockchain {
     ) -> Option<&Self::Block> {
         self.blocks()
             .iter()
-            .filter(|block| block.op_code() == &op_code)
-            .next_back()
+            .rfind(|block| block.op_code() == &op_code)
     }
 
     /// Checks if there is any block with a given operation code in the current blocks list.

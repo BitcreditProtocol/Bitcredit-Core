@@ -4,6 +4,13 @@
 * Handshake - share back without contacts
 * Multi-Relay Support
 
+# 0.5.0-1 (Hotfix)
+
+* Fix validation for deleting the last signatory of a company
+* Fix plain text identity chain bug when accepting/rejecting an invite
+* Fix company logo and file upload to use company key instead of personal key
+* Fix switching to personal identity when deleting oneself from company
+
 # 0.5.0
 
 * Stabilise Identity Proof Implementation

@@ -11,6 +11,7 @@ use bcr_ebill_api::service::transport_service::transport_client::TransportClient
 use bcr_ebill_core::{
     application::{
         company::CompanyStatus,
+        identity::ActiveIdentityState,
         notification::{Notification, NotificationType},
     },
     protocol::{
@@ -410,13 +411,39 @@ impl CompanyChainEventProcessor {
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
-                update @ CompanyBlockPayload::RemoveSignatory(_) => {
+                CompanyBlockPayload::RemoveSignatory(payload) => {
+                    let removee = payload.removee.clone();
                     info!("Removing signatory from company {company_id}");
-                    company.apply_block_data(&update, identity_node_id, block.timestamp());
+                    company.apply_block_data(
+                        &CompanyBlockPayload::RemoveSignatory(payload),
+                        identity_node_id,
+                        block.timestamp(),
+                    );
                     self.company_store
                         .update(company_id, company)
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                    // if we're being removed and current identity is that company - change it
+                    if &removee == identity_node_id
+                        && let Ok(Some(active_node_id)) = self
+                            .identity_store
+                            .get_current_identity()
+                            .await
+                            .map(|i| i.company)
+                        && &active_node_id == company_id
+                        && let Err(e) = self
+                            .identity_store
+                            .set_current_identity(&ActiveIdentityState {
+                                personal: identity_node_id.to_owned(),
+                                company: None,
+                            })
+                            .await
+                    {
+                        error!(
+                            "Couldn't set active identity to personal after removing self from company: {e}"
+                        );
+                    }
                 }
                 CompanyBlockPayload::SignBill(payload) => {
                     if let Some(bill_key) = payload.bill_key

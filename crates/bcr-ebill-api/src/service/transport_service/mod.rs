@@ -12,7 +12,6 @@ pub mod restore;
 mod transport;
 pub mod transport_client;
 
-use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
