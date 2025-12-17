@@ -368,7 +368,7 @@ mod test_utils {
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         identity::{IdentityChainStoreApi, IdentityStoreApi},
-        nostr::{NostrContactStoreApi, PendingContactShare},
+        nostr::{NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus},
         notification::NotificationFilter,
     };
     use mockall::mock;
@@ -522,6 +522,15 @@ mod test_utils {
             async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> Result<Vec<PendingContactShare>>;
             async fn delete_pending_share(&self, id: &str) -> Result<()>;
             async fn pending_share_exists_for_node_and_receiver(&self, node_id: &NodeId, receiver_node_id: &NodeId) -> Result<bool>;
+            async fn get_pending_relays(&self) -> Result<Vec<url::Url>>;
+            async fn get_relay_sync_status(&self, relay: &url::Url) -> Result<Option<RelaySyncStatus>>;
+            async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> Result<()>;
+            async fn update_relay_sync_progress(&self, relay: &url::Url, timestamp: bcr_ebill_core::protocol::Timestamp) -> Result<()>;
+            async fn update_relay_last_seen(&self, relay: &url::Url, timestamp: bcr_ebill_core::protocol::Timestamp) -> Result<()>;
+            async fn add_failed_relay_sync(&self, relay: &url::Url, event: nostr::Event) -> Result<()>;
+            async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> Result<Vec<nostr::Event>>;
+            async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()>;
+            async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> Result<()>;
         }
     }
 

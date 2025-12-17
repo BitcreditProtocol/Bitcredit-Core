@@ -28,6 +28,7 @@ tokio_with_wasm.workspace = true
 secp256k1.workspace = true
 url.workspace = true
 borsh.workspace = true
+futures.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true

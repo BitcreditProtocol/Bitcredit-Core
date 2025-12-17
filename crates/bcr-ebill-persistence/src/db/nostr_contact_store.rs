@@ -7,7 +7,7 @@ use crate::{
         DB_CONTACT_SHARE_DIRECTION, DB_HANDSHAKE_STATUS, DB_ID, DB_NODE_ID, DB_RECEIVER_NODE_ID,
         DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL,
     },
-    nostr::{NostrContactStoreApi, PendingContactShare, ShareDirection},
+    nostr::{NostrStoreApi, PendingContactShare, RelaySyncStatus, ShareDirection, SyncStatus},
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -24,13 +24,15 @@ use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
 #[derive(Clone)]
-pub struct SurrealNostrContactStore {
+pub struct SurrealNostrStore {
     db: SurrealWrapper,
 }
 
-impl SurrealNostrContactStore {
+impl SurrealNostrStore {
     const TABLE: &'static str = "nostr_contact";
     const PENDING_SHARE_TABLE: &'static str = "pending_contact_share";
+    const RELAY_SYNC_TABLE: &'static str = "relay_sync_status";
+    const RELAY_RETRY_TABLE: &'static str = "relay_sync_retry";
 
     pub fn new(db: SurrealWrapper) -> Self {
         Self { db }
@@ -41,11 +43,11 @@ impl SurrealNostrContactStore {
     }
 }
 
-impl ServiceTraitBounds for SurrealNostrContactStore {}
+impl ServiceTraitBounds for SurrealNostrStore {}
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl NostrContactStoreApi for SurrealNostrContactStore {
+impl NostrStoreApi for SurrealNostrStore {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
         let npub = node_id.npub();
@@ -258,6 +260,256 @@ impl NostrContactStoreApi for SurrealNostrContactStore {
         let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
         Ok(!result.is_empty())
     }
+
+    // === Relay Sync Status Methods ===
+
+    async fn get_pending_relays(&self) -> Result<Vec<url::Url>> {
+        let statuses: Vec<RelaySyncStatusDb> = self.db.select_all(Self::RELAY_SYNC_TABLE).await?;
+        let pending: Vec<url::Url> = statuses
+            .into_iter()
+            .filter(|s| {
+                matches!(
+                    s.sync_status,
+                    SyncStatus::Pending | SyncStatus::InProgress | SyncStatus::Failed
+                )
+            })
+            .filter_map(|s| url::Url::parse(&s.relay_url).ok())
+            .collect();
+        Ok(pending)
+    }
+
+    async fn get_relay_sync_status(&self, relay: &url::Url) -> Result<Option<RelaySyncStatus>> {
+        let result: Option<RelaySyncStatusDb> = self
+            .db
+            .select_one(Self::RELAY_SYNC_TABLE, relay.to_string())
+            .await?;
+        match result {
+            Some(db) => Ok(Some(db.try_into()?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> Result<()> {
+        // Get existing record or create new one
+        let existing = self.get_relay_sync_status(relay).await?;
+        let updated = match existing {
+            Some(mut s) => {
+                s.sync_status = status.clone();
+                if matches!(status, SyncStatus::Failed) {
+                    // Keep last_error if it exists
+                } else if matches!(status, SyncStatus::Completed) {
+                    s.last_error = None;
+                }
+                s
+            }
+            None => RelaySyncStatus {
+                relay_url: relay.clone(),
+                last_seen_in_config: Timestamp::now(),
+                sync_status: status,
+                events_synced: 0,
+                last_synced_timestamp: None,
+                last_error: None,
+            },
+        };
+        let db_data: RelaySyncStatusDb = updated.into();
+        let _: Option<RelaySyncStatusDb> = self
+            .db
+            .upsert(Self::RELAY_SYNC_TABLE, relay.to_string(), db_data)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_relay_sync_progress(
+        &self,
+        relay: &url::Url,
+        timestamp: Timestamp,
+    ) -> Result<()> {
+        let existing = self.get_relay_sync_status(relay).await?;
+        let updated = match existing {
+            Some(mut s) => {
+                s.events_synced += 1;
+                s.last_synced_timestamp = Some(timestamp);
+                s
+            }
+            None => {
+                return Err(Error::Persistence(format!(
+                    "Relay sync status not found for {}",
+                    relay
+                )));
+            }
+        };
+        let db_data: RelaySyncStatusDb = updated.into();
+        let _: Option<RelaySyncStatusDb> = self
+            .db
+            .upsert(Self::RELAY_SYNC_TABLE, relay.to_string(), db_data)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_relay_last_seen(&self, relay: &url::Url, timestamp: Timestamp) -> Result<()> {
+        let existing = self.get_relay_sync_status(relay).await?;
+        let updated = match existing {
+            Some(mut s) => {
+                s.last_seen_in_config = timestamp;
+                s
+            }
+            None => RelaySyncStatus {
+                relay_url: relay.clone(),
+                last_seen_in_config: timestamp,
+                sync_status: SyncStatus::Pending,
+                events_synced: 0,
+                last_synced_timestamp: None,
+                last_error: None,
+            },
+        };
+        let db_data: RelaySyncStatusDb = updated.into();
+        let _: Option<RelaySyncStatusDb> = self
+            .db
+            .upsert(Self::RELAY_SYNC_TABLE, relay.to_string(), db_data)
+            .await?;
+        Ok(())
+    }
+
+    // === Relay Sync Retry Queue Methods ===
+
+    async fn add_failed_relay_sync(&self, relay: &url::Url, event: nostr::Event) -> Result<()> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let retry = RelaySyncRetryDb {
+            id: Thing::from((Self::RELAY_RETRY_TABLE.to_string(), id.clone())),
+            relay_url: relay.to_string(),
+            event,
+            retry_count: 0,
+            created_at: Timestamp::now(),
+            last_retry_at: None,
+        };
+        let _: Option<RelaySyncRetryDb> =
+            self.db.upsert(Self::RELAY_RETRY_TABLE, id, retry).await?;
+        Ok(())
+    }
+
+    async fn get_pending_relay_retries(
+        &self,
+        relay: &url::Url,
+        limit: usize,
+    ) -> Result<Vec<nostr::Event>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
+        bindings.add("relay_url", relay.to_string())?;
+        bindings.add("limit", limit as i64)?;
+
+        let query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url LIMIT $limit"
+        );
+
+        let retries: Vec<RelaySyncRetryDb> = self.db.query(&query, bindings).await?;
+        let events: Vec<nostr::Event> = retries.into_iter().map(|r| r.event).collect();
+        Ok(events)
+    }
+
+    async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()> {
+        // Query for matching records - SurrealDB supports querying nested fields
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
+        bindings.add("relay_url", relay.to_string())?;
+        bindings.add("event_id", event_id.to_string())?;
+
+        let query = format!(
+            "DELETE FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
+        );
+
+        let _: Vec<RelaySyncRetryDb> = self.db.query(&query, bindings).await?;
+        Ok(())
+    }
+
+    async fn mark_relay_retry_failed(
+        &self,
+        relay: &url::Url,
+        event_id: &str,
+        max_retries: usize,
+    ) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::RELAY_RETRY_TABLE)?;
+        bindings.add("relay_url", relay.to_string())?;
+        bindings.add("event_id", event_id.to_string())?;
+        bindings.add("max_retries", max_retries as i64)?;
+        bindings.add("now", Timestamp::now())?;
+
+        let select_query = format!(
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
+        );
+        let retries: Vec<RelaySyncRetryDb> = self.db.query(&select_query, bindings.clone()).await?;
+
+        if let Some(retry) = retries.first() {
+            if retry.retry_count >= max_retries {
+                // Max retries exceeded, delete
+                let delete_query = format!(
+                    "DELETE FROM type::table(${DB_TABLE}) WHERE relay_url = $relay_url AND event.id == $event_id"
+                );
+                let _: Vec<RelaySyncRetryDb> = self.db.query(&delete_query, bindings).await?;
+            } else {
+                // Increment retry count
+                let update_query = format!(
+                    "UPDATE type::table(${DB_TABLE}) SET retry_count += 1, last_retry_at = $now WHERE relay_url = $relay_url AND event.id == $event_id"
+                );
+                let _: Vec<RelaySyncRetryDb> = self.db.query(&update_query, bindings).await?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RelaySyncStatusDb {
+    id: Thing,
+    relay_url: String,
+    last_seen_in_config: Timestamp,
+    sync_status: SyncStatus,
+    events_synced: usize,
+    last_synced_timestamp: Option<Timestamp>,
+    last_error: Option<String>,
+}
+
+impl From<RelaySyncStatus> for RelaySyncStatusDb {
+    fn from(value: RelaySyncStatus) -> Self {
+        Self {
+            id: Thing::from((
+                SurrealNostrStore::RELAY_SYNC_TABLE.to_string(),
+                value.relay_url.to_string(),
+            )),
+            relay_url: value.relay_url.to_string(),
+            last_seen_in_config: value.last_seen_in_config,
+            sync_status: value.sync_status,
+            events_synced: value.events_synced,
+            last_synced_timestamp: value.last_synced_timestamp,
+            last_error: value.last_error,
+        }
+    }
+}
+
+impl TryFrom<RelaySyncStatusDb> for RelaySyncStatus {
+    type Error = Error;
+
+    fn try_from(value: RelaySyncStatusDb) -> Result<Self> {
+        Ok(Self {
+            relay_url: url::Url::parse(&value.relay_url)
+                .map_err(|_| Error::Persistence("Invalid relay URL".to_string()))?,
+            last_seen_in_config: value.last_seen_in_config,
+            sync_status: value.sync_status,
+            events_synced: value.events_synced,
+            last_synced_timestamp: value.last_synced_timestamp,
+            last_error: value.last_error,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RelaySyncRetryDb {
+    id: Thing,
+    relay_url: String,
+    event: nostr::Event,
+    retry_count: usize,
+    created_at: Timestamp,
+    last_retry_at: Option<Timestamp>,
 }
 
 fn update_field_query(field_name: &str) -> String {
@@ -289,10 +541,7 @@ pub struct NostrContactDb {
 impl From<NostrContact> for NostrContactDb {
     fn from(contact: NostrContact) -> Self {
         Self {
-            id: Thing::from((
-                SurrealNostrContactStore::TABLE.to_owned(),
-                contact.npub.to_hex(),
-            )),
+            id: Thing::from((SurrealNostrStore::TABLE.to_owned(), contact.npub.to_hex())),
             node_id: contact.node_id,
             name: contact.name,
             relays: contact.relays,
@@ -335,10 +584,7 @@ pub struct PendingContactShareDb {
 impl From<PendingContactShare> for PendingContactShareDb {
     fn from(share: PendingContactShare) -> Self {
         Self {
-            id: Thing::from((
-                SurrealNostrContactStore::PENDING_SHARE_TABLE.to_owned(),
-                share.id,
-            )),
+            id: Thing::from((SurrealNostrStore::PENDING_SHARE_TABLE.to_owned(), share.id)),
             node_id: share.node_id,
             contact: share.contact,
             sender_node_id: share.sender_node_id,
@@ -652,11 +898,11 @@ mod tests {
         );
     }
 
-    async fn get_store() -> SurrealNostrContactStore {
+    async fn get_store() -> SurrealNostrStore {
         let mem_db = get_memory_db("test", "nostr_contact")
             .await
             .expect("could not create memory db");
-        SurrealNostrContactStore::new(SurrealWrapper {
+        SurrealNostrStore::new(SurrealWrapper {
             db: mem_db,
             files: false,
         })
@@ -672,5 +918,388 @@ mod tests {
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,
         }
+    }
+
+    // === Relay Sync Database Tests ===
+
+    #[tokio::test]
+    async fn test_update_relay_last_seen_creates_new_status() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let now = Timestamp::now();
+
+        // Update last_seen for a relay that doesn't exist yet
+        store
+            .update_relay_last_seen(&relay, now)
+            .await
+            .expect("Failed to update relay last seen");
+
+        // Should create new status record with Pending status
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get relay sync status")
+            .expect("Status should exist");
+
+        assert_eq!(status.relay_url, relay);
+        assert_eq!(status.last_seen_in_config, now);
+        assert_eq!(status.sync_status, SyncStatus::Pending);
+        assert_eq!(status.events_synced, 0);
+        assert!(status.last_synced_timestamp.is_none());
+        assert!(status.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_relay_last_seen_updates_existing() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let initial_time = Timestamp::new(1000).unwrap();
+        let later_time = Timestamp::new(2000).unwrap();
+
+        // Create initial status
+        store
+            .update_relay_last_seen(&relay, initial_time)
+            .await
+            .expect("Failed to create initial status");
+
+        // Update to later time
+        store
+            .update_relay_last_seen(&relay, later_time)
+            .await
+            .expect("Failed to update last seen");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.last_seen_in_config, later_time);
+    }
+
+    #[tokio::test]
+    async fn test_update_relay_sync_status() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        // Create initial Pending status
+        store
+            .update_relay_sync_status(&relay, SyncStatus::Pending)
+            .await
+            .expect("Failed to create status");
+
+        // Update to InProgress
+        store
+            .update_relay_sync_status(&relay, SyncStatus::InProgress)
+            .await
+            .expect("Failed to update status");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.sync_status, SyncStatus::InProgress);
+
+        // Update to Completed
+        store
+            .update_relay_sync_status(&relay, SyncStatus::Completed)
+            .await
+            .expect("Failed to update to completed");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.sync_status, SyncStatus::Completed);
+        assert!(status.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_relays() {
+        let store = get_store().await;
+        let relay1 = url::Url::parse("wss://relay1.example.com").unwrap();
+        let relay2 = url::Url::parse("wss://relay2.example.com").unwrap();
+        let relay3 = url::Url::parse("wss://relay3.example.com").unwrap();
+        let relay4 = url::Url::parse("wss://relay4.example.com").unwrap();
+
+        // Create different statuses
+        store
+            .update_relay_sync_status(&relay1, SyncStatus::Pending)
+            .await
+            .expect("Failed to create pending");
+        store
+            .update_relay_sync_status(&relay2, SyncStatus::InProgress)
+            .await
+            .expect("Failed to create in progress");
+        store
+            .update_relay_sync_status(&relay3, SyncStatus::Completed)
+            .await
+            .expect("Failed to create completed");
+        store
+            .update_relay_sync_status(&relay4, SyncStatus::Failed)
+            .await
+            .expect("Failed to create failed");
+
+        let pending = store
+            .get_pending_relays()
+            .await
+            .expect("Failed to get pending relays");
+
+        // Should return Pending, InProgress, and Failed but not Completed
+        assert_eq!(pending.len(), 3);
+        assert!(pending.contains(&relay1));
+        assert!(pending.contains(&relay2));
+        assert!(pending.contains(&relay4));
+        assert!(!pending.contains(&relay3));
+    }
+
+    #[tokio::test]
+    async fn test_update_relay_sync_progress() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let timestamp1 = Timestamp::new(1000).unwrap();
+        let timestamp2 = Timestamp::new(2000).unwrap();
+
+        // Create initial status
+        store
+            .update_relay_sync_status(&relay, SyncStatus::InProgress)
+            .await
+            .expect("Failed to create status");
+
+        // Update progress
+        store
+            .update_relay_sync_progress(&relay, timestamp1)
+            .await
+            .expect("Failed to update progress");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.events_synced, 1);
+        assert_eq!(status.last_synced_timestamp, Some(timestamp1));
+
+        // Update again with later timestamp
+        store
+            .update_relay_sync_progress(&relay, timestamp2)
+            .await
+            .expect("Failed to update progress again");
+
+        let status = store
+            .get_relay_sync_status(&relay)
+            .await
+            .expect("Failed to get status")
+            .expect("Status should exist");
+
+        assert_eq!(status.events_synced, 2);
+        assert_eq!(status.last_synced_timestamp, Some(timestamp2));
+    }
+
+    #[tokio::test]
+    async fn test_add_and_get_pending_relay_retries() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        // Create test events
+        let keys = nostr::Keys::generate();
+        let event1 = nostr::EventBuilder::text_note("test 1")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+        let event2 = nostr::EventBuilder::text_note("test 2")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add to retry queue
+        store
+            .add_failed_relay_sync(&relay, event1.clone())
+            .await
+            .expect("Failed to add retry");
+        store
+            .add_failed_relay_sync(&relay, event2.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Get pending retries
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+
+        assert_eq!(retries.len(), 2);
+        assert!(retries.iter().any(|e| e.id == event1.id));
+        assert!(retries.iter().any(|e| e.id == event2.id));
+    }
+
+    #[tokio::test]
+    async fn test_mark_relay_retry_success() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+        let event = nostr::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add to retry queue
+        store
+            .add_failed_relay_sync(&relay, event.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Verify it's there
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // Mark as success
+        store
+            .mark_relay_retry_success(&relay, &event.id.to_hex())
+            .await
+            .expect("Failed to mark success");
+
+        // Should be removed from queue
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_mark_relay_retry_failed_increments_count() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+        let event = nostr::EventBuilder::text_note("test")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add to retry queue
+        store
+            .add_failed_relay_sync(&relay, event.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Mark as failed (max retries = 3)
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Should still be in queue (retry_count incremented)
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // Mark as failed again
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Still in queue
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // Mark as failed one more time
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Still in queue (retry_count = 3, max = 3, not yet exceeded)
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 1);
+
+        // One more time should remove it (retry_count would be 4 > max 3)
+        store
+            .mark_relay_retry_failed(&relay, &event.id.to_hex(), 3)
+            .await
+            .expect("Failed to mark failed");
+
+        // Should be removed
+        let retries = store
+            .get_pending_relay_retries(&relay, 10)
+            .await
+            .expect("Failed to get retries");
+        assert_eq!(retries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_relay_retries_filters_by_relay() {
+        let store = get_store().await;
+        let relay1 = url::Url::parse("wss://relay1.example.com").unwrap();
+        let relay2 = url::Url::parse("wss://relay2.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+        let event1 = nostr::EventBuilder::text_note("test 1")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+        let event2 = nostr::EventBuilder::text_note("test 2")
+            .sign_with_keys(&keys)
+            .expect("Failed to sign event");
+
+        // Add events to different relays
+        store
+            .add_failed_relay_sync(&relay1, event1.clone())
+            .await
+            .expect("Failed to add retry");
+        store
+            .add_failed_relay_sync(&relay2, event2.clone())
+            .await
+            .expect("Failed to add retry");
+
+        // Get retries for relay1 only
+        let retries = store
+            .get_pending_relay_retries(&relay1, 10)
+            .await
+            .expect("Failed to get retries");
+
+        assert_eq!(retries.len(), 1);
+        assert_eq!(retries[0].id, event1.id);
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_relay_retries_respects_limit() {
+        let store = get_store().await;
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+
+        let keys = nostr::Keys::generate();
+
+        // Add 5 events
+        for i in 0..5 {
+            let event = nostr::EventBuilder::text_note(format!("test {}", i))
+                .sign_with_keys(&keys)
+                .expect("Failed to sign event");
+            store
+                .add_failed_relay_sync(&relay, event)
+                .await
+                .expect("Failed to add retry");
+        }
+
+        // Request only 3
+        let retries = store
+            .get_pending_relay_retries(&relay, 3)
+            .await
+            .expect("Failed to get retries");
+
+        assert_eq!(retries.len(), 3);
     }
 }

@@ -49,6 +49,9 @@ pub enum Error {
 
     #[error("Error with encoding, or decoding")]
     EncodingError,
+
+    #[error("Persistence error: {0}")]
+    Persistence(String),
 }
 
 impl From<surrealdb::Error> for Error {
@@ -66,10 +69,16 @@ pub use db::{
     company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
     contact::SurrealContactStore, identity::SurrealIdentityStore,
     identity_chain::SurrealIdentityChainStore, nostr_chain_event::SurrealNostrChainEventStore,
-    nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
+    nostr_contact_store::SurrealNostrStore, nostr_event_offset::SurrealNostrEventOffsetStore,
+    notification::SurrealNotificationStore,
 };
+// Backwards compatibility alias
+pub use db::nostr_contact_store::SurrealNostrStore as SurrealNostrContactStore;
 pub use nostr::{
-    NostrChainEventStoreApi, NostrContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
-    NostrQueuedMessageStoreApi, PendingContactShare, ShareDirection,
+    NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
+    NostrQueuedMessageStoreApi, NostrStoreApi, PendingContactShare, RelaySyncRetry,
+    RelaySyncStatus, ShareDirection, SyncStatus,
 };
+// Backwards compatibility alias
+pub use nostr::NostrStoreApi as NostrContactStoreApi;
 pub use notification::NotificationStoreApi;

@@ -3,7 +3,10 @@
 pub mod tests {
     use crate::CourtConfig;
     use crate::service::transport_service::{self, chain_keys::ChainKeyServiceApi};
-    use crate::{CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, PaymentConfig};
+    use crate::{
+        CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, NostrContactStoreApi,
+        PaymentConfig,
+    };
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::protocol::Address;
@@ -51,8 +54,8 @@ pub mod tests {
         identity::{IdentityChainStoreApi, IdentityStoreApi},
         mint::MintStoreApi,
         nostr::{
-            NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
-            NostrQueuedMessageStoreApi,
+            NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage,
+            NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
         },
         notification::NotificationFilter,
     };
@@ -157,6 +160,15 @@ pub mod tests {
             async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> Result<Vec<PendingContactShare>>;
             async fn delete_pending_share(&self, id: &str) -> Result<()>;
             async fn pending_share_exists_for_node_and_receiver(&self, node_id: &NodeId, receiver_node_id: &NodeId) -> Result<bool>;
+            async fn get_pending_relays(&self) -> Result<Vec<url::Url>>;
+            async fn get_relay_sync_status(&self, relay: &url::Url) -> Result<Option<RelaySyncStatus>>;
+            async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> Result<()>;
+            async fn update_relay_sync_progress(&self, relay: &url::Url, timestamp: bcr_ebill_core::protocol::Timestamp) -> Result<()>;
+            async fn update_relay_last_seen(&self, relay: &url::Url, timestamp: bcr_ebill_core::protocol::Timestamp) -> Result<()>;
+            async fn add_failed_relay_sync(&self, relay: &url::Url, event: nostr::Event) -> Result<()>;
+            async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> Result<Vec<nostr::Event>>;
+            async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> Result<()>;
+            async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> Result<()>;
         }
     }
 

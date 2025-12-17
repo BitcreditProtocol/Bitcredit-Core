@@ -4,21 +4,21 @@ use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 #[cfg(not(target_arch = "wasm32"))]
 use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
-    ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
-    SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore, SurrealCompanyStore,
-    SurrealContactStore, SurrealDbConfig, SurrealIdentityChainStore, SurrealIdentityStore,
-    SurrealNostrChainEventStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    ContactStoreApi, NostrChainEventStoreApi, NostrContactStoreApi, NostrEventOffsetStoreApi,
+    NotificationStoreApi, SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore,
+    SurrealCompanyStore, SurrealContactStore, SurrealDbConfig, SurrealIdentityChainStore,
+    SurrealIdentityStore, SurrealNostrChainEventStore, SurrealNostrContactStore,
+    SurrealNostrEventOffsetStore, SurrealNotificationStore,
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
         email_notification::SurrealEmailNotificationStore, mint::SurrealMintStore,
-        nostr_contact_store::SurrealNostrContactStore,
         nostr_send_queue::SurrealNostrEventQueueStore,
     },
     file_upload::FileUploadStoreApi,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
     mint::MintStoreApi,
-    nostr::{NostrContactStoreApi, NostrQueuedMessageStoreApi},
+    nostr::NostrQueuedMessageStoreApi,
     notification::EmailNotificationStoreApi,
 };
 use bitcoin::Network;

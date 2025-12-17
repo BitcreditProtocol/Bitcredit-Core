@@ -13,6 +13,7 @@
 /files/*
 /company/*
 /pkg/*
+/docs/plans
 
 .idea/
 .worktrees/
