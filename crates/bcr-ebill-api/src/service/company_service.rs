@@ -12,6 +12,7 @@ use bcr_ebill_core::application::company::{
     Company, CompanySignatory, CompanySignatoryStatus, CompanyStatus, LocalSignatoryOverrideStatus,
 };
 use bcr_ebill_core::application::contact::Contact;
+use bcr_ebill_core::application::identity::ActiveIdentityState;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::Identification;
 use bcr_ebill_core::protocol::Name;
@@ -593,7 +594,7 @@ impl CompanyServiceApi for CompanyService {
                     .process_upload_file(
                         &proof_of_registration_file_upload_id,
                         &id,
-                        &full_identity.key_pair.pub_key(),
+                        &company_keys.pub_key(),
                         nostr_relay,
                         UploadFileType::Document,
                     )
@@ -603,7 +604,7 @@ impl CompanyServiceApi for CompanyService {
                     .process_upload_file(
                         &logo_file_upload_id,
                         &id,
-                        &full_identity.key_pair.pub_key(),
+                        &company_keys.pub_key(),
                         nostr_relay,
                         UploadFileType::Picture,
                     )
@@ -859,7 +860,7 @@ impl CompanyServiceApi for CompanyService {
                     self.process_upload_file(
                         &logo_file_upload_id,
                         id,
-                        &full_identity.key_pair.pub_key(),
+                        &company_keys.pub_key(),
                         nostr_relay,
                         UploadFileType::Picture,
                     )
@@ -876,7 +877,7 @@ impl CompanyServiceApi for CompanyService {
                     self.process_upload_file(
                         &proof_of_registration_file_upload_id,
                         id,
-                        &full_identity.key_pair.pub_key(),
+                        &company_keys.pub_key(),
                         nostr_relay,
                         UploadFileType::Document,
                     )
@@ -1106,7 +1107,19 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
         let company_keys = self.store.get_key_pair(id).await?;
-        if company.signatories.len() == 1 {
+        // Only count fully accepted signatories
+        if company
+            .signatories
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.status,
+                    CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                )
+            })
+            .count()
+            == 1
+        {
             return Err(super::Error::Validation(
                 ProtocolValidationError::CantRemoveLastSignatory.into(),
             ));
@@ -1185,6 +1198,25 @@ impl CompanyServiceApi for CompanyService {
             info!("Removed self from company {id} - deleting company chain");
             if let Err(e) = self.company_blockchain_store.remove(id).await {
                 error!("Could not delete local company chain for {id}: {e}");
+            }
+            // If the current active identity is the company we're removed from - set to personal identity
+            if let Ok(Some(active_node_id)) = self
+                .identity_store
+                .get_current_identity()
+                .await
+                .map(|i| i.company)
+                && &active_node_id == id
+                && let Err(e) = self
+                    .identity_store
+                    .set_current_identity(&ActiveIdentityState {
+                        personal: full_identity.identity.node_id,
+                        company: None,
+                    })
+                    .await
+            {
+                error!(
+                    "Couldn't set active identity to personal after removing self from company: {e}"
+                );
             }
         }
         debug!(
@@ -3285,6 +3317,12 @@ pub mod tests {
             Ok(IdentityWithAll {
                 identity,
                 key_pair: keys_clone_clone.clone(),
+            })
+        });
+        identity_store.expect_get_current_identity().returning(|| {
+            Ok(ActiveIdentityState {
+                personal: node_id_test(),
+                company: None,
             })
         });
         storage.expect_update().returning(|_, _| Ok(()));

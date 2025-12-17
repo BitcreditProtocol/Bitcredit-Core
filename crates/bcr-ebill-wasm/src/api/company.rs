@@ -38,16 +38,11 @@ use crate::{
 
 async fn get_file(id: &str, file_name: &Name) -> Result<(Vec<u8>, String)> {
     let parsed_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
-    let company = get_ctx()
+    let (company, keys) = get_ctx()
         .company_service
-        .get_company_by_id(&parsed_id)
+        .get_company_and_keys_by_id(&parsed_id)
         .await?; // check if company exists
-    let private_key = get_ctx()
-        .identity_service
-        .get_full_identity()
-        .await?
-        .key_pair
-        .get_private_key();
+    let private_key = keys.get_private_key();
 
     let file_bytes = get_ctx()
         .company_service

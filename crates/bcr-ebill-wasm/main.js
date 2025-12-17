@@ -94,6 +94,7 @@ document.getElementById("get_company_invites").addEventListener("click", getComp
 document.getElementById("company_accept_invite").addEventListener("click", acceptCompanyInvite);
 document.getElementById("company_reject_invite").addEventListener("click", rejectCompanyInvite);
 document.getElementById("locally_hide_signatory").addEventListener("click", locallyHideRemovedSignatory);
+document.getElementById("get_proof_file").addEventListener("click", fetchCompanyFile);
 
 // restore account, backup seed phrase
 document.getElementById("get_seed_phrase").addEventListener("click", getSeedPhrase);
@@ -274,6 +275,7 @@ async function createCompany() {
       address: "street 1",
     },
     creator_email: company_email,
+    proof_of_registration_file_upload_id: document.getElementById("file_upload_id").value || undefined,
   }));
   console.log("company: ", company);
 }
@@ -740,6 +742,15 @@ async function syncCompanyChain() {
     return success_or_fail(await window.companyApi.sync_company_chain({ node_id: node_id }));
   });
   await measured();
+}
+
+async function fetchCompanyFile() {
+  let node_id = document.getElementById("company_id").value;
+  let detail = success_or_fail(await window.companyApi.detail(node_id));
+  let file_name = detail.proof_of_registration_file.name;
+  let file = success_or_fail(await window.companyApi.file_base64(node_id, file_name));
+
+  document.getElementById("bill_attached_file").src = `data:${file.content_type};base64,${file.data}`;
 }
 
 async function companyDetail() {
