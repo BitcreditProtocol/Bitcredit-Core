@@ -3,6 +3,7 @@
 * Use one Nostr client for multiple identities
 * Handshake - share back without contacts
 * Multi-Relay Support
+* Fix mempool link for mainnet
 
 # 0.5.0-1 (Hotfix)
 

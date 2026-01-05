@@ -118,11 +118,11 @@ impl BitcoinClient {
                 format!("{}{path}", get_config().esplora_base_url)
             }
             Network::Regtest => {
-                format!("{}regtest{path}", get_config().esplora_base_url)
+                format!("{}regtest/{path}", get_config().esplora_base_url)
             }
             _ => {
                 // for testnet and testnet4
-                format!("{}testnet{path}", get_config().esplora_base_url)
+                format!("{}testnet/{path}", get_config().esplora_base_url)
             }
         }
     }
@@ -250,7 +250,7 @@ impl BitcoinClientApi for BitcoinClient {
     }
 
     fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String {
-        self.link_url(&format!("/address/{}", address.assume_checked_ref()))
+        self.link_url(&format!("address/{}", address.assume_checked_ref()))
     }
 }
 
