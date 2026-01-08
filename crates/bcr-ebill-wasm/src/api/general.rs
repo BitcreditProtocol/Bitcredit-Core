@@ -97,11 +97,12 @@ impl General {
     #[wasm_bindgen(unchecked_return_type = "TSResult<OverviewResponse>")]
     pub async fn overview(&self, currency: &str) -> JsValue {
         let res: Result<OverviewResponse> = async {
-            if !VALID_CURRENCIES.contains(&currency) {
+            let Ok(currency) = Currency::validated(currency) else {
                 return Err(
                     Error::Validation(ProtocolValidationError::InvalidCurrency.into()).into(),
                 );
-            }
+            };
+
             let parsed_currency = Currency::sat();
             let result = get_ctx()
                 .bill_service
@@ -109,7 +110,7 @@ impl General {
                 .await?;
 
             Ok(OverviewResponse {
-                currency: currency.to_owned(),
+                currency,
                 balances: OverviewBalanceResponse {
                     payee: BalanceResponse {
                         sum: result.payee.sum.as_sat_string(),

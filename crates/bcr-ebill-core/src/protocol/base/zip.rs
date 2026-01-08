@@ -18,7 +18,7 @@ impl Zip {
             return Err(ProtocolValidationError::FieldEmpty(Field::Zip));
         }
 
-        if s.len() > MAX_ZIP_LEN {
+        if s.trim().chars().count() > MAX_ZIP_LEN {
             return Err(ProtocolValidationError::FieldInvalid(Field::Zip));
         }
 

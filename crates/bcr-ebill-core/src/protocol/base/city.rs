@@ -18,7 +18,7 @@ impl City {
             return Err(ProtocolValidationError::FieldEmpty(Field::City));
         }
 
-        if s.len() > MAX_CITY_LEN {
+        if s.trim().chars().count() > MAX_CITY_LEN {
             return Err(ProtocolValidationError::FieldInvalid(Field::City));
         }
 
@@ -152,5 +152,35 @@ mod tests {
             City::new("            "),
             Err(ProtocolValidationError::FieldEmpty(Field::City))
         ));
+    }
+
+    #[test]
+    fn test_city_utf8() {
+        // Test Arabic city name
+        let arabic_city = "الرياض"; // Riyadh
+        let c = City::new(arabic_city).expect("Arabic city should work");
+        assert_eq!(c.as_str(), arabic_city);
+
+        // Test city with special characters
+        let city = "São Paulo";
+        let c = City::new(city).expect("City with special chars should work");
+        assert_eq!(c.as_str(), city);
+
+        // Create a string with exactly 100 Arabic characters
+        let long_arabic = "ر".repeat(100);
+        assert!(
+            City::new(&long_arabic).is_ok(),
+            "100 Arabic chars should be OK"
+        );
+
+        // Create a string with 101 Arabic characters (should fail)
+        let too_long_arabic = "ر".repeat(101);
+        assert!(
+            matches!(
+                City::new(&too_long_arabic),
+                Err(ProtocolValidationError::FieldInvalid(Field::City))
+            ),
+            "101 Arabic chars should fail"
+        );
     }
 }

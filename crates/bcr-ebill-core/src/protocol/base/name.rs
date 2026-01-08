@@ -18,7 +18,7 @@ impl Name {
             return Err(ProtocolValidationError::FieldEmpty(Field::Name));
         }
 
-        if s.len() > MAX_NAME_LEN {
+        if s.trim().chars().count() > MAX_NAME_LEN {
             return Err(ProtocolValidationError::FieldInvalid(Field::Name));
         }
 
@@ -152,5 +152,40 @@ mod tests {
             Name::new("            "),
             Err(ProtocolValidationError::FieldEmpty(Field::Name))
         ));
+    }
+
+    #[test]
+    fn test_name_utf8() {
+        // Test Arabic name (multi-byte UTF-8 characters)
+        let arabic_name = "محمد أحمد";
+        let n = Name::new(arabic_name).expect("Arabic name should work");
+        assert_eq!(n.as_str(), arabic_name);
+
+        // Test Chinese name
+        let chinese_name = "李明";
+        let n = Name::new(chinese_name).expect("Chinese name should work");
+        assert_eq!(n.as_str(), chinese_name);
+
+        // Test name with emojis
+        let emoji_name = "John 👨‍💼";
+        let n = Name::new(emoji_name).expect("Name with emoji should work");
+        assert_eq!(n.as_str(), emoji_name);
+
+        // Create a string with exactly 200 Arabic characters (which would be more than 200 bytes)
+        let long_arabic = "أ".repeat(200);
+        assert!(
+            Name::new(&long_arabic).is_ok(),
+            "200 Arabic chars should be OK"
+        );
+
+        // Create a string with 201 Arabic characters (should fail)
+        let too_long_arabic = "أ".repeat(201);
+        assert!(
+            matches!(
+                Name::new(&too_long_arabic),
+                Err(ProtocolValidationError::FieldInvalid(Field::Name))
+            ),
+            "201 Arabic chars should fail"
+        );
     }
 }

@@ -108,10 +108,14 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                     false
                 };
 
-                // Check if pending share already exists for this contact and receiver
+                // Check if pending share already exists for this contact and receiver with Incoming direction
                 let pending_exists = self
                     .nostr_contact_store
-                    .pending_share_exists_for_node_and_receiver(&decoded.data.node_id, node_id)
+                    .pending_share_exists_for_node_and_receiver(
+                        &decoded.data.node_id,
+                        node_id,
+                        ShareDirection::Incoming,
+                    )
                     .await
                     .unwrap_or(false);
 
@@ -302,8 +306,12 @@ mod tests {
         // Expect pending share to be checked and created
         nostr_contact
             .expect_pending_share_exists_for_node_and_receiver()
-            .with(eq(node_id_test()), eq(node_id_test()))
-            .returning(|_, _| Ok(false))
+            .with(
+                eq(node_id_test()),
+                eq(node_id_test()),
+                eq(ShareDirection::Incoming),
+            )
+            .returning(|_, _, _| Ok(false))
             .once();
 
         nostr_contact
@@ -462,8 +470,12 @@ mod tests {
         // Pending share already exists
         nostr_contact
             .expect_pending_share_exists_for_node_and_receiver()
-            .with(eq(node_id_test()), eq(node_id_test()))
-            .returning(|_, _| Ok(true))
+            .with(
+                eq(node_id_test()),
+                eq(node_id_test()),
+                eq(ShareDirection::Incoming),
+            )
+            .returning(|_, _, _| Ok(true))
             .once();
 
         // Should NOT add a new pending share or notification
@@ -480,6 +492,86 @@ mod tests {
             .handle_event(event.try_into().unwrap(), &node_id_test(), None, None)
             .await
             .expect("Event successfully handled - duplicate skipped");
+    }
+
+    #[tokio::test]
+    async fn test_bidirectional_share_allows_both_directions() {
+        // Scenario 1: Alice shares with Bob (Incoming for Bob)
+        // This should NOT be blocked even if Bob has already shared with Alice (Outgoing from Bob)
+        let (mut transport, mut contact, mut nostr_contact, mut notification, mut push_service) =
+            get_mocks();
+        let keys = BcrKeys::new();
+
+        let event = Event::new_contact_share(ContactShareEvent {
+            node_id: node_id_test(),
+            private_key: keys.get_private_key(),
+            initial_share_id: "alice-to-bob-123".to_string(),
+            share_back_pending_id: None,
+        });
+
+        transport
+            .expect_resolve_contact()
+            .with(eq(node_id_test()))
+            .returning(move |_| Ok(Some(get_contact_data(keys.clone()))))
+            .once();
+
+        contact
+            .expect_get()
+            .with(eq(node_id_test()))
+            .returning(|_| Ok(None))
+            .once();
+
+        nostr_contact
+            .expect_by_node_id()
+            .with(eq(node_id_test()))
+            .returning(|_| Ok(None))
+            .once();
+
+        // Check for Incoming share - should NOT exist
+        nostr_contact
+            .expect_pending_share_exists_for_node_and_receiver()
+            .with(
+                eq(node_id_test()),
+                eq(node_id_test()),
+                eq(ShareDirection::Incoming),
+            )
+            .returning(|_, _, _| Ok(false)) // No Incoming share exists
+            .once();
+
+        // Should create the Incoming pending share
+        nostr_contact
+            .expect_add_pending_share()
+            .withf(|share| {
+                share.node_id == node_id_test()
+                    && share.direction == ShareDirection::Incoming
+                    && share.contact.name.to_string() == "My Name"
+            })
+            .returning(|_| Ok(()))
+            .once();
+
+        notification
+            .expect_add()
+            .withf(|n| {
+                n.notification_type
+                    == bcr_ebill_core::application::notification::NotificationType::Contact
+            })
+            .returning(Ok)
+            .once();
+
+        push_service.expect_send().times(1).returning(|_| ());
+
+        let handler = ContactShareEventHandler::new(
+            Arc::new(transport),
+            Arc::new(contact),
+            Arc::new(nostr_contact),
+            Arc::new(notification),
+            Arc::new(push_service),
+        );
+
+        handler
+            .handle_event(event.try_into().unwrap(), &node_id_test(), None, None)
+            .await
+            .expect("Incoming share created successfully even if Outgoing share exists");
     }
 
     fn get_contact_data(keys: BcrKeys) -> NostrContactData {

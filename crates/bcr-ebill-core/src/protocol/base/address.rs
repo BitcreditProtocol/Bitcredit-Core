@@ -18,7 +18,7 @@ impl Address {
             return Err(ProtocolValidationError::FieldEmpty(Field::Address));
         }
 
-        if s.len() > MAX_ADDRESS_LEN {
+        if s.trim().chars().count() > MAX_ADDRESS_LEN {
             return Err(ProtocolValidationError::FieldInvalid(Field::Address));
         }
 
