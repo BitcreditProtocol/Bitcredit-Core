@@ -18,7 +18,7 @@ impl Identification {
             return Err(ProtocolValidationError::FieldEmpty(Field::Identification));
         }
 
-        if s.len() > MAX_IDENTIFICATION_LEN {
+        if s.trim().chars().count() > MAX_IDENTIFICATION_LEN {
             return Err(ProtocolValidationError::FieldInvalid(Field::Identification));
         }
 

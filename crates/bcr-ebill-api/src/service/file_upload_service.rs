@@ -67,7 +67,7 @@ impl FileUploadServiceApi for FileUploadService {
             }
         };
 
-        if name.is_empty() || name.len() > MAX_FILE_NAME_CHARACTERS {
+        if name.is_empty() || name.chars().count() > MAX_FILE_NAME_CHARACTERS {
             return Err(Error::Validation(
                 ProtocolValidationError::InvalidFileName(MAX_FILE_NAME_CHARACTERS).into(),
             ));
