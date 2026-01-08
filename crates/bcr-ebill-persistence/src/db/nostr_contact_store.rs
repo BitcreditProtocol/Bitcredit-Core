@@ -536,7 +536,7 @@ pub struct NostrContactDb {
     pub handshake_status: HandshakeStatus,
     /// The keys to decrypt private contact details.
     pub contact_private_key: Option<SecretKey>,
-    /// Optional mint URL for ecash payments
+    /// Optional mint URL for notifications
     pub mint_url: Option<url::Url>,
 }
 

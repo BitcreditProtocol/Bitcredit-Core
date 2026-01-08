@@ -30,7 +30,7 @@ pub struct NostrContact {
     pub handshake_status: HandshakeStatus,
     /// The keys to decrypt private nostr contact details.
     pub contact_private_key: Option<SecretKey>,
-    /// Optional mint URL for ecash payments
+    /// Optional mint URL for notifications
     pub mint_url: Option<url::Url>,
 }
 
@@ -88,7 +88,7 @@ impl NostrContact {
                 proof_document_file: None,
                 nostr_relays: self.relays,
                 is_logical: true,
-                mint_url: None,
+                mint_url: self.mint_url,
             })
         } else {
             None
