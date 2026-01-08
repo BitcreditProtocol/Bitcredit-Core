@@ -338,9 +338,14 @@ impl IdentityService {
 }
 
 /// Derives a child key, encrypts the contact data with it and returns the bcr metadata
-fn get_bcr_data(identity: &Identity, keys: &BcrKeys) -> Result<BcrMetadata> {
+fn get_bcr_data(
+    identity: &Identity,
+    keys: &BcrKeys,
+    mint_url: Option<url::Url>,
+) -> Result<BcrMetadata> {
     let derived_keys = keys.derive_identity_keypair()?;
-    let contact = identity.as_contact(None);
+    let mut contact = identity.as_contact(None);
+    contact.mint_url = mint_url;
     debug!("Publishing identity contact data: {contact:?}");
     let payload = serde_json::to_string(&contact)?;
     let encrypted = base58::encode(&crypto::encrypt_ecies(
@@ -936,7 +941,8 @@ impl IdentityServiceApi for IdentityService {
 
     async fn publish_contact(&self, identity: &Identity, keys: &BcrKeys) -> Result<()> {
         debug!("Publishing our identity contact to nostr profile");
-        let bcr_data = get_bcr_data(identity, keys)?;
+        let mint_url = Some(get_config().mint_config.default_mint_url.clone());
+        let bcr_data = get_bcr_data(identity, keys, mint_url)?;
         let contact_data =
             NostrContactData::new(&identity.name, identity.nostr_relays.clone(), bcr_data);
         self.block_transport
@@ -1564,22 +1570,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_email_confirmations() {
-        let mut storage = MockIdentityStoreApiMock::new();
-        storage
-            .expect_get_email_confirmations()
-            .returning(|| Ok(vec![]));
-        let service = get_service(storage);
-        let res = service.get_email_confirmations().await.expect("works");
-        assert_eq!(res.len(), 0);
-    }
-
-    #[tokio::test]
     async fn test_verify_email() {
+        init_test_cfg();
+        let keys = BcrKeys::new();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_or_create_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(move || Ok(keys.clone()));
         storage
             .expect_set_email_confirmation()
             .returning(|_, _| Ok(()));
@@ -1601,6 +1598,17 @@ mod tests {
         );
         let res = service.verify_email("123456").await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_email_confirmations() {
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_email_confirmations()
+            .returning(|| Ok(vec![]));
+        let service = get_service(storage);
+        let res = service.get_email_confirmations().await.expect("works");
+        assert_eq!(res.len(), 0);
     }
 
     #[tokio::test]
