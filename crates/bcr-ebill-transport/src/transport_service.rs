@@ -833,6 +833,7 @@ mod tests {
             country_of_birth_or_registration: None,
             city_of_birth_or_registration: None,
             is_logical: false,
+            mint_url: None,
         }
     }
 

@@ -35,6 +35,8 @@ pub struct Contact {
     pub proof_document_file: Option<File>,
     pub nostr_relays: Vec<url::Url>,
     pub is_logical: bool, // indicates that this contact is just a nostr contact
+    #[serde(default)]
+    pub mint_url: Option<url::Url>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

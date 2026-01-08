@@ -553,6 +553,7 @@ impl ContactServiceApi for ContactService {
                     proof_document_file,
                     nostr_relays,
                     is_logical: false,
+                    mint_url: None,
                 }
             }
             ContactType::Anon => {
@@ -570,6 +571,7 @@ impl ContactServiceApi for ContactService {
                     proof_document_file: None,
                     nostr_relays: get_config().nostr_config.relays.clone(), // Use the configured relays for now
                     is_logical: false,
+                    mint_url: None,
                 }
             }
         };
@@ -670,6 +672,7 @@ impl ContactServiceApi for ContactService {
             proof_document_file,
             nostr_relays: self.config.nostr_config.relays.clone(),
             is_logical: false,
+            mint_url: None,
         };
 
         debug!("contact {t:?} with node_id {node_id} created");
@@ -912,6 +915,7 @@ pub mod tests {
             proof_document_file: None,
             nostr_relays: vec![],
             is_logical: false,
+            mint_url: None,
         }
     }
 
@@ -924,6 +928,7 @@ pub mod tests {
             trust_level: TrustLevel::Participant,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,
+            mint_url: None,
         }
     }
 
@@ -1499,6 +1504,7 @@ pub mod tests {
                 trust_level: TrustLevel::Participant,
                 handshake_status: HandshakeStatus::None,
                 contact_private_key: None,
+                mint_url: None,
             }))
         });
         let result = get_service(

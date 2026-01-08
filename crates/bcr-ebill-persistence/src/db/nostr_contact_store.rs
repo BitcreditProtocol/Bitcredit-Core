@@ -536,6 +536,8 @@ pub struct NostrContactDb {
     pub handshake_status: HandshakeStatus,
     /// The keys to decrypt private contact details.
     pub contact_private_key: Option<SecretKey>,
+    /// Optional mint URL for notifications
+    pub mint_url: Option<url::Url>,
 }
 
 impl From<NostrContact> for NostrContactDb {
@@ -548,6 +550,7 @@ impl From<NostrContact> for NostrContactDb {
             trust_level: contact.trust_level,
             handshake_status: contact.handshake_status,
             contact_private_key: contact.contact_private_key,
+            mint_url: contact.mint_url,
         }
     }
 }
@@ -563,6 +566,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
             trust_level: db.trust_level,
             handshake_status: db.handshake_status,
             contact_private_key: db.contact_private_key,
+            mint_url: db.mint_url,
         })
     }
 }
@@ -917,6 +921,7 @@ mod tests {
             trust_level: TrustLevel::None,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,
+            mint_url: None,
         }
     }
 

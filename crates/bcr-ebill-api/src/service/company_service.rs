@@ -422,7 +422,12 @@ impl CompanyService {
 }
 
 /// Derives a company contact encryption key, encrypts the contact data with it and returns the BCR metadata.
-fn get_bcr_data(company: &Company, keys: &BcrKeys, relays: Vec<url::Url>) -> Result<BcrMetadata> {
+fn get_bcr_data(
+    company: &Company,
+    keys: &BcrKeys,
+    relays: Vec<url::Url>,
+    mint_url: Option<url::Url>,
+) -> Result<BcrMetadata> {
     let derived_keys = keys.derive_company_keypair()?;
     let contact = Contact {
         t: ContactType::Company,
@@ -438,6 +443,7 @@ fn get_bcr_data(company: &Company, keys: &BcrKeys, relays: Vec<url::Url>) -> Res
         proof_document_file: None,
         nostr_relays: relays,
         is_logical: false,
+        mint_url,
     };
     let payload = serde_json::to_string(&contact)?;
     let encrypted = base58::encode(&crypto::encrypt_ecies(
@@ -1312,7 +1318,8 @@ impl CompanyServiceApi for CompanyService {
     async fn publish_contact(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         debug!("Publishing our company contact to nostr profile");
         let relays = get_config().nostr_config.relays.clone();
-        let bcr_data = get_bcr_data(company, keys, relays.clone())?;
+        let mint_url = Some(get_config().mint_config.default_mint_url.clone());
+        let bcr_data = get_bcr_data(company, keys, relays.clone(), mint_url)?;
         let contact_data = NostrContactData::new(&company.name, relays, bcr_data);
         debug!("Publishing company contact data: {contact_data:?}");
         self.transport_service

@@ -511,6 +511,7 @@ mod tests {
             proof_document_file: None,
             nostr_relays: vec![],
             is_logical: false,
+            mint_url: None,
         }
     }
 

@@ -30,6 +30,8 @@ pub struct NostrContact {
     pub handshake_status: HandshakeStatus,
     /// The keys to decrypt private nostr contact details.
     pub contact_private_key: Option<SecretKey>,
+    /// Optional mint URL for notifications
+    pub mint_url: Option<url::Url>,
 }
 
 impl NostrContact {
@@ -48,6 +50,7 @@ impl NostrContact {
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
             contact_private_key: private_key,
+            mint_url: contact.mint_url.clone(),
         })
     }
 
@@ -64,6 +67,7 @@ impl NostrContact {
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
             contact_private_key: private_key.or(self.contact_private_key),
+            mint_url: contact.mint_url.clone().or(self.mint_url.clone()),
         }
     }
 
@@ -84,6 +88,7 @@ impl NostrContact {
                 proof_document_file: None,
                 nostr_relays: self.relays,
                 is_logical: true,
+                mint_url: self.mint_url,
             })
         } else {
             None
