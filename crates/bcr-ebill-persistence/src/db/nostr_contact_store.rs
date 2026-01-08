@@ -249,13 +249,15 @@ impl NostrStoreApi for SurrealNostrStore {
         &self,
         node_id: &NodeId,
         receiver_node_id: &NodeId,
+        direction: ShareDirection,
     ) -> Result<bool> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
         bindings.add(DB_NODE_ID, node_id.to_owned())?;
         bindings.add(DB_RECEIVER_NODE_ID, receiver_node_id.to_owned())?;
+        bindings.add(DB_CONTACT_SHARE_DIRECTION, direction)?;
         let query = format!(
-            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_NODE_ID} = ${DB_NODE_ID} AND {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} LIMIT 1"
+            "SELECT * FROM type::table(${DB_TABLE}) WHERE {DB_NODE_ID} = ${DB_NODE_ID} AND {DB_RECEIVER_NODE_ID} = ${DB_RECEIVER_NODE_ID} AND {DB_CONTACT_SHARE_DIRECTION} = ${DB_CONTACT_SHARE_DIRECTION} LIMIT 1"
         );
         let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
         Ok(!result.is_empty())
@@ -1306,5 +1308,130 @@ mod tests {
             .expect("Failed to get retries");
 
         assert_eq!(retries.len(), 3);
+    }
+
+    // === Pending Contact Share Tests ===
+
+    fn get_test_pending_share(
+        id: &str,
+        node_id: &NodeId,
+        receiver_node_id: &NodeId,
+        direction: ShareDirection,
+    ) -> PendingContactShare {
+        let keys = BcrKeys::new();
+        PendingContactShare {
+            id: id.to_string(),
+            node_id: node_id.clone(),
+            contact: bcr_ebill_core::application::contact::Contact {
+                t: bcr_ebill_core::protocol::blockchain::bill::block::ContactType::Person,
+                node_id: node_id.clone(),
+                name: Name::new("Test Contact").unwrap(),
+                email: None,
+                postal_address: None,
+                date_of_birth_or_registration: None,
+                country_of_birth_or_registration: None,
+                city_of_birth_or_registration: None,
+                identification_number: None,
+                avatar_file: None,
+                proof_document_file: None,
+                nostr_relays: vec![],
+                is_logical: false,
+            },
+            sender_node_id: node_id.clone(),
+            contact_private_key: keys.get_private_key(),
+            receiver_node_id: receiver_node_id.clone(),
+            received_at: Timestamp::now(),
+            direction,
+            initial_share_id: Some("initial-123".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pending_share_exists_distinguishes_direction() {
+        let store = get_store().await;
+
+        let alice_keys = BcrKeys::new();
+        let bob_keys = BcrKeys::new();
+        let alice_node_id = NodeId::new(alice_keys.pub_key(), bitcoin::Network::Testnet);
+        let bob_node_id = NodeId::new(bob_keys.pub_key(), bitcoin::Network::Testnet);
+
+        // Scenario: Alice shares with Bob (Incoming for Bob from Alice)
+        let alice_to_bob_share = get_test_pending_share(
+            "alice-to-bob",
+            &alice_node_id,
+            &bob_node_id,
+            ShareDirection::Incoming,
+        );
+
+        store
+            .add_pending_share(alice_to_bob_share)
+            .await
+            .expect("Failed to add Alice->Bob share");
+
+        // Check: Incoming share from Alice to Bob should exist
+        let incoming_exists = store
+            .pending_share_exists_for_node_and_receiver(
+                &alice_node_id,
+                &bob_node_id,
+                ShareDirection::Incoming,
+            )
+            .await
+            .expect("Failed to check incoming share");
+        assert!(incoming_exists, "Incoming share Alice->Bob should exist");
+
+        // Check: Outgoing share from Alice to Bob should NOT exist
+        let outgoing_exists = store
+            .pending_share_exists_for_node_and_receiver(
+                &alice_node_id,
+                &bob_node_id,
+                ShareDirection::Outgoing,
+            )
+            .await
+            .expect("Failed to check outgoing share");
+        assert!(
+            !outgoing_exists,
+            "Outgoing share Alice->Bob should NOT exist (only Incoming exists)"
+        );
+
+        // Now: Bob shares back with Alice (Incoming for Alice from Bob)
+        let bob_to_alice_share = get_test_pending_share(
+            "bob-to-alice",
+            &bob_node_id,
+            &alice_node_id,
+            ShareDirection::Incoming,
+        );
+
+        store
+            .add_pending_share(bob_to_alice_share)
+            .await
+            .expect("Failed to add Bob->Alice share");
+
+        // Check: Incoming share from Bob to Alice should exist
+        let incoming_exists_reverse = store
+            .pending_share_exists_for_node_and_receiver(
+                &bob_node_id,
+                &alice_node_id,
+                ShareDirection::Incoming,
+            )
+            .await
+            .expect("Failed to check incoming share reverse");
+        assert!(
+            incoming_exists_reverse,
+            "Incoming share Bob->Alice should exist (bidirectional works!)"
+        );
+
+        // Check: Both shares coexist
+        let alice_to_bob_still_exists = store
+            .pending_share_exists_for_node_and_receiver(
+                &alice_node_id,
+                &bob_node_id,
+                ShareDirection::Incoming,
+            )
+            .await
+            .expect("Failed to check Alice->Bob still exists");
+        assert!(
+            alice_to_bob_still_exists,
+            "Alice->Bob share should still exist after Bob->Alice added"
+        );
     }
 }

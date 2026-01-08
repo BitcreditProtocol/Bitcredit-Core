@@ -124,11 +124,12 @@ pub trait NostrStoreApi: ServiceTraitBounds {
     ) -> Result<Vec<PendingContactShare>>;
     /// Delete a pending contact share (after approval or rejection)
     async fn delete_pending_share(&self, id: &str) -> Result<()>;
-    /// Check if a pending share exists for a given node_id and receiver
+    /// Check if a pending share exists for a given node_id, receiver, and direction
     async fn pending_share_exists_for_node_and_receiver(
         &self,
         node_id: &NodeId,
         receiver_node_id: &NodeId,
+        direction: ShareDirection,
     ) -> Result<bool>;
 
     // === Relay Sync Status Methods ===

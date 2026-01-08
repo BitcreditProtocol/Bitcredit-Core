@@ -861,7 +861,7 @@ mockall::mock! {
         async fn list_pending_shares_by_receiver(&self, receiver_node_id: &NodeId) -> bcr_ebill_persistence::Result<Vec<PendingContactShare>>;
         async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> bcr_ebill_persistence::Result<Vec<PendingContactShare>>;
         async fn delete_pending_share(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
-        async fn pending_share_exists_for_node_and_receiver(&self, node_id: &NodeId, receiver_node_id: &NodeId) -> bcr_ebill_persistence::Result<bool>;
+        async fn pending_share_exists_for_node_and_receiver(&self, node_id: &NodeId, receiver_node_id: &NodeId, direction: ShareDirection) -> bcr_ebill_persistence::Result<bool>;
         async fn get_pending_relays(&self) -> bcr_ebill_persistence::Result<Vec<url::Url>>;
         async fn get_relay_sync_status(&self, relay: &url::Url) -> bcr_ebill_persistence::Result<Option<RelaySyncStatus>>;
         async fn update_relay_sync_status(&self, relay: &url::Url, status: SyncStatus) -> bcr_ebill_persistence::Result<()>;
