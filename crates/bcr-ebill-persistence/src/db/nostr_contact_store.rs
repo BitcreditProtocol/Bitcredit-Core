@@ -1336,6 +1336,7 @@ mod tests {
                 proof_document_file: None,
                 nostr_relays: vec![],
                 is_logical: false,
+                mint_url: None,
             },
             sender_node_id: node_id.clone(),
             contact_private_key: keys.get_private_key(),

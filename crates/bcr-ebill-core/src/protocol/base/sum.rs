@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use crate::protocol::{ProtocolValidationError, constants::CURRENCY_SAT};
+use crate::protocol::{
+    ProtocolValidationError,
+    constants::{CURRENCY_SAT, VALID_CURRENCIES},
+};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -109,6 +112,8 @@ pub struct Currency {
     decimals: u8,
 }
 
+impl Currency {}
+
 impl Display for Currency {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.code().fmt(f)
@@ -127,6 +132,14 @@ impl Currency {
             code: canonicalize_code(code)?,
             decimals: validate_decimals(decimals)?,
         })
+    }
+
+    pub fn validated(string: &str) -> Result<String, ProtocolValidationError> {
+        let code = string.to_uppercase();
+        if !VALID_CURRENCIES.contains(&code.as_str()) {
+            return Err(ProtocolValidationError::InvalidCurrency);
+        }
+        Ok(code)
     }
 
     pub fn code(&self) -> &str {
@@ -426,5 +439,32 @@ mod tests {
         assert!(Currency::new("SA", 2).is_err()); // wrong length
         assert!(Currency::new("EUR", 6).is_err()); // decimals > 5
         assert_eq!(Currency::new("eur", 2).unwrap().code(), "EUR"); // uppercases
+    }
+
+    #[test]
+    fn test_currency_case_insensitive() {
+        // Test that currency validation is case-insensitive
+        let valid_currencies = ["SAT", "sat", "Sat", "sAt", "SaT"];
+
+        for currency in valid_currencies.iter() {
+            let currency_upper = Currency::validated(currency).expect("invalid currency");
+            assert!(
+                VALID_CURRENCIES.contains(&currency_upper.as_str()),
+                "Currency '{}' (uppercase: '{}') should be valid",
+                currency,
+                currency_upper
+            );
+        }
+
+        // Test invalid currency
+        let invalid_currencies = ["USD", "eur", "BTC"];
+        for currency in invalid_currencies.iter() {
+            let invalid = Currency::validated(currency);
+            assert!(
+                invalid.is_err(),
+                "Currency '{}' should be invalid",
+                currency
+            );
+        }
     }
 }

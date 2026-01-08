@@ -97,13 +97,12 @@ impl General {
     #[wasm_bindgen(unchecked_return_type = "TSResult<OverviewResponse>")]
     pub async fn overview(&self, currency: &str) -> JsValue {
         let res: Result<OverviewResponse> = async {
-            // Make currency comparison case-insensitive
-            let currency = currency.to_uppercase();
-            if !VALID_CURRENCIES.contains(&currency.as_str()) {
+            let Ok(currency) = Currency::validated(currency) else {
                 return Err(
                     Error::Validation(ProtocolValidationError::InvalidCurrency.into()).into(),
                 );
-            }
+            };
+
             let parsed_currency = Currency::sat();
             let result = get_ctx()
                 .bill_service
@@ -164,38 +163,5 @@ impl General {
 impl Default for General {
     fn default() -> Self {
         General
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_currency_case_insensitive() {
-        // Test that currency validation is case-insensitive
-        let valid_currencies = ["SAT", "sat", "Sat", "sAt", "SaT"];
-
-        for currency in valid_currencies.iter() {
-            let currency_upper = currency.to_uppercase();
-            assert!(
-                VALID_CURRENCIES.contains(&currency_upper.as_str()),
-                "Currency '{}' (uppercase: '{}') should be valid",
-                currency,
-                currency_upper
-            );
-        }
-
-        // Test invalid currency
-        let invalid_currencies = ["USD", "eur", "BTC"];
-        for currency in invalid_currencies.iter() {
-            let currency_upper = currency.to_uppercase();
-            assert!(
-                !VALID_CURRENCIES.contains(&currency_upper.as_str()),
-                "Currency '{}' (uppercase: '{}') should be invalid",
-                currency,
-                currency_upper
-            );
-        }
     }
 }

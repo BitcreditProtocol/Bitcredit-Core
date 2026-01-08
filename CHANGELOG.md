@@ -4,6 +4,9 @@
 * Handshake - share back without contacts
 * Multi-Relay Support
 * Fix mempool link for mainnet
+* Fix string length validation to use character count for UTF-8 support
+* Fix contact shares to work bi-directional simultaneously
+* Fix currency validation to be case-insensitive
 
 # 0.5.0-1 (Hotfix)
 
