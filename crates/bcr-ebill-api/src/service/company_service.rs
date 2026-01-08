@@ -438,6 +438,7 @@ fn get_bcr_data(company: &Company, keys: &BcrKeys, relays: Vec<url::Url>) -> Res
         proof_document_file: None,
         nostr_relays: relays,
         is_logical: false,
+        mint_url: None,
     };
     let payload = serde_json::to_string(&contact)?;
     let encrypted = base58::encode(&crypto::encrypt_ecies(

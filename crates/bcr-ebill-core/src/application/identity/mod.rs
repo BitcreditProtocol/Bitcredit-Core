@@ -175,6 +175,7 @@ impl Identity {
             proof_document_file: self.identity_document_file.clone(),
             nostr_relays: self.nostr_relays.clone(),
             is_logical: false,
+            mint_url: None,
         }
     }
 }

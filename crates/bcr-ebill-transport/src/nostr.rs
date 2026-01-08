@@ -1552,6 +1552,7 @@ mod relay_calculation_tests {
             trust_level,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,
+            mint_url: None,
         }
     }
 

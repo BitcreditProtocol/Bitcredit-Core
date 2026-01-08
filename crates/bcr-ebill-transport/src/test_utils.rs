@@ -438,6 +438,7 @@ pub fn as_contact(id: &BillIdentParticipant) -> Contact {
         country_of_birth_or_registration: None,
         city_of_birth_or_registration: None,
         is_logical: false,
+        mint_url: None,
     }
 }
 

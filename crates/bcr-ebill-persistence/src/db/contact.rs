@@ -99,6 +99,7 @@ pub struct ContactDb {
     pub avatar_file: Option<FileDb>,
     pub proof_document_file: Option<FileDb>,
     pub nostr_relays: Vec<url::Url>,
+    pub mint_url: Option<url::Url>,
 }
 
 impl From<ContactDb> for Contact {
@@ -117,6 +118,7 @@ impl From<ContactDb> for Contact {
             proof_document_file: contact.proof_document_file.map(|f| f.into()),
             nostr_relays: contact.nostr_relays,
             is_logical: false,
+            mint_url: contact.mint_url,
         }
     }
 }
@@ -136,6 +138,7 @@ impl From<Contact> for ContactDb {
             avatar_file: contact.avatar_file.map(|f| f.into()),
             proof_document_file: contact.proof_document_file.map(|f| f.into()),
             nostr_relays: contact.nostr_relays,
+            mint_url: contact.mint_url,
         }
     }
 }
@@ -163,6 +166,7 @@ pub mod tests {
             proof_document_file: None,
             nostr_relays: vec![],
             is_logical: false,
+            mint_url: None,
         }
     }
 
