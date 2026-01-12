@@ -127,14 +127,23 @@ impl TransportServiceApi for TransportService {
 
     async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> Result<()> {
         let payee = event.bill.payee.node_id();
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                payee.clone(),
+        let drawer = &event.bill.drawer.node_id;
+
+        // Build recipients: payee and drawer (avoiding duplicates)
+        let mut recipients = vec![(
+            payee.clone(),
+            (BillEventType::BillAccepted, ActionType::CheckBill),
+        )];
+
+        // Add drawer only if different from payee
+        if drawer != &payee {
+            recipients.push((
+                drawer.clone(),
                 (BillEventType::BillAccepted, ActionType::CheckBill),
-            )]),
-            None,
-            None,
-        );
+            ));
+        }
+
+        let all_events = event.generate_action_messages(HashMap::from_iter(recipients), None, None);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
@@ -205,15 +214,24 @@ impl TransportServiceApi for TransportService {
 
     async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()> {
         let sender = event.sender();
-        let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                holder.node_id(),
+        let payee = event.bill.payee.node_id();
+        let drawer = &event.bill.drawer.node_id;
+
+        // Build recipients: payee and drawer (avoiding duplicates)
+        let mut recipients = vec![(
+            payee.clone(),
+            (BillEventType::BillPaid, ActionType::CheckBill),
+        )];
+
+        // Add drawer only if different from payee
+        if drawer != &payee {
+            recipients.push((
+                drawer.clone(),
                 (BillEventType::BillPaid, ActionType::CheckBill),
-            )]),
-            None,
-            None,
-        );
+            ));
+        }
+
+        let all_events = event.generate_action_messages(HashMap::from_iter(recipients), None, None);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
@@ -221,6 +239,7 @@ impl TransportServiceApi for TransportService {
             .send_all_bill_events(&sender, &all_events)
             .await?;
         // Only send email to holder and only if we are drawee
+        let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
         if let Some(holder_event) = all_events.get(&holder.node_id())
             && sender == event.bill.drawee.node_id
         {
@@ -289,14 +308,23 @@ impl TransportServiceApi for TransportService {
         event: &BillChainEvent,
         buyer: &BillParticipant,
     ) -> Result<()> {
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                buyer.node_id().clone(),
+        let seller = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
+
+        // Build recipients: buyer and seller (avoiding duplicates)
+        let mut recipients = vec![(
+            buyer.node_id().clone(),
+            (BillEventType::BillSold, ActionType::CheckBill),
+        )];
+
+        // Add seller only if different from buyer
+        if buyer.node_id() != seller.node_id() {
+            recipients.push((
+                seller.node_id(),
                 (BillEventType::BillSold, ActionType::CheckBill),
-            )]),
-            None,
-            None,
-        );
+            ));
+        }
+
+        let all_events = event.generate_action_messages(HashMap::from_iter(recipients), None, None);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
@@ -368,12 +396,17 @@ impl TransportServiceApi for TransportService {
         rejected_action: ActionType,
     ) -> Result<()> {
         if let Some(event_type) = rejected_action.get_rejected_event_type() {
-            let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
-            let all_events = event.generate_action_messages(
-                HashMap::new(),
-                Some(event_type),
-                Some(rejected_action),
-            );
+            let drawee = &event.bill.drawee.node_id;
+
+            // Build recipients: everyone in bill chain except payer (drawee)
+            let recipients: HashMap<NodeId, (BillEventType, ActionType)> = event
+                .get_all_participant_node_ids()
+                .into_iter()
+                .filter(|node_id| node_id != drawee)
+                .map(|node_id| (node_id, (event_type.clone(), ActionType::CheckBill)))
+                .collect();
+
+            let all_events = event.generate_action_messages(recipients, None, None);
 
             self.block_transport_service
                 .send_bill_chain_events(event.clone())
@@ -382,6 +415,7 @@ impl TransportServiceApi for TransportService {
                 .send_all_bill_events(&event.sender(), &all_events)
                 .await?;
             // Only send email to holder (=requester)
+            let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
             if let Some(holder_event) = all_events.get(&holder.node_id()) {
                 self.notification_transport_service
                     .send_email_notification(&event.sender(), &holder.node_id(), holder_event)
@@ -403,7 +437,7 @@ impl TransportServiceApi for TransportService {
                     recoursee.node_id.clone(),
                     (event_type.clone(), action.clone()),
                 )]),
-                Some(BillEventType::BillBlock),
+                None,
                 None,
             );
             self.block_transport_service
@@ -682,33 +716,33 @@ mod tests {
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&payee))));
 
-                // expect to send payment rejected event to all recipients
+                // expect to send payment rejected event to all recipients (except payer)
                 transport
                     .expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentRejected))
                     .returning(|_, _, _| Ok(()))
-                    .times(3);
+                    .times(2);
 
-                // expect to send acceptance rejected event to all recipients
+                // expect to send acceptance rejected event to all recipients (except payer)
                 transport
                     .expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillAcceptanceRejected))
                     .returning(|_, _, _| Ok(()))
-                    .times(3);
+                    .times(2);
 
-                // expect to send buying rejected event to all recipients
+                // expect to send buying rejected event to all recipients (except payer)
                 transport
                     .expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillBuyingRejected))
                     .returning(|_, _, _| Ok(()))
-                    .times(3);
+                    .times(2);
 
-                // expect to send recourse rejected event to all recipients
+                // expect to send recourse rejected event to all recipients (except payer)
                 transport
                     .expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
                     .returning(|_, _, _| Ok(()))
-                    .times(3);
+                    .times(2);
 
                 block_transport
                     .expect_send_bill_chain_events()
@@ -907,25 +941,17 @@ mod tests {
                     .expect_get()
                     .returning(move |_| Ok(Some(as_contact(&payer))));
 
-                // expect to send payment recourse event to all recipients
+                // expect to send payment recourse event to recoursee only
                 mock.expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentRecourse))
                     .returning(|_, _, _| Ok(()))
                     .times(1);
-                mock.expect_send_private_event()
-                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillBlock))
-                    .returning(|_, _, _| Ok(()))
-                    .times(2);
 
-                // expect to send acceptance recourse event to all recipients
+                // expect to send acceptance recourse event to recoursee only
                 mock.expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillAcceptanceRecourse))
                     .returning(|_, _, _| Ok(()))
                     .times(1);
-                mock.expect_send_private_event()
-                    .withf(|_, _, e| check_chain_payload(e, BillEventType::BillBlock))
-                    .returning(|_, _, _| Ok(()))
-                    .times(2);
 
                 block_transport
                     .expect_send_bill_chain_events()
@@ -1181,7 +1207,11 @@ mod tests {
                             BillEventType::BillAccepted,
                             Some(ActionType::CheckBill),
                         ),
-                        (payer, BillEventType::BillBlock, None),
+                        (
+                            payer,
+                            BillEventType::BillAccepted,
+                            Some(ActionType::CheckBill),
+                        ),
                     ],
                     &bill,
                     &chain,
@@ -1357,7 +1387,7 @@ mod tests {
                 setup_chain_expectation(
                     vec![
                         (payee, BillEventType::BillPaid, Some(ActionType::CheckBill)),
-                        (payer, BillEventType::BillBlock, None),
+                        (payer, BillEventType::BillPaid, Some(ActionType::CheckBill)),
                     ],
                     &bill,
                     &chain,
@@ -1552,12 +1582,14 @@ mod tests {
 
         let (service, event) = expect_service(
             |mock, mock_contact_store, _, _, _, notification_transport, _, block_transport| {
-                let payer = payer.clone();
                 let payee = payee.clone();
                 setup_chain_expectation(
                     vec![
-                        (payee, BillEventType::BillBlock, None),
-                        (payer, BillEventType::BillBlock, None),
+                        (
+                            payee.clone(),
+                            BillEventType::BillSold,
+                            Some(ActionType::CheckBill),
+                        ),
                         (
                             buyer.clone(),
                             BillEventType::BillSold,
