@@ -40,6 +40,7 @@ impl BillActionEventHandler {
         event: &BillChainEventPayload,
         node_id: &NodeId,
         npub: nostr::PublicKey,
+        event_id: Option<String>,
     ) -> Result<()> {
         trace!("creating notification {event:?} for {node_id}");
         // no action no notification required
@@ -55,13 +56,26 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
+        // Check for deduplication based on event_id
+        if let Some(ref eid) = event_id
+            && let Ok(true) = self
+                .notification_store
+                .notification_exists_for_event_id(eid, node_id)
+                .await
+        {
+            trace!("Notification already exists for event_id {eid}, skipping");
+            return Ok(());
+        }
+
         // create notification
-        let notification = Notification::new_bill_notification(
+        let mut notification = Notification::new_bill_notification(
             &event.bill_id,
             node_id,
             &event_description(&event.event_type),
             Some(serde_json::to_value(event)?),
         );
+        notification.event_id = event_id;
+
         // mark Bill event as done if any active one exists
         match self
             .notification_store
@@ -132,9 +146,10 @@ impl NotificationHandlerApi for BillActionEventHandler {
         event: EventEnvelope,
         node_id: &NodeId,
         sender: Option<nostr::PublicKey>,
-        _evt: Option<Box<nostr::Event>>,
+        evt: Option<Box<nostr::Event>>,
     ) -> Result<()> {
         debug!("incoming bill chain event for {node_id} in action event handler");
+        let event_id = evt.as_ref().map(|e| e.id.to_string());
         if let Ok(decoded) = Event::<BillChainEventPayload>::try_from(event.clone()) {
             if let Err(e) = self
                 .create_notification(
@@ -143,6 +158,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
                     sender.ok_or(Error::Network(
                         "No original event for notification handler".to_string(),
                     ))?,
+                    event_id,
                 )
                 .await
             {
@@ -302,6 +318,13 @@ mod tests {
             .with(eq(bill_id_test()), always())
             .returning(|_, _| Ok(true));
 
+        // check for deduplication
+        notification_store
+            .expect_notification_exists_for_event_id()
+            .with(always(), eq(node_id_test()))
+            .times(1)
+            .returning(|_, _| Ok(false));
+
         // look for currently active notification
         notification_store
             .expect_get_latest_by_reference()
@@ -374,5 +397,58 @@ mod tests {
             MockPushService::new(),
             MockBillChainEventProcessorApi::new(),
         )
+    }
+
+    #[tokio::test]
+    async fn test_deduplicates_notification_for_same_event_id() {
+        let (mut notification_store, mut push_service, mut chain_processor) = create_mocks();
+
+        // given bill chain valid
+        chain_processor
+            .expect_validate_chain_event_and_sender()
+            .with(eq(bill_id_test()), always())
+            .returning(|_, _| Ok(true));
+
+        // check for deduplication - return true to indicate notification already exists
+        notification_store
+            .expect_notification_exists_for_event_id()
+            .with(always(), eq(node_id_test()))
+            .times(1)
+            .returning(|_, _| Ok(true));
+
+        // should NOT look for currently active notification
+        notification_store.expect_get_latest_by_reference().never();
+
+        // should NOT store new notification
+        notification_store.expect_add().never();
+
+        // should NOT send push notification
+        push_service.expect_send().never();
+
+        let handler = BillActionEventHandler::new(
+            Arc::new(notification_store),
+            Arc::new(push_service),
+            Arc::new(chain_processor),
+        );
+        let event = Event::new(
+            EventType::Bill,
+            BillChainEventPayload {
+                bill_id: bill_id_test(),
+                event_type: BillEventType::BillSigned,
+                sum: Some(Sum::new_sat(500).expect("sat works")),
+                action_type: Some(ActionType::CheckBill),
+            },
+        );
+
+        let nostr_event = get_test_nostr_event();
+        handler
+            .handle_event(
+                event.try_into().expect("Envelope from event"),
+                &node_id_test(),
+                Some(nostr_event.pubkey),
+                Some(Box::new(nostr_event)),
+            )
+            .await
+            .expect("Event should be handled");
     }
 }

@@ -268,6 +268,7 @@ impl From<NotificationFilters> for NotificationFilter {
             reference_id: value.reference_id,
             notification_type: value.notification_type,
             node_ids: value.node_ids.unwrap_or_default(),
+            event_id: None,
             limit: value.limit,
             offset: value.offset,
         }

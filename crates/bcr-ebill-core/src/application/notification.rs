@@ -30,6 +30,8 @@ pub struct Notification {
     pub active: bool,
     /// Additional data to be used for notification specific logic
     pub payload: Option<Value>,
+    /// Optional origin event id for deduplication
+    pub event_id: Option<String>,
 }
 
 impl Notification {
@@ -48,6 +50,7 @@ impl Notification {
             datetime: Timestamp::now().to_datetime(),
             active: true,
             payload,
+            event_id: None,
         }
     }
 
@@ -66,6 +69,7 @@ impl Notification {
             datetime: Timestamp::now().to_datetime(),
             active: true,
             payload,
+            event_id: None,
         }
     }
 
@@ -84,6 +88,7 @@ impl Notification {
             datetime: Timestamp::now().to_datetime(),
             active: true,
             payload,
+            event_id: None,
         }
     }
 }
