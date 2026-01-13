@@ -79,35 +79,44 @@ impl BillChainEvent {
             .collect()
     }
 
-    /// Generates bill action events for all participants in the chain. Individual node_ids can be
-    /// assigned a specific event and action type by providing an override. The recipient node_id is the
-    /// key in the map.
+    /// Returns all participant node IDs in the bill chain
+    pub fn get_all_participant_node_ids(&self) -> Vec<NodeId> {
+        self.participants.keys().cloned().collect()
+    }
+
+    /// Generates bill action events for participants. Individual `node_id`s can be assigned a
+    /// specific event and action type by providing an override in `event_overrides`.
+    /// If `event_type` and `action` are provided, participants without an override receive that
+    /// event. Participants without an override and where `event_type` is `None` will not receive
+    /// any event. The recipient `node_id` is the key in the map.
     pub fn generate_action_messages(
         &self,
         event_overrides: HashMap<NodeId, (BillEventType, ActionType)>,
         event_type: Option<BillEventType>,
         action: Option<ActionType>,
     ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
-        let base_event = event_type.unwrap_or(BillEventType::BillBlock);
         self.participants
             .keys()
-            .map(|node_id| {
+            .filter_map(|node_id| {
                 let (event_type, override_action) = event_overrides
                     .get(node_id)
-                    .map(|(event_type, action)| (event_type.clone(), Some(action.clone())))
-                    .unwrap_or((base_event.clone(), None));
-                (
-                    node_id.to_owned(),
-                    Event::new(
-                        EventType::Bill,
-                        BillChainEventPayload {
-                            event_type,
-                            bill_id: self.bill.id.to_owned(),
-                            action_type: override_action.or(action.clone()),
-                            sum: Some(self.bill.sum.clone()),
-                        },
-                    ),
-                )
+                    .map(|(event_type, action)| (Some(event_type.clone()), Some(action.clone())))
+                    .unwrap_or((event_type.clone(), action.clone()));
+
+                event_type.map(|e| {
+                    (
+                        node_id.to_owned(),
+                        Event::new(
+                            EventType::Bill,
+                            BillChainEventPayload {
+                                event_type: e,
+                                bill_id: self.bill.id.to_owned(),
+                                action_type: override_action,
+                                sum: Some(self.bill.sum.clone()),
+                            },
+                        ),
+                    )
+                })
             })
             .collect()
     }

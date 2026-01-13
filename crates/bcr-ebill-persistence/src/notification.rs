@@ -58,6 +58,12 @@ pub trait NotificationStoreApi: ServiceTraitBounds {
         block_height: i32,
         action_type: ActionType,
     ) -> Result<bool>;
+    /// Check if a notification already exists for the given event_id and node_id
+    async fn notification_exists_for_event_id(
+        &self,
+        event_id: &str,
+        node_id: &NodeId,
+    ) -> Result<bool>;
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -66,6 +72,7 @@ pub struct NotificationFilter {
     pub reference_id: Option<String>,
     pub notification_type: Option<String>,
     pub node_ids: Vec<NodeId>,
+    pub event_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -81,6 +88,9 @@ impl NotificationFilter {
         }
         if self.notification_type.is_some() {
             parts.push("notification_type = $notification_type");
+        }
+        if self.event_id.is_some() {
+            parts.push("event_id = $event_id");
         }
 
         if !self.node_ids.is_empty() {
@@ -120,6 +130,12 @@ impl NotificationFilter {
                 notification_type.to_string(),
             )
         })
+    }
+
+    pub fn get_event_id(&self) -> Option<(String, String)> {
+        self.event_id
+            .as_ref()
+            .map(|event_id| ("event_id".to_string(), event_id.to_string()))
     }
 
     pub fn get_node_ids(&self) -> Option<(String, Vec<NodeId>)> {
@@ -182,12 +198,13 @@ mod tests {
             reference_id: Some("123".to_string()),
             notification_type: Some("Bill".to_string()),
             node_ids: vec![node_id_test()],
+            event_id: Some("test_event_id".to_string()),
             ..Default::default()
         };
 
         assert_eq!(
             all.filters(),
-            "WHERE active = $active AND reference_id = $reference_id AND notification_type = $notification_type AND node_id IN $node_ids"
+            "WHERE active = $active AND reference_id = $reference_id AND notification_type = $notification_type AND event_id = $event_id AND node_id IN $node_ids"
         );
     }
 }

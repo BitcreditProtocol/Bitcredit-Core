@@ -108,6 +108,9 @@ impl NotificationStoreApi for SurrealNotificationStore {
         if let Some(notification_type) = filter.get_notification_type() {
             bindings.add(&notification_type.0, notification_type.1.to_owned())?;
         }
+        if let Some(event_id) = filter.get_event_id() {
+            bindings.add(&event_id.0, event_id.1.to_owned())?;
+        }
         if let Some(node_ids) = filter.get_node_ids() {
             bindings.add(&node_ids.0, node_ids.1.to_owned())?;
         }
@@ -236,6 +239,21 @@ impl NotificationStoreApi for SurrealNotificationStore {
             .await?;
         Ok(!res.is_empty())
     }
+
+    async fn notification_exists_for_event_id(
+        &self,
+        event_id: &str,
+        node_id: &NodeId,
+    ) -> Result<bool> {
+        let mut bindings = Bindings::default();
+        bindings.add("table", Self::TABLE)?;
+        bindings.add("event_id", event_id.to_string())?;
+        bindings.add("node_id", node_id.to_owned())?;
+        let res: Vec<NotificationDb> = self.db
+            .query("SELECT * FROM type::table($table) WHERE event_id = $event_id AND node_id = $node_id limit 1", bindings)
+            .await?;
+        Ok(!res.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +271,7 @@ struct NotificationDb {
     pub datetime: DateTimeUtc,
     pub active: bool,
     pub payload: Option<Value>,
+    pub event_id: Option<String>,
 }
 
 impl From<NotificationDb> for Notification {
@@ -266,6 +285,7 @@ impl From<NotificationDb> for Notification {
             datetime: value.datetime,
             active: value.active,
             payload: value.payload,
+            event_id: value.event_id,
         }
     }
 }
@@ -285,6 +305,7 @@ impl From<Notification> for NotificationDb {
             datetime: value.datetime,
             active: value.active,
             payload: value.payload,
+            event_id: value.event_id,
         }
     }
 }
@@ -667,6 +688,7 @@ mod tests {
             datetime: Timestamp::now().to_datetime(),
             active: true,
             payload: None,
+            event_id: None,
         }
     }
 }

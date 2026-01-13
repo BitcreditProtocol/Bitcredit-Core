@@ -418,6 +418,11 @@ mod test_utils {
                 block_height: i32,
                 action_type: ActionType,
             ) -> Result<bool>;
+            async fn notification_exists_for_event_id(
+                &self,
+                event_id: &str,
+                node_id: &NodeId,
+            ) -> Result<bool>;
         }
     }
 

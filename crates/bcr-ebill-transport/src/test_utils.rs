@@ -632,6 +632,11 @@ mockall::mock! {
             block_height: i32,
             action_type: ActionType,
         ) -> bcr_ebill_persistence::Result<bool>;
+        async fn notification_exists_for_event_id(
+            &self,
+            event_id: &str,
+            node_id: &NodeId,
+        ) -> bcr_ebill_persistence::Result<bool>;
     }
 }
 
