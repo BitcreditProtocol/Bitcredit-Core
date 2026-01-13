@@ -84,10 +84,11 @@ impl BillChainEvent {
         self.participants.keys().cloned().collect()
     }
 
-    /// Generates bill action events for participants. If event_type and action are provided,
-    /// all participants receive that event (except BillBlock events which are filtered out).
-    /// Individual node_ids can be assigned a specific event and action type by providing an
-    /// override. The recipient node_id is the key in the map.
+    /// Generates bill action events for participants. Individual `node_id`s can be assigned a
+    /// specific event and action type by providing an override in `event_overrides`.
+    /// If `event_type` and `action` are provided, participants without an override receive that
+    /// event. Participants without an override and where `event_type` is `None` will not receive
+    /// any event. The recipient `node_id` is the key in the map.
     pub fn generate_action_messages(
         &self,
         event_overrides: HashMap<NodeId, (BillEventType, ActionType)>,
