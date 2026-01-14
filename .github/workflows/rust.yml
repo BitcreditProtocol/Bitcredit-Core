@@ -50,6 +50,9 @@ jobs:
       - name: Update rust
         run: rustup update stable
 
+      - name: Cargo update
+        run: cargo update
+
       - name: Add rustup components
         run: rustup component add clippy rustfmt
 
@@ -77,6 +80,9 @@ jobs:
       - name: Cargo deny
         run: cargo deny check
         continue-on-error: true
+
+      - name: Test
+        run: cargo test
 
       - name: Build
         run: cargo build --verbose
