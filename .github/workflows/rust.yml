@@ -64,7 +64,6 @@ jobs:
 
       - name: Check
         run: cargo check --verbose
-        continue-on-error: true
 
       - name: Check formatting
         run: cargo fmt -- --check
