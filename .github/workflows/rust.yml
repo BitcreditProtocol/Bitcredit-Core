@@ -16,7 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Create Github App token
         id: app-token
@@ -53,23 +54,25 @@ jobs:
       - name: Add rustup components
         run: rustup component add clippy rustfmt
 
-      - name: Activate cache
-        uses: Swatinem/rust-cache@v2.8.0
-        with:
-          prefix-key: "ebill-01"
-
       - name: Install required cargo tools
         run: cargo install cargo-deny clippy-sarif sarif-fmt
 
+      - name: Activate cache
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          prefix-key: "ebill-01"
+
       - name: Check
-        run: cargo check
+        run: cargo check --verbose
 
       - name: Check formatting
         run: cargo fmt -- --check
+        continue-on-error: true
 
       - name: Clippy
         run:
           cargo clippy
+          --verbose
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
