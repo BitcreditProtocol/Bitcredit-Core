@@ -115,10 +115,10 @@ let config = {
   job_runner_initial_delay_seconds: 5,
   job_runner_check_interval_seconds: 600,
   transport_initial_subscription_delay_seconds: 1,
-  default_mint_url: "http://localhost:4343",
-  // default_mint_url: "https://wildcat-dev-docker.minibill.tech",
-  default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99",
-  // default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
+  // default_mint_url: "http://localhost:4343",
+  default_mint_url: "https://wildcat-dev-docker.minibill.tech",
+  // default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99",
+  default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
   num_confirmations_for_payment: 1,
   dev_mode: true,
   disable_mandatory_email_confirmations: true,
@@ -218,7 +218,7 @@ async function start(create_identity) {
 
   // Notifications
   if (current_identity) {
-    let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
+    let filter = { node_ids: [current_identity.node_id] };
     let notifications = success_or_fail(await window.notifApi.list(filter));
     console.log("notifications: ", notifications);
   }
