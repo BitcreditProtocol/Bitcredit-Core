@@ -8,6 +8,11 @@
 * Fix contact shares to work bi-directional simultaneously
 * Fix currency validation to be case-insensitive
 
+# 0.5.0-2 (Hotfix)
+
+* Wait for Minting Status to be enabled before attempting to Mint
+    * Don't fail on setting recovery data again
+
 # 0.5.0-1 (Hotfix)
 
 * Fix validation for deleting the last signatory of a company

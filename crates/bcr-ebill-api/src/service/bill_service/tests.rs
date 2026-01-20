@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    external::mint::QuoteStatusReply,
+    external::mint::{QuoteMintingStatus, QuoteStatusReply},
     service::{
         bill_service::test_utils::{MockBillContext, safe_deadline_ts},
         company_service::tests::{
@@ -6732,6 +6732,9 @@ async fn check_mint_state_pending_accepted() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Accepted {
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+                minting_status: QuoteMintingStatus::Enabled {
+                    minted: cashu::Amount::from(1500),
+                },
             })
         });
     let req_node_id = identity.identity.node_id.clone();
@@ -6818,6 +6821,16 @@ async fn check_mint_state_accepted_proofs() {
     ctx.mint_client
         .expect_mint()
         .returning(|_, _, _, _, _, _, _| Ok("proofs".into()));
+    ctx.mint_client
+        .expect_lookup_quote_for_mint()
+        .returning(|_, _| {
+            Ok(QuoteStatusReply::Accepted {
+                minting_status: QuoteMintingStatus::Enabled {
+                    minted: cashu::Amount::ZERO,
+                },
+                keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+            })
+        });
     ctx.mint_store
         .expect_add_recovery_data_to_offer()
         .returning(|_, _, _| Ok(()));

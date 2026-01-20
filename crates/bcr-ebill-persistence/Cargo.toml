@@ -35,5 +35,5 @@ surrealdb = { workspace = true, default-features = false, features = ["kv-indxdb
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 surrealdb = { workspace = true, default-features = false, features = ["protocol-ws"] }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }

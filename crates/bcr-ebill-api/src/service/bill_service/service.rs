@@ -4,7 +4,9 @@ use crate::external;
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
-use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
+use crate::external::mint::{
+    MintClientApi, QuoteMintingStatus, QuoteStatusReply, ResolveMintOffer,
+};
 use crate::get_config;
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::TransportServiceApi;
@@ -374,7 +376,32 @@ impl BillService {
                             "Checking for keyset info for {}",
                             &mint_request.mint_request_id
                         );
-                        // not finished - check keyset and try to mint and create tokens and persist
+
+                        // check status to check minting-status
+                        let updated_status = self
+                            .mint_client
+                            .lookup_quote_for_mint(
+                                &mint_cfg.default_mint_url,
+                                &mint_request.mint_request_id,
+                            )
+                            .await?;
+
+                        if matches!(
+                            updated_status,
+                            QuoteStatusReply::Accepted {
+                                minting_status: QuoteMintingStatus::Disabled,
+                                ..
+                            }
+                        ) {
+                            info!(
+                                "Quote {} is accepted, but minting not enabled - skipping",
+                                mint_request.mint_request_id
+                            );
+                            return Ok(());
+                        }
+
+                        // Quote is Accepted and Minting Enabled - attempt to mint
+                        // check keyset and try to mint and create tokens and persist
                         match self
                             .mint_client
                             .get_keyset_info(&mint_cfg.default_mint_url, &offer.keyset_id)
@@ -430,7 +457,8 @@ impl BillService {
                                 // detect which one reliably
                                 // with the secrets and rs, we can re-create the blinded messages and get
                                 // blinded signatures from the mint using the mint, OR the recovery endpoint
-                                self.mint_store
+                                if let Err(e) = self
+                                    .mint_store
                                     .add_recovery_data_to_offer(
                                         &mint_request.mint_request_id,
                                         &secrets
@@ -439,7 +467,14 @@ impl BillService {
                                             .collect::<Vec<String>>(),
                                         &rs.iter().map(|r| r.to_string()).collect::<Vec<String>>(),
                                     )
-                                    .await?;
+                                    .await
+                                {
+                                    error!(
+                                        "Couldn't set recovery data for quote {}: {e}",
+                                        mint_request.mint_request_id
+                                    );
+                                }
+
                                 // mint and generate proofs
                                 let proofs = self
                                     .mint_client

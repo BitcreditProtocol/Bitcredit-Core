@@ -220,7 +220,7 @@ async function start(create_identity) {
 
   // Notifications
   if (current_identity) {
-    let filter = current_identity ? { node_ids: [current_identity.node_id] } : null;
+    let filter = { node_ids: [current_identity.node_id] };
     let notifications = success_or_fail(await window.notifApi.list(filter));
     console.log("notifications: ", notifications);
   }

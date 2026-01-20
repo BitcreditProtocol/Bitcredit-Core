@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bcr_common::client::keys::Client as KeysClient;
 use bcr_common::client::quote::Client as QuoteClient;
 use bcr_common::client::swap::Client as SwapClient;
-use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
+use bcr_common::wire::quotes::{MintingStatus, ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::{
     application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::SecretKey,
@@ -414,6 +414,7 @@ pub enum QuoteStatusReply {
     },
     Accepted {
         keyset_id: cdk02::Id,
+        minting_status: QuoteMintingStatus,
     },
     Rejected {
         tstamp: DateTimeUtc,
@@ -424,6 +425,21 @@ pub enum QuoteStatusReply {
     Expired {
         tstamp: DateTimeUtc,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum QuoteMintingStatus {
+    Disabled,
+    Enabled { minted: cashu::Amount },
+}
+
+impl From<MintingStatus> for QuoteMintingStatus {
+    fn from(value: MintingStatus) -> Self {
+        match value {
+            MintingStatus::Disabled => QuoteMintingStatus::Disabled,
+            MintingStatus::Enabled { minted } => QuoteMintingStatus::Enabled { minted },
+        }
+    }
 }
 
 impl From<StatusReply> for QuoteStatusReply {
@@ -441,7 +457,14 @@ impl From<StatusReply> for QuoteStatusReply {
                 expiration_date,
                 discounted,
             },
-            StatusReply::Accepted { keyset_id, .. } => QuoteStatusReply::Accepted { keyset_id },
+            StatusReply::Accepted {
+                keyset_id,
+                minting_status,
+                ..
+            } => QuoteStatusReply::Accepted {
+                keyset_id,
+                minting_status: minting_status.into(),
+            },
             StatusReply::Rejected { tstamp, .. } => QuoteStatusReply::Rejected { tstamp },
             StatusReply::Canceled { tstamp } => QuoteStatusReply::Cancelled { tstamp },
             StatusReply::OfferExpired { tstamp, .. } => QuoteStatusReply::Expired { tstamp },
