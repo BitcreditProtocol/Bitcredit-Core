@@ -21,11 +21,6 @@ codegen-units = 1 # Reduces binary size at the cost of compile time
 [profile.dev]
 opt-level = 1 # Avoid surrealdb index out of bounds issue in dev build
 
-
-# Temporary fix, overriding this in surrealdb, because there's a break in 7.2.0 with the errno crate
-[patch.crates-io]
-async-graphql = { git = "https://github.com/async-graphql/async-graphql", rev = "dba4342a1d6c644e1bb69db46eb98fe64f88665d" } # 7.0.17
-
 [workspace.dependencies]
 sha2 = { version = "0.10", default-features = false }
 borsh = "1.5"
