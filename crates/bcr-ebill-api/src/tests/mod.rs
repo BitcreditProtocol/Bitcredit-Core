@@ -498,7 +498,9 @@ pub mod tests {
                 let _ = crate::init(crate::Config {
                     app_url: url::Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
                     bitcoin_network: "testnet".to_string(),
-                    esplora_base_url: url::Url::parse("https://esplora.minibill.tech").unwrap(),
+                    esplora_base_urls: vec![
+                        url::Url::parse("https://esplora.minibill.tech").unwrap(),
+                    ],
                     db_config: SurrealDbConfig {
                         connection_string: "ws://localhost:8800".to_string(),
                         ..SurrealDbConfig::default()

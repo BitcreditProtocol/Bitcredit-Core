@@ -36,7 +36,10 @@ pub mod util;
 pub struct Config {
     pub app_url: url::Url,
     pub bitcoin_network: String,
-    pub esplora_base_url: url::Url,
+    /// List of Esplora API base URLs (in order of priority).
+    /// The first URL is used for API requests with fallback to subsequent URLs on failure.
+    /// The first URL is also used for user-facing links (e.g., mempool explorer links).
+    pub esplora_base_urls: Vec<url::Url>,
     pub db_config: SurrealDbConfig,
     pub files_db_config: SurrealDbConfig,
     pub nostr_config: NostrConfig,

@@ -10,7 +10,9 @@ use bcr_ebill_core::{
 };
 use bitcoin::{Network, secp256k1::Scalar};
 use log::debug;
+use log::warn;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::alias::try_join;
 use tokio_with_wasm as tokio;
@@ -97,34 +99,84 @@ impl BitcoinClient {
         }
     }
 
-    pub fn request_url(&self, path: &str) -> String {
+    fn build_api_url(base_url: &url::Url, path: &str) -> String {
         match get_config().bitcoin_network() {
-            Network::Bitcoin => {
-                format!("{}api{path}", get_config().esplora_base_url)
-            }
-            Network::Regtest => {
-                format!("{}regtest/api{path}", get_config().esplora_base_url)
-            }
-            _ => {
-                // for testnet and testnet4
-                format!("{}testnet/api{path}", get_config().esplora_base_url)
-            }
+            Network::Bitcoin => format!("{}api{path}", base_url),
+            Network::Regtest => format!("{}regtest/api{path}", base_url),
+            _ => format!("{}testnet/api{path}", base_url),
         }
     }
 
-    pub fn link_url(&self, path: &str) -> String {
+    fn build_link_url(base_url: &url::Url, path: &str) -> String {
         match get_config().bitcoin_network() {
-            Network::Bitcoin => {
-                format!("{}{path}", get_config().esplora_base_url)
-            }
-            Network::Regtest => {
-                format!("{}regtest/{path}", get_config().esplora_base_url)
-            }
-            _ => {
-                // for testnet and testnet4
-                format!("{}testnet/{path}", get_config().esplora_base_url)
+            Network::Bitcoin => format!("{}{path}", base_url),
+            Network::Regtest => format!("{}regtest/{path}", base_url),
+            _ => format!("{}testnet/{path}", base_url),
+        }
+    }
+
+    fn primary_base_url() -> &'static url::Url {
+        get_config()
+            .esplora_base_urls
+            .first()
+            .expect("esplora_base_urls must not be empty")
+    }
+
+    pub fn link_url(&self, path: &str) -> String {
+        Self::build_link_url(Self::primary_base_url(), path)
+    }
+
+    fn is_retryable_error(error: &reqwest::Error) -> bool {
+        if let Some(status) = error.status() {
+            return status.is_server_error();
+        }
+        // connection error
+        true
+    }
+
+    async fn request_with_fallback<T, F>(&self, path_builder: F) -> Result<T>
+    where
+        T: DeserializeOwned,
+        F: Fn(&url::Url) -> String,
+    {
+        let urls = &get_config().esplora_base_urls;
+        let mut last_error: Option<Error> = None;
+
+        for (i, base_url) in urls.iter().enumerate() {
+            let url = path_builder(base_url);
+            debug!("Trying Esplora URL {}/{}: {}", i + 1, urls.len(), url);
+
+            match self.cl.get(&url).send().await {
+                Ok(response) => {
+                    if response.status().is_server_error() {
+                        let status = response.status();
+                        warn!(
+                            "Esplora URL {} returned server error {}, trying next",
+                            base_url, status
+                        );
+                        last_error = Some(Error::Api(response.error_for_status().unwrap_err()));
+                        continue;
+                    }
+
+                    return response.json::<T>().await.map_err(|e| Error::Api(e).into());
+                }
+                Err(e) => {
+                    if Self::is_retryable_error(&e) && i + 1 < urls.len() {
+                        warn!(
+                            "Esplora URL {} failed with retryable error: {}, trying next",
+                            base_url, e
+                        );
+                        last_error = Some(Error::Api(e));
+                        continue;
+                    }
+                    return Err(Error::Api(e).into());
+                }
             }
         }
+
+        Err(last_error
+            .expect("esplora_base_urls must not be empty")
+            .into())
     }
 }
 
@@ -139,44 +191,23 @@ impl Default for BitcoinClient {
 impl BitcoinClientApi for BitcoinClient {
     async fn get_address_info(&self, address: &BitcoinAddress) -> Result<AddressInfo> {
         let addr_str = address.assume_checked_ref().to_string();
-        let address: AddressInfo = self
-            .cl
-            .get(self.request_url(&format!("/address/{addr_str}")))
-            .send()
-            .await
-            .map_err(Error::from)?
-            .json()
-            .await
-            .map_err(Error::from)?;
-
-        Ok(address)
+        self.request_with_fallback(|base_url| {
+            Self::build_api_url(base_url, &format!("/address/{addr_str}"))
+        })
+        .await
     }
 
     async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions> {
         let addr_str = address.assume_checked_ref().to_string();
-        let transactions: Transactions = self
-            .cl
-            .get(self.request_url(&format!("/address/{addr_str}/txs")))
-            .send()
-            .await
-            .map_err(Error::from)?
-            .json()
-            .await
-            .map_err(Error::from)?;
-
-        Ok(transactions)
+        self.request_with_fallback(|base_url| {
+            Self::build_api_url(base_url, &format!("/address/{addr_str}/txs"))
+        })
+        .await
     }
 
     async fn get_last_block_height(&self) -> Result<u64> {
-        let height: u64 = self
-            .cl
-            .get(self.request_url("/blocks/tip/height"))
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(height)
+        self.request_with_fallback(|base_url| Self::build_api_url(base_url, "/blocks/tip/height"))
+            .await
     }
 
     async fn check_payment_for_address(
