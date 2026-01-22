@@ -7,11 +7,12 @@
 * Fix string length validation to use character count for UTF-8 support
 * Fix contact shares to work bi-directional simultaneously
 * Fix currency validation to be case-insensitive
+* Add Esplora URL fallback support with automatic retry on errors
 
 # 0.5.0-2 (Hotfix)
 
 * Wait for Minting Status to be enabled before attempting to Mint
-    * Don't fail on setting recovery data again
+  * Don't fail on setting recovery data again
 
 # 0.5.0-1 (Hotfix)
 
@@ -44,20 +45,20 @@
 * Remove `identity_proof` API and adapt and move to new email confirmation API
 * Add dev mode flag `disable_mandatory_email_confirmations`, to make it easier for testing
 * Identity Confirmation via Email
-    * Add persistence
-    * Adapt `create_identity` and `deanonymize` to require a confirmed email for identified users
-    * Add endpoints to `confirm`, `verify` an email address and to `get_email_confirmations`
-    * Adapt `IdentityProof` Block to include the email confirmation signed by the mint
-    * Split up `update_identity` and `update_email` for identity and create identity proof block on email update
-    * Change flow for company creation to first call `create_company_keys` to get a key pair and node id, then confirm email of creator, then create company
-        * Add `email` to signatory and use a data structure for signatories (breaking API and DB change)
-    * Adapt signatory handling for companies
-        * API for inviting signatories
-        * API to accept/reject company invites
-        * Restructured company persistence - `company` table is now a cache, calculated from the chain (similar to bills)
-        * Added possibility to locally hide past invites
-    * Add notification when being invited to a company
-    * Add `signer_identity_proof` to bill block data and verify it
+  * Add persistence
+  * Adapt `create_identity` and `deanonymize` to require a confirmed email for identified users
+  * Add endpoints to `confirm`, `verify` an email address and to `get_email_confirmations`
+  * Adapt `IdentityProof` Block to include the email confirmation signed by the mint
+  * Split up `update_identity` and `update_email` for identity and create identity proof block on email update
+  * Change flow for company creation to first call `create_company_keys` to get a key pair and node id, then confirm email of creator, then create company
+    * Add `email` to signatory and use a data structure for signatories (breaking API and DB change)
+  * Adapt signatory handling for companies
+    * API for inviting signatories
+    * API to accept/reject company invites
+    * Restructured company persistence - `company` table is now a cache, calculated from the chain (similar to bills)
+    * Added possibility to locally hide past invites
+  * Add notification when being invited to a company
+  * Add `signer_identity_proof` to bill block data and verify it
 * Add Contact Handshake
 
 # 0.4.12
@@ -78,13 +79,13 @@
 
 * Recoursee in a request to recourse does not have to be in the contact book anymore
 * Add explicit deadlines for the following actions (breaking API and DB change)
-    * Request to Accept (acceptance_deadline) - min. 48 hours after block timestamp (UTC end of day)
-    * Request to Pay (payment_deadline) - min. 48 hours after block timestamp (UTC end of day) 
-    * Request to Recourse (recourse_deadline) - min. 48 hours after block timestamp (UTC end of day)
-    * Offer to Sell (buying_deadline) - min. UTC end of day of the block timestamp
+  * Request to Accept (acceptance_deadline) - min. 48 hours after block timestamp (UTC end of day)
+  * Request to Pay (payment_deadline) - min. 48 hours after block timestamp (UTC end of day)
+  * Request to Recourse (recourse_deadline) - min. 48 hours after block timestamp (UTC end of day)
+  * Offer to Sell (buying_deadline) - min. UTC end of day of the block timestamp
 * Add basic input validation and sanitization
-    * removed `language` from bills (breaking DB change)
-    * added `Country` type that validates against a list of valid countries (breaking DB change)
+  * removed `language` from bills (breaking DB change)
+  * added `Country` type that validates against a list of valid countries (breaking DB change)
 * Change config url values to `url::Url`
 * Print bech32 npub at startup
 * Use strongly typed `url::Url` for nostr relays
@@ -102,16 +103,16 @@
 * Add API to share company and identity details with an external party
 * Removed the concept of an `Authorized Signer`
 * Fix it so that Anon holders of a bill can do recourse (breaking DB and API change)
-    * `recourser` went from `BillIdentParticipant` to `BillParticipant`
+  * `recourser` went from `BillIdentParticipant` to `BillParticipant`
 * Added endpoints `identityApi.dev_mode_get_full_identity_chain()` and `companyApi.dev_mode_get_full_company_chain(company_id)` to show the full identity and company chains as JSON in dev mode
 * Fixed request to recourse validation
-    * The bill is not blocked, if a req to recourse expired, or was rejected
-    * It's now possible to recourse against the same person again
-    * The last person in the chain can now reject a recourse (was broken before)
-    * `get_past_endorsees` is calculated differently now - holders can only recourse against parties before the first block where they became a holder in the bill, even if they have multiple endorsement blocks in the bill
+  * The bill is not blocked, if a req to recourse expired, or was rejected
+  * It's now possible to recourse against the same person again
+  * The last person in the chain can now reject a recourse (was broken before)
+  * `get_past_endorsees` is calculated differently now - holders can only recourse against parties before the first block where they became a holder in the bill, even if they have multiple endorsement blocks in the bill
 * Cleanup deps, replace `bcr-wdc-*` deps with `bcr-common`, improve Github workflows
 * Implement the concept of `logical contacts`, which combine nostr contacts and contacts from the contact book (breaking DB change)
-    * Added a `contactApi.search` call, where callers can search and filter for contacts from contact book, logical, or both
+  * Added a `contactApi.search` call, where callers can search and filter for contacts from contact book, logical, or both
 
 # 0.4.8
 
@@ -121,10 +122,11 @@
 # 0.4.7
 
 * Added basic Dev Mode
-    * Can be activated using the config flag `dev_mode: true`
-    * If activated, it's possible to fetch a full JSON Bill Chain by ID with the bill data decrypted for debugging
-        * Endpoint: `dev_mode_get_full_bill_chain(bill_id: string): Promise<string[]>` on `Bill` api
-        * The resulting nested list of JSON strings can be consumed like this:
+  * Can be activated using the config flag `dev_mode: true`
+  * If activated, it's possible to fetch a full JSON Bill Chain by ID with the bill data decrypted for debugging
+    * Endpoint: `dev_mode_get_full_bill_chain(bill_id: string): Promise<string[]>` on `Bill` api
+    * The resulting nested list of JSON strings can be consumed like this:
+
         ```javascript
         await billApi.dev_mode_get_full_bill_chain(bill_id).map((b) => {
           const block = JSON.parse(b);
@@ -146,9 +148,9 @@
 
 * Add handling for `RemoveSignatory` from company, which flags the company as not active
 * Email Notifications
-    * Add email notifications API
-    * Add email notifications registration API
-    * Add email notifications sending logic
+  * Add email notifications API
+  * Add email notifications registration API
+  * Add email notifications sending logic
 * Fix issue where the notification sender defaulted to the personal identity instead of the signer identity
 * Added `app_url` property to config - defaults to `https://bitcredit-dev.minibill.tech` (config break)
 * Small fix to WASM build addressing the rustwasm organization archiving
@@ -158,10 +160,10 @@
 
 * Add `num_confirmations_for_payment` config flag and a `payment_config` part of the api config, to configure the amount of confirmations needed until an on-chain payment is considered `paid`
 * Rewrite payment logic to iterate transactions and calculate payment state based on the first transaction that covers the amount
-    * We now are also able to differentiate between a payment not being sent, being in the mem pool, being paid and unconfirmed and paid and confirmed
-    * Add payment state for sell, recourse and bill payments to DB (breaking DB change - reset IndexedDB)
-    * Restructure `BillCurrentWaitingState` to remove duplication (breaking API change - check `index.d.ts`)
-        * Add info for if a payment is in the mempool with it's transaction id, as well as how many confirmations it has, in the bill data (breaking DB change - reset IndexedDB)
+  * We now are also able to differentiate between a payment not being sent, being in the mem pool, being paid and unconfirmed and paid and confirmed
+  * Add payment state for sell, recourse and bill payments to DB (breaking DB change - reset IndexedDB)
+  * Restructure `BillCurrentWaitingState` to remove duplication (breaking API change - check `index.d.ts`)
+    * Add info for if a payment is in the mempool with it's transaction id, as well as how many confirmations it has, in the bill data (breaking DB change - reset IndexedDB)
 * Removed the `gloo` dependency, since it's going to be archived
 * Add chain propagation for company chains and identity chain
 * Implement recovery for personal identity, company identities and bills
@@ -172,10 +174,10 @@
 * Add option to remove files for identity, contacts and companies - if the file upload id in the payload is missing, it's ignored, if it's explicitly set to undefined, the file is removed
 * Fix blank email validation for contacts and identities
 * Add different file size limits for pictures (avatar/logo - 20k) and documents (invoices, registration, passport - 1mb) as well as an upper limit for bill files (100)
-    * This limit is checked at creation/update time, not at the time of uploading a temporary file
+  * This limit is checked at creation/update time, not at the time of uploading a temporary file
 * Add the address of the signer for the calls to `endorsements` and `past_endorsees`
 * Add api call `active_notifications_for_node_ids` on `notification` API, which returns for a set of node ids, whether they have active notifications
-    * If the set of node ids is empty, only the node ids that have active notifications are returned
+  * If the set of node ids is empty, only the node ids that have active notifications are returned
 
 # 0.4.2
 
@@ -191,7 +193,7 @@
 
 * Switch to new chain transport leveraging public Nostr threads
 * Add `plaintext_hash` to Identity, Company and Bill Blocks, which is a hash over the plaintext data
-    * (breaks all chains in the DB)
+  * (breaks all chains in the DB)
 * Add functionality for sharing a bill with an external party, encrypted, hashed, and signed, with the plaintext block data
 * Change visibility of `bill_service::error` and `bill_service::service` to private, moving the used types to `bill_service`
 * Add cargo deny
@@ -200,15 +202,15 @@
 
 * Changed minted proofs token format from cashu Token v3 to BitcrB (v4)
 * Use NodeId, PublicKey, SecretKey and BillId types internally instead of strings (fully breaking)
-    * This breaks all existing databases, since the node ids and bill ids now have the format `prefix|network|pubkey`- example: `bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f`
-    * The `prefix` is `bitcr`
-    * The `network` character is as follows:
-        * m => Mainnet
-        * t => Testnet
-        * T => Testnet4
-        * r => Regtest
-    * The `pubkey` is a stringified secp256k1 public key
-    * Existing apps need to a.) delete their IndexedDB and b.) their localhost (because the mint ID might be in there)
+  * This breaks all existing databases, since the node ids and bill ids now have the format `prefix|network|pubkey`- example: `bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f`
+  * The `prefix` is `bitcr`
+  * The `network` character is as follows:
+    * m => Mainnet
+    * t => Testnet
+    * T => Testnet4
+    * r => Regtest
+  * The `pubkey` is a stringified secp256k1 public key
+  * Existing apps need to a.) delete their IndexedDB and b.) their localhost (because the mint ID might be in there)
 * Removed `NodeId` trait and replaced it with a concrete method on the corresponding types (breaking API change)
 * Rename `BillId` TS type to `BillIdResponse` (breaking TS type)
 
