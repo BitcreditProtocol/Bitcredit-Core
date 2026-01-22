@@ -36,7 +36,12 @@ tokio = { version = "1.46", default-features = false, features = [
   "macros",
   "time",
 ] }
-tokio_with_wasm = { version = "0.8", features = ["rt", "sync", "macros", "time"] }
+tokio_with_wasm = { version = "0.8", features = [
+  "rt",
+  "sync",
+  "macros",
+  "time",
+] }
 async-trait = "0.1"
 serde_json = "1"
 serde = { version = "1", default-features = false, features = ["derive"] }
@@ -66,3 +71,4 @@ bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", rev = "f
 surrealdb = { version = "2.3", default-features = false }
 strum = { version = "0.27", features = ["derive"] }
 url = { version = "2.5" }
+mockito = "1.7"

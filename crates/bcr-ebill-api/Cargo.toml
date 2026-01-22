@@ -46,3 +46,4 @@ reqwest = { workspace = true, features = ["default", "json"] }
 [dev-dependencies]
 mockall.workspace = true
 tokio.workspace = true
+mockito.workspace = true

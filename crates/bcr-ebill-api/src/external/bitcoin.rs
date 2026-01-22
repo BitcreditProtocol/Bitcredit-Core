@@ -85,6 +85,8 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
 #[derive(Clone)]
 pub struct BitcoinClient {
     cl: reqwest::Client,
+    esplora_base_urls: Vec<url::Url>,
+    network: Network,
 }
 
 impl ServiceTraitBounds for BitcoinClient {}
@@ -94,36 +96,50 @@ impl ServiceTraitBounds for MockBitcoinClientApi {}
 
 impl BitcoinClient {
     pub fn new() -> Self {
+        Self::from_config(get_config())
+    }
+
+    pub fn from_config(config: &crate::Config) -> Self {
         Self {
             cl: reqwest::Client::new(),
+            esplora_base_urls: config.esplora_base_urls.clone(),
+            network: config.bitcoin_network(),
         }
     }
 
-    fn build_api_url(base_url: &url::Url, path: &str) -> String {
-        match get_config().bitcoin_network() {
+    #[cfg(test)]
+    pub fn with_urls(esplora_base_urls: Vec<url::Url>, network: Network) -> Self {
+        Self {
+            cl: reqwest::Client::new(),
+            esplora_base_urls,
+            network,
+        }
+    }
+
+    fn build_api_url(&self, base_url: &url::Url, path: &str) -> String {
+        match self.network {
             Network::Bitcoin => format!("{}api{path}", base_url),
             Network::Regtest => format!("{}regtest/api{path}", base_url),
             _ => format!("{}testnet/api{path}", base_url),
         }
     }
 
-    fn build_link_url(base_url: &url::Url, path: &str) -> String {
-        match get_config().bitcoin_network() {
+    fn build_link_url(&self, base_url: &url::Url, path: &str) -> String {
+        match self.network {
             Network::Bitcoin => format!("{}{path}", base_url),
             Network::Regtest => format!("{}regtest/{path}", base_url),
             _ => format!("{}testnet/{path}", base_url),
         }
     }
 
-    fn primary_base_url() -> &'static url::Url {
-        get_config()
-            .esplora_base_urls
+    fn primary_base_url(&self) -> &url::Url {
+        self.esplora_base_urls
             .first()
             .expect("esplora_base_urls must not be empty")
     }
 
     pub fn link_url(&self, path: &str) -> String {
-        Self::build_link_url(Self::primary_base_url(), path)
+        self.build_link_url(self.primary_base_url(), path)
     }
 
     fn is_retryable_error(error: &reqwest::Error) -> bool {
@@ -139,12 +155,16 @@ impl BitcoinClient {
         T: DeserializeOwned,
         F: Fn(&url::Url) -> String,
     {
-        let urls = &get_config().esplora_base_urls;
         let mut last_error: Option<Error> = None;
 
-        for (i, base_url) in urls.iter().enumerate() {
+        for (i, base_url) in self.esplora_base_urls.iter().enumerate() {
             let url = path_builder(base_url);
-            debug!("Trying Esplora URL {}/{}: {}", i + 1, urls.len(), url);
+            debug!(
+                "Trying Esplora URL {}/{}: {}",
+                i + 1,
+                self.esplora_base_urls.len(),
+                url
+            );
 
             match self.cl.get(&url).send().await {
                 Ok(response) => {
@@ -161,7 +181,7 @@ impl BitcoinClient {
                     return response.json::<T>().await.map_err(|e| Error::Api(e).into());
                 }
                 Err(e) => {
-                    if Self::is_retryable_error(&e) && i + 1 < urls.len() {
+                    if Self::is_retryable_error(&e) && i + 1 < self.esplora_base_urls.len() {
                         warn!(
                             "Esplora URL {} failed with retryable error: {}, trying next",
                             base_url, e
@@ -192,7 +212,7 @@ impl BitcoinClientApi for BitcoinClient {
     async fn get_address_info(&self, address: &BitcoinAddress) -> Result<AddressInfo> {
         let addr_str = address.assume_checked_ref().to_string();
         self.request_with_fallback(|base_url| {
-            Self::build_api_url(base_url, &format!("/address/{addr_str}"))
+            self.build_api_url(base_url, &format!("/address/{addr_str}"))
         })
         .await
     }
@@ -200,13 +220,13 @@ impl BitcoinClientApi for BitcoinClient {
     async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions> {
         let addr_str = address.assume_checked_ref().to_string();
         self.request_with_fallback(|base_url| {
-            Self::build_api_url(base_url, &format!("/address/{addr_str}/txs"))
+            self.build_api_url(base_url, &format!("/address/{addr_str}/txs"))
         })
         .await
     }
 
     async fn get_last_block_height(&self) -> Result<u64> {
-        self.request_with_fallback(|base_url| Self::build_api_url(base_url, "/blocks/tip/height"))
+        self.request_with_fallback(|base_url| self.build_api_url(base_url, "/blocks/tip/height"))
             .await
     }
 
@@ -415,10 +435,159 @@ pub struct Status {
 
 #[cfg(test)]
 pub mod tests {
+    use super::{BitcoinClient, Error, Result, Status, Tx, Vout, payment_state_from_transactions};
     use crate::tests::tests::init_test_cfg;
     use std::str::FromStr;
 
-    use super::*;
+    use bcr_ebill_core::{application::bill::PaymentState, protocol::BitcoinAddress};
+    use bitcoin::Network;
+    use mockito;
+
+    #[tokio::test]
+    async fn test_fallback_on_server_error() {
+        let mut server1 = mockito::Server::new_async().await;
+        let mut server2 = mockito::Server::new_async().await;
+
+        let m1 = server1
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(500)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let m2 = server2
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(200)
+            .with_body("12345")
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = BitcoinClient::with_urls(
+            vec![
+                url::Url::parse(&server1.url()).unwrap(),
+                url::Url::parse(&server2.url()).unwrap(),
+            ],
+            Network::Testnet,
+        );
+
+        let result: Result<u64> = client
+            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 12345);
+
+        m1.assert_async().await;
+        m2.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_fallback_on_connection_error() {
+        let mut server2 = mockito::Server::new_async().await;
+
+        let invalid_url =
+            url::Url::parse("http://invalid-host-that-does-not-exist-12345:9999").unwrap();
+
+        let m2 = server2
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(200)
+            .with_body("54321")
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = BitcoinClient::with_urls(
+            vec![invalid_url, url::Url::parse(&server2.url()).unwrap()],
+            Network::Testnet,
+        );
+
+        let result: Result<u64> = client
+            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 54321);
+
+        m2.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_all_urls_fail() {
+        let mut server1 = mockito::Server::new_async().await;
+        let mut server2 = mockito::Server::new_async().await;
+
+        let m1 = server1
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(503)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let m2 = server2
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(500)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = BitcoinClient::with_urls(
+            vec![
+                url::Url::parse(&server1.url()).unwrap(),
+                url::Url::parse(&server2.url()).unwrap(),
+            ],
+            Network::Testnet,
+        );
+
+        let result: Result<u64> = client
+            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .await;
+
+        assert!(result.is_err());
+
+        m1.assert_async().await;
+        m2.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_primary_succeeds_no_fallback() {
+        let mut server1 = mockito::Server::new_async().await;
+        let mut server2 = mockito::Server::new_async().await;
+
+        let m1 = server1
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(200)
+            .with_body("99999")
+            .expect(1)
+            .create_async()
+            .await;
+
+        let m2 = server2
+            .mock("GET", "/testnet/api/blocks/tip/height")
+            .with_status(200)
+            .with_body("11111")
+            .expect(0)
+            .create_async()
+            .await;
+
+        let client = BitcoinClient::with_urls(
+            vec![
+                url::Url::parse(&server1.url()).unwrap(),
+                url::Url::parse(&server2.url()).unwrap(),
+            ],
+            Network::Testnet,
+        );
+
+        let result: Result<u64> = client
+            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 99999);
+
+        m1.assert_async().await;
+        m2.assert_async().await;
+    }
 
     #[test]
     fn test_payment_state_from_transactions() {
