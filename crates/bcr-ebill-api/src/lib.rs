@@ -129,6 +129,10 @@ impl MintConfig {
 }
 
 pub fn init(conf: Config) -> Result<()> {
+    if conf.esplora_base_urls.is_empty() {
+        return Err(anyhow!("esplora_base_urls must contain at least one URL"));
+    }
+
     CONFIG
         .set(conf)
         .map_err(|e| anyhow!("Could not initialize E-Bill API: {e:?}"))?;

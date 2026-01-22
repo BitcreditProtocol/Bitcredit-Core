@@ -144,9 +144,10 @@ impl BitcoinClient {
 
     fn is_retryable_error(error: &reqwest::Error) -> bool {
         if let Some(status) = error.status() {
-            return status.is_server_error();
+            return status.is_server_error()
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || status == reqwest::StatusCode::REQUEST_TIMEOUT;
         }
-        // connection error
         true
     }
 
@@ -168,13 +169,21 @@ impl BitcoinClient {
 
             match self.cl.get(&url).send().await {
                 Ok(response) => {
-                    if response.status().is_server_error() {
-                        let status = response.status();
+                    let status = response.status();
+
+                    if status.is_server_error()
+                        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+                    {
                         warn!(
-                            "Esplora URL {} returned server error {}, trying next",
+                            "Esplora URL {} returned retryable status {}, trying next",
                             base_url, status
                         );
-                        last_error = Some(Error::Api(response.error_for_status().unwrap_err()));
+                        last_error = Some(Error::InvalidData(format!(
+                            "HTTP {}: {}",
+                            status.as_u16(),
+                            status.canonical_reason().unwrap_or("Unknown")
+                        )));
                         continue;
                     }
 
@@ -587,6 +596,94 @@ pub mod tests {
 
         m1.assert_async().await;
         m2.assert_async().await;
+    }
+
+    #[test]
+    fn test_fallback_on_rate_limit() {
+        let rt = ::tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut server1 = mockito::Server::new_async().await;
+            let mut server2 = mockito::Server::new_async().await;
+
+            let m1 = server1
+                .mock("GET", "/testnet/api/blocks/tip/height")
+                .with_status(429)
+                .expect(1)
+                .create_async()
+                .await;
+
+            let m2 = server2
+                .mock("GET", "/testnet/api/blocks/tip/height")
+                .with_status(200)
+                .with_body("88888")
+                .expect(1)
+                .create_async()
+                .await;
+
+            let client = BitcoinClient::with_urls(
+                vec![
+                    url::Url::parse(&server1.url()).unwrap(),
+                    url::Url::parse(&server2.url()).unwrap(),
+                ],
+                Network::Testnet,
+            );
+
+            let result: Result<u64> = client
+                .request_with_fallback(|base_url| {
+                    client.build_api_url(base_url, "/blocks/tip/height")
+                })
+                .await;
+
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 88888);
+
+            m1.assert_async().await;
+            m2.assert_async().await;
+        });
+    }
+
+    #[test]
+    fn test_fallback_on_request_timeout() {
+        let rt = ::tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut server1 = mockito::Server::new_async().await;
+            let mut server2 = mockito::Server::new_async().await;
+
+            let m1 = server1
+                .mock("GET", "/testnet/api/blocks/tip/height")
+                .with_status(408)
+                .expect(1)
+                .create_async()
+                .await;
+
+            let m2 = server2
+                .mock("GET", "/testnet/api/blocks/tip/height")
+                .with_status(200)
+                .with_body("77777")
+                .expect(1)
+                .create_async()
+                .await;
+
+            let client = BitcoinClient::with_urls(
+                vec![
+                    url::Url::parse(&server1.url()).unwrap(),
+                    url::Url::parse(&server2.url()).unwrap(),
+                ],
+                Network::Testnet,
+            );
+
+            let result: Result<u64> = client
+                .request_with_fallback(|base_url| {
+                    client.build_api_url(base_url, "/blocks/tip/height")
+                })
+                .await;
+
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 77777);
+
+            m1.assert_async().await;
+            m2.assert_async().await;
+        });
     }
 
     #[test]
