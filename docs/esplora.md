@@ -5,18 +5,43 @@ To check the bitcoin blockchain, we use the [Esplora](https://github.com/Blockst
 You can either use a publicly running service such as [Blockstream](https://blockstream.info/testnet/), or run a local regtest-based
 Esplora instance using Docker.
 
-For this, you also have to set the config to use `regtest` as a bitcoin network and `http://localhost:8094` for the explorer:
+## Configuration
+
+The `esplora_base_urls` config option accepts either:
+- An array of URLs (recommended): First URL is primary, subsequent URLs are fallbacks on 5xx server errors
+- A single URL string (legacy, for backward compatibility)
+
+### Regtest Example
+
+For local regtest, set the config to use `regtest` as a bitcoin network:
 
 ```javascript
   let config = {
     log_level: "debug",
     bitcoin_network: "regtest",
-    esplora_base_url: "http://localhost:8094",
+    esplora_base_urls: ["http://localhost:8094"],
     nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
     job_runner_initial_delay_seconds: 1,
     job_runner_check_interval_seconds: 600,
   };
 ```
+
+### Production Example with Fallback
+
+For production with fallback to Blockstream's public API:
+
+```javascript
+  let config = {
+    bitcoin_network: "testnet",
+    esplora_base_urls: [
+      "https://esplora.minibill.tech",
+      "https://blockstream.info"
+    ],
+    // ... other options
+  };
+```
+
+## Running Local Esplora
 
 In the repository root, navigate to `./esplora` and run:
 

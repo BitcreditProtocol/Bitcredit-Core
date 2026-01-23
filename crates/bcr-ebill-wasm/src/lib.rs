@@ -11,6 +11,7 @@ use job::run_jobs;
 use log::{debug, info, warn};
 use nostr_sdk::ToBech32;
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
 use std::thread_local;
 use std::time::Duration;
@@ -28,13 +29,36 @@ mod error;
 mod job;
 mod util;
 
+/// Can deserialize from either a string or a vec of strings to allow backward compatibility with
+/// single url config.
+fn deserialize_esplora_urls<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrVec {
+        Single(String),
+        Multiple(Vec<String>),
+    }
+
+    match StringOrVec::deserialize(deserializer)? {
+        StringOrVec::Single(s) => Ok(vec![s]),
+        StringOrVec::Multiple(v) => Ok(v),
+    }
+}
+
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct Config {
     pub log_level: Option<String>,
     pub app_url: String,
     pub bitcoin_network: String,
-    pub esplora_base_url: String,
+    #[serde(
+        alias = "esplora_base_url",
+        deserialize_with = "deserialize_esplora_urls"
+    )]
+    pub esplora_base_urls: Vec<String>,
     pub nostr_relays: Vec<String>,
     pub nostr_only_known_contacts: Option<bool>,
     pub nostr_max_relays: Option<usize>,
@@ -125,8 +149,11 @@ pub async fn initialize_api(
     let api_config = ApiConfig {
         app_url: url::Url::parse(&config.app_url).expect("app url is not a valid URL"),
         bitcoin_network: config.bitcoin_network,
-        esplora_base_url: url::Url::parse(&config.esplora_base_url)
-            .expect("esplora base url is not a valid URL"),
+        esplora_base_urls: config
+            .esplora_base_urls
+            .iter()
+            .map(|u| url::Url::parse(u).expect("esplora base url is not a valid URL"))
+            .collect(),
         db_config: SurrealDbConfig::default(), // unused in WASM builds
         files_db_config: SurrealDbConfig::default(), // unused in WASM builds
         nostr_config: NostrConfig {
