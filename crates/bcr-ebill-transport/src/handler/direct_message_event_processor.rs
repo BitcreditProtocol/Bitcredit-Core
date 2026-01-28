@@ -53,6 +53,7 @@ impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
             &local_node_ids,
             &self.contact_service,
             &self.offset_store,
+            None,
         )
         .await
         {

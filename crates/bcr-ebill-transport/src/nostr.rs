@@ -802,14 +802,14 @@ impl NostrConsumer {
         }
 
         // Get the earliest offset timestamp across all identities
-        // If there are no local node IDs, default to zero to fetch all historical events
-        let mut earliest_offset = Timestamp::zero();
+        let mut earliest_offset = Timestamp::now();
+        let mut dm_offset = Timestamp::now();
         if !local_node_ids.is_empty() {
-            earliest_offset = Timestamp::now();
             for node_id in &local_node_ids {
                 let offset = get_offset(&offset_store, node_id).await;
-                if offset < earliest_offset {
+                if offset != Timestamp::zero() && offset < earliest_offset {
                     earliest_offset = offset;
+                    dm_offset = add_time_slack(earliest_offset);
                 }
             }
         }
@@ -822,7 +822,7 @@ impl NostrConsumer {
                 Filter::new()
                     .pubkeys(local_pubkeys.clone())
                     .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
-                    .since(earliest_offset.into()),
+                    .since(dm_offset.into()),
             )
             .await
             .map_err(|e| {
@@ -869,6 +869,7 @@ impl NostrConsumer {
                                 &local_node_ids,
                                 &contact_service,
                                 &offset_store,
+                                Some(earliest_offset),
                             )
                             .await
                         {
@@ -986,7 +987,6 @@ pub async fn process_event(
             }
         }
         Kind::TextNote => {
-            trace!("Received text note: {event:?}");
             match handle_public_event(event.clone(), &client_id, &chain_key_store, event_handlers)
                 .await
             {
@@ -1024,12 +1024,28 @@ pub async fn should_process(
     local_node_ids: &[NodeId],
     contact_service: &Arc<dyn ContactServiceApi>,
     offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
+    since: Option<Timestamp>,
 ) -> bool {
-    valid_sender(&event.pubkey, local_node_ids, contact_service).await
+    valid_time(event.kind, event.created_at, since)
+        && valid_sender(&event.pubkey, local_node_ids, contact_service).await
         && !offset_store
             .is_processed(&event.id.to_hex())
             .await
             .unwrap_or(false)
+}
+
+fn valid_time(kind: Kind, created: nostr::Timestamp, since: Option<Timestamp>) -> bool {
+    match since {
+        Some(ts) => {
+            let time = if matches!(kind, Kind::EncryptedDirectMessage | Kind::GiftWrap) {
+                add_time_slack(ts)
+            } else {
+                ts
+            };
+            created.as_u64() >= time.inner()
+        }
+        None => true,
+    }
 }
 
 pub async fn handle_direct_message<T: NostrSigner>(
@@ -1099,16 +1115,18 @@ async fn valid_sender(
 }
 
 async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) -> Timestamp {
-    let current = db
-        .current_offset(node_id)
+    db.current_offset(node_id)
         .await
         .map_err(|e| error!("Could not get event offset: {e}"))
         .ok()
-        .unwrap_or(Timestamp::zero());
-    if current.inner() <= NOSTR_EVENT_TIME_SLACK {
-        current
+        .unwrap_or(Timestamp::zero())
+}
+
+fn add_time_slack(ts: Timestamp) -> Timestamp {
+    if ts.inner() <= NOSTR_EVENT_TIME_SLACK {
+        ts
     } else {
-        current - NOSTR_EVENT_TIME_SLACK
+        ts - NOSTR_EVENT_TIME_SLACK
     }
 }
 
