@@ -1113,38 +1113,45 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
         let company_keys = self.store.get_key_pair(id).await?;
-        // Only count fully accepted signatories
-        if company
+
+        let signatory_idx = company
             .signatories
             .iter()
-            .filter(|s| {
-                matches!(
-                    s.status,
-                    CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+            .position(|s| s.node_id == signatory_node_id)
+            .ok_or_else(|| {
+                super::Error::Validation(
+                    ProtocolValidationError::NotASignatory(signatory_node_id.to_string()).into(),
                 )
-            })
-            .count()
-            == 1
-        {
-            return Err(super::Error::Validation(
-                ProtocolValidationError::CantRemoveLastSignatory.into(),
-            ));
+            })?;
+
+        let is_proven_signatory = matches!(
+            company.signatories[signatory_idx].status,
+            CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+        );
+
+        if is_proven_signatory {
+            let proven_count = company
+                .signatories
+                .iter()
+                .filter(|s| {
+                    matches!(
+                        s.status,
+                        CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                    )
+                })
+                .count();
+
+            if proven_count == 1 {
+                return Err(super::Error::Validation(
+                    ProtocolValidationError::CantRemoveLastSignatory.into(),
+                ));
+            }
         }
 
-        if let Some(signatory) = company
-            .signatories
-            .iter_mut()
-            .find(|s| s.node_id == signatory_node_id)
-        {
-            signatory.status = CompanySignatoryStatus::Removed {
-                ts: timestamp,
-                remover: full_identity.identity.node_id.clone(),
-            };
-        } else {
-            return Err(super::Error::Validation(
-                ProtocolValidationError::NotASignatory(signatory_node_id.to_string()).into(),
-            ));
-        }
+        company.signatories[signatory_idx].status = CompanySignatoryStatus::Removed {
+            ts: timestamp,
+            remover: full_identity.identity.node_id.clone(),
+        };
 
         if full_identity.identity.node_id == signatory_node_id {
             info!("Removing self from company {id} - setting status to inactive");
@@ -3464,6 +3471,94 @@ pub mod tests {
             .remove_signatory(&node_id_test(), node_id_test(), test_ts())
             .await;
         assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn remove_signatory_allows_removing_invited_signatory_when_only_one_proven() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            mut identity_store,
+            contact_store,
+            mut identity_chain_store,
+            mut company_chain_store,
+            mut transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
+        identity_chain_store
+            .expect_add_block()
+            .returning(|_| Ok(()));
+
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories.push(CompanySignatory {
+                t: SignatoryType::Solo,
+                node_id: node_id_test_other(),
+                status: CompanySignatoryStatus::Invited {
+                    ts: test_ts(),
+                    inviter: node_id_test(),
+                },
+            });
+            Ok(data)
+        });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        storage.expect_update().returning(|_, _| Ok(())).once();
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+
+        let res = service
+            .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
+            .await;
+        assert!(res.is_ok());
     }
 
     #[tokio::test]

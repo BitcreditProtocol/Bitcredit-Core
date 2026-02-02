@@ -73,11 +73,11 @@ impl NostrContact {
 
     /// Returns a lightweight version of the contact if all required data is present.
     pub fn into_contact(self, t: Option<ContactType>) -> Option<Contact> {
-        if self.name.is_some() {
+        if let Some(name) = self.name {
             Some(Contact {
                 node_id: self.node_id,
                 t: t.unwrap_or(ContactType::Anon),
-                name: self.name.unwrap(),
+                name,
                 email: None,
                 postal_address: None,
                 date_of_birth_or_registration: None,
