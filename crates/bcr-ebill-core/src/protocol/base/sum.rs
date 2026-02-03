@@ -535,4 +535,20 @@ mod tests {
         // Both should produce the same result
         assert_eq!(deserialized.sum, deserialized_str.sum);
     }
+
+    #[test]
+    fn test_large_amount_above_js_safe_integer() {
+        // value would lose precision when crossing WASM boundary
+        let large_amount = 9007199254740992u64; // Above MAX_SAFE_INTEGER
+        let sum = Sum::new_sat(large_amount).unwrap();
+        let test = TestSum { sum: sum.clone() };
+
+        // Should serialize as string to preserve precision
+        let json = serde_json::to_string(&test).unwrap();
+        assert!(json.contains(&format!("\"{}\"", large_amount)));
+
+        // Should deserialize back correctly
+        let deserialized: TestSum = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.sum.as_sat(), large_amount);
+    }
 }
