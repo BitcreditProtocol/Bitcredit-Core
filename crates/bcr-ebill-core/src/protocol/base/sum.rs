@@ -24,6 +24,11 @@ use serde::{Deserialize, Serialize};
 pub struct Sum {
     /// Amount in minor-unit scale, e.g. 1225 for 12.25 EUR, 1000 for 1000 SAT, the scale is gotten from the currency's decimal value
     /// We use u64, since u64::MAX is ~8700x larger than the maximum possible amount of satoshis
+    /// Serialized as a string to avoid precision loss when passing large integers across WASM boundary to JavaScript
+    #[serde(
+        serialize_with = "serialize_amount_as_string",
+        deserialize_with = "deserialize_amount_from_string_or_number"
+    )]
     amount: u64,
     /// The currency
     currency: Currency,
@@ -188,6 +193,53 @@ where
     serializer.serialize_str(s)
 }
 
+fn serialize_amount_as_string<S>(amount: &u64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&amount.to_string())
+}
+
+fn deserialize_amount_from_string_or_number<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct StringOrNumberVisitor;
+
+    impl<'de> Visitor<'de> for StringOrNumberVisitor {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or number representing a u64")
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            u64::try_from(v).map_err(|_| de::Error::custom("negative value for u64"))
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            v.parse::<u64>().map_err(de::Error::custom)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrNumberVisitor)
+}
+
 // Custom deserialization, to make sure it's validated
 fn deserialize_currency_code<'de, D>(deserializer: D) -> Result<[u8; 3], D::Error>
 where
@@ -292,7 +344,7 @@ mod tests {
         let test = TestSum { sum: sum.clone() };
         let json = serde_json::to_string(&test).unwrap();
         assert_eq!(
-            "{\"sum\":{\"amount\":1500,\"currency\":{\"code\":\"SAT\",\"decimals\":0},\"reference_exchange_rate\":\"1\"}}",
+            "{\"sum\":{\"amount\":\"1500\",\"currency\":{\"code\":\"SAT\",\"decimals\":0},\"reference_exchange_rate\":\"1\"}}",
             json
         );
         let deserialized = serde_json::from_str(&json).unwrap();
@@ -308,7 +360,7 @@ mod tests {
         let test = TestSum { sum: sum.clone() };
         let json = serde_json::to_string(&test).unwrap();
         assert_eq!(
-            "{\"sum\":{\"amount\":1500,\"currency\":{\"code\":\"EUR\",\"decimals\":2},\"reference_exchange_rate\":\"1021.00\"}}",
+            "{\"sum\":{\"amount\":\"1500\",\"currency\":{\"code\":\"EUR\",\"decimals\":2},\"reference_exchange_rate\":\"1021.00\"}}",
             json
         );
         let deserialized = serde_json::from_str(&json).unwrap();
@@ -466,5 +518,21 @@ mod tests {
                 currency
             );
         }
+    }
+
+    #[test]
+    fn test_amount_deserializes_from_number_for_backward_compatibility() {
+        // Old format with amount as number should still deserialize
+        let json_with_number = r#"{"sum":{"amount":1500,"currency":{"code":"SAT","decimals":0},"reference_exchange_rate":"1"}}"#;
+        let deserialized: TestSum = serde_json::from_str(json_with_number).unwrap();
+        assert_eq!(deserialized.sum.as_sat(), 1500);
+
+        // New format with amount as string should also work
+        let json_with_string = r#"{"sum":{"amount":"1500","currency":{"code":"SAT","decimals":0},"reference_exchange_rate":"1"}}"#;
+        let deserialized_str: TestSum = serde_json::from_str(json_with_string).unwrap();
+        assert_eq!(deserialized_str.sum.as_sat(), 1500);
+
+        // Both should produce the same result
+        assert_eq!(deserialized.sum, deserialized_str.sum);
     }
 }

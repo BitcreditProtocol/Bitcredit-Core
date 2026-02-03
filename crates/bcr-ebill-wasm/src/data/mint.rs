@@ -77,7 +77,7 @@ pub struct MintOfferWeb {
     pub keyset_id: String,
     #[tsify(type = "number")]
     pub expiration_timestamp: Timestamp,
-    pub discounted_sum: u64,
+    pub discounted_sum: String,
     pub proofs: Option<String>,
     pub proofs_spent: bool,
 }
@@ -88,7 +88,7 @@ impl From<MintOffer> for MintOfferWeb {
             mint_request_id: val.mint_request_id.to_owned(),
             keyset_id: val.keyset_id.to_owned(),
             expiration_timestamp: val.expiration_timestamp,
-            discounted_sum: val.discounted_sum.as_sat(),
+            discounted_sum: val.discounted_sum.as_sat_string(),
             proofs: val.proofs.to_owned(),
             proofs_spent: val.proofs_spent,
         }
