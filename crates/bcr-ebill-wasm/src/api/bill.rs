@@ -325,7 +325,7 @@ impl Bill {
             let sum = bill.data.sum;
             let sum_as_words = crate::util::numbers_to_words(&sum.as_sat());
             Ok(BillNumbersToWordsForSum {
-                sum: sum.as_sat(),
+                sum: sum.as_sat_string(),
                 sum_as_words,
             })
         }

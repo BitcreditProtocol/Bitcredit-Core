@@ -60,7 +60,7 @@ pub struct BitcreditBillPayload {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct BillNumbersToWordsForSum {
-    pub sum: u64,
+    pub sum: String,
     pub sum_as_words: String,
 }
 
