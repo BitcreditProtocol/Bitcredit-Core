@@ -8,6 +8,7 @@
 * Fix contact shares to work bi-directional simultaneously
 * Fix currency validation to be case-insensitive
 * Add Esplora URL fallback support with automatic retry on errors
+* Serialize `Sum` amounts as strings to prevent precision loss in JavaScript (breaking change for UI)
 
 # 0.5.0-2 (Hotfix)
 
