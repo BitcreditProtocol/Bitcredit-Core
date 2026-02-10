@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
+use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use bcr_common::client::keys::Client as KeysClient;
 use bcr_common::client::quote::Client as QuoteClient;
 use bcr_common::client::swap::Client as SwapClient;
@@ -10,7 +11,6 @@ use bcr_ebill_core::{
     application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::SecretKey,
     protocol::blockchain::bill::BillToShareWithExternalParty, protocol::crypto::BcrKeys,
 };
-use cashu::{ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use thiserror::Error;
 use uuid::Uuid;
 
