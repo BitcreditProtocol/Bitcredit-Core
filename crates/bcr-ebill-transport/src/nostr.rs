@@ -323,16 +323,23 @@ impl NostrClient {
         let event = create_nip04_event(&*signer, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            if let Err(e) = self
-                .client()
+            self.client()
                 .await?
                 .send_event_builder_to(&relays, event)
                 .await
-            {
-                error!("Error sending Nostr message: {e}")
-            };
-        } else if let Err(e) = self.client().await?.send_event_builder(event).await {
-            error!("Error sending Nostr message: {e}")
+                .map_err(|e| {
+                    error!("Error sending Nostr message: {e}");
+                    Error::Network(format!("Failed to send NIP-04 message: {e}"))
+                })?;
+        } else {
+            self.client()
+                .await?
+                .send_event_builder(event)
+                .await
+                .map_err(|e| {
+                    error!("Error sending Nostr message: {e}");
+                    Error::Network(format!("Failed to send NIP-04 message: {e}"))
+                })?;
         }
         Ok(())
     }

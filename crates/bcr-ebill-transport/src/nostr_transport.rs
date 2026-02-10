@@ -314,8 +314,13 @@ impl NostrTransportService {
         message: EventEnvelope,
     ) -> Result<()> {
         let node = self.get_node_transport(sender);
-        if let Some(identity) = self.resolve_node_contact(node_id).await {
+        if let Some(identity) = self.resolve_identity(node_id).await {
             node.send_private_event(sender, &identity, message).await?;
+        } else {
+            warn!("Failed to resolve recipient for retry message, node_id: {node_id}");
+            return Err(Error::Message(format!(
+                "Could not resolve recipient for retry message: {node_id}"
+            )));
         }
         Ok(())
     }
