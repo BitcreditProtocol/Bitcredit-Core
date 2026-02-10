@@ -15,6 +15,7 @@ use crate::{
     },
     util::get_uuid_v4,
 };
+use bcr_common::cashu::nut02 as cdk02;
 use bcr_ebill_core::{
     application::{
         ValidationError,
@@ -48,7 +49,6 @@ use bcr_ebill_core::{
         mint::{MintOffer, MintRequest, MintRequestStatus},
     },
 };
-use cashu::nut02 as cdk02;
 use mockall::predicate::{always, eq, function};
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 use std::{
@@ -6733,7 +6733,7 @@ async fn check_mint_state_pending_accepted() {
             Ok(QuoteStatusReply::Accepted {
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
                 minting_status: QuoteMintingStatus::Enabled {
-                    minted: cashu::Amount::from(1500),
+                    minted: bcr_common::cashu::Amount::from(1500),
                 },
             })
         });
@@ -6813,8 +6813,8 @@ async fn check_mint_state_accepted_proofs() {
     ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
         Ok(cdk02::KeySet {
             id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-            unit: cashu::CurrencyUnit::Sat,
-            keys: cashu::Keys::new(std::collections::BTreeMap::default()),
+            unit: bcr_common::cashu::CurrencyUnit::Sat,
+            keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
             final_expiry: None,
         })
     });
@@ -6826,7 +6826,7 @@ async fn check_mint_state_accepted_proofs() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Accepted {
                 minting_status: QuoteMintingStatus::Enabled {
-                    minted: cashu::Amount::ZERO,
+                    minted: bcr_common::cashu::Amount::ZERO,
                 },
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
             })
@@ -6878,8 +6878,8 @@ async fn check_mint_state_accepted_check_spent() {
     ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
         Ok(cdk02::KeySet {
             id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-            unit: cashu::CurrencyUnit::Sat,
-            keys: cashu::Keys::new(std::collections::BTreeMap::default()),
+            unit: bcr_common::cashu::CurrencyUnit::Sat,
+            keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
             final_expiry: None,
         })
     });
