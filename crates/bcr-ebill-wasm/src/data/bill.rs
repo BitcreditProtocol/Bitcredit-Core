@@ -57,13 +57,6 @@ pub struct BitcreditBillPayload {
     pub file_upload_ids: Vec<String>,
 }
 
-#[derive(Tsify, Debug, Clone, Serialize)]
-#[tsify(into_wasm_abi)]
-pub struct BillNumbersToWordsForSum {
-    pub sum: String,
-    pub sum_as_words: String,
-}
-
 #[derive(Tsify, Debug, Clone, Deserialize)]
 #[tsify(from_wasm_abi)]
 pub struct EndorseBitcreditBillPayload {
