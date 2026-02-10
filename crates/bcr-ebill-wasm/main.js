@@ -118,9 +118,17 @@ let config = {
   job_runner_check_interval_seconds: 600,
   transport_initial_subscription_delay_seconds: 1,
   // default_mint_url: "http://localhost:4343",
-  default_mint_url: "https://wildcat-dev-docker.minibill.tech",
-  // default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99",
-  default_mint_node_id: "bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
+  // default_mint_url: "https://wildcat-dev-docker.minibill.tech",
+  default_mint_url: "https://mint.wildcat0.clowder1.minibill.tech",
+  // default_mint_url: "https://mint.wildcat1.clowder1.minibill.tech",
+  // default_mint_url: "https://mint.wildcat2.clowder1.minibill.tech",
+  // default_mint_url: "https://mint.wildcat3.clowder1.minibill.tech",
+  // default_mint_node_id: "bitcrt02c18f94838c95754478c14a7c90db417d7a1dd0099add2002b31b4513480b3e99", // local
+  // default_mint_node_id: " bitcrt02a2e6ecd9dfee6f88e6a0eb8ebdcfa4dae9905158889586fc18bbcccbd9fac5e7", // dev mint
+  default_mint_node_id: "bitcrt02195839b25681e9efa56465f1a86efa8045a171bead7ca74bef763de21e4db88a", //wildcat0
+  // default_mint_node_id: "bitcrt03352607cdeb863d6ce8286e0e42dc083739b8301cdd9dbdd49594c190ac72cd72", //wildcat1
+  // default_mint_node_id: "bitcrt038f05152a66165b33f2ad8817d1bb7fd95b5c7c9e4dada626a2a98944bd7b313c", //wildcat2
+  // default_mint_node_id: "bitcrt02070d5fb7b4cea6eb796deb2c6983e00212ab148dc49cf80b3d1e6212a3da5726", //wildcat3
   num_confirmations_for_payment: 1,
   dev_mode: true,
   disable_mandatory_email_confirmations: true,
@@ -397,7 +405,7 @@ async function triggerBill(t, blank) {
       maturity_date,
       payee: t == 0 ? node_id : identity.node_id,
       drawee: t == 0 ? identity.node_id : node_id,
-      sum: "1500",
+      sum: "15000",
       currency: "SAT",
       country_of_payment: "GB",
       city_of_payment: "London",

@@ -37,13 +37,13 @@ use crate::{
         Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
             AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillHistoryResponse,
-            BillIdResponse, BillNumbersToWordsForSum, BillsResponse, BillsSearchFilterPayload,
-            BitcreditBillPayload, BitcreditBillWeb, EndorseBitcreditBillPayload,
-            EndorsementsResponse, LightBillsResponse, OfferToSellBitcreditBillPayload,
-            PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
-            RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
-            RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
-            RequestToPayBitcreditBillPayload, ResyncBillPayload, ShareBillWithCourtPayload,
+            BillIdResponse, BillsResponse, BillsSearchFilterPayload, BitcreditBillPayload,
+            BitcreditBillWeb, EndorseBitcreditBillPayload, EndorsementsResponse,
+            LightBillsResponse, OfferToSellBitcreditBillPayload, PastEndorseesResponse,
+            PastPaymentsResponse, RejectActionBillPayload, RequestRecourseForAcceptancePayload,
+            RequestRecourseForPaymentPayload, RequestToAcceptBitcreditBillPayload,
+            RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, ResyncBillPayload,
+            ShareBillWithCourtPayload,
         },
         mint::MintRequestStateResponse,
         parse_deadline_string,
@@ -301,32 +301,6 @@ impl Bill {
                 .await?;
             Ok(BillsResponse {
                 bills: bills.into_iter().map(|b| b.into()).collect(),
-            })
-        }
-        .await;
-        TSResult::res_to_js(res)
-    }
-
-    #[wasm_bindgen(unchecked_return_type = "TSResult<BillNumbersToWordsForSum>")]
-    pub async fn numbers_to_words_for_sum(&self, id: &str) -> JsValue {
-        let res: Result<BillNumbersToWordsForSum> = async {
-            let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
-            let current_timestamp = Timestamp::now();
-            let identity = get_ctx().identity_service.get_identity().await?;
-            let bill = get_ctx()
-                .bill_service
-                .get_detail(
-                    &bill_id,
-                    &identity,
-                    &get_current_identity_node_id().await?,
-                    current_timestamp,
-                )
-                .await?;
-            let sum = bill.data.sum;
-            let sum_as_words = crate::util::numbers_to_words(&sum.as_sat());
-            Ok(BillNumbersToWordsForSum {
-                sum: sum.as_sat_string(),
-                sum_as_words,
             })
         }
         .await;

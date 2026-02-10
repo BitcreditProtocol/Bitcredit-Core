@@ -9,6 +9,7 @@
 * Fix currency validation to be case-insensitive
 * Add Esplora URL fallback support with automatic retry on errors
 * Serialize `Sum` amounts as strings to prevent precision loss in JavaScript (breaking change for UI)
+* Remove `numbers_to_words` endpoint
 
 # 0.5.0-2 (Hotfix)
 

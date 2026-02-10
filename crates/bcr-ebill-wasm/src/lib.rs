@@ -27,7 +27,6 @@ mod context;
 mod data;
 mod error;
 mod job;
-mod util;
 
 /// Can deserialize from either a string or a vec of strings to allow backward compatibility with
 /// single url config.
