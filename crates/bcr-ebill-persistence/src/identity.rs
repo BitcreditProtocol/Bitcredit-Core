@@ -7,7 +7,7 @@ use bcr_ebill_core::{
         identity::{ActiveIdentityState, Identity, IdentityWithAll},
     },
     protocol::{
-        EmailIdentityProofData, SignedIdentityProof,
+        BlockId, EmailIdentityProofData, SignedIdentityProof,
         blockchain::identity::{IdentityBlock, IdentityBlockchain},
         crypto::BcrKeys,
     },
@@ -60,4 +60,6 @@ pub trait IdentityChainStoreApi: ServiceTraitBounds {
     async fn add_block(&self, block: &IdentityBlock) -> Result<()>;
     /// Gets the chain
     async fn get_chain(&self) -> Result<IdentityBlockchain>;
+    /// Removes all blocks with a block id >= from_block_id
+    async fn remove_blocks_from_height(&self, from_block_id: BlockId) -> Result<()>;
 }
