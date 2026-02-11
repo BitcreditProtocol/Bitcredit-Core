@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, sync::Arc};
+use std::sync::Arc;
 
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
@@ -30,7 +30,28 @@ pub async fn resolve_event_chains(
 ) -> Result<Vec<Vec<EventContainer>>> {
     let events = transport.resolve_public_chain(chain_id, chain_type).await?;
     let mut chains = collect_event_chains(&events, chain_id, chain_type, keys);
-    chains.sort_by_key(|v| Reverse(v.len()));
+    chains.sort_by(|a, b| {
+        b.len()
+            .cmp(&a.len()) // length descending (longer chain wins)
+            .then_with(|| {
+                // tip timestamp ascending (earlier wins)
+                let a_ts = a
+                    .last()
+                    .map(|e| e.block.get_block_timestamp())
+                    .unwrap_or(Timestamp::zero());
+                let b_ts = b
+                    .last()
+                    .map(|e| e.block.get_block_timestamp())
+                    .unwrap_or(Timestamp::zero());
+                a_ts.cmp(&b_ts)
+            })
+            .then_with(|| {
+                // tip hash ascending (deterministic tiebreaker)
+                let a_hash = a.last().map(|e| e.block.get_block_hash());
+                let b_hash = b.last().map(|e| e.block.get_block_hash());
+                a_hash.cmp(&b_hash)
+            })
+    });
     Ok(chains)
 }
 
@@ -142,6 +163,13 @@ impl BlockData {
             BlockData::Bill(block) => block.hash.clone(),
             BlockData::Identity(block) => block.hash.clone(),
             BlockData::Company(block) => block.hash.clone(),
+        }
+    }
+    pub fn get_block_timestamp(&self) -> Timestamp {
+        match self {
+            BlockData::Bill(block) => block.timestamp,
+            BlockData::Identity(block) => block.timestamp,
+            BlockData::Company(block) => block.timestamp,
         }
     }
 }
