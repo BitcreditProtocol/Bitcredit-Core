@@ -2443,4 +2443,42 @@ mod tests {
         let result = service.send_retry_messages().await;
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_send_retry_private_message_with_invalid_base58() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
+            let node_id = node_id_test_other();
+            let message_id = "test_bad_base58_id";
+            let sender = node_id_test();
+            let invalid_base58_payload = "0OIl!!!not_base58".to_string();
+
+            let queued_message = NostrQueuedMessage {
+                id: message_id.to_string(),
+                sender_id: sender.to_owned(),
+                recipient: Some(node_id.to_owned()),
+                payload: invalid_base58_payload,
+            };
+
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(move |_| Ok(vec![queued_message.clone()]))
+                .once();
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(|_| Ok(vec![]))
+                .once();
+            mock_queue
+                .expect_fail_retry()
+                .with(eq(message_id.to_string()))
+                .returning(|_| Ok(()))
+                .once();
+        });
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
 }

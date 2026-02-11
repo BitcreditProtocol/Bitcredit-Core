@@ -279,9 +279,15 @@ impl NostrTransportService {
             let result = match &queued_message.recipient {
                 Some(node_id) => {
                     // Private message retry: payload is base58-encoded borsh EventEnvelope
-                    match borsh::from_slice::<EventEnvelope>(&base58::decode(
-                        &queued_message.payload,
-                    )?) {
+                    let decoded = match base58::decode(&queued_message.payload) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            error!("Failed to decode base58 private retry payload: {e}");
+                            failed_ids.push(queued_message.id.clone());
+                            continue;
+                        }
+                    };
+                    match borsh::from_slice::<EventEnvelope>(&decoded) {
                         Ok(message) => {
                             self.send_retry_private_message(
                                 &queued_message.sender_id,

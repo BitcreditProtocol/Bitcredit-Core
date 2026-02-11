@@ -101,6 +101,7 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
 struct QueuedMessageDb {
     pub id: Thing,
     pub sender_id: NodeId,
+    #[serde(alias = "node_id")]
     pub recipient: Option<NodeId>,
     pub payload: String,
     pub created: DateTimeUtc,
