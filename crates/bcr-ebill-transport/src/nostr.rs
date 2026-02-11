@@ -22,6 +22,7 @@ use nostr::{Keys, nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
     PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
+    pool::Output,
 };
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::{
@@ -48,6 +49,22 @@ use tokio_with_wasm::alias as tokio;
 pub enum SortOrder {
     Asc,
     Desc,
+}
+
+/// Check the output of sending an event to Nostr relays.
+/// Logs warnings for individual relay failures and returns an error if no relay
+/// accepted the event.
+fn check_send_output(output: Output<EventId>, context: &str) -> Result<()> {
+    for (relay, error) in &output.failed {
+        warn!("{context}: relay {relay} failed: {error}");
+    }
+    if output.success.is_empty() {
+        error!("{context}: all relays failed to accept the event");
+        return Err(Error::Network(format!(
+            "{context}: all relays failed to accept the event"
+        )));
+    }
+    Ok(())
 }
 
 /// A wrapper around nostr_sdk that implements the NotificationJsonTransportApi.
@@ -295,7 +312,8 @@ impl NostrClient {
 
     /// Send an event to specific relays
     pub async fn send_event_to(&self, relays: Vec<url::Url>, event: &Event) -> Result<()> {
-        self.client()
+        let output = self
+            .client()
             .await?
             .send_event_to(&relays, event)
             .await
@@ -303,7 +321,7 @@ impl NostrClient {
                 error!("Failed to send event to relays: {e}");
                 Error::Network(format!("Failed to send event to relays: {e}"))
             })?;
-        Ok(())
+        check_send_output(output, "send_event_to")
     }
 
     /// Get the default timeout for this client
@@ -323,7 +341,8 @@ impl NostrClient {
         let event = create_nip04_event(&*signer, &public_key, &message).await?;
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            self.client()
+            let output = self
+                .client()
                 .await?
                 .send_event_builder_to(&relays, event)
                 .await
@@ -331,8 +350,10 @@ impl NostrClient {
                     error!("Error sending Nostr message: {e}");
                     Error::Network(format!("Failed to send NIP-04 message: {e}"))
                 })?;
+            check_send_output(output, "send_nip04_message")?;
         } else {
-            self.client()
+            let output = self
+                .client()
                 .await?
                 .send_event_builder(event)
                 .await
@@ -340,6 +361,7 @@ impl NostrClient {
                     error!("Error sending Nostr message: {e}");
                     Error::Network(format!("Failed to send NIP-04 message: {e}"))
                 })?;
+            check_send_output(output, "send_nip04_message")?;
         }
         Ok(())
     }
@@ -365,17 +387,22 @@ impl NostrClient {
 
         let relays = recipient.nostr_relays();
         if !relays.is_empty() {
-            if let Err(e) = self.client().await?.send_event_to(&relays, &event).await {
-                error!("Error sending NIP-17 message to specific relays: {e}");
-                return Err(Error::Network(format!(
-                    "Failed to send NIP-17 message: {e}"
-                )));
-            };
-        } else if let Err(e) = self.client().await?.send_event(&event).await {
-            error!("Error sending NIP-17 message: {e}");
-            return Err(Error::Network(format!(
-                "Failed to send NIP-17 message: {e}"
-            )));
+            let output = self
+                .client()
+                .await?
+                .send_event_to(&relays, &event)
+                .await
+                .map_err(|e| {
+                    error!("Error sending NIP-17 message to specific relays: {e}");
+                    Error::Network(format!("Failed to send NIP-17 message: {e}"))
+                })?;
+            check_send_output(output, "send_nip17_message")?;
+        } else {
+            let output = self.client().await?.send_event(&event).await.map_err(|e| {
+                error!("Error sending NIP-17 message: {e}");
+                Error::Network(format!("Failed to send NIP-17 message: {e}"))
+            })?;
+            check_send_output(output, "send_nip17_message")?;
         }
 
         Ok(())
@@ -514,7 +541,8 @@ impl TransportClientApi for NostrClient {
             Error::Crypto("Failed to sign Nostr event".to_string())
         })?;
 
-        self.client()
+        let output = self
+            .client()
             .await?
             .send_event(&send_event)
             .await
@@ -522,6 +550,7 @@ impl TransportClientApi for NostrClient {
                 error!("Failed to send Nostr event: {e}");
                 Error::Network("Failed to send Nostr event".to_string())
             })?;
+        check_send_output(output, "send_public_chain_event")?;
         Ok(send_event)
     }
 
@@ -590,11 +619,11 @@ impl TransportClientApi for NostrClient {
                 Error::Crypto("Failed to sign metadata event".to_string())
             })?;
 
-        self.client().await?.send_event(&event).await.map_err(|e| {
+        let output = self.client().await?.send_event(&event).await.map_err(|e| {
             error!("Failed to send user metadata with Nostr client: {e}");
             Error::Network("Failed to send user metadata with Nostr client".to_string())
         })?;
-        Ok(())
+        check_send_output(output, "publish_metadata")
     }
 
     async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<RelayUrl>) -> Result<()> {
@@ -613,11 +642,11 @@ impl TransportClientApi for NostrClient {
                 Error::Crypto("Failed to sign relay list event".to_string())
             })?;
 
-        self.client().await?.send_event(&event).await.map_err(|e| {
+        let output = self.client().await?.send_event(&event).await.map_err(|e| {
             error!("Failed to send relay list with Nostr client: {e}");
             Error::Network("Failed to send relay list with Nostr client".to_string())
         })?;
-        Ok(())
+        check_send_output(output, "publish_relay_list")
     }
 
     async fn connect(&self) -> Result<()> {
