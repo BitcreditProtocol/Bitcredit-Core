@@ -101,7 +101,7 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
 struct QueuedMessageDb {
     pub id: Thing,
     pub sender_id: NodeId,
-    pub node_id: NodeId,
+    pub recipient: Option<NodeId>,
     pub payload: String,
     pub created: DateTimeUtc,
     pub last_try: DateTimeUtc,
@@ -119,7 +119,7 @@ impl QueuedMessageDb {
                 value.id.to_owned(),
             )),
             sender_id: value.sender_id,
-            node_id: value.node_id,
+            recipient: value.recipient,
             payload: value.payload,
             created: Timestamp::now().to_datetime(),
             last_try: Timestamp::new(0).expect("safe").to_datetime(),
@@ -136,7 +136,7 @@ impl From<QueuedMessageDb> for NostrQueuedMessage {
         NostrQueuedMessage {
             id: value.id.id.to_raw(),
             sender_id: value.sender_id,
-            node_id: value.node_id,
+            recipient: value.recipient,
             payload: value.payload,
         }
     }
@@ -257,7 +257,7 @@ mod tests {
         NostrQueuedMessage {
             id: id.to_string(),
             sender_id: node_id_test(),
-            node_id: node_id_test(),
+            recipient: Some(node_id_test()),
             payload: base58::encode(&borsh::to_vec(r#"{"foo": "bar"}"#).unwrap()),
         }
     }

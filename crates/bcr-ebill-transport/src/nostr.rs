@@ -510,7 +510,7 @@ impl TransportClientApi for NostrClient {
         Ok(())
     }
 
-    async fn send_public_chain_event(
+    async fn build_public_chain_event(
         &self,
         sender_node_id: &NodeId,
         id: &str,
@@ -541,17 +541,16 @@ impl TransportClientApi for NostrClient {
             Error::Crypto("Failed to sign Nostr event".to_string())
         })?;
 
-        let output = self
-            .client()
-            .await?
-            .send_event(&send_event)
-            .await
-            .map_err(|e| {
-                error!("Failed to send Nostr event: {e}");
-                Error::Network("Failed to send Nostr event".to_string())
-            })?;
-        check_send_output(output, "send_public_chain_event")?;
         Ok(send_event)
+    }
+
+    async fn broadcast_event(&self, event: &Event) -> Result<()> {
+        let output = self.client().await?.send_event(event).await.map_err(|e| {
+            error!("Failed to send Nostr event: {e}");
+            Error::Network("Failed to send Nostr event".to_string())
+        })?;
+        check_send_output(output, "broadcast_event")?;
+        Ok(())
     }
 
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {

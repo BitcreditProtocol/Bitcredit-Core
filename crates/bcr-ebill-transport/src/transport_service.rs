@@ -1763,7 +1763,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -1822,7 +1822,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -1893,14 +1893,14 @@ mod tests {
                 let queued_message1 = NostrQueuedMessage {
                     id: message_id1.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id1.to_owned(),
+                    recipient: Some(node_id1.to_owned()),
                     payload: payload1.clone(),
                 };
 
                 let queued_message2 = NostrQueuedMessage {
                     id: message_id2.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id2.to_owned(),
+                    recipient: Some(node_id2.to_owned()),
                     payload: payload2.clone(),
                 };
 
@@ -1978,7 +1978,7 @@ mod tests {
             let queued_message = NostrQueuedMessage {
                 id: message_id.to_string(),
                 sender_id: sender.to_owned(),
-                node_id: node_id.to_owned(),
+                recipient: Some(node_id.to_owned()),
                 payload: invalid_payload,
             };
 
@@ -1991,6 +1991,11 @@ mod tests {
                 .expect_get_retry_messages()
                 .with(eq(1))
                 .returning(|_| Ok(vec![]))
+                .times(1);
+            mock_queue
+                .expect_fail_retry()
+                .with(eq(message_id.to_string()))
+                .returning(|_| Ok(()))
                 .times(1);
         });
 
@@ -2019,7 +2024,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -2083,7 +2088,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
