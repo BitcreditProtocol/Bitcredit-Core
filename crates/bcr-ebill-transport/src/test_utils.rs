@@ -559,7 +559,7 @@ mockall::mock! {
     impl TransportClientApi for NotificationJsonTransport {
         async fn connect(&self) -> Result<()>;
         async fn send_private_event(&self, sender_node_id: &NodeId, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
-        async fn send_public_chain_event(
+        async fn build_public_chain_event(
             &self,
             sender_node_id: &NodeId,
             id: &str,
@@ -569,6 +569,7 @@ mockall::mock! {
             event: EventEnvelope,
             previous_event: Option<nostr::event::Event>,
             root_event: Option<nostr::event::Event>) -> Result<nostr::event::Event>;
+        async fn broadcast_event(&self, event: &nostr::event::Event) -> Result<()>;
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;

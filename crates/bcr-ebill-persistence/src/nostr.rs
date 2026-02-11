@@ -70,7 +70,9 @@ pub trait NostrQueuedMessageStoreApi: ServiceTraitBounds {
 pub struct NostrQueuedMessage {
     pub id: String,
     pub sender_id: NodeId,
-    pub node_id: NodeId,
+    /// The recipient of the message. `Some(node_id)` for private messages,
+    /// `None` for public broadcast messages (e.g. chain events).
+    pub recipient: Option<NodeId>,
     pub payload: String,
 }
 

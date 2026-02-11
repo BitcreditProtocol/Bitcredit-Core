@@ -27,10 +27,9 @@ pub trait TransportClientApi: ServiceTraitBounds {
         recipient: &BillParticipant,
         event: EventEnvelope,
     ) -> Result<()>;
-    /// Sends a public json chain event to our Nostr relays. The id is the chain id
-    /// eg. bill_id or company_id etc. The id will be published as a tag on the Nostr
-    /// event. This will return the sent event so we can add it to the local store.
-    async fn send_public_chain_event(
+    /// Builds and signs a public chain event but does NOT broadcast it.
+    /// Returns the signed Nostr event for the caller to broadcast and/or queue.
+    async fn build_public_chain_event(
         &self,
         sender_node_id: &NodeId,
         id: &str,
@@ -41,6 +40,8 @@ pub trait TransportClientApi: ServiceTraitBounds {
         previous_event: Option<Event>,
         root_event: Option<Event>,
     ) -> Result<Event>;
+    /// Broadcasts a pre-signed event to all configured relays.
+    async fn broadcast_event(&self, event: &Event) -> Result<()>;
     /// Resolves a nostr contact by node id.
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
     /// Given an id and chain type, tries to resolve the public chain events.

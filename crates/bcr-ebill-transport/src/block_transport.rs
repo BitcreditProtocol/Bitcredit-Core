@@ -12,9 +12,9 @@ use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent};
-use log::debug;
+use log::{debug, error};
 
-use bcr_ebill_api::service::transport_service::Result;
+use bcr_ebill_api::service::transport_service::{Error, Result};
 
 #[derive(Clone)]
 pub struct BlockTransportService {
@@ -62,9 +62,8 @@ impl BlockTransportServiceApi for BlockTransportService {
                     BlockchainType::Identity,
                 )
                 .await?;
-            // send the event
             let nostr_event = node
-                .send_public_chain_event(
+                .build_public_chain_event(
                     &events.sender(),
                     &event.data.node_id.to_string(),
                     BlockchainType::Identity,
@@ -75,7 +74,16 @@ impl BlockTransportServiceApi for BlockTransportService {
                     root_event.clone().map(|e| e.payload),
                 )
                 .await?;
-            // and store the event locally
+
+            if let Err(e) = node.broadcast_event(&nostr_event).await {
+                error!("Failed to broadcast identity chain event, queuing for retry: {e}");
+                let payload = serde_json::to_string(&nostr_event)
+                    .map_err(|e| Error::Message(e.to_string()))?;
+                self.nostr_transport
+                    .queue_retry_message(&events.sender(), None, payload)
+                    .await?;
+            }
+
             self.nostr_transport
                 .add_chain_event(
                     &nostr_event,
@@ -109,9 +117,8 @@ impl BlockTransportServiceApi for BlockTransportService {
                     BlockchainType::Company,
                 )
                 .await?;
-            // send the event
             let nostr_event = node
-                .send_public_chain_event(
+                .build_public_chain_event(
                     &events.sender(),
                     &event.data.node_id.to_string(),
                     BlockchainType::Company,
@@ -122,7 +129,16 @@ impl BlockTransportServiceApi for BlockTransportService {
                     root_event.clone().map(|e| e.payload),
                 )
                 .await?;
-            // and store the event locally
+
+            if let Err(e) = node.broadcast_event(&nostr_event).await {
+                error!("Failed to broadcast company chain event, queuing for retry: {e}");
+                let payload = serde_json::to_string(&nostr_event)
+                    .map_err(|e| Error::Message(e.to_string()))?;
+                self.nostr_transport
+                    .queue_retry_message(&events.sender(), None, payload)
+                    .await?;
+            }
+
             self.nostr_transport
                 .add_chain_event(
                     &nostr_event,
@@ -161,9 +177,8 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
-            // now send the event
-            let event = node
-                .send_public_chain_event(
+            let nostr_event = node
+                .build_public_chain_event(
                     &events.sender(),
                     &block_event.data.bill_id.to_string(),
                     BlockchainType::Bill,
@@ -175,9 +190,18 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
+            if let Err(e) = node.broadcast_event(&nostr_event).await {
+                error!("Failed to broadcast bill chain event, queuing for retry: {e}");
+                let payload = serde_json::to_string(&nostr_event)
+                    .map_err(|e| Error::Message(e.to_string()))?;
+                self.nostr_transport
+                    .queue_retry_message(&events.sender(), None, payload)
+                    .await?;
+            }
+
             self.nostr_transport
                 .add_chain_event(
-                    &event,
+                    &nostr_event,
                     &root_event,
                     &previous_event,
                     &block_event.data.bill_id.to_string(),

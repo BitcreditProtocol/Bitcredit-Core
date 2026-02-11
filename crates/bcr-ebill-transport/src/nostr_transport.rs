@@ -154,7 +154,7 @@ impl NostrTransportService {
                     error!("Failed to send block notification, will add it to retry queue: {e}");
                     self.queue_retry_message(
                         sender,
-                        node_id,
+                        Some(node_id),
                         base58::encode(
                             &borsh::to_vec(event_to_process)
                                 .map_err(|e| Error::Message(e.to_string()))?,
@@ -190,13 +190,13 @@ impl NostrTransportService {
     pub(crate) async fn queue_retry_message(
         &self,
         sender: &NodeId,
-        recipient: &NodeId,
+        recipient: Option<&NodeId>,
         payload: String,
     ) -> Result<()> {
         let queue_message = NostrQueuedMessage {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: sender.to_owned(),
-            node_id: recipient.to_owned(),
+            recipient: recipient.map(|n| n.to_owned()),
             payload,
         };
         if let Err(e) = self
@@ -276,25 +276,60 @@ impl NostrTransportService {
             .await
             .map(|r| r.first().cloned())
         {
-            if let Ok(message) =
-                borsh::from_slice::<EventEnvelope>(&base58::decode(&queued_message.payload)?)
-            {
-                if let Err(e) = self
-                    .send_retry_message(
-                        &queued_message.sender_id,
-                        &queued_message.node_id,
-                        message.clone(),
-                    )
-                    .await
-                {
+            let result = match &queued_message.recipient {
+                Some(node_id) => {
+                    // Private message retry: payload is base58-encoded borsh EventEnvelope
+                    let decoded = match base58::decode(&queued_message.payload) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            error!("Failed to decode base58 private retry payload: {e}");
+                            failed_ids.push(queued_message.id.clone());
+                            continue;
+                        }
+                    };
+                    match borsh::from_slice::<EventEnvelope>(&decoded) {
+                        Ok(message) => {
+                            self.send_retry_private_message(
+                                &queued_message.sender_id,
+                                node_id,
+                                message,
+                            )
+                            .await
+                        }
+                        Err(e) => {
+                            error!("Failed to deserialize private retry payload: {e}");
+                            Err(Error::Message(e.to_string()))
+                        }
+                    }
+                }
+                None => {
+                    // Public broadcast retry: payload is JSON nostr::Event
+                    match serde_json::from_str::<nostr::Event>(&queued_message.payload) {
+                        Ok(event) => {
+                            let node = self.get_node_transport(&queued_message.sender_id);
+                            node.broadcast_event(&event).await
+                        }
+                        Err(e) => {
+                            error!("Failed to deserialize public retry payload: {e}");
+                            Err(Error::Message(e.to_string()))
+                        }
+                    }
+                }
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Err(e) = self
+                        .queued_message_store
+                        .succeed_retry(&queued_message.id)
+                        .await
+                    {
+                        error!("Failed to mark retry message as sent: {e}");
+                    }
+                }
+                Err(e) => {
                     error!("Failed to send retry message: {e}");
                     failed_ids.push(queued_message.id.clone());
-                } else if let Err(e) = self
-                    .queued_message_store
-                    .succeed_retry(&queued_message.id)
-                    .await
-                {
-                    error!("Failed to mark retry message as sent: {e}");
                 }
             }
         }
@@ -307,15 +342,20 @@ impl NostrTransportService {
         Ok(())
     }
 
-    async fn send_retry_message(
+    async fn send_retry_private_message(
         &self,
         sender: &NodeId,
         node_id: &NodeId,
         message: EventEnvelope,
     ) -> Result<()> {
         let node = self.get_node_transport(sender);
-        if let Some(identity) = self.resolve_node_contact(node_id).await {
+        if let Some(identity) = self.resolve_identity(node_id).await {
             node.send_private_event(sender, &identity, message).await?;
+        } else {
+            warn!("Failed to resolve recipient for retry message, node_id: {node_id}");
+            return Err(Error::Message(format!(
+                "Could not resolve recipient for retry message: {node_id}"
+            )));
         }
         Ok(())
     }

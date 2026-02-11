@@ -526,6 +526,12 @@ mod tests {
         }
     }
 
+    fn get_test_nostr_event() -> nostr::Event {
+        nostr::event::EventBuilder::text_note("test broadcast message")
+            .sign_with_keys(&nostr::key::Keys::generate())
+            .expect("Could not create nostr test event")
+    }
+
     fn get_mocks() -> (
         MockNotificationJsonTransport,
         MockContactStore,
@@ -1763,7 +1769,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -1822,7 +1828,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -1893,14 +1899,14 @@ mod tests {
                 let queued_message1 = NostrQueuedMessage {
                     id: message_id1.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id1.to_owned(),
+                    recipient: Some(node_id1.to_owned()),
                     payload: payload1.clone(),
                 };
 
                 let queued_message2 = NostrQueuedMessage {
                     id: message_id2.to_string(),
                     sender_id: sender_id.to_owned(),
-                    node_id: node_id2.to_owned(),
+                    recipient: Some(node_id2.to_owned()),
                     payload: payload2.clone(),
                 };
 
@@ -1978,7 +1984,7 @@ mod tests {
             let queued_message = NostrQueuedMessage {
                 id: message_id.to_string(),
                 sender_id: sender.to_owned(),
-                node_id: node_id.to_owned(),
+                recipient: Some(node_id.to_owned()),
                 payload: invalid_payload,
             };
 
@@ -1991,6 +1997,11 @@ mod tests {
                 .expect_get_retry_messages()
                 .with(eq(1))
                 .returning(|_| Ok(vec![]))
+                .times(1);
+            mock_queue
+                .expect_fail_retry()
+                .with(eq(message_id.to_string()))
+                .returning(|_| Ok(()))
                 .times(1);
         });
 
@@ -2019,7 +2030,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -2083,7 +2094,7 @@ mod tests {
                 let queued_message = NostrQueuedMessage {
                     id: message_id.to_string(),
                     sender_id: sender.to_owned(),
-                    node_id: node_id.to_owned(),
+                    recipient: Some(node_id.to_owned()),
                     payload: payload.clone(),
                 };
 
@@ -2224,5 +2235,250 @@ mod tests {
             .send_bill_is_signed_event(&event)
             .await
             .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_public_message_success() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(|mock_transport, _, _, mock_queue, _, _, _, _| {
+            let message_id = "test_public_message_id";
+            let sender = node_id_test();
+            let nostr_event = get_test_nostr_event();
+            let payload = serde_json::to_string(&nostr_event).unwrap();
+
+            let queued_message = NostrQueuedMessage {
+                id: message_id.to_string(),
+                sender_id: sender.to_owned(),
+                recipient: None,
+                payload,
+            };
+
+            mock_transport
+                .expect_broadcast_event()
+                .returning(|_| Ok(()));
+
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(move |_| Ok(vec![queued_message.clone()]))
+                .once();
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(|_| Ok(vec![]));
+            mock_queue
+                .expect_succeed_retry()
+                .with(eq(message_id))
+                .returning(|_| Ok(()));
+        });
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_public_message_invalid_payload() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
+            let message_id = "test_public_message_id";
+            let sender = node_id_test();
+            // Invalid JSON that can't be deserialized to nostr::Event
+            let invalid_payload = "not valid json at all".to_string();
+
+            let queued_message = NostrQueuedMessage {
+                id: message_id.to_string(),
+                sender_id: sender.to_owned(),
+                recipient: None,
+                payload: invalid_payload,
+            };
+
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(move |_| Ok(vec![queued_message.clone()]))
+                .times(1);
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(|_| Ok(vec![]))
+                .times(1);
+            mock_queue
+                .expect_fail_retry()
+                .with(eq(message_id.to_string()))
+                .returning(|_| Ok(()))
+                .times(1);
+        });
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_public_message_broadcast_failure() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(|mock_transport, _, _, mock_queue, _, _, _, _| {
+            let message_id = "test_public_message_id";
+            let sender = node_id_test();
+            let nostr_event = get_test_nostr_event();
+            let payload = serde_json::to_string(&nostr_event).unwrap();
+
+            let queued_message = NostrQueuedMessage {
+                id: message_id.to_string(),
+                sender_id: sender.to_owned(),
+                recipient: None,
+                payload,
+            };
+
+            mock_transport
+                .expect_broadcast_event()
+                .returning(|_| Err(Error::Network("relay unavailable".to_string())));
+
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(move |_| Ok(vec![queued_message.clone()]))
+                .once();
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(|_| Ok(vec![]));
+            mock_queue
+                .expect_fail_retry()
+                .with(eq(message_id.to_string()))
+                .returning(|_| Ok(()));
+        });
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_messages_mixed_private_and_public() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(
+            |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
+                // Private message setup
+                let private_node_id = node_id_test_other();
+                let private_message_id = "private_msg_id";
+                let sender = node_id_test();
+                let private_payload = base58::encode(
+                    &borsh::to_vec(&EventEnvelope {
+                        version: "1.0".to_string(),
+                        event_type: EventType::Bill,
+                        data: vec![],
+                    })
+                    .unwrap(),
+                );
+                let private_message = NostrQueuedMessage {
+                    id: private_message_id.to_string(),
+                    sender_id: sender.to_owned(),
+                    recipient: Some(private_node_id.to_owned()),
+                    payload: private_payload,
+                };
+
+                // Public message setup
+                let public_message_id = "public_msg_id";
+                let nostr_event = get_test_nostr_event();
+                let public_payload = serde_json::to_string(&nostr_event).unwrap();
+                let public_message = NostrQueuedMessage {
+                    id: public_message_id.to_string(),
+                    sender_id: sender.to_owned(),
+                    recipient: None,
+                    payload: public_payload,
+                };
+
+                let identity = get_identity_public_data(
+                    &private_node_id,
+                    &Email::new("test@example.com").unwrap(),
+                    vec![],
+                );
+
+                mock_contact_store
+                    .expect_get()
+                    .returning(move |_| Ok(Some(as_contact(&identity))));
+
+                mock_transport
+                    .expect_send_private_event()
+                    .returning(|_, _, _| Ok(()));
+
+                mock_transport
+                    .expect_broadcast_event()
+                    .returning(|_| Ok(()));
+
+                // First call returns private message
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(move |_| Ok(vec![private_message.clone()]))
+                    .once();
+                // Second call returns public message
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(move |_| Ok(vec![public_message.clone()]))
+                    .once();
+                // Third call returns empty (done)
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(|_| Ok(vec![]));
+
+                mock_queue
+                    .expect_succeed_retry()
+                    .with(eq(private_message_id))
+                    .returning(|_| Ok(()))
+                    .once();
+                mock_queue
+                    .expect_succeed_retry()
+                    .with(eq(public_message_id))
+                    .returning(|_| Ok(()))
+                    .once();
+            },
+        );
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_private_message_with_invalid_base58() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
+            let node_id = node_id_test_other();
+            let message_id = "test_bad_base58_id";
+            let sender = node_id_test();
+            let invalid_base58_payload = "0OIl!!!not_base58".to_string();
+
+            let queued_message = NostrQueuedMessage {
+                id: message_id.to_string(),
+                sender_id: sender.to_owned(),
+                recipient: Some(node_id.to_owned()),
+                payload: invalid_base58_payload,
+            };
+
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(move |_| Ok(vec![queued_message.clone()]))
+                .once();
+            mock_queue
+                .expect_get_retry_messages()
+                .with(eq(1))
+                .returning(|_| Ok(vec![]))
+                .once();
+            mock_queue
+                .expect_fail_retry()
+                .with(eq(message_id.to_string()))
+                .returning(|_| Ok(()))
+                .once();
+        });
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
     }
 }
