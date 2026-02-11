@@ -97,7 +97,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             self.bill_blockchain_store.get_chain(bill_id).await,
             self.bill_store.get_keys(bill_id).await,
         ) {
-            (Ok(existing_chain), Ok(bill_keys)) => {
+            (Ok(mut existing_chain), Ok(bill_keys)) => {
                 debug!("starting bill chain resync for {bill_id}");
                 let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
                 if let Ok(chain_data) = resolve_event_chains(
@@ -108,6 +108,57 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 )
                 .await
                 {
+                    // Fork resolution: compare local chain with best remote chain
+                    if let Some(best_chain) = chain_data.first() {
+                        let remote_blocks: Vec<BillBlock> = best_chain
+                            .iter()
+                            .filter_map(|d| match d.block.clone() {
+                                BlockData::Bill(block) => Some(block),
+                                _ => None,
+                            })
+                            .collect();
+
+                        let mut fork_at: Option<BlockId> = None;
+                        let local_blocks = existing_chain.blocks();
+                        for (i, local_block) in local_blocks.iter().enumerate() {
+                            if let Some(remote_block) = remote_blocks.get(i)
+                                && local_block.hash != remote_block.hash
+                            {
+                                if remote_block.timestamp < local_block.timestamp {
+                                    let prev_hash_valid = if i == 0 {
+                                        false
+                                    } else {
+                                        remote_block.previous_hash == local_blocks[i - 1].hash
+                                    };
+                                    if prev_hash_valid {
+                                        fork_at = Some(local_block.id);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        if let Some(divergence_block_id) = fork_at {
+                            info!(
+                                "Fork resolution for bill {bill_id}: replacing blocks from height {divergence_block_id} with earlier-timestamp chain"
+                            );
+                            if let Err(e) = self
+                                .bill_blockchain_store
+                                .remove_blocks_from_height(bill_id, divergence_block_id)
+                                .await
+                            {
+                                error!(
+                                    "Failed to remove blocks from height for bill {bill_id}: {e}"
+                                );
+                                return Err(Error::Persistence(
+                                    "Failed to remove blocks from height for fork resolution"
+                                        .to_string(),
+                                ));
+                            }
+                            existing_chain.truncate_from(divergence_block_id);
+                        }
+                    }
+
                     for data in chain_data.iter() {
                         let blocks: Vec<BillBlock> = data
                             .iter()
@@ -194,6 +245,22 @@ impl BillChainEventProcessor {
 
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
         for block in blocks.iter() {
+            // Split chain detection: if we received a single block at same height but different
+            // hash and earlier timestamp, trigger resync to get the correct chain
+            if blocks.len() == 1 {
+                let latest = chain.get_latest_block();
+                if block.id == latest.id
+                    && block.hash != latest.hash
+                    && block.timestamp < latest.timestamp
+                {
+                    info!(
+                        "Split chain detected for bill {bill_id} at height {} - resyncing",
+                        block.id
+                    );
+                    self.resync_chain(bill_id).await?;
+                    return Ok(());
+                }
+            }
             block_added = match self
                 .validate_and_save_block(
                     bill_id,
