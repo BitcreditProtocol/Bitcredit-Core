@@ -3331,4 +3331,148 @@ pub mod tests {
         let accept = valid_recourse_block_data();
         assert_eq!(accept.validate(), Ok(()));
     }
+
+    #[test]
+    fn test_truncate_from_mid_chain() {
+        use crate::protocol::blockchain::Blockchain;
+        use crate::protocol::blockchain::bill::chain::BillBlockchain;
+
+        let keys = BcrKeys::new();
+        let bill_keys = BcrKeys::new();
+        let ts = test_ts();
+
+        let block1 = BillBlock::new(
+            bill_id_test(),
+            BlockId::first(),
+            Sha256Hash::new("genesis"),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts,
+            Sha256Hash::new("ph1"),
+        )
+        .unwrap();
+
+        let block2 = BillBlock::new(
+            bill_id_test(),
+            BlockId::next_from_previous_block_id(&block1.id),
+            block1.hash.clone(),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts + 1,
+            Sha256Hash::new("ph2"),
+        )
+        .unwrap();
+
+        let block3 = BillBlock::new(
+            bill_id_test(),
+            BlockId::next_from_previous_block_id(&block2.id),
+            block2.hash.clone(),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts + 2,
+            Sha256Hash::new("ph3"),
+        )
+        .unwrap();
+
+        let mut chain =
+            BillBlockchain::new_from_blocks(vec![block1.clone(), block2, block3]).unwrap();
+        assert_eq!(chain.blocks().len(), 3);
+
+        chain.truncate_from(BlockId::next_from_previous_block_id(&BlockId::first()));
+        assert_eq!(chain.blocks().len(), 1);
+        assert_eq!(chain.blocks()[0].id, block1.id);
+    }
+
+    #[test]
+    fn test_truncate_from_genesis() {
+        use crate::protocol::blockchain::Blockchain;
+        use crate::protocol::blockchain::bill::chain::BillBlockchain;
+
+        let keys = BcrKeys::new();
+        let bill_keys = BcrKeys::new();
+        let ts = test_ts();
+
+        let block1 = BillBlock::new(
+            bill_id_test(),
+            BlockId::first(),
+            Sha256Hash::new("genesis"),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts,
+            Sha256Hash::new("ph1"),
+        )
+        .unwrap();
+
+        let block2 = BillBlock::new(
+            bill_id_test(),
+            BlockId::next_from_previous_block_id(&block1.id),
+            block1.hash.clone(),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts + 1,
+            Sha256Hash::new("ph2"),
+        )
+        .unwrap();
+
+        let mut chain = BillBlockchain::new_from_blocks(vec![block1, block2]).unwrap();
+        chain.truncate_from(BlockId::first());
+        assert_eq!(chain.blocks().len(), 0);
+    }
+
+    #[test]
+    fn test_truncate_from_beyond_end() {
+        use crate::protocol::blockchain::Blockchain;
+        use crate::protocol::blockchain::bill::chain::BillBlockchain;
+
+        let keys = BcrKeys::new();
+        let bill_keys = BcrKeys::new();
+        let ts = test_ts();
+
+        let block1 = BillBlock::new(
+            bill_id_test(),
+            BlockId::first(),
+            Sha256Hash::new("genesis"),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts,
+            Sha256Hash::new("ph1"),
+        )
+        .unwrap();
+
+        let block2 = BillBlock::new(
+            bill_id_test(),
+            BlockId::next_from_previous_block_id(&block1.id),
+            block1.hash.clone(),
+            Vec::new(),
+            BillOpCode::Issue,
+            &keys,
+            None,
+            &bill_keys,
+            ts + 1,
+            Sha256Hash::new("ph2"),
+        )
+        .unwrap();
+
+        let mut chain = BillBlockchain::new_from_blocks(vec![block1, block2]).unwrap();
+        chain.truncate_from(BlockId::first().add(10));
+        assert_eq!(chain.blocks().len(), 2);
+    }
 }

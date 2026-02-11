@@ -282,3 +282,183 @@ impl EventContainer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bcr_common::core::BillId;
+    use bcr_ebill_core::protocol::{
+        BlockId, Sha256Hash, Timestamp,
+        blockchain::bill::{BillOpCode, block::BillBlock},
+        crypto::BcrKeys,
+    };
+    use std::str::FromStr;
+
+    fn bill_id_test() -> BillId {
+        BillId::new(
+            secp256k1::PublicKey::from_str(
+                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
+            )
+            .unwrap(),
+            bitcoin::Network::Testnet,
+        )
+    }
+
+    // Helper: create a BillBlock with a specific timestamp and block_id
+    fn make_test_block(
+        block_id: BlockId,
+        prev_hash: Sha256Hash,
+        timestamp: Timestamp,
+    ) -> BillBlock {
+        BillBlock::new(
+            bill_id_test(),
+            block_id,
+            prev_hash,
+            Vec::new(),
+            BillOpCode::Issue,
+            &BcrKeys::new(),
+            None,
+            &BcrKeys::new(),
+            timestamp,
+            Sha256Hash::new("test plaintext hash"),
+        )
+        .unwrap()
+    }
+
+    // Helper: create an EventContainer from a BillBlock
+    fn make_event_container(block: BillBlock) -> EventContainer {
+        let nostr_event = nostr::event::EventBuilder::text_note("test")
+            .sign_with_keys(&nostr::key::Keys::generate())
+            .expect("test event");
+        EventContainer::new(nostr_event, None, None, BlockData::Bill(block))
+    }
+
+    // Apply the same sort comparator as resolve_event_chains (lines 33-54)
+    fn sort_chains(chains: &mut [Vec<EventContainer>]) {
+        chains.sort_by(|a, b| {
+            b.len()
+                .cmp(&a.len())
+                .then_with(|| {
+                    let a_ts = a
+                        .last()
+                        .map(|e| e.block.get_block_timestamp())
+                        .unwrap_or(Timestamp::zero());
+                    let b_ts = b
+                        .last()
+                        .map(|e| e.block.get_block_timestamp())
+                        .unwrap_or(Timestamp::zero());
+                    a_ts.cmp(&b_ts)
+                })
+                .then_with(|| {
+                    let a_hash = a.last().map(|e| e.block.get_block_hash());
+                    let b_hash = b.last().map(|e| e.block.get_block_hash());
+                    a_hash.cmp(&b_hash)
+                })
+        });
+    }
+
+    #[test]
+    fn test_get_block_timestamp() {
+        let ts = Timestamp::new(1731593928).unwrap();
+        let block = make_test_block(BlockId::first(), Sha256Hash::new("genesis"), ts);
+        let block_data = BlockData::Bill(block);
+        assert_eq!(
+            block_data.get_block_timestamp(),
+            Timestamp::new(1731593928).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sort_different_length_chains() {
+        let ts = Timestamp::new(1731593928).unwrap();
+        let block1 = make_test_block(BlockId::first(), Sha256Hash::new("genesis"), ts);
+        let block2 = make_test_block(
+            BlockId::next_from_previous_block_id(&block1.id),
+            block1.hash.clone(),
+            Timestamp::new(1731593929).unwrap(),
+        );
+
+        // chain_a has 2 blocks, chain_b has 1 block
+        let chain_a = vec![make_event_container(block1), make_event_container(block2)];
+        let chain_b = vec![make_event_container(make_test_block(
+            BlockId::first(),
+            Sha256Hash::new("genesis2"),
+            ts,
+        ))];
+
+        let mut chains = vec![chain_b, chain_a];
+        sort_chains(&mut chains);
+
+        // Longer chain (length 2) should come first
+        assert_eq!(chains[0].len(), 2);
+        assert_eq!(chains[1].len(), 1);
+    }
+
+    #[test]
+    fn test_sort_equal_length_earlier_timestamp_wins() {
+        let ts_early = Timestamp::new(1731593900).unwrap();
+        let ts_late = Timestamp::new(1731593999).unwrap();
+
+        let chain_a = vec![make_event_container(make_test_block(
+            BlockId::first(),
+            Sha256Hash::new("genesis_a"),
+            ts_early,
+        ))];
+        let chain_b = vec![make_event_container(make_test_block(
+            BlockId::first(),
+            Sha256Hash::new("genesis_b"),
+            ts_late,
+        ))];
+
+        let mut chains = vec![chain_b, chain_a];
+        sort_chains(&mut chains);
+
+        // Earlier timestamp should come first
+        assert_eq!(
+            chains[0][0].block.get_block_timestamp(),
+            Timestamp::new(1731593900).unwrap()
+        );
+        assert_eq!(
+            chains[1][0].block.get_block_timestamp(),
+            Timestamp::new(1731593999).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sort_equal_length_same_timestamp_smaller_hash_wins() {
+        let ts = Timestamp::new(1731593928).unwrap();
+
+        // Different BcrKeys::new() generates different keys → different hashes
+        let chain_a = vec![make_event_container(make_test_block(
+            BlockId::first(),
+            Sha256Hash::new("genesis_x"),
+            ts,
+        ))];
+        let chain_b = vec![make_event_container(make_test_block(
+            BlockId::first(),
+            Sha256Hash::new("genesis_y"),
+            ts,
+        ))];
+
+        let mut chains = vec![chain_a, chain_b];
+        sort_chains(&mut chains);
+
+        // The chain with the smaller hash should come first
+        assert!(chains[0][0].block.get_block_hash() <= chains[1][0].block.get_block_hash());
+    }
+
+    #[test]
+    fn test_sort_single_chain_unchanged() {
+        let ts = Timestamp::new(1731593928).unwrap();
+        let block = make_test_block(BlockId::first(), Sha256Hash::new("genesis"), ts);
+        let block_hash = block.hash.clone();
+        let chain = vec![make_event_container(block)];
+
+        let mut chains = vec![chain];
+        sort_chains(&mut chains);
+
+        assert_eq!(chains.len(), 1);
+        assert_eq!(chains[0].len(), 1);
+        assert_eq!(chains[0][0].block.get_block_hash(), block_hash);
+    }
+}
