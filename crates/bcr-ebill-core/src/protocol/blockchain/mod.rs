@@ -285,6 +285,12 @@ pub trait Blockchain {
             .cloned()
             .unwrap_or_else(|| self.get_first_block().clone())
     }
+
+    /// Removes all blocks with id >= from_block_id from the in-memory block vector.
+    /// Used for fork resolution - truncates the chain at the divergence point.
+    fn truncate_from(&mut self, from_block_id: BlockId) {
+        self.blocks_mut().retain(|b| b.id() < from_block_id);
+    }
 }
 
 fn borsh_to_json_value<T: borsh::BorshDeserialize + serde::Serialize>(
