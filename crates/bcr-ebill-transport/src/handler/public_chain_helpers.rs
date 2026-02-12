@@ -304,7 +304,6 @@ mod tests {
         )
     }
 
-    // Helper: create a BillBlock with a specific timestamp and block_id
     fn make_test_block(
         block_id: BlockId,
         prev_hash: Sha256Hash,
@@ -325,7 +324,6 @@ mod tests {
         .unwrap()
     }
 
-    // Helper: create an EventContainer from a BillBlock
     fn make_event_container(block: BillBlock) -> EventContainer {
         let nostr_event = nostr::event::EventBuilder::text_note("test")
             .sign_with_keys(&nostr::key::Keys::generate())
@@ -333,7 +331,6 @@ mod tests {
         EventContainer::new(nostr_event, None, None, BlockData::Bill(block))
     }
 
-    // Apply the same sort comparator as resolve_event_chains (lines 33-54)
     fn sort_chains(chains: &mut [Vec<EventContainer>]) {
         chains.sort_by(|a, b| {
             b.len()
@@ -421,6 +418,51 @@ mod tests {
         assert_eq!(
             chains[1][0].block.get_block_timestamp(),
             Timestamp::new(1731593999).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sort_equal_length_two_blocks_earlier_timestamp_wins() {
+        let ts = Timestamp::new(1731593928).unwrap();
+        let ts_early = Timestamp::new(1731593950).unwrap();
+        let ts_late = Timestamp::new(1731593999).unwrap();
+
+        // Shared first block
+        let block1 = make_test_block(BlockId::first(), Sha256Hash::new("genesis"), ts);
+
+        // Chain A: block1 -> block2a (earlier tip timestamp)
+        let block2a = make_test_block(
+            BlockId::next_from_previous_block_id(&block1.id),
+            block1.hash.clone(),
+            ts_early,
+        );
+        let chain_a = vec![
+            make_event_container(block1.clone()),
+            make_event_container(block2a),
+        ];
+
+        // Chain B: block1 -> block2b (later tip timestamp)
+        let block2b = make_test_block(
+            BlockId::next_from_previous_block_id(&block1.id),
+            block1.hash.clone(),
+            ts_late,
+        );
+        let chain_b = vec![make_event_container(block1), make_event_container(block2b)];
+
+        // Put chain_b first to verify sorting reorders them
+        let mut chains = vec![chain_b, chain_a];
+        sort_chains(&mut chains);
+
+        // Earlier tip timestamp should come first
+        assert_eq!(chains[0].len(), 2);
+        assert_eq!(chains[1].len(), 2);
+        assert_eq!(
+            chains[0].last().unwrap().block.get_block_timestamp(),
+            ts_early
+        );
+        assert_eq!(
+            chains[1].last().unwrap().block.get_block_timestamp(),
+            ts_late
         );
     }
 
