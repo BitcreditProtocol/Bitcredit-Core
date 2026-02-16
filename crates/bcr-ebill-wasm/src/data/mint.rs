@@ -43,6 +43,7 @@ pub enum MintRequestStatusWeb {
     Denied { timestamp: u64 },
     Offered,
     Accepted,
+    MintingEnabled,
     Rejected { timestamp: u64 },
     Cancelled { timestamp: u64 },
     Expired { timestamp: u64 },
@@ -56,6 +57,7 @@ impl From<MintRequestStatus> for MintRequestStatusWeb {
             },
             MintRequestStatus::Offered => MintRequestStatusWeb::Offered,
             MintRequestStatus::Accepted => MintRequestStatusWeb::Accepted,
+            MintRequestStatus::MintingEnabled => MintRequestStatusWeb::MintingEnabled,
             MintRequestStatus::Rejected { timestamp } => MintRequestStatusWeb::Rejected {
                 timestamp: timestamp.inner(),
             },

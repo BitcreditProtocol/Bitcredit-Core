@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    external::mint::{QuoteMintingStatus, QuoteStatusReply},
+    external::mint::QuoteStatusReply,
     service::{
         bill_service::test_utils::{MockBillContext, safe_deadline_ts},
         company_service::tests::{
@@ -6732,9 +6732,6 @@ async fn check_mint_state_pending_accepted() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Accepted {
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-                minting_status: QuoteMintingStatus::Enabled {
-                    minted: bcr_common::cashu::Amount::from(1500),
-                },
             })
         });
     let req_node_id = identity.identity.node_id.clone();
@@ -6804,7 +6801,44 @@ async fn check_mint_state_pending_offered() {
 }
 
 #[tokio::test]
-async fn check_mint_state_accepted_proofs() {
+async fn check_mint_state_offered_accepted() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+
+    ctx.mint_client
+        .expect_lookup_quote_for_mint()
+        .returning(|_, _| {
+            Ok(QuoteStatusReply::Accepted {
+                keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+            })
+        });
+    let req_node_id = identity.identity.node_id.clone();
+    ctx.mint_store
+        .expect_get_requests_for_bill()
+        .returning(move |_, _| {
+            Ok(vec![MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Offered,
+            }])
+        });
+    ctx.mint_store
+        .expect_update_request()
+        .returning(|_, _| Ok(()));
+
+    let service = get_service(ctx);
+    let res = service
+        .check_mint_state(&bill_id_test(), &identity.identity.node_id)
+        .await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn check_mint_state_minting_enabled_proofs() {
     init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
@@ -6824,10 +6858,8 @@ async fn check_mint_state_accepted_proofs() {
     ctx.mint_client
         .expect_lookup_quote_for_mint()
         .returning(|_, _| {
-            Ok(QuoteStatusReply::Accepted {
-                minting_status: QuoteMintingStatus::Enabled {
-                    minted: bcr_common::cashu::Amount::ZERO,
-                },
+            Ok(QuoteStatusReply::MintingEnabled {
+                minted_amount: bcr_common::cashu::Amount::ZERO,
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
             })
         });
@@ -6846,7 +6878,7 @@ async fn check_mint_state_accepted_proofs() {
                 mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
                 timestamp: test_ts(),
-                status: MintRequestStatus::Accepted,
+                status: MintRequestStatus::MintingEnabled,
             }])
         });
     ctx.mint_store.expect_get_offer().returning(|_| {
@@ -6869,7 +6901,7 @@ async fn check_mint_state_accepted_proofs() {
 }
 
 #[tokio::test]
-async fn check_mint_state_accepted_check_spent() {
+async fn check_mint_state_minting_enabled_check_spent() {
     init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
@@ -6898,7 +6930,7 @@ async fn check_mint_state_accepted_check_spent() {
                 mint_node_id: node_id_test(),
                 mint_request_id: get_uuid_v4(),
                 timestamp: test_ts(),
-                status: MintRequestStatus::Accepted,
+                status: MintRequestStatus::MintingEnabled,
             }])
         });
     ctx.mint_store.expect_get_offer().returning(|_| {

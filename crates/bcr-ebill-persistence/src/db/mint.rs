@@ -363,6 +363,7 @@ pub enum MintRequestStatusDb {
     Denied { timestamp: Timestamp },
     Offered,
     Accepted,
+    MintingEnabled,
     Rejected { timestamp: Timestamp },
     Cancelled { timestamp: Timestamp },
     Expired { timestamp: Timestamp },
@@ -375,6 +376,7 @@ impl From<MintRequestStatusDb> for MintRequestStatus {
             MintRequestStatusDb::Denied { timestamp } => MintRequestStatus::Denied { timestamp },
             MintRequestStatusDb::Offered => MintRequestStatus::Offered,
             MintRequestStatusDb::Accepted => MintRequestStatus::Accepted,
+            MintRequestStatusDb::MintingEnabled => MintRequestStatus::MintingEnabled,
             MintRequestStatusDb::Rejected { timestamp } => {
                 MintRequestStatus::Rejected { timestamp }
             }
@@ -393,6 +395,7 @@ impl From<MintRequestStatus> for MintRequestStatusDb {
             MintRequestStatus::Denied { timestamp } => MintRequestStatusDb::Denied { timestamp },
             MintRequestStatus::Offered => MintRequestStatusDb::Offered,
             MintRequestStatus::Accepted => MintRequestStatusDb::Accepted,
+            MintRequestStatus::MintingEnabled => MintRequestStatusDb::MintingEnabled,
             MintRequestStatus::Rejected { timestamp } => {
                 MintRequestStatusDb::Rejected { timestamp }
             }
