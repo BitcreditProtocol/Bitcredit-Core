@@ -1,4 +1,6 @@
-use crate::handler::public_chain_helpers::{BlockData, EventContainer, resolve_event_chains};
+use crate::handler::public_chain_helpers::{
+    BlockData, EventContainer, resolve_event_chains, resolve_fork,
+};
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
@@ -108,7 +110,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 )
                 .await
                 {
-                    // Fork resolution: compare local chain with best remote chain
                     if let Some(best_chain) = chain_data.first() {
                         let remote_blocks: Vec<BillBlock> = best_chain
                             .iter()
@@ -118,29 +119,11 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                             })
                             .collect();
 
-                        let mut fork_at: Option<BlockId> = None;
-                        let local_blocks = existing_chain.blocks();
-                        for (i, local_block) in local_blocks.iter().enumerate() {
-                            if let Some(remote_block) = remote_blocks.get(i)
-                                && local_block.hash != remote_block.hash
-                            {
-                                if remote_block.timestamp < local_block.timestamp {
-                                    let prev_hash_valid = if i == 0 {
-                                        false
-                                    } else {
-                                        remote_block.previous_hash == local_blocks[i - 1].hash
-                                    };
-                                    if prev_hash_valid {
-                                        fork_at = Some(local_block.id);
-                                    }
-                                }
-                                break;
-                            }
-                        }
-
-                        if let Some(divergence_block_id) = fork_at {
+                        if let Some(divergence_block_id) =
+                            resolve_fork(existing_chain.blocks(), &remote_blocks)
+                        {
                             info!(
-                                "Fork resolution for bill {bill_id}: replacing blocks from height {divergence_block_id} with earlier-timestamp chain"
+                                "Fork resolution for bill {bill_id}: replacing blocks from height {divergence_block_id} with preferred remote chain"
                             );
                             if let Err(e) = self
                                 .bill_blockchain_store
@@ -245,13 +228,12 @@ impl BillChainEventProcessor {
 
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
         for block in blocks.iter() {
-            // Split chain detection: if we received a single block at same height but different
-            // hash and earlier timestamp, trigger resync to get the correct chain
             if blocks.len() == 1 {
                 let latest = chain.get_latest_block();
                 if block.id == latest.id
                     && block.hash != latest.hash
-                    && block.timestamp < latest.timestamp
+                    && (block.timestamp < latest.timestamp
+                        || (block.timestamp == latest.timestamp && block.hash < latest.hash))
                 {
                     info!(
                         "Split chain detected for bill {bill_id} at height {} - resyncing",

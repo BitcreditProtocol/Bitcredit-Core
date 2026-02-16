@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::{
+    protocol::BlockId,
     protocol::Sha256Hash,
     protocol::Timestamp,
     protocol::blockchain::{
-        BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock,
+        Block, BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock,
     },
     protocol::crypto::BcrKeys,
     protocol::event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
@@ -53,6 +54,52 @@ pub async fn resolve_event_chains(
             })
     });
     Ok(chains)
+}
+
+pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> Option<BlockId> {
+    let remote_preferred = {
+        let local_len = local.len();
+        let remote_len = remote.len();
+        if remote_len != local_len {
+            remote_len > local_len
+        } else {
+            match (remote.last(), local.last()) {
+                (Some(remote_tip), Some(local_tip)) => {
+                    match remote_tip.timestamp().cmp(&local_tip.timestamp()) {
+                        std::cmp::Ordering::Less => true,
+                        std::cmp::Ordering::Greater => false,
+                        std::cmp::Ordering::Equal => remote_tip.hash() < local_tip.hash(),
+                    }
+                }
+                (Some(_), None) => true,
+                _ => false,
+            }
+        }
+    };
+
+    if !remote_preferred {
+        return None;
+    }
+
+    for (i, local_block) in local.iter().enumerate() {
+        if let Some(remote_block) = remote.get(i) {
+            if local_block.hash() != remote_block.hash() {
+                let prev_hash_valid = if i == 0 {
+                    false
+                } else {
+                    remote_block.previous_hash() == local[i - 1].hash()
+                };
+                if prev_hash_valid {
+                    return Some(local_block.id());
+                }
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+
+    None
 }
 
 // Will build up as many chains as needed for the Nostr chain structure. This does not look into
@@ -502,5 +549,195 @@ mod tests {
         assert_eq!(chains.len(), 1);
         assert_eq!(chains[0].len(), 1);
         assert_eq!(chains[0][0].block.get_block_hash(), block_hash);
+    }
+
+    fn make_test_chain_with_timestamps(timestamps: &[u64]) -> Vec<BillBlock> {
+        let mut blocks = Vec::new();
+        let mut prev_hash = Sha256Hash::new("genesis");
+        let mut block_id = BlockId::first();
+
+        for ts in timestamps.iter() {
+            let block = make_test_block(block_id, prev_hash.clone(), Timestamp::new(*ts).unwrap());
+            prev_hash = block.hash.clone();
+            block_id = BlockId::next_from_previous_block_id(&block_id);
+            blocks.push(block);
+        }
+        blocks
+    }
+
+    #[test]
+    fn test_resolve_fork_remote_longer_no_divergence_returns_none() {
+        let shared = make_test_chain_with_timestamps(&[1000]);
+        let local = shared.clone();
+        let mut remote = shared.clone();
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1001).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_local_longer_returns_none() {
+        let shared = make_test_chain_with_timestamps(&[1000]);
+        let mut local = shared.clone();
+        let remote = shared.clone();
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1001).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_equal_length_earlier_remote_timestamp() {
+        let shared = make_test_chain_with_timestamps(&[1000]);
+        let mut local = shared.clone();
+        let mut remote = shared.clone();
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(2000).unwrap(),
+        ));
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1500).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, Some(local[1].id()));
+    }
+
+    #[test]
+    fn test_resolve_fork_equal_length_later_remote_timestamp() {
+        let shared = make_test_chain_with_timestamps(&[1000]);
+        let mut local = shared.clone();
+        let mut remote = shared.clone();
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1500).unwrap(),
+        ));
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(2000).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_identical_chains_returns_none() {
+        let local = make_test_chain_with_timestamps(&[1000, 1500, 2000]);
+        let remote = local.clone();
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_genesis_divergence_returns_none() {
+        let local = make_test_chain_with_timestamps(&[1000]);
+        let remote = make_test_chain_with_timestamps(&[1001]);
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_middle_divergence() {
+        let shared = make_test_chain_with_timestamps(&[1000, 1500]);
+        let mut local = shared.clone();
+        let mut remote = shared.clone();
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[1].id()),
+            shared[1].hash.clone(),
+            Timestamp::new(2000).unwrap(),
+        ));
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[1].id()),
+            shared[1].hash.clone(),
+            Timestamp::new(1800).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, Some(local[2].id()));
+    }
+
+    #[test]
+    fn test_resolve_fork_empty_local_returns_none() {
+        let local: Vec<BillBlock> = vec![];
+        let remote = make_test_chain_with_timestamps(&[1000, 1500]);
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_empty_remote_returns_none() {
+        let local = make_test_chain_with_timestamps(&[1000, 1500]);
+        let remote: Vec<BillBlock> = vec![];
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_both_empty_returns_none() {
+        let local: Vec<BillBlock> = vec![];
+        let remote: Vec<BillBlock> = vec![];
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_hash_tiebreaker() {
+        let shared = make_test_chain_with_timestamps(&[1000]);
+        let mut local = shared.clone();
+        let mut remote = shared.clone();
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1500).unwrap(),
+        ));
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1500).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        if remote[1].hash < local[1].hash {
+            assert_eq!(result, Some(local[1].id()));
+        } else {
+            assert_eq!(result, None);
+        }
+    }
+
+    #[test]
+    fn test_resolve_fork_remote_shorter_at_divergence() {
+        let shared = make_test_chain_with_timestamps(&[1000, 1500]);
+        let mut local = shared.clone();
+        let remote = shared.clone();
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[1].id()),
+            shared[1].hash.clone(),
+            Timestamp::new(2000).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_fork_single_vs_two_blocks_no_divergence() {
+        let shared = make_test_chain_with_timestamps(&[1000]);
+        let local = shared.clone();
+        let mut remote = shared.clone();
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&shared[0].id()),
+            shared[0].hash.clone(),
+            Timestamp::new(1000).unwrap(),
+        ));
+        let result = resolve_fork(&local, &remote);
+        assert_eq!(result, None);
     }
 }

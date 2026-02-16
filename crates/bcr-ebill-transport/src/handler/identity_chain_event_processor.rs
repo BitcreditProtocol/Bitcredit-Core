@@ -1,6 +1,6 @@
 use crate::{
     Error, Result,
-    handler::public_chain_helpers::{BlockData, resolve_event_chains},
+    handler::public_chain_helpers::{BlockData, resolve_event_chains, resolve_fork},
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -93,7 +93,6 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 )
                 .await
                 {
-                    // Fork resolution: check if best remote chain has earlier-timestamp blocks
                     if let Some(best_chain) = chain_data.first() {
                         let remote_blocks: Vec<IdentityBlock> = best_chain
                             .iter()
@@ -103,32 +102,18 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                             })
                             .collect();
 
-                        let local_blocks = existing_chain.blocks();
-                        for (i, local_block) in local_blocks.iter().enumerate() {
-                            if let Some(remote_block) = remote_blocks.get(i)
-                                && local_block.hash != remote_block.hash
-                            {
-                                if remote_block.timestamp < local_block.timestamp {
-                                    let prev_hash_valid = if i == 0 {
-                                        false // genesis divergence — skip
-                                    } else {
-                                        remote_block.previous_hash == local_blocks[i - 1].hash
-                                    };
-                                    if prev_hash_valid {
-                                        let divergence_block_id = local_block.id;
-                                        info!(
-                                            "Fork resolution for identity {}: replacing blocks from height {divergence_block_id} with earlier-timestamp chain",
-                                            identity.node_id
-                                        );
-                                        self.blockchain_store
-                                            .remove_blocks_from_height(divergence_block_id)
-                                            .await
-                                            .map_err(|e| Error::Persistence(e.to_string()))?;
-                                        existing_chain.truncate_from(divergence_block_id);
-                                    }
-                                }
-                                break;
-                            }
+                        if let Some(divergence_block_id) =
+                            resolve_fork(existing_chain.blocks(), &remote_blocks)
+                        {
+                            info!(
+                                "Fork resolution for identity {}: replacing blocks from height {divergence_block_id} with preferred remote chain",
+                                identity.node_id
+                            );
+                            self.blockchain_store
+                                .remove_blocks_from_height(divergence_block_id)
+                                .await
+                                .map_err(|e| Error::Persistence(e.to_string()))?;
+                            existing_chain.truncate_from(divergence_block_id);
                         }
                     }
 
@@ -242,7 +227,8 @@ impl IdentityChainEventProcessor {
                     let latest = chain.get_latest_block();
                     if block.id == latest.id
                         && block.hash != latest.hash
-                        && block.timestamp < latest.timestamp
+                        && (block.timestamp < latest.timestamp
+                            || (block.timestamp == latest.timestamp && block.hash < latest.hash))
                     {
                         info!(
                             "Split chain detected for identity {node_id} at height {} - resyncing",
