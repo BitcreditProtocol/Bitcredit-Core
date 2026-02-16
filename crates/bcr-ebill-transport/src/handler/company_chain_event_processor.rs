@@ -138,7 +138,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                         .map_err(|e| Error::Persistence(e.to_string()))?
                         .node_id;
 
-                    if let Some(best_chain) = chain_data.first() {
+                    let fork_point = if let Some(best_chain) = chain_data.first() {
                         let remote_blocks: Vec<CompanyBlock> = best_chain
                             .iter()
                             .filter_map(|d| match d.block.clone() {
@@ -146,30 +146,12 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
+                        resolve_fork(existing_chain.blocks(), &remote_blocks)
+                    } else {
+                        None
+                    };
 
-                        if let Some(divergence_block_id) =
-                            resolve_fork(existing_chain.blocks(), &remote_blocks)
-                        {
-                            info!(
-                                "Fork resolution for company {company_id}: replacing blocks from height {divergence_block_id} with preferred remote chain"
-                            );
-                            if let Err(e) = self
-                                .blockchain_store
-                                .remove_blocks_from_height(company_id, divergence_block_id)
-                                .await
-                            {
-                                error!(
-                                    "Failed to remove blocks from height for company {company_id}: {e}"
-                                );
-                                return Err(Error::Persistence(
-                                    "Failed to remove blocks from height for fork resolution"
-                                        .to_string(),
-                                ));
-                            }
-                            existing_chain.truncate_from(divergence_block_id);
-                        }
-                    }
-
+                    let mut resynced = false;
                     for data in chain_data.iter() {
                         let blocks: Vec<CompanyBlock> = data
                             .iter()
@@ -178,24 +160,80 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
-                        if !data.is_empty()
-                            && self
-                                .add_company_blocks(
+                        if !data.is_empty() {
+                            let application_result = if let Some(fork_id) = fork_point {
+                                let mut test_chain = existing_chain.clone();
+                                test_chain.truncate_from(fork_id);
+                                self.add_company_blocks(
                                     company_id,
-                                    &mut existing_chain,
-                                    blocks,
+                                    &mut test_chain,
+                                    blocks.clone(),
                                     &identity,
                                 )
                                 .await
-                                .is_ok()
-                        {
-                            debug!(
-                                "resynced company {company_id} with {} remote events",
-                                data.len()
-                            );
-                            break;
+                            } else {
+                                self.add_company_blocks(
+                                    company_id,
+                                    &mut existing_chain.clone(),
+                                    blocks.clone(),
+                                    &identity,
+                                )
+                                .await
+                            };
+
+                            if application_result.is_ok() {
+                                if let Some(fork_id) = fork_point {
+                                    info!(
+                                        "Fork resolution for company {company_id}: replacing blocks from height {fork_id} with preferred remote chain"
+                                    );
+                                    if let Err(e) = self
+                                        .blockchain_store
+                                        .remove_blocks_from_height(company_id, fork_id)
+                                        .await
+                                    {
+                                        error!(
+                                            "Failed to remove blocks from height for company {company_id}: {e}"
+                                        );
+                                        return Err(Error::Persistence(
+                                            "Failed to remove blocks from height for fork resolution"
+                                                .to_string(),
+                                        ));
+                                    }
+                                    existing_chain.truncate_from(fork_id);
+                                    if let Err(e) = self
+                                        .add_company_blocks(
+                                            company_id,
+                                            &mut existing_chain,
+                                            blocks,
+                                            &identity,
+                                        )
+                                        .await
+                                    {
+                                        error!(
+                                            "Failed to add blocks after truncation for company {company_id}: {e}"
+                                        );
+                                        return Err(e);
+                                    }
+                                }
+                                debug!(
+                                    "resynced company {company_id} with {} remote events",
+                                    data.len()
+                                );
+                                resynced = true;
+                                break;
+                            }
                         }
                     }
+
+                    if !resynced && fork_point.is_some() {
+                        error!(
+                            "Failed to resync any chain for company {company_id} after fork resolution"
+                        );
+                        return Err(Error::Blockchain(
+                            "Failed to apply any candidate chain after fork resolution".to_string(),
+                        ));
+                    }
+
                     debug!("finished company chain resync for {company_id}");
                     Ok(())
                 } else {

@@ -93,7 +93,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 )
                 .await
                 {
-                    if let Some(best_chain) = chain_data.first() {
+                    let fork_point = if let Some(best_chain) = chain_data.first() {
                         let remote_blocks: Vec<IdentityBlock> = best_chain
                             .iter()
                             .filter_map(|d| match d.block.clone() {
@@ -101,22 +101,12 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
+                        resolve_fork(existing_chain.blocks(), &remote_blocks)
+                    } else {
+                        None
+                    };
 
-                        if let Some(divergence_block_id) =
-                            resolve_fork(existing_chain.blocks(), &remote_blocks)
-                        {
-                            info!(
-                                "Fork resolution for identity {}: replacing blocks from height {divergence_block_id} with preferred remote chain",
-                                identity.node_id
-                            );
-                            self.blockchain_store
-                                .remove_blocks_from_height(divergence_block_id)
-                                .await
-                                .map_err(|e| Error::Persistence(e.to_string()))?;
-                            existing_chain.truncate_from(divergence_block_id);
-                        }
-                    }
-
+                    let mut resynced = false;
                     for data in chain_data.iter() {
                         let blocks: Vec<IdentityBlock> = data
                             .iter()
@@ -125,20 +115,72 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
-                        if !data.is_empty()
-                            && self
-                                .add_identity_blocks(&identity.node_id, &mut existing_chain, blocks)
+                        if !data.is_empty() {
+                            let application_result = if let Some(fork_id) = fork_point {
+                                let mut test_chain = existing_chain.clone();
+                                test_chain.truncate_from(fork_id);
+                                self.add_identity_blocks(
+                                    &identity.node_id,
+                                    &mut test_chain,
+                                    blocks.clone(),
+                                )
                                 .await
-                                .is_ok()
-                        {
-                            debug!(
-                                "resynced identity {} with {} remote events",
-                                identity.node_id,
-                                data.len()
-                            );
-                            break;
+                            } else {
+                                self.add_identity_blocks(
+                                    &identity.node_id,
+                                    &mut existing_chain.clone(),
+                                    blocks.clone(),
+                                )
+                                .await
+                            };
+
+                            if application_result.is_ok() {
+                                if let Some(fork_id) = fork_point {
+                                    info!(
+                                        "Fork resolution for identity {}: replacing blocks from height {fork_id} with preferred remote chain",
+                                        identity.node_id
+                                    );
+                                    self.blockchain_store
+                                        .remove_blocks_from_height(fork_id)
+                                        .await
+                                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                                    existing_chain.truncate_from(fork_id);
+                                    if let Err(e) = self
+                                        .add_identity_blocks(
+                                            &identity.node_id,
+                                            &mut existing_chain,
+                                            blocks,
+                                        )
+                                        .await
+                                    {
+                                        error!(
+                                            "Failed to add blocks after truncation for identity {}: {e}",
+                                            identity.node_id
+                                        );
+                                        return Err(e);
+                                    }
+                                }
+                                debug!(
+                                    "resynced identity {} with {} remote events",
+                                    identity.node_id,
+                                    data.len()
+                                );
+                                resynced = true;
+                                break;
+                            }
                         }
                     }
+
+                    if !resynced && fork_point.is_some() {
+                        error!(
+                            "Failed to resync any chain for identity {} after fork resolution",
+                            identity.node_id
+                        );
+                        return Err(Error::Blockchain(
+                            "Failed to apply any candidate chain after fork resolution".to_string(),
+                        ));
+                    }
+
                     debug!("finished identity chain resync for {}", &identity.node_id);
                     Ok(())
                 } else {

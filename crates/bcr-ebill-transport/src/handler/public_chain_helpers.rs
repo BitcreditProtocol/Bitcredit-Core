@@ -20,6 +20,31 @@ use nostr::{
 use crate::transport::{decrypt_public_chain_event, unwrap_public_chain_event};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 
+/// Compares two chains for sorting. Ordering is:
+/// 1. Length descending (longer chain wins)
+/// 2. Tip timestamp ascending (earlier wins)
+/// 3. Tip hash ascending (deterministic tiebreaker)
+pub fn compare_chains(a: &[EventContainer], b: &[EventContainer]) -> std::cmp::Ordering {
+    b.len()
+        .cmp(&a.len())
+        .then_with(|| {
+            let a_ts = a
+                .last()
+                .map(|e| e.block.get_block_timestamp())
+                .unwrap_or(Timestamp::zero());
+            let b_ts = b
+                .last()
+                .map(|e| e.block.get_block_timestamp())
+                .unwrap_or(Timestamp::zero());
+            a_ts.cmp(&b_ts)
+        })
+        .then_with(|| {
+            let a_hash = a.last().map(|e| e.block.get_block_hash());
+            let b_hash = b.last().map(|e| e.block.get_block_hash());
+            a_hash.cmp(&b_hash)
+        })
+}
+
 /// Will query the transport for the public chain events and build up as many chains as needed for
 /// the Nostr chain structure. This does not look into the actual blockchain, but will build the
 /// chains just from Nostr metadata.
@@ -31,28 +56,7 @@ pub async fn resolve_event_chains(
 ) -> Result<Vec<Vec<EventContainer>>> {
     let events = transport.resolve_public_chain(chain_id, chain_type).await?;
     let mut chains = collect_event_chains(&events, chain_id, chain_type, keys);
-    chains.sort_by(|a, b| {
-        b.len()
-            .cmp(&a.len()) // length descending (longer chain wins)
-            .then_with(|| {
-                // tip timestamp ascending (earlier wins)
-                let a_ts = a
-                    .last()
-                    .map(|e| e.block.get_block_timestamp())
-                    .unwrap_or(Timestamp::zero());
-                let b_ts = b
-                    .last()
-                    .map(|e| e.block.get_block_timestamp())
-                    .unwrap_or(Timestamp::zero());
-                a_ts.cmp(&b_ts)
-            })
-            .then_with(|| {
-                // tip hash ascending (deterministic tiebreaker)
-                let a_hash = a.last().map(|e| e.block.get_block_hash());
-                let b_hash = b.last().map(|e| e.block.get_block_hash());
-                a_hash.cmp(&b_hash)
-            })
-    });
+    chains.sort_by(|a, b| compare_chains(a, b));
     Ok(chains)
 }
 
@@ -379,26 +383,7 @@ mod tests {
     }
 
     fn sort_chains(chains: &mut [Vec<EventContainer>]) {
-        chains.sort_by(|a, b| {
-            b.len()
-                .cmp(&a.len())
-                .then_with(|| {
-                    let a_ts = a
-                        .last()
-                        .map(|e| e.block.get_block_timestamp())
-                        .unwrap_or(Timestamp::zero());
-                    let b_ts = b
-                        .last()
-                        .map(|e| e.block.get_block_timestamp())
-                        .unwrap_or(Timestamp::zero());
-                    a_ts.cmp(&b_ts)
-                })
-                .then_with(|| {
-                    let a_hash = a.last().map(|e| e.block.get_block_hash());
-                    let b_hash = b.last().map(|e| e.block.get_block_hash());
-                    a_hash.cmp(&b_hash)
-                })
-        });
+        chains.sort_by(|a, b| compare_chains(a, b));
     }
 
     #[test]
