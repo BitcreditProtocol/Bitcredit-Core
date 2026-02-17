@@ -56,7 +56,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
         }
 
         if let Ok(mut existing_chain) = self.blockchain_store.get_chain().await {
-            self.add_identity_blocks(node_id, &mut existing_chain, blocks)
+            self.add_identity_blocks(node_id, &mut existing_chain, blocks, false)
                 .await
         } else {
             match keys {
@@ -147,6 +147,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                         &identity.node_id,
                                         &mut existing_chain,
                                         blocks,
+                                        true,
                                     )
                                     .await
                                 {
@@ -252,6 +253,7 @@ impl IdentityChainEventProcessor {
         node_id: &NodeId,
         chain: &mut IdentityBlockchain,
         blocks: Vec<IdentityBlock>,
+        from_resync: bool,
     ) -> Result<()> {
         let keys = self
             .identity_store
@@ -268,7 +270,7 @@ impl IdentityChainEventProcessor {
         let mut block_height = chain.get_latest_block().id;
         for block in blocks.iter() {
             if block.id <= block_height {
-                if blocks.len() == 1 {
+                if blocks.len() == 1 && !from_resync {
                     let latest = chain.get_latest_block();
                     if block.id == latest.id
                         && block.hash != latest.hash
@@ -299,6 +301,7 @@ impl IdentityChainEventProcessor {
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1
+                        && !from_resync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {

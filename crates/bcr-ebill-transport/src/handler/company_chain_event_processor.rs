@@ -79,7 +79,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             .node_id;
 
         if let Ok(mut existing_chain) = self.blockchain_store.get_chain(company_id).await {
-            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity)
+            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity, false)
                 .await
         } else {
             match keys {
@@ -202,6 +202,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                         &mut existing_chain,
                                         blocks,
                                         &identity,
+                                        true,
                                     )
                                     .await
                                 {
@@ -342,6 +343,7 @@ impl CompanyChainEventProcessor {
         chain: &mut CompanyBlockchain,
         blocks: Vec<CompanyBlock>,
         identity: &NodeId,
+        from_resync: bool,
     ) -> Result<()> {
         let keys = self
             .company_store
@@ -357,7 +359,7 @@ impl CompanyChainEventProcessor {
         let mut block_height = chain.get_latest_block().id;
         for block in blocks.iter() {
             if block.id <= block_height {
-                if blocks.len() == 1 {
+                if blocks.len() == 1 && !from_resync {
                     let latest = chain.get_latest_block();
                     if block.id == latest.id
                         && block.hash != latest.hash
@@ -389,6 +391,7 @@ impl CompanyChainEventProcessor {
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1
+                        && !from_resync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {

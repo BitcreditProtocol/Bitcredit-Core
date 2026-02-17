@@ -43,7 +43,8 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         }
 
         if let Ok(existing_chain) = self.bill_blockchain_store.get_chain(bill_id).await {
-            self.add_bill_blocks(bill_id, existing_chain, blocks).await
+            self.add_bill_blocks(bill_id, existing_chain, blocks, false)
+                .await
         } else {
             match keys {
                 Some(keys) => self.add_new_chain(blocks, &keys).await,
@@ -186,8 +187,9 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                 }
 
                                 // Persist the validated blocks
-                                if let Err(e) =
-                                    self.add_bill_blocks(bill_id, existing_chain, blocks).await
+                                if let Err(e) = self
+                                    .add_bill_blocks(bill_id, existing_chain, blocks, true)
+                                    .await
                                 {
                                     error!(
                                         "Failed to add blocks after truncation for bill {bill_id}: {e}"
@@ -264,6 +266,7 @@ impl BillChainEventProcessor {
         bill_id: &BillId,
         existing: BillBlockchain,
         blocks: Vec<BillBlock>,
+        from_resync: bool,
     ) -> Result<()> {
         let mut block_added = false;
         let mut chain = existing;
@@ -282,7 +285,7 @@ impl BillChainEventProcessor {
 
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
         for block in blocks.iter() {
-            if blocks.len() == 1 {
+            if blocks.len() == 1 && !from_resync {
                 let latest = chain.get_latest_block();
                 if block.id == latest.id
                     && block.hash != latest.hash
@@ -312,6 +315,7 @@ impl BillChainEventProcessor {
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1
+                        && !from_resync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {
