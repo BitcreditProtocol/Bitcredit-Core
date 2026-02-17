@@ -85,6 +85,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                     "starting identity chain resync for identity {}",
                     identity.node_id
                 );
+
                 if let Ok(chain_data) = resolve_event_chains(
                     self.transport.clone(),
                     &identity.node_id.to_string(),
@@ -106,7 +107,6 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                         None
                     };
 
-                    let mut resynced = false;
                     for data in chain_data.iter() {
                         let blocks: Vec<IdentityBlock> = data
                             .iter()
@@ -115,26 +115,20 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
-                        if !data.is_empty() {
-                            let application_result = if let Some(fork_id) = fork_point {
-                                let mut test_chain = existing_chain.clone();
-                                test_chain.truncate_from(fork_id);
-                                self.add_identity_blocks(
-                                    &identity.node_id,
-                                    &mut test_chain,
-                                    blocks.clone(),
-                                )
-                                .await
-                            } else {
-                                self.add_identity_blocks(
-                                    &identity.node_id,
-                                    &mut existing_chain.clone(),
-                                    blocks.clone(),
-                                )
-                                .await
-                            };
 
-                            if application_result.is_ok() {
+                        if blocks.is_empty() {
+                            continue;
+                        }
+
+                        // Validate the candidate chain
+                        let mut test_chain = existing_chain.clone();
+                        if let Some(fork_id) = fork_point {
+                            test_chain.truncate_from(fork_id);
+                        }
+
+                        match self.validate_identity_blocks_for_chain(&mut test_chain, &blocks) {
+                            Ok(()) => {
+                                // Valid fork found - apply it atomically
                                 if let Some(fork_id) = fork_point {
                                     info!(
                                         "Fork resolution for identity {}: replacing blocks from height {fork_id} with preferred remote chain",
@@ -145,33 +139,42 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                         .await
                                         .map_err(|e| Error::Persistence(e.to_string()))?;
                                     existing_chain.truncate_from(fork_id);
-                                    if let Err(e) = self
-                                        .add_identity_blocks(
-                                            &identity.node_id,
-                                            &mut existing_chain,
-                                            blocks,
-                                        )
-                                        .await
-                                    {
-                                        error!(
-                                            "Failed to add blocks after truncation for identity {}: {e}",
-                                            identity.node_id
-                                        );
-                                        return Err(e);
-                                    }
                                 }
+
+                                // Persist the validated blocks
+                                if let Err(e) = self
+                                    .add_identity_blocks(
+                                        &identity.node_id,
+                                        &mut existing_chain,
+                                        blocks,
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to add blocks after truncation for identity {}: {e}",
+                                        identity.node_id
+                                    );
+                                    return Err(e);
+                                }
+
                                 debug!(
                                     "resynced identity {} with {} remote events",
                                     identity.node_id,
                                     data.len()
                                 );
-                                resynced = true;
-                                break;
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "Chain candidate failed validation for identity {}: {e}",
+                                    identity.node_id
+                                );
+                                continue;
                             }
                         }
                     }
 
-                    if !resynced && fork_point.is_some() {
+                    if fork_point.is_some() {
                         error!(
                             "Failed to resync any chain for identity {} after fork resolution",
                             identity.node_id
@@ -316,6 +319,45 @@ impl IdentityChainEventProcessor {
         Ok(())
     }
 
+    /// Validates a single identity block for a chain WITHOUT persisting or processing side effects.
+    /// Returns true if the block was validated and added to the in-memory chain.
+    /// Returns false if the block should be skipped (already exists, etc.).
+    fn validate_identity_block_for_chain(
+        &self,
+        chain: &mut IdentityBlockchain,
+        block: &IdentityBlock,
+    ) -> Result<bool> {
+        let block_height = chain.get_latest_block().id;
+
+        // if we already have the block, we skip it
+        if block.id <= block_height {
+            return Ok(false);
+        }
+
+        // do cheap integrity checks (mutates chain in-memory)
+        if !chain.try_add_block(block.clone()) {
+            error!("Received invalid identity block");
+            return Err(Error::Blockchain(
+                "Received invalid identity block".to_string(),
+            ));
+        }
+
+        Ok(true)
+    }
+
+    /// Validates multiple identity blocks for a chain WITHOUT persisting or processing side effects.
+    /// Returns Ok(()) if all blocks are valid, Err otherwise.
+    fn validate_identity_blocks_for_chain(
+        &self,
+        chain: &mut IdentityBlockchain,
+        blocks: &[IdentityBlock],
+    ) -> Result<()> {
+        for block in blocks {
+            self.validate_identity_block_for_chain(chain, block)?;
+        }
+        Ok(())
+    }
+
     async fn add_identity_block(
         &self,
         node_id: &NodeId,
@@ -324,81 +366,88 @@ impl IdentityChainEventProcessor {
         chain: &mut IdentityBlockchain,
         block: &IdentityBlock,
     ) -> Result<()> {
-        if chain.try_add_block(block.clone()) {
+        if self.validate_identity_block_for_chain(chain, block)? {
             let data = block
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
 
             // process effects
-            match data {
-                update @ IdentityBlockPayload::Update(_) => {
-                    info!("Updating identity {node_id} from block data");
-                    identity.apply_block_data(&update);
-                    self.identity_store
-                        .save(identity)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-                IdentityBlockPayload::InviteSignatory(payload) => {
-                    info!("Adding signatory to identity {node_id}");
-                    self.nostr_contact_processor
-                        .ensure_nostr_contact(&payload.signatory)
-                        .await
-                }
-                IdentityBlockPayload::CreateCompany(payload) => {
-                    info!("Received company create block. Restoring Company data");
-                    let secret_key = payload.company_key;
-                    let company_keys = BcrKeys::from_private_key(&secret_key);
-                    let invite = ChainInvite::company(
-                        payload.company_id.to_string(),
-                        BcrKeys::from_private_key(&company_keys.get_private_key()),
-                    );
-                    let event = Event::new_company_invite(invite);
-                    self.company_invite_handler
-                        .handle_event(event.try_into()?, node_id, None, None)
-                        .await?;
-                }
-                IdentityBlockPayload::SignPersonalBill(payload) => {
-                    if let Some(bill_key) = payload.bill_key
-                        && payload.operation == BillOpCode::Issue
-                    {
-                        debug!(
-                            "Found personal bill issue block so adding bill {}",
-                            payload.bill_id
-                        );
-                        let secret_key = bill_key;
-                        let bill_keys = BcrKeys::from_private_key(&secret_key);
-                        let invite = ChainInvite::bill(
-                            payload.bill_id.to_string(),
-                            BcrKeys::from_private_key(&bill_keys.get_private_key()),
-                        );
-                        self.bill_invite_handler
-                            .handle_event(Event::new_bill(invite).try_into()?, node_id, None, None)
-                            .await?;
-                    }
-                }
-                IdentityBlockPayload::AcceptSignatoryInvite(_) => { /* no action needed */ }
-                IdentityBlockPayload::RejectSignatoryInvite(_) => { /* no action needed */ }
-                IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
-                IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
-                IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
-                IdentityBlockPayload::IdentityProof(data) => {
-                    self.identity_store
-                        .set_email_confirmation(&data.proof, &data.data)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-            }
+            self.process_identity_block_effects(node_id, identity, data)
+                .await?;
 
             // persist data
             self.save_block(block).await?;
-            Ok(())
-        } else {
-            error!("Received invalid identity block");
-            Err(Error::Blockchain(
-                "Received invalid identity block".to_string(),
-            ))
         }
+        Ok(())
+    }
+
+    /// Processes side effects for an identity block (contacts, invites, etc.) WITHOUT persisting the block itself.
+    async fn process_identity_block_effects(
+        &self,
+        node_id: &NodeId,
+        identity: &mut Identity,
+        data: IdentityBlockPayload,
+    ) -> Result<()> {
+        match data {
+            update @ IdentityBlockPayload::Update(_) => {
+                info!("Updating identity {node_id} from block data");
+                identity.apply_block_data(&update);
+                self.identity_store
+                    .save(identity)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+            IdentityBlockPayload::InviteSignatory(payload) => {
+                info!("Adding signatory to identity {node_id}");
+                self.nostr_contact_processor
+                    .ensure_nostr_contact(&payload.signatory)
+                    .await
+            }
+            IdentityBlockPayload::CreateCompany(payload) => {
+                info!("Received company create block. Restoring Company data");
+                let secret_key = payload.company_key;
+                let company_keys = BcrKeys::from_private_key(&secret_key);
+                let invite = ChainInvite::company(
+                    payload.company_id.to_string(),
+                    BcrKeys::from_private_key(&company_keys.get_private_key()),
+                );
+                let event = Event::new_company_invite(invite);
+                self.company_invite_handler
+                    .handle_event(event.try_into()?, node_id, None, None)
+                    .await?;
+            }
+            IdentityBlockPayload::SignPersonalBill(payload) => {
+                if let Some(bill_key) = payload.bill_key
+                    && payload.operation == BillOpCode::Issue
+                {
+                    debug!(
+                        "Found personal bill issue block so adding bill {}",
+                        payload.bill_id
+                    );
+                    let secret_key = bill_key;
+                    let bill_keys = BcrKeys::from_private_key(&secret_key);
+                    let invite = ChainInvite::bill(
+                        payload.bill_id.to_string(),
+                        BcrKeys::from_private_key(&bill_keys.get_private_key()),
+                    );
+                    self.bill_invite_handler
+                        .handle_event(Event::new_bill(invite).try_into()?, node_id, None, None)
+                        .await?;
+                }
+            }
+            IdentityBlockPayload::AcceptSignatoryInvite(_) => { /* no action needed */ }
+            IdentityBlockPayload::RejectSignatoryInvite(_) => { /* no action needed */ }
+            IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
+            IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
+            IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
+            IdentityBlockPayload::IdentityProof(data) => {
+                self.identity_store
+                    .set_email_confirmation(&data.proof, &data.data)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+        }
+        Ok(())
     }
 
     /// Validates all blocks in the given chain and returns the the chain with create block and the

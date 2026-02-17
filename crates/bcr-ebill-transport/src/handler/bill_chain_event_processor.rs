@@ -102,6 +102,19 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             (Ok(mut existing_chain), Ok(bill_keys)) => {
                 debug!("starting bill chain resync for {bill_id}");
                 let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
+
+                // Pre-fetch validation data needed for all chain candidates
+                let is_paid = self.bill_store.is_paid(bill_id).await.map_err(|e| {
+                    error!("Could not resync bill {bill_id} because getting paid status failed");
+                    Error::Persistence(e.to_string())
+                })?;
+                let bill_first_version = existing_chain
+                    .get_first_version_bill(&bill_keys)
+                    .map_err(|e| {
+                        error!("Could not resync bill {bill_id} because getting first version bill data failed");
+                        Error::Blockchain(e.to_string())
+                    })?;
+
                 if let Ok(chain_data) = resolve_event_chains(
                     self.transport.clone(),
                     &bill_id.to_string(),
@@ -123,7 +136,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                         None
                     };
 
-                    let mut resynced = false;
                     for data in chain_data.iter() {
                         let blocks: Vec<BillBlock> = data
                             .iter()
@@ -132,22 +144,27 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
-                        if !data.is_empty() {
-                            let application_result = if let Some(fork_id) = fork_point {
-                                let mut test_chain = existing_chain.clone();
-                                test_chain.truncate_from(fork_id);
-                                self.add_bill_blocks(bill_id, test_chain, blocks.clone())
-                                    .await
-                            } else {
-                                self.add_bill_blocks(
-                                    bill_id,
-                                    existing_chain.clone(),
-                                    blocks.clone(),
-                                )
-                                .await
-                            };
 
-                            if application_result.is_ok() {
+                        if blocks.is_empty() {
+                            continue;
+                        }
+
+                        // Validate the candidate chain WITHOUT persisting
+                        let mut test_chain = existing_chain.clone();
+                        if let Some(fork_id) = fork_point {
+                            test_chain.truncate_from(fork_id);
+                        }
+
+                        match self.validate_blocks_for_chain(
+                            bill_id,
+                            &mut test_chain,
+                            &blocks,
+                            &bill_keys,
+                            &bill_first_version,
+                            is_paid,
+                        ) {
+                            Ok(()) => {
+                                // Valid fork found - apply it atomically
                                 if let Some(fork_id) = fork_point {
                                     info!(
                                         "Fork resolution for bill {bill_id}: replacing blocks from height {fork_id} with preferred remote chain"
@@ -166,24 +183,29 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                         ));
                                     }
                                     existing_chain.truncate_from(fork_id);
-                                    if let Err(e) = self
-                                        .add_bill_blocks(bill_id, existing_chain.clone(), blocks)
-                                        .await
-                                    {
-                                        error!(
-                                            "Failed to add blocks after truncation for bill {bill_id}: {e}"
-                                        );
-                                        return Err(e);
-                                    }
                                 }
+
+                                // Persist the validated blocks
+                                if let Err(e) =
+                                    self.add_bill_blocks(bill_id, existing_chain, blocks).await
+                                {
+                                    error!(
+                                        "Failed to add blocks after truncation for bill {bill_id}: {e}"
+                                    );
+                                    return Err(e);
+                                }
+
                                 debug!("resynced bill {bill_id} with {} remote events", data.len());
-                                resynced = true;
-                                break;
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                debug!("Chain candidate failed validation for bill {bill_id}: {e}");
+                                continue;
                             }
                         }
                     }
 
-                    if !resynced && fork_point.is_some() {
+                    if fork_point.is_some() {
                         error!(
                             "Failed to resync any chain for bill {bill_id} after fork resolution"
                         );
@@ -326,28 +348,34 @@ impl BillChainEventProcessor {
         Ok(())
     }
 
-    async fn validate_and_save_block(
+    /// Validates a single block for a chain.
+    /// Returns true if the block was validated and added to the in-memory chain.
+    /// Returns false if the block should be skipped (already exists, etc.).
+    fn validate_block_for_chain(
         &self,
         bill_id: &BillId,
         chain: &mut BillBlockchain,
         bill_first_version: &BillIssueBlockData,
         bill_keys: &BcrKeys,
-        block: BillBlock,
+        block: &BillBlock,
         is_paid: bool,
     ) -> Result<bool> {
         let block_height = chain.get_latest_block().id;
         let block_id = block.id;
+
         // if we already have the block, we skip it
         if block.id <= block_height {
             info!("Skipping block with id {block_id} for {bill_id} as we already have it");
             return Ok(false);
         }
+
         if block.op_code == BillOpCode::Issue {
             info!(
                 "Skipping block {block_id} with op code Issue for {bill_id} as we already have the chain"
             );
             return Ok(false);
         }
+
         // validate plaintext hash
         if !block.validate_plaintext_hash(&bill_keys.get_private_key()) {
             error!("Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash");
@@ -355,16 +383,19 @@ impl BillChainEventProcessor {
                 "Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash"
             )));
         }
+
         // create a clone of the chain for validating the bill action later, since the chain
         // will be mutated with the integrity checks
         let chain_clone_for_validation = chain.clone();
-        // first, do cheap integrity checks
+
+        // first, do cheap integrity checks (mutates chain in-memory)
         if !chain.try_add_block(block.clone()) {
             error!("Received invalid block {block_id} for bill {bill_id}");
             return Err(Error::Blockchain(
                 "Received invalid block for bill".to_string(),
             ));
         }
+
         // then, verify signature and signer of the block and get signer and bill action for
         // the block
         let (signer, bill_action) = match block.verify_and_get_signer(bill_keys) {
@@ -386,6 +417,7 @@ impl BillChainEventProcessor {
                     "Received invalid block for bill - couldn't get bill parties".to_string(),
                 )
             })?;
+
         if let Err(e) = (BillValidateActionData {
             blockchain: chain_clone_for_validation,
             drawee_node_id: bill_parties.drawee.node_id,
@@ -403,19 +435,71 @@ impl BillChainEventProcessor {
                     );
                     Error::Blockchain(
                         "Received invalid block for bill - no valid bill action returned"
-                        .to_string(),
+                            .to_string(),
                     )
                 })?),
-        }).validate()
+        })
+        .validate()
         {
             error!(
                 "Received invalid block {block_id} for bill {bill_id}, bill action validation failed: {e}"
             );
             return Err(Error::Blockchain(e.to_string()));
         }
-        // if everything works out - add the block
-        self.save_block(bill_id, &block).await?;
-        Ok(true) // block was added
+
+        Ok(true) // block was validated and added to in-memory chain
+    }
+
+    /// Validates multiple blocks for a chain WITHOUT persisting.
+    /// Returns Ok(()) if all blocks are valid, Err otherwise.
+    fn validate_blocks_for_chain(
+        &self,
+        bill_id: &BillId,
+        chain: &mut BillBlockchain,
+        blocks: &[BillBlock],
+        bill_keys: &BcrKeys,
+        bill_first_version: &BillIssueBlockData,
+        is_paid: bool,
+    ) -> Result<()> {
+        for block in blocks {
+            self.validate_block_for_chain(
+                bill_id,
+                chain,
+                bill_first_version,
+                bill_keys,
+                block,
+                is_paid,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Validates and saves a single block to the chain.
+    /// Returns true if the block was added, false if it was skipped.
+    async fn validate_and_save_block(
+        &self,
+        bill_id: &BillId,
+        chain: &mut BillBlockchain,
+        bill_first_version: &BillIssueBlockData,
+        bill_keys: &BcrKeys,
+        block: BillBlock,
+        is_paid: bool,
+    ) -> Result<bool> {
+        let added = self.validate_block_for_chain(
+            bill_id,
+            chain,
+            bill_first_version,
+            bill_keys,
+            &block,
+            is_paid,
+        )?;
+
+        if added {
+            // if everything works out - add the block
+            self.save_block(bill_id, &block).await?;
+        }
+
+        Ok(added)
     }
 
     async fn add_new_chain(&self, blocks: Vec<BillBlock>, keys: &BcrKeys) -> Result<()> {
