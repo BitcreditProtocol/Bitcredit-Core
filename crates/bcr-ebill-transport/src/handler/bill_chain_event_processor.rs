@@ -644,6 +644,7 @@ impl BillChainEventProcessor {
 mod tests {
     use bcr_common::core::NodeId;
     use bcr_ebill_core::{
+        protocol::Sha256Hash,
         protocol::Timestamp,
         protocol::blockchain::bill::block::{
             BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
@@ -1349,6 +1350,397 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.as_ref().unwrap_err().to_string().contains("network"));
+    }
+
+    #[tokio::test]
+    async fn test_from_resync_prevents_recursive_resync_on_split_chain() {
+        // Setup: Create a scenario where a single block would trigger split chain detection
+        // When from_resync=false, it would trigger resync_chain
+        // When from_resync=true, it should NOT trigger resync_chain (preventing loop)
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        // Create a valid block first
+        let mut split_block = BillBlock::create_block_for_request_to_accept(
+            bill_id_test(),
+            chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: chain.get_latest_block().timestamp + 1000,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: chain.get_latest_block().timestamp
+                    + 1000
+                    + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()),
+            chain.get_latest_block().timestamp + 1000,
+        )
+        .unwrap();
+
+        // Manually modify the block to simulate split chain conditions:
+        // Same height as latest, different hash, earlier timestamp
+        split_block.id = chain.get_latest_block().id; // Same height
+        split_block.timestamp = chain.get_latest_block().timestamp - 1000; // Earlier timestamp
+        split_block.hash = Sha256Hash::new("different_hash"); // Different hash
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport) = create_mocks();
+
+        // Setup existing chain
+        let chain_clone = chain.clone();
+        bill_store
+            .expect_get_keys()
+            .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_chain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(chain_clone.clone()));
+
+        // CRITICAL: transport.resolve_public_chain should NEVER be called when from_resync=true
+        // This would indicate a resync is being triggered
+        transport
+            .expect_resolve_public_chain()
+            .times(0)
+            .returning(|_, _| Ok(vec![]));
+
+        // Block should NOT be added (it's rejected due to split detection, but no resync)
+        bill_chain_store.expect_add_block().times(0);
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        // Call add_bill_blocks with from_resync=true
+        // Should return Ok without calling resync_chain even though conditions would normally trigger it
+        let result = handler
+            .add_bill_blocks(&bill_id_test(), chain, vec![split_block], true)
+            .await;
+
+        // Should succeed without triggering resync (block is skipped/ignored)
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_from_resync_prevents_recursive_resync_on_missing_blocks() {
+        // Setup: Create a scenario where validation fails due to missing predecessor
+        // When from_resync=false, it would trigger resync_chain
+        // When from_resync=true, it should return error without resync
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        // Create a block at height 2 (we only have block 1, so gap of 1 block)
+        // Create an intermediate block first to establish proper chain
+        let prev_block = chain.get_latest_block();
+        let intermediate_block = BillBlock::create_block_for_request_to_accept(
+            bill_id_test(),
+            prev_block,
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: prev_block.timestamp + 500,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: prev_block.timestamp
+                    + 500
+                    + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()),
+            prev_block.timestamp + 500,
+        )
+        .unwrap();
+
+        // Now create a gapped block at height 3, but we'll try to add it without intermediate_block
+        // This creates a gap (we have block 1, but trying to add block 3)
+        let gapped_block = BillBlock::create_block_for_accept(
+            bill_id_test(),
+            &intermediate_block,
+            &BillAcceptBlockData {
+                accepter: payer.clone().into(),
+                signatory: None,
+                signing_timestamp: intermediate_block.timestamp + 1000,
+                signing_address: empty_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()),
+            intermediate_block.timestamp + 1000,
+        )
+        .unwrap();
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport) = create_mocks();
+
+        // Setup existing chain
+        let chain_clone = chain.clone();
+        bill_store
+            .expect_get_keys()
+            .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_chain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(chain_clone.clone()));
+
+        // CRITICAL: transport.resolve_public_chain should NEVER be called when from_resync=true
+        transport
+            .expect_resolve_public_chain()
+            .times(0)
+            .returning(|_, _| Ok(vec![]));
+
+        // Block should NOT be added
+        bill_chain_store.expect_add_block().times(0);
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        // Call add_bill_blocks with from_resync=true and a gapped block
+        // Should return error, NOT call resync_chain
+        let result = handler
+            .add_bill_blocks(&bill_id_test(), chain, vec![gapped_block], true)
+            .await;
+
+        // Should return an error (validation failed), but NOT trigger resync
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_blocks_for_chain_does_not_persist() {
+        // Verify that validate_blocks_for_chain does not call add_block
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        // Create valid blocks to validate
+        let block1 = BillBlock::create_block_for_request_to_accept(
+            bill_id_test(),
+            chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: chain.get_latest_block().timestamp + 1000,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: chain.get_latest_block().timestamp
+                    + 1000
+                    + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()),
+            chain.get_latest_block().timestamp + 1000,
+        )
+        .unwrap();
+
+        let (mut bill_chain_store, _, _, _) = create_mocks();
+
+        // CRITICAL: add_block should NEVER be called during validation
+        bill_chain_store
+            .expect_add_block()
+            .times(0)
+            .returning(|_, _| Ok(()));
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_chain = chain.clone();
+        let bill_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_first_version = chain.get_first_version_bill(&bill_keys).unwrap();
+
+        // Call the pure validation method
+        let result = handler.validate_blocks_for_chain(
+            &bill_id_test(),
+            &mut test_chain,
+            &[block1],
+            &bill_keys,
+            &bill_first_version,
+            false,
+        );
+
+        // Should succeed without persisting
+        assert!(result.is_ok());
+        // Test passes if add_block was never called (mock verifies this)
+    }
+
+    #[tokio::test]
+    async fn test_validate_blocks_for_chain_fails_on_invalid_block() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        // Create an invalid block (bad signature)
+        let mut invalid_block = BillBlock::create_block_for_request_to_accept(
+            bill_id_test(),
+            chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: chain.get_latest_block().timestamp + 1000,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: chain.get_latest_block().timestamp
+                    + 1000
+                    + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            None,
+            &BcrKeys::from_private_key(&private_key_test()),
+            chain.get_latest_block().timestamp + 1000,
+        )
+        .unwrap();
+
+        // Tamper with the block to make it invalid
+        invalid_block.hash = Sha256Hash::new("tampered_hash");
+
+        let (bill_chain_store, _, _, _) = create_mocks();
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_chain = chain.clone();
+        let bill_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_first_version = chain.get_first_version_bill(&bill_keys).unwrap();
+
+        // Call the pure validation method with invalid block
+        let result = handler.validate_blocks_for_chain(
+            &bill_id_test(),
+            &mut test_chain,
+            &[invalid_block],
+            &bill_keys,
+            &bill_first_version,
+            false,
+        );
+
+        // Should return error without persisting anything
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_early_exit_on_first_valid() {
+        // Setup with multiple valid chains - should exit early after first valid one
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let _endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+
+        // Create three chains of different lengths
+        // Chain 1: 1 block (genesis only - shortest, but valid)
+        let ts = chain.get_latest_block().timestamp + 1000;
+        let block1 = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts,
+        )
+        .unwrap();
+
+        // Create mock nostr events for three chains (using same events but different ordering)
+        let event1 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, chain.get_latest_block()),
+            &bill_id,
+        );
+
+        let event2 = generate_test_event(
+            &bcr_keys,
+            Some(event1.clone()),
+            Some(event1.clone()),
+            as_event_payload(&bill_id, &block1),
+            &bill_id,
+        );
+
+        // All events (resolve_public_chain returns flat Vec<Event>)
+        let all_events = vec![event1.clone(), event2.clone()];
+
+        let (mut bill_chain_store, mut bill_store, mut contact, mut transport) = create_mocks();
+
+        let chain_clone = chain.clone();
+        bill_store
+            .expect_invalidate_bill_in_cache()
+            .returning(|_| Ok(()));
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store
+            .expect_get_keys()
+            .returning(move |_| Ok(BcrKeys::from_private_key(&private_key_test())));
+
+        // on chain recovery we ask for the existing chain
+        bill_chain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(chain_clone.clone()));
+
+        // Mock returning all events (resolve_event_chains will build chains from them)
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(all_events.clone()))
+            .once();
+
+        // block1 should be added exactly once (early exit after first valid chain)
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id.clone()), eq(block1.clone()))
+            .times(1)
+            .returning(move |_, _| Ok(()));
+
+        contact.expect_ensure_nostr_contact().returning(|_| ());
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        // This should process the valid chain and exit
+        handler
+            .resync_chain(&bill_id)
+            .await
+            .expect("resync should succeed");
     }
 
     fn create_mocks() -> (

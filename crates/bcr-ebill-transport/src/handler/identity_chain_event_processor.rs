@@ -523,7 +523,8 @@ pub mod tests {
         protocol::blockchain::{
             Blockchain, BlockchainType,
             identity::{
-                IdentityBlock, IdentityBlockchain, IdentityProofBlockData, IdentityUpdateBlockData,
+                IdentityBlock, IdentityBlockPayload, IdentityBlockchain, IdentityProofBlockData,
+                IdentityUpdateBlockData,
             },
         },
         protocol::crypto::BcrKeys,
@@ -951,6 +952,48 @@ pub mod tests {
     ) -> IdentityBlock {
         IdentityBlock::create_block_for_identity_proof(previous_block, data, keys, test_ts())
             .expect("could not create block")
+    }
+
+    #[tokio::test]
+    async fn test_process_identity_block_effects_does_not_persist_block() {
+        // Verify that process_identity_block_effects updates identity data
+        // but does NOT call blockchain_store.add_block
+        let (mut chain_store, mut store, contact, _, _, _) = create_mocks();
+
+        let full = get_baseline_identity();
+        let identity = full.identity.clone();
+
+        let update_data = IdentityBlockPayload::Update(IdentityUpdateBlockData {
+            name: Some(Name::new("Updated".to_string()).unwrap()),
+            ..Default::default()
+        });
+
+        // CRITICAL: add_block should NEVER be called during side effect processing
+        chain_store.expect_add_block().times(0);
+
+        // Identity CAN be updated
+        store.expect_save().times(1).returning(|_| Ok(()));
+
+        let handler = IdentityChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(contact),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_identity = identity.clone();
+
+        // Call the side effect processing method directly
+        let result = handler
+            .process_identity_block_effects(&identity.node_id, &mut test_identity, update_data)
+            .await;
+
+        // Should succeed without persisting block
+        assert!(result.is_ok());
+        // Test passes if add_block was never called (mock verifies this)
     }
 
     fn create_mocks() -> (

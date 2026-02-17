@@ -804,15 +804,16 @@ pub mod tests {
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
         application::company::Company,
+        application::identity::ActiveIdentityState,
         protocol::Name,
         protocol::Sha256Hash,
         protocol::Timestamp,
         protocol::blockchain::{
             Blockchain, BlockchainType,
             company::{
-                CompanyBlock, CompanyBlockchain, CompanyIdentityProofBlockData,
-                CompanyInviteSignatoryBlockData, CompanyRemoveSignatoryBlockData,
-                CompanyUpdateBlockData, SignatoryType,
+                CompanyBlock, CompanyBlockPayload, CompanyBlockchain,
+                CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
+                CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
             },
         },
         protocol::crypto::BcrKeys,
@@ -2113,6 +2114,68 @@ pub mod tests {
             test_ts(),
         )
         .expect("could not create block")
+    }
+
+    #[tokio::test]
+    async fn test_process_company_block_effects_does_not_persist_block() {
+        // Verify that process_company_block_effects updates company data
+        // but does NOT call blockchain_store.add_block
+        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _) = create_mocks();
+
+        let (_, (company, _)) = get_company_data();
+        let identity_full = get_baseline_identity();
+        let identity_node_id = identity_full.identity.node_id.clone();
+        let identity_node_id_for_closure = identity_node_id.clone();
+
+        let update_data = CompanyBlockPayload::Update(CompanyUpdateBlockData {
+            name: Some(Name::new("Updated Company".to_string()).unwrap()),
+            ..Default::default()
+        });
+
+        // CRITICAL: add_block should NEVER be called during side effect processing
+        chain_store.expect_add_block().times(0);
+
+        // Company CAN be updated
+        store.expect_update().times(1).returning(|_, _| Ok(()));
+
+        // Identity store is needed for getting current identity
+        identity_store
+            .expect_get_current_identity()
+            .returning(move || {
+                Ok(ActiveIdentityState {
+                    personal: identity_node_id_for_closure.clone(),
+                    company: None,
+                })
+            });
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity_store),
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(MockPushApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_company = company.clone();
+
+        // Call the side effect processing method directly
+        let result = handler
+            .process_company_block_effects(
+                &company.id,
+                &mut test_company,
+                update_data,
+                &identity_node_id,
+                test_ts(),
+            )
+            .await;
+
+        // Should succeed without persisting block
+        assert!(result.is_ok());
+        // Test passes if add_block was never called (mock verifies this)
     }
 
     fn create_mocks() -> (
