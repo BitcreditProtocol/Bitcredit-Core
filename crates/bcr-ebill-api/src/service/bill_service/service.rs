@@ -4,9 +4,7 @@ use crate::external;
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
-use crate::external::mint::{
-    MintClientApi, QuoteMintingStatus, QuoteStatusReply, ResolveMintOffer,
-};
+use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::TransportServiceApi;
@@ -363,8 +361,8 @@ impl BillService {
         }
 
         match mint_request.status {
-            // If it's accepted, get the offer and, if it's not finished (i.e. has no proofs), attempt to get keyset and mint
-            MintRequestStatus::Accepted => {
+            // If it's minting enabled, get the offer and, if it's not finished (i.e. has no proofs), attempt to get keyset and mint
+            MintRequestStatus::MintingEnabled => {
                 if let Ok(Some(offer)) = self
                     .mint_store
                     .get_offer(&mint_request.mint_request_id)
@@ -386,13 +384,7 @@ impl BillService {
                             )
                             .await?;
 
-                        if matches!(
-                            updated_status,
-                            QuoteStatusReply::Accepted {
-                                minting_status: QuoteMintingStatus::Disabled,
-                                ..
-                            }
-                        ) {
+                        if matches!(updated_status, QuoteStatusReply::Accepted { .. }) {
                             info!(
                                 "Quote {} is accepted, but minting not enabled - skipping",
                                 mint_request.mint_request_id
@@ -538,7 +530,9 @@ impl BillService {
                     }
                 }
             }
-            MintRequestStatus::Pending | MintRequestStatus::Offered => {
+            MintRequestStatus::Pending
+            | MintRequestStatus::Offered
+            | MintRequestStatus::Accepted => {
                 let updated_status = self
                     .mint_client
                     .lookup_quote_for_mint(
@@ -549,14 +543,14 @@ impl BillService {
                 // only update, if changed
                 match updated_status {
                     QuoteStatusReply::Pending => {
-                        // it's already pending, or offered and can't go from Offered to Pending - nothing to do
+                        // it's already pending, or offered, or accepted and can't go from Accepted to Offered to Pending - nothing to do
                     }
                     QuoteStatusReply::Offered {
                         keyset_id,
                         expiration_date,
                         discounted,
                     } => {
-                        // if it's not already offered, set to offered
+                        // if it's not already offered, set to offered and store the offer
                         if !matches!(mint_request.status, MintRequestStatus::Offered) {
                             // Update the request
                             self.mint_store
@@ -572,6 +566,18 @@ impl BillService {
                                     &keyset_id.to_string(),
                                     Timestamp::from(expiration_date),
                                     discounted.into(),
+                                )
+                                .await?;
+                        }
+                    }
+                    QuoteStatusReply::Accepted { .. } => {
+                        // if it's not already accepted, set to accepted
+                        if !matches!(mint_request.status, MintRequestStatus::Accepted) {
+                            // Update the request
+                            self.mint_store
+                                .update_request(
+                                    &mint_request.mint_request_id,
+                                    &MintRequestStatus::Accepted,
                                 )
                                 .await?;
                         }
@@ -620,12 +626,12 @@ impl BillService {
                             )
                             .await?;
                     }
-                    QuoteStatusReply::Accepted { .. } => {
-                        // checked above, that it's not accepted
+                    QuoteStatusReply::MintingEnabled { .. } => {
+                        // checked above, that it's not minting enabled
                         self.mint_store
                             .update_request(
                                 &mint_request.mint_request_id,
-                                &MintRequestStatus::Accepted,
+                                &MintRequestStatus::MintingEnabled,
                             )
                             .await?;
                     }

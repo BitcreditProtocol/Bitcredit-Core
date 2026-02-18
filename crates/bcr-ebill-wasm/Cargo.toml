@@ -3,6 +3,7 @@ name = "bcr-ebill-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ['-Os']

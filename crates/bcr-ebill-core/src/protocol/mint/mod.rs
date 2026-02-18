@@ -29,6 +29,8 @@ pub enum MintRequestStatus {
     Offered,
     /// Offer was accepted
     Accepted,
+    /// Offer was enabled to mint
+    MintingEnabled,
     /// The offer was rejected by the requester
     Rejected { timestamp: Timestamp },
     /// The request was cancelled by the requester
