@@ -140,18 +140,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 )
                 .await
                 {
-                    let fork_point = if let Some(best_chain) = chain_data.first() {
-                        let remote_blocks: Vec<CompanyBlock> = best_chain
-                            .iter()
-                            .filter_map(|d| match d.block.clone() {
-                                BlockData::Company(block) => Some(block),
-                                _ => None,
-                            })
-                            .collect();
-                        resolve_fork(existing_chain.blocks(), &remote_blocks)
-                    } else {
-                        None
-                    };
+                    let mut saw_preferred_chain = false;
 
                     for data in chain_data.iter() {
                         let blocks: Vec<CompanyBlock> = data
@@ -166,15 +155,22 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                             continue;
                         }
 
-                        // Validate the candidate chain WITHOUT persisting
+                        let (is_preferred, fork_point) =
+                            resolve_fork(existing_chain.blocks(), &blocks);
+
+                        if !is_preferred {
+                            continue;
+                        }
+
+                        saw_preferred_chain = true;
+
                         let mut test_chain = existing_chain.clone();
-                        if let Some(fork_id) = fork_point {
-                            test_chain.truncate_from(fork_id);
+                        if let Some(fork_id) = &fork_point {
+                            test_chain.truncate_from(*fork_id);
                         }
 
                         match self.validate_company_blocks_for_chain(&mut test_chain, &blocks) {
                             Ok(()) => {
-                                // Valid fork found - apply it atomically
                                 if let Some(fork_id) = fork_point {
                                     info!(
                                         "Fork resolution for company {company_id}: replacing blocks from height {fork_id} with preferred remote chain"
@@ -195,7 +191,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                     existing_chain.truncate_from(fork_id);
                                 }
 
-                                // Persist the validated blocks
                                 if let Err(e) = self
                                     .add_company_blocks(
                                         company_id,
@@ -227,7 +222,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                         }
                     }
 
-                    if fork_point.is_some() {
+                    if saw_preferred_chain {
                         error!(
                             "Failed to resync any chain for company {company_id} after fork resolution"
                         );

@@ -124,18 +124,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 )
                 .await
                 {
-                    let fork_point = if let Some(best_chain) = chain_data.first() {
-                        let remote_blocks: Vec<BillBlock> = best_chain
-                            .iter()
-                            .filter_map(|d| match d.block.clone() {
-                                BlockData::Bill(block) => Some(block),
-                                _ => None,
-                            })
-                            .collect();
-                        resolve_fork(existing_chain.blocks(), &remote_blocks)
-                    } else {
-                        None
-                    };
+                    let mut saw_preferred_chain = false;
 
                     for data in chain_data.iter() {
                         let blocks: Vec<BillBlock> = data
@@ -150,10 +139,18 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                             continue;
                         }
 
-                        // Validate the candidate chain WITHOUT persisting
+                        let (is_preferred, fork_point) =
+                            resolve_fork(existing_chain.blocks(), &blocks);
+
+                        if !is_preferred {
+                            continue;
+                        }
+
+                        saw_preferred_chain = true;
+
                         let mut test_chain = existing_chain.clone();
-                        if let Some(fork_id) = fork_point {
-                            test_chain.truncate_from(fork_id);
+                        if let Some(fork_id) = &fork_point {
+                            test_chain.truncate_from(*fork_id);
                         }
 
                         match self.validate_blocks_for_chain(
@@ -165,7 +162,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                             is_paid,
                         ) {
                             Ok(()) => {
-                                // Valid fork found - apply it atomically
                                 if let Some(fork_id) = fork_point {
                                     info!(
                                         "Fork resolution for bill {bill_id}: replacing blocks from height {fork_id} with preferred remote chain"
@@ -186,7 +182,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                     existing_chain.truncate_from(fork_id);
                                 }
 
-                                // Persist the validated blocks
                                 if let Err(e) = self
                                     .add_bill_blocks(bill_id, existing_chain, blocks, true)
                                     .await
@@ -207,7 +202,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                         }
                     }
 
-                    if fork_point.is_some() {
+                    if saw_preferred_chain {
                         error!(
                             "Failed to resync any chain for bill {bill_id} after fork resolution"
                         );
