@@ -1738,6 +1738,236 @@ mod tests {
             .expect("resync should succeed");
     }
 
+    #[tokio::test]
+    async fn test_resync_chain_resolves_fork_with_truncation() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let genesis_chain = get_genesis_chain(Some(bill.clone()));
+
+        let ts = genesis_chain.get_latest_block().timestamp + 1000;
+
+        let local_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            genesis_chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts + 2000,
+        )
+        .unwrap();
+
+        let mut local_chain = genesis_chain.clone();
+        local_chain.try_add_block(local_block.clone());
+
+        let remote_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            genesis_chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts + 1000,
+        )
+        .unwrap();
+
+        let mut remote_chain = genesis_chain.clone();
+        remote_chain.try_add_block(remote_block.clone());
+
+        let fork_height = local_block.id;
+
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, genesis_chain.get_latest_block()),
+            &bill_id,
+        );
+
+        let event_remote = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &remote_block),
+            &bill_id,
+        );
+
+        let nostr_events = vec![event0.clone(), event_remote.clone()];
+
+        let (mut bill_chain_store, mut bill_store, mut contact, mut transport) = create_mocks();
+
+        bill_store
+            .expect_invalidate_bill_in_cache()
+            .returning(|_| Ok(()));
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store
+            .expect_get_keys()
+            .returning(move |_| Ok(bcr_keys.clone()));
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(nostr_events.clone()))
+            .once();
+
+        bill_chain_store
+            .expect_remove_blocks_from_height()
+            .with(eq(bill_id.clone()), eq(fork_height))
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id.clone()), eq(remote_block.clone()))
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        contact.expect_ensure_nostr_contact().returning(|_| ());
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(&bill_id)
+            .await
+            .expect("resync should succeed with fork resolution");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_skips_non_preferred_chain() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let genesis_chain = get_genesis_chain(Some(bill.clone()));
+
+        let ts = genesis_chain.get_latest_block().timestamp + 1000;
+
+        let local_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            genesis_chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts + 1000,
+        )
+        .unwrap();
+
+        let mut local_chain = genesis_chain.clone();
+        local_chain.try_add_block(local_block.clone());
+
+        let remote_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            genesis_chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts + 2000,
+        )
+        .unwrap();
+
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, genesis_chain.get_latest_block()),
+            &bill_id,
+        );
+
+        let event_remote = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &remote_block),
+            &bill_id,
+        );
+
+        let nostr_events = vec![event0.clone(), event_remote.clone()];
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport) = create_mocks();
+
+        bill_store
+            .expect_invalidate_bill_in_cache()
+            .returning(|_| Ok(()));
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store
+            .expect_get_keys()
+            .returning(move |_| Ok(bcr_keys.clone()));
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .returning(move |_, _| Ok(nostr_events.clone()))
+            .once();
+
+        bill_chain_store.expect_remove_blocks_from_height().times(0);
+
+        bill_chain_store.expect_add_block().times(0);
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(contact),
+            Arc::new(transport),
+            bitcoin::Network::Testnet,
+        );
+
+        let result = handler.resync_chain(&bill_id).await;
+
+        assert!(result.is_ok());
+    }
+
     fn create_mocks() -> (
         MockBillChainStore,
         MockBillStore,
