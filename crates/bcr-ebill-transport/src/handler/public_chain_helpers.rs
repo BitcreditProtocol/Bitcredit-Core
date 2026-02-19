@@ -31,11 +31,11 @@ pub fn compare_chains(a: &[EventContainer], b: &[EventContainer]) -> std::cmp::O
             let a_ts = a
                 .last()
                 .map(|e| e.block.get_block_timestamp())
-                .unwrap_or(Timestamp::zero());
+                .unwrap_or(Timestamp::now());
             let b_ts = b
                 .last()
                 .map(|e| e.block.get_block_timestamp())
-                .unwrap_or(Timestamp::zero());
+                .unwrap_or(Timestamp::now());
             a_ts.cmp(&b_ts)
         })
         .then_with(|| {
@@ -45,21 +45,14 @@ pub fn compare_chains(a: &[EventContainer], b: &[EventContainer]) -> std::cmp::O
         })
 }
 
-/// Will query the transport for the public chain events and build up as many chains as needed for
-/// the Nostr chain structure. This does not look into the actual blockchain, but will build the
-/// chains just from Nostr metadata.
-pub async fn resolve_event_chains(
-    transport: Arc<dyn TransportClientApi>,
-    chain_id: &str,
-    chain_type: BlockchainType,
-    keys: &BcrKeys,
-) -> Result<Vec<Vec<EventContainer>>> {
-    let events = transport.resolve_public_chain(chain_id, chain_type).await?;
-    let mut chains = collect_event_chains(&events, chain_id, chain_type, keys);
-    chains.sort_by(|a, b| compare_chains(a, b));
-    Ok(chains)
-}
-
+/// Compares two unpacked chains for sorting, fork detection and fork point extraction. Returns
+/// whether remote chain should be preferred over local chain and if remote is a fork an optional
+/// fork point. When this function is changed we also need to change the `compare_chains` function
+/// above as it determines the order in which remote chains are tested.
+/// Precedence is:
+/// 1. Longer chain wins
+/// 2. Earlier tip  wins
+/// 3. Fork point at divergent hash
 pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockId>) {
     let remote_preferred = {
         let local_len = local.len();
@@ -104,6 +97,21 @@ pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockI
     }
 
     (true, None)
+}
+
+/// Will query the transport for the public chain events and build up as many chains as needed for
+/// the Nostr chain structure. This does not look into the actual blockchain, but will build the
+/// chains just from Nostr metadata.
+pub async fn resolve_event_chains(
+    transport: Arc<dyn TransportClientApi>,
+    chain_id: &str,
+    chain_type: BlockchainType,
+    keys: &BcrKeys,
+) -> Result<Vec<Vec<EventContainer>>> {
+    let events = transport.resolve_public_chain(chain_id, chain_type).await?;
+    let mut chains = collect_event_chains(&events, chain_id, chain_type, keys);
+    chains.sort_by(|a, b| compare_chains(a, b));
+    Ok(chains)
 }
 
 // Will build up as many chains as needed for the Nostr chain structure. This does not look into

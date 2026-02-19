@@ -124,8 +124,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 )
                 .await
                 {
-                    let mut saw_preferred_chain = false;
-
                     for data in chain_data.iter() {
                         let blocks: Vec<BillBlock> = data
                             .iter()
@@ -145,8 +143,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                         if !is_preferred {
                             continue;
                         }
-
-                        saw_preferred_chain = true;
 
                         let mut test_chain = existing_chain.clone();
                         if let Some(fork_id) = &fork_point {
@@ -200,15 +196,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                 continue;
                             }
                         }
-                    }
-
-                    if saw_preferred_chain {
-                        error!(
-                            "Failed to resync any chain for bill {bill_id} after fork resolution"
-                        );
-                        return Err(Error::Blockchain(
-                            "Failed to apply any candidate chain after fork resolution".to_string(),
-                        ));
                     }
 
                     debug!("finished bill chain resync for {bill_id}");

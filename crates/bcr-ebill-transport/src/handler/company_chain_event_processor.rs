@@ -140,8 +140,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 )
                 .await
                 {
-                    let mut saw_preferred_chain = false;
-
                     for data in chain_data.iter() {
                         let blocks: Vec<CompanyBlock> = data
                             .iter()
@@ -161,8 +159,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                         if !is_preferred {
                             continue;
                         }
-
-                        saw_preferred_chain = true;
 
                         let mut test_chain = existing_chain.clone();
                         if let Some(fork_id) = &fork_point {
@@ -220,15 +216,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                 continue;
                             }
                         }
-                    }
-
-                    if saw_preferred_chain {
-                        error!(
-                            "Failed to resync any chain for company {company_id} after fork resolution"
-                        );
-                        return Err(Error::Blockchain(
-                            "Failed to apply any candidate chain after fork resolution".to_string(),
-                        ));
                     }
 
                     debug!("finished company chain resync for {company_id}");
