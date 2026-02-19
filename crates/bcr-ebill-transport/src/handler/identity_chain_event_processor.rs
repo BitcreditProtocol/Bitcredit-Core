@@ -1,6 +1,6 @@
 use crate::{
     Error, Result,
-    handler::public_chain_helpers::{BlockData, resolve_event_chains, resolve_fork},
+    handler::public_chain_helpers::{BlockData, is_fork_block, resolve_event_chains, resolve_fork},
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -253,11 +253,7 @@ impl IdentityChainEventProcessor {
             if block.id <= block_height {
                 if blocks.len() == 1 && !from_resync {
                     let latest = chain.get_latest_block();
-                    if block.id == latest.id
-                        && block.hash != latest.hash
-                        && (block.timestamp < latest.timestamp
-                            || (block.timestamp == latest.timestamp && block.hash < latest.hash))
-                    {
+                    if is_fork_block(latest, block) {
                         info!(
                             "Split chain detected for identity {node_id} at height {} - resyncing",
                             block.id

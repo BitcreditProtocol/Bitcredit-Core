@@ -1,5 +1,5 @@
 use crate::handler::public_chain_helpers::{
-    BlockData, EventContainer, resolve_event_chains, resolve_fork,
+    BlockData, EventContainer, is_fork_block, resolve_event_chains, resolve_fork,
 };
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -266,21 +266,24 @@ impl BillChainEventProcessor {
         })?;
 
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
+        let mut block_height = chain.get_latest_block().id;
         for block in blocks.iter() {
-            if blocks.len() == 1 && !from_resync {
-                let latest = chain.get_latest_block();
-                if block.id == latest.id
-                    && block.hash != latest.hash
-                    && (block.timestamp < latest.timestamp
-                        || (block.timestamp == latest.timestamp && block.hash < latest.hash))
-                {
-                    info!(
-                        "Split chain detected for bill {bill_id} at height {} - resyncing",
-                        block.id
-                    );
-                    self.resync_chain(bill_id).await?;
-                    return Ok(());
+            if block.id <= block_height {
+                if blocks.len() == 1 && !from_resync {
+                    let latest = chain.get_latest_block();
+                    if is_fork_block(latest, block) {
+                        info!(
+                            "Split chain detected for bill {bill_id} at height {} - resyncing",
+                            block.id
+                        );
+                        self.resync_chain(bill_id).await?;
+                        return Ok(());
+                    }
                 }
+                info!(
+                    "Skipping bill block with id {block_height} for {bill_id} as we already have it"
+                );
+                continue;
             }
             block_added = match self
                 .validate_and_save_block(
@@ -293,7 +296,10 @@ impl BillChainEventProcessor {
                 )
                 .await
             {
-                Ok(added) => Ok(added),
+                Ok(added) => {
+                    block_height = block.id;
+                    Ok(added)
+                }
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1

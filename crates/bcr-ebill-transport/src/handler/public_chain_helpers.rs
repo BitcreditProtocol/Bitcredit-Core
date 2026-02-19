@@ -99,6 +99,17 @@ pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockI
     (true, None)
 }
 
+/// Determines if the remote block can be considered a fork point in the chain:
+/// - same id
+/// - different hash
+/// - lower timestamp or lower hash
+pub fn is_fork_block<T: Block>(local: &T, remote: &T) -> bool {
+    remote.id() == local.id()
+        && remote.hash() != local.hash()
+        && (remote.timestamp() < local.timestamp()
+            || (remote.timestamp() == local.timestamp() && remote.hash() < local.hash()))
+}
+
 /// Will query the transport for the public chain events and build up as many chains as needed for
 /// the Nostr chain structure. This does not look into the actual blockchain, but will build the
 /// chains just from Nostr metadata.

@@ -2,7 +2,7 @@ use crate::{
     Error, PushApi, Result,
     handler::{
         NotificationHandlerApi,
-        public_chain_helpers::{BlockData, resolve_event_chains, resolve_fork},
+        public_chain_helpers::{BlockData, is_fork_block, resolve_event_chains, resolve_fork},
     },
 };
 use async_trait::async_trait;
@@ -343,11 +343,7 @@ impl CompanyChainEventProcessor {
             if block.id <= block_height {
                 if blocks.len() == 1 && !from_resync {
                     let latest = chain.get_latest_block();
-                    if block.id == latest.id
-                        && block.hash != latest.hash
-                        && (block.timestamp < latest.timestamp
-                            || (block.timestamp == latest.timestamp && block.hash < latest.hash))
-                    {
+                    if is_fork_block(latest, block) {
                         info!(
                             "Split chain detected for company {company_id} at height {} - resyncing",
                             block.id
