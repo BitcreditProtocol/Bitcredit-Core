@@ -74,10 +74,6 @@ pub enum ValidationError {
     #[error("Invalid bill type")]
     InvalidBillType,
 
-    /// error returned if the signatory is not a signatory of the company
-    #[error("Caller must be signatory for company")]
-    CallerMustBeSignatory,
-
     /// error returned if the given node is not a local one (company or identity)
     #[error("The provided node_id: {0} is not a valid company id, or personal node_id")]
     UnknownNodeId(String),

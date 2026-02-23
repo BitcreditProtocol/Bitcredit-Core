@@ -127,7 +127,7 @@ mod tests {
         protocol::Name,
         protocol::blockchain::{
             Blockchain,
-            company::{CompanyBlockchain, CompanyUpdateBlockData},
+            company::{CompanyBlockchain, block::CompanyUpdateBlockData},
         },
         protocol::crypto::BcrKeys,
     };
@@ -140,7 +140,7 @@ mod tests {
         },
         test_utils::{
             MockCompanyStore, MockNostrChainEventStore, get_company_data, get_test_nostr_event,
-            node_id_test,
+            node_id_test, private_key_test,
         },
     };
 
@@ -158,7 +158,7 @@ mod tests {
         let block = get_company_update_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -222,7 +222,7 @@ mod tests {
         let block = get_company_update_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );

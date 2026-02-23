@@ -20,10 +20,13 @@ use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::ContactType;
 use bcr_ebill_core::protocol::blockchain::company::{
-    CompanyBlock, CompanyBlockPlaintextWrapper, CompanyBlockchain, CompanyCreateBlockData,
-    CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
-    CompanyRemoveSignatoryBlockData, CompanySignatoryAcceptInviteBlockData,
-    CompanySignatoryRejectInviteBlockData, CompanyUpdateBlockData, SignatoryType,
+    CompanyBlock, CompanyBlockchain,
+    block::{
+        CompanyCreateBlockData, CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
+        CompanyRemoveSignatoryBlockData, CompanySignatoryAcceptInviteBlockData,
+        CompanySignatoryRejectInviteBlockData, CompanyUpdateBlockData, SignatoryType,
+    },
+    chain::CompanyBlockPlaintextWrapper,
 };
 use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityAcceptSignatoryInviteBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
@@ -778,7 +781,7 @@ impl CompanyServiceApi for CompanyService {
 
         if !company.is_authorized_signer(&node_id) {
             return Err(super::Error::Validation(
-                ValidationError::CallerMustBeSignatory,
+                ProtocolValidationError::CallerMustBeSignatory.into(),
             ));
         }
 
@@ -970,7 +973,7 @@ impl CompanyServiceApi for CompanyService {
         let mut company = self.store.get(id).await?;
         if !company.is_authorized_signer(&full_identity.identity.node_id) {
             return Err(super::Error::Validation(
-                ValidationError::CallerMustBeSignatory,
+                ProtocolValidationError::CallerMustBeSignatory.into(),
             ));
         }
 
@@ -1109,7 +1112,7 @@ impl CompanyServiceApi for CompanyService {
         let mut company = self.store.get(id).await?;
         if !company.is_authorized_signer(&full_identity.identity.node_id) {
             return Err(super::Error::Validation(
-                ValidationError::CallerMustBeSignatory,
+                ProtocolValidationError::CallerMustBeSignatory.into(),
             ));
         }
         let company_keys = self.store.get_key_pair(id).await?;
@@ -1353,7 +1356,7 @@ impl CompanyServiceApi for CompanyService {
             .find(|s| s.node_id == identity.identity.node_id)
         else {
             return Err(super::Error::Validation(
-                ValidationError::CallerMustBeSignatory,
+                ProtocolValidationError::CallerMustBeSignatory.into(),
             ));
         };
 
@@ -1368,7 +1371,7 @@ impl CompanyServiceApi for CompanyService {
             }
         } else {
             return Err(super::Error::Validation(
-                ValidationError::CallerMustBeSignatory,
+                ProtocolValidationError::CallerMustBeSignatory.into(),
             ));
         }
 
@@ -1675,7 +1678,7 @@ impl CompanyServiceApi for CompanyService {
         let company = self.store.get(id).await?;
         if !company.is_authorized_signer(&full_identity.identity.node_id) {
             return Err(super::Error::Validation(
-                ValidationError::CallerMustBeSignatory,
+                ProtocolValidationError::CallerMustBeSignatory.into(),
             ));
         }
 
@@ -1876,7 +1879,7 @@ pub mod tests {
                 creation_time: company.creation_time,
                 creator: node_id_test(),
             },
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &company_keys,
             test_ts(),
         )
@@ -2155,7 +2158,7 @@ pub mod tests {
             identity.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
+                key_pair: BcrKeys::from_private_key(&private_key_test()),
             })
         });
         file_upload_store

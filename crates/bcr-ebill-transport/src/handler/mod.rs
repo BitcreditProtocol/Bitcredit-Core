@@ -346,7 +346,7 @@ mod test_utils {
         identity::{Identity, IdentityWithAll},
         notification::{Notification, NotificationType},
     };
-    use bcr_ebill_core::protocol::blockchain::company::SignatoryType;
+    use bcr_ebill_core::protocol::blockchain::company::block::SignatoryType;
     use bcr_ebill_core::protocol::{
         Address, BlockId, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
         PostalAddress, PublicKey, SecretKey, Sum, Timestamp,

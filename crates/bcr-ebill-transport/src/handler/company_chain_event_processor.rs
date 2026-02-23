@@ -775,7 +775,8 @@ pub mod tests {
 
     use bcr_common::core::NodeId;
     use bcr_ebill_core::application::company::CompanySignatoryStatus;
-    use bcr_ebill_core::protocol::blockchain::company::{
+    use bcr_ebill_core::protocol::blockchain::company::CompanyBlockPayload;
+    use bcr_ebill_core::protocol::blockchain::company::block::{
         CompanyCreateBlockData, CompanySignatoryAcceptInviteBlockData,
         CompanySignatoryRejectInviteBlockData,
     };
@@ -789,16 +790,20 @@ pub mod tests {
         protocol::blockchain::{
             Blockchain, BlockchainType,
             company::{
-                CompanyBlock, CompanyBlockPayload, CompanyBlockchain,
-                CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
-                CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+                CompanyBlock, CompanyBlockchain,
+                block::{
+                    CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
+                    CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+                },
             },
         },
         protocol::crypto::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
-    use crate::handler::test_utils::{MockNotificationStore, get_valid_activated_signatory};
+    use crate::handler::test_utils::{
+        MockNotificationStore, get_valid_activated_signatory, private_key_test,
+    };
     use crate::push_notification::MockPushApi;
     use crate::test_utils::{signed_identity_proof_test, test_ts};
     use crate::{
@@ -1513,7 +1518,7 @@ pub mod tests {
         let update_block = get_company_accept_invite_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1631,7 +1636,7 @@ pub mod tests {
         let update_block = get_company_reject_invite_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1750,7 +1755,7 @@ pub mod tests {
         let update_block = get_company_remove_signatory_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1866,7 +1871,7 @@ pub mod tests {
         let update_block = get_company_identity_proof_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1978,7 +1983,7 @@ pub mod tests {
                 creation_time: test_ts(),
                 creator: node_id_test(),
             },
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             keys,
             test_ts(),
         )

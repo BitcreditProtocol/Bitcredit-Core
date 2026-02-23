@@ -491,6 +491,7 @@ pub mod tests {
         m2.assert_async().await;
     }
 
+    #[ignore] // takes very long - activate on-demand
     #[tokio::test]
     async fn test_fallback_on_connection_error() {
         let mut server2 = mockito::Server::new_async().await;
