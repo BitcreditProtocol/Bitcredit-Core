@@ -191,6 +191,20 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
 
         Ok(chain)
     }
+
+    async fn remove_blocks_from_height(&self, id: &NodeId, from_block_id: BlockId) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_COMPANY_ID, id.to_string())?;
+        bindings.add(DB_BLOCK_ID, from_block_id.inner())?;
+        self.db
+            .query_check(
+                "DELETE FROM type::table($table) WHERE company_id = $company_id AND block_id >= $block_id",
+                bindings,
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

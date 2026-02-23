@@ -234,6 +234,7 @@ pub mod tests {
             async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;
             async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
             async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
+            async fn remove_blocks_from_height(&self, id: &BillId, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -300,6 +301,7 @@ pub mod tests {
             async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
             async fn remove(&self, id: &NodeId) -> Result<()>;
             async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
+            async fn remove_blocks_from_height(&self, id: &NodeId, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -342,6 +344,7 @@ pub mod tests {
             async fn get_latest_block(&self) -> Result<IdentityBlock>;
             async fn add_block(&self, block: &IdentityBlock) -> Result<()>;
             async fn get_chain(&self) -> Result<IdentityBlockchain>;
+            async fn remove_blocks_from_height(&self, from_block_id: BlockId) -> Result<()>;
         }
     }
 

@@ -180,6 +180,20 @@ impl BillChainStoreApi for SurrealBillChainStore {
 
         Ok(chain)
     }
+
+    async fn remove_blocks_from_height(&self, id: &BillId, from_block_id: BlockId) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_BILL_ID, id.to_string())?;
+        bindings.add(DB_BLOCK_ID, from_block_id.inner())?;
+        self.db
+            .query_check(
+                "DELETE FROM type::table($table) WHERE bill_id = $bill_id AND block_id >= $block_id",
+                bindings,
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

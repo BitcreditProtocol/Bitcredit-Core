@@ -3,6 +3,7 @@ use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::company::{
     Company, LocalSignatoryOverride, LocalSignatoryOverrideStatus,
 };
+use bcr_ebill_core::protocol::BlockId;
 use bcr_ebill_core::protocol::blockchain::company::{CompanyBlock, CompanyBlockchain};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
@@ -87,4 +88,6 @@ pub trait CompanyChainStoreApi: ServiceTraitBounds {
     async fn remove(&self, id: &NodeId) -> Result<()>;
     /// Get the whole blockchain
     async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
+    /// Removes all blocks with a block id >= from_block_id for the given company
+    async fn remove_blocks_from_height(&self, id: &NodeId, from_block_id: BlockId) -> Result<()>;
 }

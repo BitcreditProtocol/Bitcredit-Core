@@ -448,6 +448,7 @@ mod test_utils {
             async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;
             async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
             async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
+            async fn remove_blocks_from_height(&self, id: &BillId, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -578,6 +579,7 @@ mod test_utils {
             async fn get_latest_block(&self) -> Result<bcr_ebill_core::protocol::blockchain::identity::IdentityBlock>;
             async fn add_block(&self, block: &bcr_ebill_core::protocol::blockchain::identity::IdentityBlock) -> Result<()>;
             async fn get_chain(&self) -> Result<bcr_ebill_core::protocol::blockchain::identity::IdentityBlockchain>;
+            async fn remove_blocks_from_height(&self, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -633,6 +635,7 @@ mod test_utils {
             async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
             async fn remove(&self, id: &NodeId) -> Result<()>;
             async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
+            async fn remove_blocks_from_height(&self, id: &NodeId, from_block_id: BlockId) -> Result<()>;
         }
     }
 

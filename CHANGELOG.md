@@ -11,7 +11,8 @@
 * Serialize `Sum` amounts as strings to prevent precision loss in JavaScript (breaking change for UI)
 * Remove `numbers_to_words` endpoint
 * Upgrade to newest bcr_common with breaking changes for minting endpoints
-    * Add `MintingEnabled` state to `MintRequestStatusWeb` and `QuoteStatusReply` (breaking DB and API change)
+  * Add `MintingEnabled` state to `MintRequestStatusWeb` and `QuoteStatusReply` (breaking DB and API change)
+* Add deterministic chain reordering for bill, company, and identity blockchains (temporary/non-production-grade - TODO: replace with proper consensus before mainnet)
 
 # 0.5.0-2 (Hotfix)
 

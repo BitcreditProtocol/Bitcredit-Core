@@ -2,7 +2,7 @@ use crate::{
     Error, PushApi, Result,
     handler::{
         NotificationHandlerApi,
-        public_chain_helpers::{BlockData, resolve_event_chains},
+        public_chain_helpers::{BlockData, is_fork_block, resolve_event_chains, resolve_fork},
     },
 };
 use async_trait::async_trait;
@@ -79,7 +79,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             .node_id;
 
         if let Ok(mut existing_chain) = self.blockchain_store.get_chain(company_id).await {
-            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity)
+            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity, false)
                 .await
         } else {
             match keys {
@@ -123,6 +123,15 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         ) {
             (Ok(mut existing_chain), Ok(company_keys)) => {
                 debug!("starting company chain resync for company {company_id}");
+
+                // Pre-fetch identity needed for block processing
+                let identity = self
+                    .identity_store
+                    .get()
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?
+                    .node_id;
+
                 if let Ok(chain_data) = resolve_event_chains(
                     self.transport.clone(),
                     &company_id.to_string(),
@@ -131,13 +140,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 )
                 .await
                 {
-                    let identity = self
-                        .identity_store
-                        .get()
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?
-                        .node_id;
-
                     for data in chain_data.iter() {
                         let blocks: Vec<CompanyBlock> = data
                             .iter()
@@ -146,24 +148,76 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
-                        if !data.is_empty()
-                            && self
-                                .add_company_blocks(
-                                    company_id,
-                                    &mut existing_chain,
-                                    blocks,
-                                    &identity,
-                                )
-                                .await
-                                .is_ok()
-                        {
-                            debug!(
-                                "resynced company {company_id} with {} remote events",
-                                data.len()
-                            );
-                            break;
+
+                        if blocks.is_empty() {
+                            continue;
+                        }
+
+                        let (is_preferred, fork_point) =
+                            resolve_fork(existing_chain.blocks(), &blocks);
+
+                        if !is_preferred {
+                            continue;
+                        }
+
+                        let mut test_chain = existing_chain.clone();
+                        if let Some(fork_id) = &fork_point {
+                            test_chain.truncate_from(*fork_id);
+                        }
+
+                        match self.validate_company_blocks_for_chain(&mut test_chain, &blocks) {
+                            Ok(()) => {
+                                if let Some(fork_id) = fork_point {
+                                    info!(
+                                        "Fork resolution for company {company_id}: replacing blocks from height {fork_id} with preferred remote chain"
+                                    );
+                                    if let Err(e) = self
+                                        .blockchain_store
+                                        .remove_blocks_from_height(company_id, fork_id)
+                                        .await
+                                    {
+                                        error!(
+                                            "Failed to remove blocks from height for company {company_id}: {e}"
+                                        );
+                                        return Err(Error::Persistence(
+                                            "Failed to remove blocks from height for fork resolution"
+                                                .to_string(),
+                                        ));
+                                    }
+                                    existing_chain.truncate_from(fork_id);
+                                }
+
+                                if let Err(e) = self
+                                    .add_company_blocks(
+                                        company_id,
+                                        &mut existing_chain,
+                                        blocks,
+                                        &identity,
+                                        true,
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to add blocks after truncation for company {company_id}: {e}"
+                                    );
+                                    return Err(e);
+                                }
+
+                                debug!(
+                                    "resynced company {company_id} with {} remote events",
+                                    data.len()
+                                );
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "Chain candidate failed validation for company {company_id}: {e}"
+                                );
+                                continue;
+                            }
                         }
                     }
+
                     debug!("finished company chain resync for {company_id}");
                     Ok(())
                 } else {
@@ -271,6 +325,7 @@ impl CompanyChainEventProcessor {
         chain: &mut CompanyBlockchain,
         blocks: Vec<CompanyBlock>,
         identity: &NodeId,
+        from_resync: bool,
     ) -> Result<()> {
         let keys = self
             .company_store
@@ -286,6 +341,17 @@ impl CompanyChainEventProcessor {
         let mut block_height = chain.get_latest_block().id;
         for block in blocks.iter() {
             if block.id <= block_height {
+                if blocks.len() == 1 && !from_resync {
+                    let latest = chain.get_latest_block();
+                    if is_fork_block(latest, block) {
+                        info!(
+                            "Split chain detected for company {company_id} at height {} - resyncing",
+                            block.id
+                        );
+                        self.resync_chain(company_id).await?;
+                        return Ok(());
+                    }
+                }
                 info!(
                     "Skipping block with id {block_height} for {company_id} as we already have it"
                 );
@@ -303,6 +369,7 @@ impl CompanyChainEventProcessor {
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1
+                        && !from_resync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {
@@ -323,6 +390,45 @@ impl CompanyChainEventProcessor {
         Ok(())
     }
 
+    /// Validates a single company block for a chain WITHOUT persisting or processing side effects.
+    /// Returns true if the block was validated and added to the in-memory chain.
+    /// Returns false if the block should be skipped (already exists, etc.).
+    fn validate_company_block_for_chain(
+        &self,
+        chain: &mut CompanyBlockchain,
+        block: &CompanyBlock,
+    ) -> Result<bool> {
+        let block_height = chain.get_latest_block().id;
+
+        // if we already have the block, we skip it
+        if block.id <= block_height {
+            return Ok(false);
+        }
+
+        // do cheap integrity checks (mutates chain in-memory)
+        if !chain.try_add_block(block.clone()) {
+            error!("Received invalid company block");
+            return Err(Error::Blockchain(
+                "Received invalid company block".to_string(),
+            ));
+        }
+
+        Ok(true)
+    }
+
+    /// Validates multiple company blocks for a chain WITHOUT persisting or processing side effects.
+    /// Returns Ok(()) if all blocks are valid, Err otherwise.
+    fn validate_company_blocks_for_chain(
+        &self,
+        chain: &mut CompanyBlockchain,
+        blocks: &[CompanyBlock],
+    ) -> Result<()> {
+        for block in blocks {
+            self.validate_company_block_for_chain(chain, block)?;
+        }
+        Ok(())
+    }
+
     async fn add_company_block(
         &self,
         company_id: &NodeId,
@@ -332,180 +438,190 @@ impl CompanyChainEventProcessor {
         block: &CompanyBlock,
         identity_node_id: &NodeId,
     ) -> Result<()> {
-        if chain.try_add_block(block.clone()) {
+        if self.validate_company_block_for_chain(chain, block)? {
             let data = block
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
-            match data {
-                CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
-                update @ CompanyBlockPayload::Update(_) => {
-                    info!("Updating company {company_id} from block data");
-                    company.apply_block_data(&update, identity_node_id, block.timestamp());
-                    self.company_store
-                        .update(company_id, company)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-                CompanyBlockPayload::InviteSignatory(payload) => {
-                    info!("Signatory invited to company {company_id}, adding to contacts");
-                    self.nostr_contact_processor
-                        .ensure_nostr_contact(&payload.invitee)
-                        .await;
-                    company.apply_block_data(
-                        &CompanyBlockPayload::InviteSignatory(payload.clone()),
-                        identity_node_id,
-                        block.timestamp(),
-                    );
-                    self.company_store
-                        .update(company_id, company)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
 
-                    // if we're invited, create a notification
-                    if &payload.invitee == identity_node_id
-                        && let Err(e) = self
-                            .create_notification(
-                                company_id,
-                                identity_node_id,
-                                &CompanyBlockPayload::InviteSignatory(payload.clone()),
-                            )
-                            .await
-                    {
-                        error!(
-                            "Couldn't create notification for company invite for {company_id}: {e}"
-                        );
-                    }
-
-                    // reset local hiding state for the invited user, so it's shown again
-                    if let Err(e) = self
-                        .company_store
-                        .delete_local_signatory_override(company_id, &payload.invitee)
-                        .await
-                    {
-                        warn!(
-                            "Couldn't reset local signatory override for company {company_id} and {}: {e}",
-                            &payload.invitee
-                        );
-                    }
-                }
-                CompanyBlockPayload::SignatoryAcceptInvite(payload) => {
-                    info!("Signatory accepted invite to company {company_id}");
-                    self.nostr_contact_processor
-                        .ensure_nostr_contact(&payload.accepter)
-                        .await;
-                    company.apply_block_data(
-                        &CompanyBlockPayload::SignatoryAcceptInvite(payload),
-                        identity_node_id,
-                        block.timestamp(),
-                    );
-                    self.company_store
-                        .update(company_id, company)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-                update @ CompanyBlockPayload::SignatoryRejectInvite(_) => {
-                    info!("Signatory rejected invite to company {company_id}");
-                    company.apply_block_data(&update, identity_node_id, block.timestamp());
-                    self.company_store
-                        .update(company_id, company)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-                CompanyBlockPayload::RemoveSignatory(payload) => {
-                    let removee = payload.removee.clone();
-                    info!("Removing signatory from company {company_id}");
-                    company.apply_block_data(
-                        &CompanyBlockPayload::RemoveSignatory(payload),
-                        identity_node_id,
-                        block.timestamp(),
-                    );
-                    self.company_store
-                        .update(company_id, company)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-
-                    // if we're being removed and current identity is that company - change it
-                    if &removee == identity_node_id
-                        && let Ok(Some(active_node_id)) = self
-                            .identity_store
-                            .get_current_identity()
-                            .await
-                            .map(|i| i.company)
-                        && &active_node_id == company_id
-                        && let Err(e) = self
-                            .identity_store
-                            .set_current_identity(&ActiveIdentityState {
-                                personal: identity_node_id.to_owned(),
-                                company: None,
-                            })
-                            .await
-                    {
-                        error!(
-                            "Couldn't set active identity to personal after removing self from company: {e}"
-                        );
-                    }
-                }
-                CompanyBlockPayload::SignBill(payload) => {
-                    if let Some(bill_key) = payload.bill_key
-                        && payload.operation == BillOpCode::Issue
-                    {
-                        info!("Adding detected company bill {}", payload.bill_id);
-                        let bill_keys = BcrKeys::from_private_key(&bill_key);
-                        let invite = ChainInvite::bill(
-                            payload.bill_id.to_string(),
-                            BcrKeys::from_private_key(&bill_keys.get_private_key()),
-                        );
-                        // we want to process all blocks for the company even if we don't have all
-                        // the bills.
-                        if let Err(e) = self
-                            .bill_invite_handler
-                            .handle_event(
-                                Event::new_bill(invite).try_into()?,
-                                &company.id,
-                                None,
-                                None,
-                            )
-                            .await
-                        {
-                            error!(
-                                "Failed to add company bill {} when adding company: {e}",
-                                payload.bill_id
-                            );
-                        }
-                    }
-                }
-                CompanyBlockPayload::IdentityProof(payload) => {
-                    info!("Received identity proof for company {company_id}");
-                    // if it's our own block - update our local confirmation state
-                    if &payload.data.node_id == identity_node_id {
-                        self.company_store
-                            .set_email_confirmation(company_id, &payload.proof, &payload.data)
-                            .await
-                            .map_err(|e| Error::Persistence(e.to_string()))?;
-                    }
-
-                    // update company data
-                    company.apply_block_data(
-                        &CompanyBlockPayload::IdentityProof(payload),
-                        identity_node_id,
-                        block.timestamp(),
-                    );
-                    self.company_store
-                        .update(company_id, company)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-            }
+            // process effects
+            self.process_company_block_effects(
+                company_id,
+                company,
+                data,
+                identity_node_id,
+                block.timestamp(),
+            )
+            .await?;
 
             // persist data
             self.save_block(company_id, block).await?;
-            Ok(())
-        } else {
-            error!("Received invalid company block");
-            Err(Error::Blockchain(
-                "Received invalid company block".to_string(),
-            ))
         }
+        Ok(())
+    }
+
+    /// Processes side effects for a company block (contacts, updates, invites, etc.) WITHOUT persisting the block itself.
+    async fn process_company_block_effects(
+        &self,
+        company_id: &NodeId,
+        company: &mut Company,
+        data: CompanyBlockPayload,
+        identity_node_id: &NodeId,
+        timestamp: bcr_ebill_core::protocol::Timestamp,
+    ) -> Result<()> {
+        match data {
+            CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
+            update @ CompanyBlockPayload::Update(_) => {
+                info!("Updating company {company_id} from block data");
+                company.apply_block_data(&update, identity_node_id, timestamp);
+                self.company_store
+                    .update(company_id, company)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+            CompanyBlockPayload::InviteSignatory(payload) => {
+                info!("Signatory invited to company {company_id}, adding to contacts");
+                self.nostr_contact_processor
+                    .ensure_nostr_contact(&payload.invitee)
+                    .await;
+                company.apply_block_data(
+                    &CompanyBlockPayload::InviteSignatory(payload.clone()),
+                    identity_node_id,
+                    timestamp,
+                );
+                self.company_store
+                    .update(company_id, company)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                // if we're invited, create a notification
+                if &payload.invitee == identity_node_id
+                    && let Err(e) = self
+                        .create_notification(
+                            company_id,
+                            identity_node_id,
+                            &CompanyBlockPayload::InviteSignatory(payload.clone()),
+                        )
+                        .await
+                {
+                    error!("Couldn't create notification for company invite for {company_id}: {e}");
+                }
+
+                // reset local hiding state for the invited user, so it's shown again
+                if let Err(e) = self
+                    .company_store
+                    .delete_local_signatory_override(company_id, &payload.invitee)
+                    .await
+                {
+                    warn!(
+                        "Couldn't reset local signatory override for company {company_id} and {}: {e}",
+                        &payload.invitee
+                    );
+                }
+            }
+            CompanyBlockPayload::SignatoryAcceptInvite(payload) => {
+                info!("Signatory accepted invite to company {company_id}");
+                self.nostr_contact_processor
+                    .ensure_nostr_contact(&payload.accepter)
+                    .await;
+                company.apply_block_data(
+                    &CompanyBlockPayload::SignatoryAcceptInvite(payload),
+                    identity_node_id,
+                    timestamp,
+                );
+                self.company_store
+                    .update(company_id, company)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+            update @ CompanyBlockPayload::SignatoryRejectInvite(_) => {
+                info!("Signatory rejected invite to company {company_id}");
+                company.apply_block_data(&update, identity_node_id, timestamp);
+                self.company_store
+                    .update(company_id, company)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+            CompanyBlockPayload::RemoveSignatory(payload) => {
+                let removee = payload.removee.clone();
+                info!("Removing signatory from company {company_id}");
+                company.apply_block_data(
+                    &CompanyBlockPayload::RemoveSignatory(payload),
+                    identity_node_id,
+                    timestamp,
+                );
+                self.company_store
+                    .update(company_id, company)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                // if we're being removed and current identity is that company - change it
+                if &removee == identity_node_id
+                    && let Ok(Some(active_node_id)) = self
+                        .identity_store
+                        .get_current_identity()
+                        .await
+                        .map(|i| i.company)
+                    && &active_node_id == company_id
+                    && let Err(e) = self
+                        .identity_store
+                        .set_current_identity(&ActiveIdentityState {
+                            personal: identity_node_id.to_owned(),
+                            company: None,
+                        })
+                        .await
+                {
+                    error!(
+                        "Couldn't set active identity to personal after removing self from company: {e}"
+                    );
+                }
+            }
+            CompanyBlockPayload::SignBill(payload) => {
+                if let Some(bill_key) = payload.bill_key
+                    && payload.operation == BillOpCode::Issue
+                {
+                    info!("Adding detected company bill {}", payload.bill_id);
+                    let bill_keys = BcrKeys::from_private_key(&bill_key);
+                    let invite = ChainInvite::bill(
+                        payload.bill_id.to_string(),
+                        BcrKeys::from_private_key(&bill_keys.get_private_key()),
+                    );
+                    // we want to process all blocks for the company even if we don't have all
+                    // the bills.
+                    if let Err(e) = self
+                        .bill_invite_handler
+                        .handle_event(Event::new_bill(invite).try_into()?, &company.id, None, None)
+                        .await
+                    {
+                        error!(
+                            "Failed to add company bill {} when adding company: {e}",
+                            payload.bill_id
+                        );
+                    }
+                }
+            }
+            CompanyBlockPayload::IdentityProof(payload) => {
+                info!("Received identity proof for company {company_id}");
+                // if it's our own block - update our local confirmation state
+                if &payload.data.node_id == identity_node_id {
+                    self.company_store
+                        .set_email_confirmation(company_id, &payload.proof, &payload.data)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                }
+
+                // update company data
+                company.apply_block_data(
+                    &CompanyBlockPayload::IdentityProof(payload),
+                    identity_node_id,
+                    timestamp,
+                );
+                self.company_store
+                    .update(company_id, company)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+        }
+        Ok(())
     }
     fn get_valid_chain(
         &self,
@@ -666,15 +782,16 @@ pub mod tests {
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::{
         application::company::Company,
+        application::identity::ActiveIdentityState,
         protocol::Name,
         protocol::Sha256Hash,
         protocol::Timestamp,
         protocol::blockchain::{
             Blockchain, BlockchainType,
             company::{
-                CompanyBlock, CompanyBlockchain, CompanyIdentityProofBlockData,
-                CompanyInviteSignatoryBlockData, CompanyRemoveSignatoryBlockData,
-                CompanyUpdateBlockData, SignatoryType,
+                CompanyBlock, CompanyBlockPayload, CompanyBlockchain,
+                CompanyIdentityProofBlockData, CompanyInviteSignatoryBlockData,
+                CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
             },
         },
         protocol::crypto::BcrKeys,
@@ -1975,6 +2092,68 @@ pub mod tests {
             test_ts(),
         )
         .expect("could not create block")
+    }
+
+    #[tokio::test]
+    async fn test_process_company_block_effects_does_not_persist_block() {
+        // Verify that process_company_block_effects updates company data
+        // but does NOT call blockchain_store.add_block
+        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _) = create_mocks();
+
+        let (_, (company, _)) = get_company_data();
+        let identity_full = get_baseline_identity();
+        let identity_node_id = identity_full.identity.node_id.clone();
+        let identity_node_id_for_closure = identity_node_id.clone();
+
+        let update_data = CompanyBlockPayload::Update(CompanyUpdateBlockData {
+            name: Some(Name::new("Updated Company".to_string()).unwrap()),
+            ..Default::default()
+        });
+
+        // CRITICAL: add_block should NEVER be called during side effect processing
+        chain_store.expect_add_block().times(0);
+
+        // Company CAN be updated
+        store.expect_update().times(1).returning(|_, _| Ok(()));
+
+        // Identity store is needed for getting current identity
+        identity_store
+            .expect_get_current_identity()
+            .returning(move || {
+                Ok(ActiveIdentityState {
+                    personal: identity_node_id_for_closure.clone(),
+                    company: None,
+                })
+            });
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(identity_store),
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(MockPushApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_company = company.clone();
+
+        // Call the side effect processing method directly
+        let result = handler
+            .process_company_block_effects(
+                &company.id,
+                &mut test_company,
+                update_data,
+                &identity_node_id,
+                test_ts(),
+            )
+            .await;
+
+        // Should succeed without persisting block
+        assert!(result.is_ok());
+        // Test passes if add_block was never called (mock verifies this)
     }
 
     fn create_mocks() -> (

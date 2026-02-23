@@ -104,4 +104,6 @@ pub trait BillChainStoreApi: ServiceTraitBounds {
     async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
     /// Get the whole blockchain
     async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
+    /// Removes all blocks with a block id >= from_block_id for the given bill
+    async fn remove_blocks_from_height(&self, id: &BillId, from_block_id: BlockId) -> Result<()>;
 }

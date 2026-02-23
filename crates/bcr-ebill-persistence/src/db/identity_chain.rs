@@ -174,6 +174,19 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
         let blocks: Result<Vec<IdentityBlock>> = result.into_iter().map(|b| b.try_into()).collect();
         Ok(IdentityBlockchain::new_from_blocks(blocks?).map_err(|e| Error::Protocol(e.into()))?)
     }
+
+    async fn remove_blocks_from_height(&self, from_block_id: BlockId) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(DB_BLOCK_ID, from_block_id.inner())?;
+        self.db
+            .query_check(
+                "DELETE FROM type::table($table) WHERE block_id >= $block_id",
+                bindings,
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
