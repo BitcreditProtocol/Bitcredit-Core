@@ -32,6 +32,7 @@ pub mod notification;
 pub struct StatusResponse {
     pub bitcoin_network: String,
     pub app_version: String,
+    pub connected: bool,
 }
 
 #[derive(Tsify, Debug, Serialize)]

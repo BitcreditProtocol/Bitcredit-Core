@@ -17,7 +17,7 @@ use bcr_ebill_api::{
     },
 };
 use bcr_ebill_transport::{
-    NostrConsumer,
+    NostrClient, NostrConsumer,
     chain_keys::{ChainKeyService, ChainKeyServiceApi},
     create_nostr_clients, create_nostr_consumer, create_transport_service,
     push_notification::{PushApi, PushService},
@@ -32,6 +32,7 @@ pub struct Context {
     pub identity_service: Arc<dyn IdentityServiceApi>,
     pub company_service: Arc<dyn CompanyServiceApi>,
     pub file_upload_service: Arc<dyn FileUploadServiceApi>,
+    pub nostr_client: Arc<NostrClient>,
     pub nostr_consumer: NostrConsumer,
     pub transport_service: Arc<dyn TransportServiceApi>,
     pub push_service: Arc<dyn PushApi>,
@@ -126,7 +127,7 @@ impl Context {
         ));
 
         let nostr_consumer = create_nostr_consumer(
-            nostr_client,
+            nostr_client.clone(),
             contact_service.clone(),
             push_service.clone(),
             chain_key_service.clone(),
@@ -147,6 +148,7 @@ impl Context {
             identity_service: Arc::new(identity_service),
             company_service: Arc::new(company_service),
             file_upload_service: Arc::new(file_upload_service),
+            nostr_client,
             nostr_consumer,
             transport_service,
             push_service,

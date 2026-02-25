@@ -110,8 +110,8 @@ let config = {
   bitcoin_network: "testnet",
   esplora_base_url: "https://esplora.minibill.tech",
   // nostr_relays: ["ws://localhost:8080"],
-  nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
-  // nostr_relays: ["ws://localhost:8080"],
+  // nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+  nostr_relays: ["ws://dev1.lan:8080"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 5,
