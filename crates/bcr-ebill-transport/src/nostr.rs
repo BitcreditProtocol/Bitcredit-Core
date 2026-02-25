@@ -21,8 +21,8 @@ use log::{debug, error, info, trace, warn};
 use nostr::{Keys, nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
-    PublicKey, RelayPoolNotification, RelayUrl, SingleLetterTag, TagKind, TagStandard, ToBech32,
-    pool::Output,
+    PublicKey, RelayPoolNotification, RelayStatus, RelayUrl, SingleLetterTag, TagKind, TagStandard,
+    ToBech32, pool::Output,
 };
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::{
@@ -487,6 +487,14 @@ impl NostrClient {
         );
         Ok(())
     }
+
+    pub async fn has_connected_relays(&self) -> bool {
+        self.client
+            .relays()
+            .await
+            .values()
+            .any(|relay| relay.status() == RelayStatus::Connected)
+    }
 }
 
 impl ServiceTraitBounds for NostrClient {}
@@ -838,13 +846,11 @@ impl NostrConsumer {
 
         // Get the earliest offset timestamp across all identities
         let mut earliest_offset = Timestamp::now();
-        let mut dm_offset = Timestamp::now();
         if !local_node_ids.is_empty() {
             for node_id in &local_node_ids {
                 let offset = get_offset(&offset_store, node_id).await;
                 if offset != Timestamp::zero() && offset < earliest_offset {
                     earliest_offset = offset;
-                    dm_offset = add_time_slack(earliest_offset);
                 }
             }
         }
@@ -857,7 +863,7 @@ impl NostrConsumer {
                 Filter::new()
                     .pubkeys(local_pubkeys.clone())
                     .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
-                    .since(dm_offset.into()),
+                    .limit(1000),
             )
             .await
             .map_err(|e| {
@@ -1219,7 +1225,10 @@ async fn handle_event(
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
@@ -1259,6 +1268,40 @@ mod tests {
 
         client.connect().await.expect("failed to connect");
         assert!(client.is_connected(), "client should be connected");
+    }
+
+    #[tokio::test]
+    async fn test_has_connected_relays_reflects_runtime_state() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+        let keys = BcrKeys::new();
+        let config = NostrConfig::new(
+            keys.clone(),
+            vec![url],
+            true,
+            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+        );
+        let client = NostrClient::default(&config)
+            .await
+            .expect("failed to create nostr client");
+
+        assert!(
+            !client.has_connected_relays().await,
+            "no relay should be connected before connect"
+        );
+
+        client.connect().await.expect("failed to connect");
+
+        let timeout = Duration::from_secs(3);
+        let start = Instant::now();
+        while !client.has_connected_relays().await && start.elapsed() < timeout {
+            time::sleep(Duration::from_millis(50)).await;
+        }
+
+        assert!(
+            client.has_connected_relays().await,
+            "at least one relay should be connected after connect"
+        );
     }
 
     /// When testing with the mock relay we need to be careful. It is always

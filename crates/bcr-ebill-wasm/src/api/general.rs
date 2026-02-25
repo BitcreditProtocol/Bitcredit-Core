@@ -18,6 +18,7 @@ use crate::{
         GeneralSearchFilterPayload, GeneralSearchResponse, OverviewBalanceResponse,
         OverviewResponse, StatusResponse,
     },
+    is_transport_connected,
 };
 
 pub const VERSION: &str = env!("CRATE_VERSION");
@@ -35,9 +36,12 @@ impl General {
     #[wasm_bindgen(unchecked_return_type = "TSResult<StatusResponse>")]
     pub async fn status(&self) -> JsValue {
         let res: Result<StatusResponse> = async {
+            let connected =
+                is_transport_connected() && get_ctx().nostr_client.has_connected_relays().await;
             Ok(StatusResponse {
                 bitcoin_network: get_ctx().cfg.bitcoin_network.clone(),
                 app_version: VERSION.to_owned(),
+                connected,
             })
         }
         .await;

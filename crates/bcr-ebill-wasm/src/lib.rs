@@ -5,6 +5,7 @@ use bcr_ebill_api::constants::DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS;
 use bcr_ebill_api::util::validate_node_id_network;
 use bcr_ebill_api::{Config as ApiConfig, MintConfig, NostrConfig, get_db_context, init};
 use bcr_ebill_api::{CourtConfig, DevModeConfig, PaymentConfig};
+use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_persistence::SurrealDbConfig;
 use context::{Context, get_ctx};
 use job::run_jobs;
@@ -15,7 +16,10 @@ use serde::Deserializer;
 use serde::Serialize;
 use std::thread_local;
 use std::time::Duration;
-use std::{cell::RefCell, str::FromStr};
+use std::{
+    cell::{Cell, RefCell},
+    str::FromStr,
+};
 use tokio_with_wasm::alias as tokio;
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
@@ -107,6 +111,93 @@ where
 
 thread_local! {
     static CONTEXT: RefCell<Option<&'static Context>> = const { RefCell::new(None) } ;
+    static TRANSPORT_CONNECTED: Cell<bool> = const { Cell::new(false) };
+    static LAST_CONTACT_PUBLISH_CHECK: Cell<Option<Duration>> = const { Cell::new(None) };
+}
+
+/// Minimum time between contact data publish checks to avoid excessive network calls
+/// in flaky network conditions. Set to 5 minutes.
+const CONTACT_PUBLISH_CHECK_INTERVAL: Duration = Duration::from_secs(3600);
+
+pub(crate) fn is_transport_connected() -> bool {
+    TRANSPORT_CONNECTED.with(Cell::get)
+}
+
+pub(crate) fn set_transport_connected(connected: bool) {
+    TRANSPORT_CONNECTED.with(|status| status.set(connected));
+}
+
+/// Ensures contact data is published to Nostr, with rate limiting to avoid excessive
+/// network calls during flaky network conditions.
+async fn ensure_transport_contact_data_published(ctx: &Context, default_mint_node_id: &NodeId) {
+    // Check if we've already done a publish check recently
+    let now = Duration::from_secs(Timestamp::now().inner());
+    let should_skip = LAST_CONTACT_PUBLISH_CHECK.with(|last| {
+        if let Some(last_check) = last.get()
+            && now.saturating_sub(last_check) < CONTACT_PUBLISH_CHECK_INTERVAL
+        {
+            debug!("Skipping contact data publish check - last check was recent");
+            return true;
+        }
+        last.set(Some(now));
+        false
+    });
+
+    if should_skip {
+        return;
+    }
+
+    if let Ok(full_identity) = ctx.identity_service.get_full_identity().await {
+        match ctx
+            .transport_service
+            .contact_transport()
+            .resolve_contact(&full_identity.identity.node_id)
+            .await
+        {
+            Ok(None) => {
+                if let Err(e) = ctx
+                    .identity_service
+                    .publish_contact(&full_identity.identity, &full_identity.key_pair)
+                    .await
+                {
+                    warn!("Could not publish identity details to Nostr: {e}")
+                }
+            }
+            Ok(Some(_)) => (),
+            Err(e) => {
+                warn!("Could not resolve personal identity details on Nostr: {e}")
+            }
+        }
+    }
+
+    if let Ok(companies) = ctx.company_service.get_list_of_companies().await {
+        for c in companies.iter() {
+            if let Ok((company, keys)) = ctx.company_service.get_company_and_keys_by_id(&c.id).await
+            {
+                match ctx
+                    .transport_service
+                    .contact_transport()
+                    .resolve_contact(&company.id)
+                    .await
+                {
+                    Ok(None) => {
+                        if let Err(e) = ctx.company_service.publish_contact(&company, &keys).await {
+                            warn!("Could not publish company details to Nostr: {e}")
+                        }
+                    }
+                    Ok(Some(_)) => (),
+                    Err(e) => {
+                        warn!("Could not resolve company details on Nostr: {e}")
+                    }
+                }
+            }
+        }
+    }
+
+    ctx.transport_service
+        .contact_transport()
+        .ensure_nostr_contact(default_mint_node_id)
+        .await;
 }
 
 #[wasm_bindgen]
@@ -229,6 +320,7 @@ pub async fn initialize_api(
         }
     });
 
+    let default_mint_node_id = api_config.mint_config.default_mint_node_id.clone();
     // start nostr subscription
     wasm_bindgen_futures::spawn_local(async move {
         tokio::time::sleep(Duration::from_secs(
@@ -238,78 +330,37 @@ pub async fn initialize_api(
         ))
         .await;
 
-        let ctx = get_ctx();
+        let reconnect_interval_seconds = config.job_runner_check_interval_seconds as u64;
+        set_transport_connected(false);
 
-        info!("Connecting to Nostr transport..");
-        // before subscription we ensure if we have a connection to the transports
-        ctx.transport_service.connect().await;
+        loop {
+            let ctx = get_ctx();
 
-        // and ensure that the metadata of our personal identity is published
-        if let Ok(full_identity) = ctx.identity_service.get_full_identity().await {
-            match ctx
-                .transport_service
-                .contact_transport()
-                .resolve_contact(&full_identity.identity.node_id)
-                .await
-            {
-                Ok(None) => {
-                    if let Err(e) = ctx
-                        .identity_service
-                        .publish_contact(&full_identity.identity, &full_identity.key_pair)
-                        .await
-                    {
-                        warn!("Could not publish identity details to Nostr: {e}")
+            info!("Connecting to Nostr transport..");
+            // before subscription we ensure if we have a connection to the transports
+            ctx.transport_service.connect().await;
+
+            ensure_transport_contact_data_published(ctx, &default_mint_node_id).await;
+
+            match ctx.nostr_consumer.start().await {
+                Ok(mut handle) => {
+                    set_transport_connected(true);
+                    info!("Nostr transport connected");
+                    while let Some(result) = handle.join_next().await {
+                        match result {
+                            Ok(()) => info!("Nostr consumer task shutdown with success"),
+                            Err(e) => warn!("Nostr consumer task shutdown with error: {e}"),
+                        }
                     }
+                    warn!("Nostr consumer stopped, reconnecting...");
                 }
-                Ok(Some(_)) => (),
                 Err(e) => {
-                    warn!("Could not resolve personal identity details on Nostr: {e}")
+                    warn!("Could not start Nostr consumer: {e}");
                 }
             }
-        }
 
-        // and ensure that the metadata of our active companies is published
-        if let Ok(companies) = ctx.company_service.get_list_of_companies().await {
-            for c in companies.iter() {
-                if let Ok((company, keys)) =
-                    ctx.company_service.get_company_and_keys_by_id(&c.id).await
-                {
-                    match ctx
-                        .transport_service
-                        .contact_transport()
-                        .resolve_contact(&company.id)
-                        .await
-                    {
-                        Ok(None) => {
-                            if let Err(e) =
-                                ctx.company_service.publish_contact(&company, &keys).await
-                            {
-                                warn!("Could not publish company details to Nostr: {e}")
-                            }
-                        }
-                        Ok(Some(_)) => (),
-                        Err(e) => {
-                            warn!("Could not resolve company details on Nostr: {e}")
-                        }
-                    }
-                }
-            }
-        }
-
-        // and make sure the configured default mint exists
-        ctx.transport_service
-            .contact_transport()
-            .ensure_nostr_contact(&api_config.mint_config.default_mint_node_id)
-            .await;
-
-        let mut handle = ctx
-            .nostr_consumer
-            .start()
-            .await
-            .expect("nostr consumer failed");
-
-        while let Some(Ok(_)) = handle.join_next().await {
-            info!("Nostr consumer task shutdown with success");
+            set_transport_connected(false);
+            tokio::time::sleep(Duration::from_secs(reconnect_interval_seconds)).await;
         }
     });
     Ok(())

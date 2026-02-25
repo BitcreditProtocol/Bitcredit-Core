@@ -30,7 +30,17 @@ pub mod notification;
 #[derive(Tsify, Debug, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct StatusResponse {
+    /// Name of the currently configured Bitcoin network (e.g. `mainnet`, `testnet`).
     pub bitcoin_network: String,
+    /// `true` if the app has an active connection to at least one configured Nostr relay.
+    ///
+    /// This reflects the status of the Nostr transport layer, not general internet
+    /// connectivity or backend/database availability. When `connected` is `false`,
+    /// operations that require Nostr (such as bill synchronization with other peers,
+    /// sending or receiving notifications, or other relay-based messaging) will not
+    /// be able to communicate over the network and may fall back to local-only state.
+    pub connected: bool,
+    /// Semantic version of the running E-Bills application backend.
     pub app_version: String,
 }
 
