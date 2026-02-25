@@ -5,6 +5,7 @@ use bcr_ebill_api::constants::DEFAULT_INITIAL_SUBSCRIPTION_DELAY_SECONDS;
 use bcr_ebill_api::util::validate_node_id_network;
 use bcr_ebill_api::{Config as ApiConfig, MintConfig, NostrConfig, get_db_context, init};
 use bcr_ebill_api::{CourtConfig, DevModeConfig, PaymentConfig};
+use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_persistence::SurrealDbConfig;
 use context::{Context, get_ctx};
 use job::run_jobs;
@@ -111,7 +112,12 @@ where
 thread_local! {
     static CONTEXT: RefCell<Option<&'static Context>> = const { RefCell::new(None) } ;
     static TRANSPORT_CONNECTED: Cell<bool> = const { Cell::new(false) };
+    static LAST_CONTACT_PUBLISH_CHECK: Cell<Option<Duration>> = const { Cell::new(None) };
 }
+
+/// Minimum time between contact data publish checks to avoid excessive network calls
+/// in flaky network conditions. Set to 5 minutes.
+const CONTACT_PUBLISH_CHECK_INTERVAL: Duration = Duration::from_secs(3600);
 
 pub(crate) fn is_transport_connected() -> bool {
     TRANSPORT_CONNECTED.with(Cell::get)
@@ -121,7 +127,26 @@ pub(crate) fn set_transport_connected(connected: bool) {
     TRANSPORT_CONNECTED.with(|status| status.set(connected));
 }
 
+/// Ensures contact data is published to Nostr, with rate limiting to avoid excessive
+/// network calls during flaky network conditions.
 async fn ensure_transport_contact_data_published(ctx: &Context, default_mint_node_id: &NodeId) {
+    // Check if we've already done a publish check recently
+    let now = Duration::from_secs(Timestamp::now().inner());
+    let should_skip = LAST_CONTACT_PUBLISH_CHECK.with(|last| {
+        if let Some(last_check) = last.get()
+            && now.saturating_sub(last_check) < CONTACT_PUBLISH_CHECK_INTERVAL
+        {
+            debug!("Skipping contact data publish check - last check was recent");
+            return true;
+        }
+        last.set(Some(now));
+        false
+    });
+
+    if should_skip {
+        return;
+    }
+
     if let Ok(full_identity) = ctx.identity_service.get_full_identity().await {
         match ctx
             .transport_service
