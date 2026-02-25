@@ -16,7 +16,7 @@ use bcr_ebill_core::{
                 },
                 participant::BillParticipant,
             },
-            company::{CompanyBlock, CompanySignCompanyBillBlockData},
+            company::{CompanyBlock, block::CompanySignCompanyBillBlockData},
             identity::{
                 IdentityBlock, IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
             },

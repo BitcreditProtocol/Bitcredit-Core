@@ -272,7 +272,7 @@ mod tests {
     };
     use bcr_ebill_core::protocol::{
         City, Country, Date, Email, Identification, Name,
-        blockchain::company::{CompanyCreateBlockData, CompanyUpdateBlockData},
+        blockchain::company::{block::CompanyCreateBlockData, block::CompanyUpdateBlockData},
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -309,7 +309,7 @@ mod tests {
                 creation_time: test_ts(),
                 creator: node_id_test(),
             },
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &get_company_keys(),
             test_ts(),
         )
@@ -364,7 +364,7 @@ mod tests {
                 creation_time: test_ts(),
                 creator: node_id_test(),
             },
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &get_company_keys(),
             test_ts(),
         )

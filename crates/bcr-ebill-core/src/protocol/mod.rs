@@ -361,6 +361,10 @@ pub enum ProtocolValidationError {
     #[error("Invalid bill action")]
     InvalidBillAction,
 
+    /// error returned if the given company action was invalid
+    #[error("Invalid company action")]
+    InvalidCompanyAction,
+
     /// error returned if the contact type is not valid
     #[error("Invalid contact type")]
     InvalidContactType,
@@ -368,6 +372,22 @@ pub enum ProtocolValidationError {
     /// error returned if the signer does not have an identity proof
     #[error("No signer identity proof")]
     NoSignerIdentityProof,
+
+    /// error returned if the company creation signer and creator are not the same
+    #[error("Company signer and creator mismatch")]
+    CompanySignerCreatorMismatch,
+
+    /// error returned if the signatory is not a signatory of the company
+    #[error("Caller must be signatory for company")]
+    CallerMustBeSignatory,
+
+    /// error returned if the reference block for an identity proof doesn't exist, or is a wrong block
+    #[error("Reference block must exist and be either an accept, or create block")]
+    InvalidReferenceBlock,
+
+    /// error returned if an identity proof is not valid
+    #[error("Identity proof is invalid")]
+    InvalidIdentityProof,
 }
 
 impl From<bcr_common::core::Error> for ProtocolValidationError {

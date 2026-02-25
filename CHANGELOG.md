@@ -1,3 +1,7 @@
+# 0.5.2
+
+* Add proper block validation for Company blocks
+
 # 0.5.1
 
 * Use one Nostr client for multiple identities

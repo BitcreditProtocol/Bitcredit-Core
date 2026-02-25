@@ -17,7 +17,7 @@ use bcr_ebill_core::{
     },
     protocol::{
         City, Country, Date, Email, EmailIdentityProofData, Identification, Name, SecretKey,
-        SignedIdentityProof, Timestamp, blockchain::company::SignatoryType, crypto::BcrKeys,
+        SignedIdentityProof, Timestamp, blockchain::company::block::SignatoryType, crypto::BcrKeys,
     },
 };
 

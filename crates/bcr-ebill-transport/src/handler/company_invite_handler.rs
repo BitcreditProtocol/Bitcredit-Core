@@ -178,7 +178,7 @@ mod tests {
         protocol::Timestamp,
         protocol::blockchain::{
             Blockchain,
-            company::{CompanyBlockchain, CompanyCreateBlockData},
+            company::{CompanyBlockchain, block::CompanyCreateBlockData},
         },
         protocol::crypto::BcrKeys,
     };
@@ -491,7 +491,7 @@ mod tests {
                 creation_time: test_ts(),
                 creator: node_id_test(),
             },
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             keys,
             test_ts(),
         )

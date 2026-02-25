@@ -1,7 +1,9 @@
 use crate::protocol::{
     City, Country, Date, Email, EmailIdentityProofData, File, Identification, Name, PostalAddress,
     SignedIdentityProof, Timestamp,
-    blockchain::company::{CompanyBlockPayload, CompanyCreateBlockData, SignatoryType},
+    blockchain::company::{
+        CompanyBlockPayload, block::CompanyCreateBlockData, block::SignatoryType,
+    },
 };
 use bcr_common::core::NodeId;
 

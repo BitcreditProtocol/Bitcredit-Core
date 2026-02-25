@@ -138,12 +138,16 @@ enum JsErrorType {
     InvalidFileName,
     UnknownNodeId,
     CallerMustBeSignatory,
+    InvalidIdentityProof,
+    InvalidReferenceBlock,
     InvalidSignature,
     InvalidHash,
     InvalidUrl,
     InvalidIdentityProofStatus,
     Json,
     InvalidBillAction,
+    InvalidCompanyAction,
+    CompanySignerCreatorMismatch,
     InvalidMintRequestId,
 }
 
@@ -223,7 +227,6 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::InvalidContact(_) => err_400(e, JsErrorType::InvalidContact),
         ValidationError::InvalidMint(_) => err_400(e, JsErrorType::InvalidMint),
         ValidationError::InvalidBillType => err_400(e, JsErrorType::InvalidBillType),
-        ValidationError::CallerMustBeSignatory => err_400(e, JsErrorType::CallerMustBeSignatory),
         ValidationError::SignatoryNotInContacts(_) => {
             err_400(e, JsErrorType::SignatoryNotInContacts)
         }
@@ -395,8 +398,23 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         ProtocolValidationError::InvalidHash => err_400(e, JsErrorType::InvalidHash),
         ProtocolValidationError::InvalidUrl => err_400(e, JsErrorType::InvalidUrl),
         ProtocolValidationError::InvalidBillAction => err_400(e, JsErrorType::InvalidBillAction),
+        ProtocolValidationError::InvalidCompanyAction => {
+            err_400(e, JsErrorType::InvalidCompanyAction)
+        }
+        ProtocolValidationError::CompanySignerCreatorMismatch => {
+            err_400(e, JsErrorType::CompanySignerCreatorMismatch)
+        }
         ProtocolValidationError::InvalidMintRequestId => {
             err_400(e, JsErrorType::InvalidMintRequestId)
+        }
+        ProtocolValidationError::CallerMustBeSignatory => {
+            err_400(e, JsErrorType::CallerMustBeSignatory)
+        }
+        ProtocolValidationError::InvalidIdentityProof => {
+            err_400(e, JsErrorType::InvalidIdentityProof)
+        }
+        ProtocolValidationError::InvalidReferenceBlock => {
+            err_400(e, JsErrorType::InvalidReferenceBlock)
         }
     }
 }
