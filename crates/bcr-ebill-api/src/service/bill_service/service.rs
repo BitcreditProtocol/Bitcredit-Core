@@ -1707,7 +1707,9 @@ impl BillServiceApi for BillService {
             // if it's offered, or accepted, we also fetch the offer
             if matches!(
                 req.request.status,
-                MintRequestStatus::Offered | MintRequestStatus::Accepted
+                MintRequestStatus::Offered
+                    | MintRequestStatus::Accepted
+                    | MintRequestStatus::MintingEnabled
             ) {
                 let offer = self
                     .mint_store

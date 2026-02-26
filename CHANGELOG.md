@@ -1,6 +1,11 @@
 # 0.5.2
 
 * Add proper block validation for Company blocks
+* Add basic, deterministic algorithm for chain consensus for testing/dev
+
+# 0.5.1-1 (Hotfix)
+
+* Fix Mint Offer display for MintingEnabled state
 
 # 0.5.1
 
