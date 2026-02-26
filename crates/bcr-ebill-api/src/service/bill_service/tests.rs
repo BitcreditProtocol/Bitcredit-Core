@@ -6491,6 +6491,22 @@ async fn get_mint_state_baseline() {
                     timestamp: test_ts(),
                     status: MintRequestStatus::Offered,
                 },
+                MintRequest {
+                    requester_node_id: node_id_test(),
+                    bill_id: bill_id_test(),
+                    mint_node_id: node_id_test_other(),
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: test_ts(),
+                    status: MintRequestStatus::MintingEnabled,
+                },
+                MintRequest {
+                    requester_node_id: node_id_test(),
+                    bill_id: bill_id_test(),
+                    mint_node_id: node_id_test_other(),
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: test_ts(),
+                    status: MintRequestStatus::Accepted,
+                },
             ])
         });
 
@@ -6499,7 +6515,17 @@ async fn get_mint_state_baseline() {
         .get_mint_state(&bill_id_test(), &identity.identity.node_id)
         .await;
     assert!(res.is_ok());
-    assert_eq!(res.as_ref().unwrap().len(), 2);
+    assert_eq!(res.as_ref().unwrap().len(), 4);
+    for mrs in res.as_ref().unwrap() {
+        match mrs.request.status {
+            MintRequestStatus::Offered
+            | MintRequestStatus::Accepted
+            | MintRequestStatus::MintingEnabled => {
+                assert!(mrs.offer.is_some());
+            }
+            _ => (),
+        }
+    }
 }
 
 #[tokio::test]

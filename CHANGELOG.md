@@ -1,3 +1,7 @@
+# 0.5.1-1 (Hotfix)
+
+* Fix Mint Offer display for MintingEnabled state
+
 # 0.5.1
 
 * Use one Nostr client for multiple identities
