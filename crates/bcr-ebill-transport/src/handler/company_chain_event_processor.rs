@@ -15,7 +15,8 @@ use bcr_ebill_core::{
         notification::{Notification, NotificationType},
     },
     protocol::{
-        blockchain::Block,
+        Validate,
+        blockchain::{Block, company::CompanyValidateActionData},
         crypto::BcrKeys,
         event::{ChainInvite, Event},
     },
@@ -165,7 +166,11 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                             test_chain.truncate_from(*fork_id);
                         }
 
-                        match self.validate_company_blocks_for_chain(&mut test_chain, &blocks) {
+                        match self.validate_company_blocks_for_chain(
+                            &mut test_chain,
+                            &blocks,
+                            &company_keys,
+                        ) {
                             Ok(()) => {
                                 if let Some(fork_id) = fork_point {
                                     info!(
@@ -397,6 +402,7 @@ impl CompanyChainEventProcessor {
         &self,
         chain: &mut CompanyBlockchain,
         block: &CompanyBlock,
+        company_keys: &BcrKeys,
     ) -> Result<bool> {
         let block_height = chain.get_latest_block().id;
 
@@ -404,6 +410,7 @@ impl CompanyChainEventProcessor {
         if block.id <= block_height {
             return Ok(false);
         }
+        let chain_clone_for_validation = chain.clone();
 
         // do cheap integrity checks (mutates chain in-memory)
         if !chain.try_add_block(block.clone()) {
@@ -411,6 +418,37 @@ impl CompanyChainEventProcessor {
             return Err(Error::Blockchain(
                 "Received invalid company block".to_string(),
             ));
+        }
+        let company_id = block.company_id.clone();
+        let block_id = block.id;
+
+        // then, verify signature and signer of the block and get data to validate
+        let verify_and_get_signer = match block.verify_and_get_signer(company_keys) {
+            Ok(d) => d,
+            Err(e) => {
+                error!(
+                    "Received invalid block {block_id} for company {company_id} - could not verify signature from block data signer"
+                );
+                return Err(Error::Blockchain(e.to_string()));
+            }
+        };
+
+        if let Err(e) = (CompanyValidateActionData {
+            blockchain: chain_clone_for_validation,
+            company_id: company_id.clone(),
+            signer_node_id: verify_and_get_signer.signer,
+            op: block.op_code().clone(),
+            company_keys: company_keys.to_owned(),
+            invitee: verify_and_get_signer.invitee,
+            removee: verify_and_get_signer.removee,
+            identity_proof_data: verify_and_get_signer.identity_proof_data,
+        })
+        .validate()
+        {
+            error!(
+                "Received invalid block {block_id} for company {company_id}, company action validation failed: {e}"
+            );
+            return Err(Error::Blockchain(e.to_string()));
         }
 
         Ok(true)
@@ -422,9 +460,10 @@ impl CompanyChainEventProcessor {
         &self,
         chain: &mut CompanyBlockchain,
         blocks: &[CompanyBlock],
+        company_keys: &BcrKeys,
     ) -> Result<()> {
         for block in blocks {
-            self.validate_company_block_for_chain(chain, block)?;
+            self.validate_company_block_for_chain(chain, block, company_keys)?;
         }
         Ok(())
     }
@@ -438,7 +477,7 @@ impl CompanyChainEventProcessor {
         block: &CompanyBlock,
         identity_node_id: &NodeId,
     ) -> Result<()> {
-        if self.validate_company_block_for_chain(chain, block)? {
+        if self.validate_company_block_for_chain(chain, block, keys)? {
             let data = block
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
@@ -775,6 +814,7 @@ pub mod tests {
 
     use bcr_common::core::NodeId;
     use bcr_ebill_core::application::company::CompanySignatoryStatus;
+    use bcr_ebill_core::protocol::blockchain::Block;
     use bcr_ebill_core::protocol::blockchain::company::CompanyBlockPayload;
     use bcr_ebill_core::protocol::blockchain::company::block::{
         CompanyCreateBlockData, CompanySignatoryAcceptInviteBlockData,
@@ -802,7 +842,8 @@ pub mod tests {
     use mockall::predicate::{always, eq};
 
     use crate::handler::test_utils::{
-        MockNotificationStore, get_valid_activated_signatory, private_key_test,
+        MockNotificationStore, get_valid_activated_signatory, node_id_test_another,
+        private_key_test, private_key_test_another,
     };
     use crate::push_notification::MockPushApi;
     use crate::test_utils::{signed_identity_proof_test, test_ts};
@@ -1070,7 +1111,8 @@ pub mod tests {
             company.clone(),
             &keys,
         )];
-        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let mut chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        chain = add_creator_identity_proof_block(chain);
         let data = CompanyUpdateBlockData {
             name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
@@ -1078,7 +1120,7 @@ pub mod tests {
         let update_block = get_company_update_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1181,8 +1223,9 @@ pub mod tests {
             company.clone(),
             &keys,
         )];
-        let skipped_chain =
+        let mut skipped_chain =
             CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        skipped_chain = add_creator_identity_proof_block(skipped_chain);
         let data_skipped = CompanyUpdateBlockData {
             name: Some(Name::new("new_name").unwrap()),
             ..Default::default()
@@ -1191,13 +1234,13 @@ pub mod tests {
         let skipped_block = get_company_update_block(
             node_id.clone(),
             skipped_chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data_skipped,
         );
 
         let mut full_chain = skipped_chain.clone();
-        full_chain.try_add_block(skipped_block.clone());
+        assert!(full_chain.try_add_block(skipped_block.clone()));
 
         let data = CompanyUpdateBlockData {
             name: Some(Name::new("another_name").unwrap()),
@@ -1206,7 +1249,7 @@ pub mod tests {
         let update_block = get_company_update_block(
             node_id.clone(),
             full_chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1215,7 +1258,7 @@ pub mod tests {
             &bcr_keys,
             None,
             None,
-            as_event_payload(&node_id, skipped_chain.get_latest_block()),
+            as_event_payload(&node_id, skipped_chain.get_first_block()),
             &node_id,
         );
 
@@ -1223,7 +1266,7 @@ pub mod tests {
             &bcr_keys,
             Some(event1.clone()),
             Some(event1.clone()),
-            as_event_payload(&node_id, &skipped_block),
+            as_event_payload(&node_id, skipped_chain.get_latest_block()),
             &node_id,
         );
 
@@ -1231,11 +1274,24 @@ pub mod tests {
             &bcr_keys,
             Some(event2.clone()),
             Some(event1.clone()),
+            as_event_payload(&node_id, &skipped_block),
+            &node_id,
+        );
+
+        let event4 = generate_test_event(
+            &bcr_keys,
+            Some(event3.clone()),
+            Some(event1.clone()),
             as_event_payload(&node_id, &update_block),
             &node_id,
         );
 
-        let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
+        let nostr_chain = vec![
+            event1.clone(),
+            event2.clone(),
+            event3.clone(),
+            event4.clone(),
+        ];
 
         // we need to validate if we are a signatory with our identity
         identity
@@ -1378,14 +1434,15 @@ pub mod tests {
             transport,
             push_service,
         ) = create_mocks();
-        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let new_node_id = node_id_test_another();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
             company.clone(),
             &keys,
         )];
-        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let mut chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        chain = add_creator_identity_proof_block(chain);
         let data = CompanyInviteSignatoryBlockData {
             invitee: new_node_id.clone(),
             inviter: node_id_test(),
@@ -1394,7 +1451,7 @@ pub mod tests {
         let update_block = get_company_invite_signatory_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::new(),
+            &BcrKeys::from_private_key(&private_key_test()),
             &keys,
             &data,
         );
@@ -1500,7 +1557,7 @@ pub mod tests {
             transport,
             push_service,
         ) = create_mocks();
-        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
         company
             .signatories
@@ -1511,14 +1568,15 @@ pub mod tests {
             company.clone(),
             &keys,
         )];
-        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let mut chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        chain = add_invite_signatory_block(chain);
         let data = CompanySignatoryAcceptInviteBlockData {
             accepter: new_node_id.clone(),
         };
         let update_block = get_company_accept_invite_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::from_private_key(&private_key_test()),
+            &BcrKeys::from_private_key(&private_key_test_another()),
             &keys,
             &data,
         );
@@ -1618,7 +1676,7 @@ pub mod tests {
             transport,
             push_service,
         ) = create_mocks();
-        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
         company
             .signatories
@@ -1629,14 +1687,15 @@ pub mod tests {
             company.clone(),
             &keys,
         )];
-        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let mut chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        chain = add_invite_signatory_block(chain);
         let data = CompanySignatoryRejectInviteBlockData {
             rejecter: new_node_id.clone(),
         };
         let update_block = get_company_reject_invite_block(
             node_id.clone(),
             chain.get_latest_block(),
-            &BcrKeys::from_private_key(&private_key_test()),
+            &BcrKeys::from_private_key(&private_key_test_another()),
             &keys,
             &data,
         );
@@ -1736,7 +1795,7 @@ pub mod tests {
             transport,
             push_service,
         ) = create_mocks();
-        let new_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
         company
             .signatories
@@ -1747,12 +1806,14 @@ pub mod tests {
             company.clone(),
             &keys,
         )];
-        let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        let mut chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
+        chain = add_creator_identity_proof_block(chain);
+        chain = add_invite_signatory_block(chain);
         let data = CompanyRemoveSignatoryBlockData {
             remover: node_id_test(),
             removee: new_node_id.clone(),
         };
-        let update_block = get_company_remove_signatory_block(
+        let remove_block = get_company_remove_signatory_block(
             node_id.clone(),
             chain.get_latest_block(),
             &BcrKeys::from_private_key(&private_key_test()),
@@ -1838,7 +1899,7 @@ pub mod tests {
         );
 
         handler
-            .process_chain_data(&node_id, vec![update_block], None)
+            .process_chain_data(&node_id, vec![remove_block], None)
             .await
             .expect("Process chain data should be handled");
     }
@@ -1862,10 +1923,11 @@ pub mod tests {
             &keys,
         )];
         let chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
-        let test_signed_identity = signed_identity_proof_test();
+        let (proof, mut d) = signed_identity_proof_test();
+        d.company_node_id = Some(node_id.clone());
         let data = CompanyIdentityProofBlockData {
-            proof: test_signed_identity.0,
-            data: test_signed_identity.1,
+            proof,
+            data: d,
             reference_block: None,
         };
         let update_block = get_company_identity_proof_block(
@@ -1985,9 +2047,50 @@ pub mod tests {
             },
             &BcrKeys::from_private_key(&private_key_test()),
             keys,
-            test_ts(),
+            test_ts() - 10,
         )
         .expect("could not create block")
+    }
+
+    fn add_creator_identity_proof_block(mut chain: CompanyBlockchain) -> CompanyBlockchain {
+        let (proof, mut data) = signed_identity_proof_test();
+        data.company_node_id = Some(node_id_test());
+        let identity_proof_block = CompanyBlock::create_block_for_identity_proof(
+            node_id_test(),
+            chain.get_latest_block(),
+            &CompanyIdentityProofBlockData {
+                proof,
+                data,
+                reference_block: Some(chain.get_latest_block().id()),
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            &BcrKeys::from_private_key(&private_key_test()),
+            test_ts() - 9,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(identity_proof_block));
+        assert!(chain.is_chain_valid());
+        chain
+    }
+
+    fn add_invite_signatory_block(mut chain: CompanyBlockchain) -> CompanyBlockchain {
+        let block = CompanyBlock::create_block_for_invite_signatory(
+            node_id_test(),
+            chain.get_latest_block(),
+            &CompanyInviteSignatoryBlockData {
+                invitee: node_id_test_another(),
+                inviter: node_id_test(),
+                t: SignatoryType::Solo,
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            &BcrKeys::from_private_key(&private_key_test()),
+            &node_id_test().pub_key(),
+            test_ts() - 8,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(block));
+        assert!(chain.is_chain_valid());
+        chain
     }
 
     pub fn get_company_update_block(

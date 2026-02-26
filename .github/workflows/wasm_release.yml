@@ -119,5 +119,5 @@ jobs:
       - name: Publish to npm
         run: |
           cd crates/bcr-ebill-wasm/pkg
-          npm publish --access public --provenance
+          npm publish --access public --provenance --tag latest
 

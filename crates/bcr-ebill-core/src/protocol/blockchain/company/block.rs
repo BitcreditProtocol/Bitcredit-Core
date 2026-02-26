@@ -19,7 +19,7 @@ use bcr_common::core::NodeId;
 use bitcoin::base58;
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
-use log::error;
+use log::{error, warn};
 use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 
@@ -149,6 +149,14 @@ pub struct CompanyIdentityProofBlockData {
     pub data: EmailIdentityProofData,
     pub reference_block: Option<BlockId>, // the block this identity proof refers to, e.g. an accept, or create block
                                           // optional because for changing email, there's no reference block
+}
+
+#[derive(Debug)]
+pub struct VerifyAndGetSignerData {
+    pub signer: NodeId,
+    pub invitee: Option<NodeId>,
+    pub removee: Option<NodeId>,
+    pub identity_proof_data: Option<(SignedIdentityProof, EmailIdentityProofData, Option<BlockId>)>,
 }
 
 #[derive(Debug)]
@@ -566,5 +574,92 @@ impl CompanyBlock {
             return Err(super::super::Error::BlockInvalid);
         }
         Ok(new_block)
+    }
+
+    pub fn verify_and_get_signer(&self, company_keys: &BcrKeys) -> Result<VerifyAndGetSignerData> {
+        let company_id = self.company_id.clone();
+
+        let (signer, invitee, removee, identity_proof_data) = match self
+            .get_block_data(company_keys)?
+        {
+            CompanyBlockPayload::Create(data) => (data.creator, None, None, None),
+            CompanyBlockPayload::Update(_) => (self.signatory_node_id.clone(), None, None, None),
+            CompanyBlockPayload::SignBill(_) => (self.signatory_node_id.clone(), None, None, None),
+            CompanyBlockPayload::InviteSignatory(data) => {
+                (data.inviter, Some(data.invitee), None, None)
+            }
+            CompanyBlockPayload::SignatoryAcceptInvite(data) => (data.accepter, None, None, None),
+            CompanyBlockPayload::SignatoryRejectInvite(data) => (data.rejecter, None, None, None),
+            CompanyBlockPayload::RemoveSignatory(data) => {
+                (data.remover, None, Some(data.removee), None)
+            }
+            CompanyBlockPayload::IdentityProof(data) => (
+                data.data.node_id.clone(),
+                None,
+                None,
+                Some((data.proof, data.data, data.reference_block)),
+            ),
+        };
+
+        if !self.verify_signer(&signer, company_keys)? {
+            return Err(super::super::Error::BlockSignatureDoesNotMatchSigner);
+        }
+
+        // If the identity proof doesn't match with the signer, or isn't valid, we show a warning
+        if let Some(ref ip) = identity_proof_data {
+            let (proof, data) = (&ip.0, &ip.1);
+            if data.node_id != signer || data.company_node_id != Some(company_id.clone()) {
+                warn!(
+                    "Identity Proof Verification failed for company {}, block {} and signer {}, signatory {} - signatory and signer don't match with identity proof",
+                    self.company_id,
+                    self.id(),
+                    company_id,
+                    signer
+                );
+            }
+
+            if !proof.verify(data).unwrap_or(false) {
+                warn!(
+                    "Identity Proof Verification failed for company {}, block {} and signer {}, signatory {}",
+                    self.company_id,
+                    self.id(),
+                    company_id,
+                    signer
+                );
+            }
+        }
+
+        Ok(VerifyAndGetSignerData {
+            signer,
+            invitee,
+            removee,
+            identity_proof_data,
+        })
+    }
+
+    fn verify_signer(&self, signatory: &NodeId, company_keys: &BcrKeys) -> Result<bool> {
+        let keys: Vec<PublicKey> = vec![
+            // add company signatory first, since it's the identity key
+            signatory.pub_key(),
+            // then, add the company key
+            company_keys.pub_key(),
+        ];
+        let aggregated_public_key = match SchnorrSignature::combine_pub_keys(&keys) {
+            Ok(res) => res,
+            Err(e) => {
+                error!(
+                    "Error while aggregating keys for block id {}: {e}",
+                    self.id()
+                );
+                return Ok(false);
+            }
+        };
+        match self.signature().verify(self.hash(), &aggregated_public_key) {
+            Err(e) => {
+                error!("Error while verifying block id {}: {e}", self.id());
+                Ok(false)
+            }
+            Ok(res) => Ok(res),
+        }
     }
 }
