@@ -2,8 +2,9 @@ use super::*;
 use crate::{
     external::{self, court::MockCourtClientApi, file_storage::MockFileStorageClientApi},
     service::{
-        company_service::tests::get_valid_company_block,
-        contact_service::tests::get_baseline_contact, transport_service::MockTransportServiceApi,
+        company_service::tests::{get_valid_company_chain, get_valid_identity_chain},
+        contact_service::tests::get_baseline_contact,
+        transport_service::MockTransportServiceApi,
     },
     tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
@@ -30,18 +31,14 @@ use bcr_ebill_core::{
     protocol::Sum,
     protocol::Timestamp,
     protocol::blockchain::bill::participant::{BillIdentParticipant, BillParticipant},
-    protocol::blockchain::{
-        Blockchain,
-        bill::{
-            BillBlock,
-            block::{
-                BillAcceptBlockData, BillIssueBlockData, BillOfferToSellBlockData,
-                BillParticipantBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
-                BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
-                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
-            },
+    protocol::blockchain::bill::{
+        BillBlock,
+        block::{
+            BillAcceptBlockData, BillIssueBlockData, BillOfferToSellBlockData,
+            BillParticipantBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
+            BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
+            BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
         },
-        identity::IdentityBlockchain,
     },
     protocol::constants::{
         ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
@@ -235,25 +232,17 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_map()
         .returning(|| Ok(HashMap::new()));
     ctx.identity_chain_store
-        .expect_get_latest_block()
-        .returning(|| {
-            let identity = empty_identity();
-            Ok(
-                IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), test_ts())
-                    .unwrap()
-                    .get_latest_block()
-                    .clone(),
-            )
-        });
-    ctx.company_chain_store
-        .expect_get_latest_block()
-        .returning(|_| Ok(get_valid_company_block()));
-    ctx.identity_chain_store
         .expect_add_block()
         .returning(|_| Ok(()));
     ctx.company_chain_store
         .expect_add_block()
         .returning(|_, _| Ok(()));
+    ctx.company_chain_store
+        .expect_get_chain()
+        .returning(|_| Ok(get_valid_company_chain()));
+    ctx.identity_chain_store
+        .expect_get_chain()
+        .returning(|| Ok(get_valid_identity_chain()));
     ctx.bill_blockchain_store
         .expect_add_block()
         .returning(|_, _| Ok(()));
