@@ -147,49 +147,21 @@ async fn ensure_transport_contact_data_published(ctx: &Context, default_mint_nod
         return;
     }
 
-    if let Ok(full_identity) = ctx.identity_service.get_full_identity().await {
-        match ctx
-            .transport_service
-            .contact_transport()
-            .resolve_contact(&full_identity.identity.node_id)
+    if let Ok(full_identity) = ctx.identity_service.get_full_identity().await
+        && let Err(e) = ctx
+            .identity_service
+            .publish_contact(&full_identity.identity, &full_identity.key_pair)
             .await
-        {
-            Ok(None) => {
-                if let Err(e) = ctx
-                    .identity_service
-                    .publish_contact(&full_identity.identity, &full_identity.key_pair)
-                    .await
-                {
-                    warn!("Could not publish identity details to Nostr: {e}")
-                }
-            }
-            Ok(Some(_)) => (),
-            Err(e) => {
-                warn!("Could not resolve personal identity details on Nostr: {e}")
-            }
-        }
+    {
+        warn!("Could not publish identity details to Nostr: {e}")
     }
 
     if let Ok(companies) = ctx.company_service.get_list_of_companies().await {
         for c in companies.iter() {
             if let Ok((company, keys)) = ctx.company_service.get_company_and_keys_by_id(&c.id).await
+                && let Err(e) = ctx.company_service.publish_contact(&company, &keys).await
             {
-                match ctx
-                    .transport_service
-                    .contact_transport()
-                    .resolve_contact(&company.id)
-                    .await
-                {
-                    Ok(None) => {
-                        if let Err(e) = ctx.company_service.publish_contact(&company, &keys).await {
-                            warn!("Could not publish company details to Nostr: {e}")
-                        }
-                    }
-                    Ok(Some(_)) => (),
-                    Err(e) => {
-                        warn!("Could not resolve company details on Nostr: {e}")
-                    }
-                }
+                warn!("Could not publish company details to Nostr: {e}")
             }
         }
     }

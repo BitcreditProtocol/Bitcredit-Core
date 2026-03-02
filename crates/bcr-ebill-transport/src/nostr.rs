@@ -32,7 +32,7 @@ use std::{
 };
 
 use bcr_ebill_api::{
-    constants::{NOSTR_EVENT_TIME_SLACK, NOSTR_MAX_RELAYS},
+    constants::NOSTR_MAX_RELAYS,
     service::{
         contact_service::ContactServiceApi,
         transport_service::{
@@ -1077,15 +1077,10 @@ pub async fn should_process(
 
 fn valid_time(kind: Kind, created: nostr::Timestamp, since: Option<Timestamp>) -> bool {
     match since {
-        Some(ts) => {
-            let time = if matches!(kind, Kind::EncryptedDirectMessage | Kind::GiftWrap) {
-                add_time_slack(ts)
-            } else {
-                ts
-            };
+        Some(time) if !matches!(kind, Kind::EncryptedDirectMessage | Kind::GiftWrap) => {
             created.as_u64() >= time.inner()
         }
-        None => true,
+        _ => true,
     }
 }
 
@@ -1161,14 +1156,6 @@ async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) ->
         .map_err(|e| error!("Could not get event offset: {e}"))
         .ok()
         .unwrap_or(Timestamp::zero())
-}
-
-fn add_time_slack(ts: Timestamp) -> Timestamp {
-    if ts.inner() <= NOSTR_EVENT_TIME_SLACK {
-        ts
-    } else {
-        ts - NOSTR_EVENT_TIME_SLACK
-    }
 }
 
 pub async fn add_offset(

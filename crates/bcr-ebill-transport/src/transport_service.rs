@@ -483,6 +483,7 @@ mod tests {
         get_nostr_transport, signed_identity_proof_test,
     };
     use bcr_ebill_core::application::contact::Contact;
+    use bcr_ebill_core::application::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel};
     use bcr_ebill_core::protocol::Timestamp;
     use bcr_ebill_core::protocol::blockchain::Blockchain;
     use bcr_ebill_core::protocol::blockchain::bill::block::{
@@ -2435,6 +2436,155 @@ mod tests {
                 mock_queue
                     .expect_succeed_retry()
                     .with(eq(public_message_id))
+                    .returning(|_| Ok(()))
+                    .once();
+            },
+        );
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_private_message_uses_nostr_contact_without_trust() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(
+            |mock_transport,
+             mock_contact_store,
+             mock_nostr_contact_store,
+             mock_queue,
+             _,
+             _,
+             _,
+             _| {
+                let recipient = node_id_test_other();
+                let message_id = "private_msg_id";
+                let sender = node_id_test();
+                let payload = base58::encode(
+                    &borsh::to_vec(&EventEnvelope {
+                        version: "1.0".to_string(),
+                        event_type: EventType::Bill,
+                        data: vec![],
+                    })
+                    .unwrap(),
+                );
+
+                let queued_message = NostrQueuedMessage {
+                    id: message_id.to_string(),
+                    sender_id: sender.to_owned(),
+                    recipient: Some(recipient.to_owned()),
+                    payload,
+                };
+
+                let nostr_contact = NostrContact {
+                    npub: recipient.npub(),
+                    node_id: recipient.to_owned(),
+                    name: None,
+                    relays: vec![url::Url::parse("wss://relay.example.com").unwrap()],
+                    trust_level: TrustLevel::None,
+                    handshake_status: HandshakeStatus::None,
+                    contact_private_key: None,
+                    mint_url: None,
+                };
+
+                mock_contact_store
+                    .expect_get()
+                    .with(eq(recipient.to_owned()))
+                    .returning(|_| Ok(None))
+                    .once();
+
+                mock_nostr_contact_store
+                    .expect_by_node_id()
+                    .with(eq(recipient.to_owned()))
+                    .returning(move |_| Ok(Some(nostr_contact.clone())))
+                    .once();
+
+                mock_transport
+                    .expect_send_private_event()
+                    .returning(|_, _, _| Ok(()))
+                    .once();
+
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(move |_| Ok(vec![queued_message.clone()]))
+                    .once();
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(|_| Ok(vec![]))
+                    .once();
+
+                mock_queue
+                    .expect_succeed_retry()
+                    .with(eq(message_id))
+                    .returning(|_| Ok(()))
+                    .once();
+            },
+        );
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_retry_private_message_with_legacy_payload_format() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(
+            |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
+                let recipient = node_id_test_other();
+                let message_id = "private_legacy_msg_id";
+                let sender = node_id_test();
+
+                let legacy_event = Event::new_bill(BillChainEventPayload {
+                    event_type: BillEventType::BillMintingRequested,
+                    bill_id: bill_id_test(),
+                    action_type: Some(ActionType::CheckBill),
+                    sum: Some(Sum::new_sat(1).unwrap()),
+                });
+
+                let payload = base58::encode(&borsh::to_vec(&legacy_event).unwrap());
+
+                let queued_message = NostrQueuedMessage {
+                    id: message_id.to_string(),
+                    sender_id: sender.to_owned(),
+                    recipient: Some(recipient.to_owned()),
+                    payload,
+                };
+
+                let identity = get_identity_public_data(
+                    &recipient,
+                    &Email::new("test@example.com").unwrap(),
+                    vec![],
+                );
+
+                mock_contact_store
+                    .expect_get()
+                    .with(eq(recipient.to_owned()))
+                    .returning(move |_| Ok(Some(as_contact(&identity))))
+                    .once();
+
+                mock_transport
+                    .expect_send_private_event()
+                    .returning(|_, _, _| Ok(()))
+                    .once();
+
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(move |_| Ok(vec![queued_message.clone()]))
+                    .once();
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(|_| Ok(vec![]))
+                    .once();
+
+                mock_queue
+                    .expect_succeed_retry()
+                    .with(eq(message_id))
                     .returning(|_| Ok(()))
                     .once();
             },

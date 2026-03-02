@@ -30,6 +30,13 @@ use log::{debug, error, warn};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::protocol::PostalAddress;
 
+#[derive(borsh::BorshDeserialize)]
+struct LegacyBillEventMessage {
+    event_type: bcr_ebill_core::protocol::event::EventType,
+    version: String,
+    data: BillChainEventPayload,
+}
+
 /// Transport implementation for Nostr
 pub struct NostrTransportService {
     nostr_client: Arc<dyn TransportClientApi>,
@@ -147,18 +154,16 @@ impl NostrTransportService {
         let node = self.get_node_transport(sender);
         for (node_id, event_to_process) in events.iter() {
             if let Some(identity) = self.resolve_identity(node_id).await {
+                let message: EventEnvelope = event_to_process.clone().try_into()?;
                 if let Err(e) = node
-                    .send_private_event(sender, &identity, event_to_process.clone().try_into()?)
+                    .send_private_event(sender, &identity, message.clone())
                     .await
                 {
                     error!("Failed to send block notification, will add it to retry queue: {e}");
                     self.queue_retry_message(
                         sender,
                         Some(node_id),
-                        base58::encode(
-                            &borsh::to_vec(event_to_process)
-                                .map_err(|e| Error::Message(e.to_string()))?,
-                        ),
+                        base58::encode(&borsh::to_vec(&message)?),
                     )
                     .await?;
                 }
@@ -287,7 +292,29 @@ impl NostrTransportService {
                             continue;
                         }
                     };
-                    match borsh::from_slice::<EventEnvelope>(&decoded) {
+                    let message = match borsh::from_slice::<EventEnvelope>(&decoded) {
+                        Ok(message) => Ok(message),
+                        Err(envelope_err) => {
+                            match borsh::from_slice::<LegacyBillEventMessage>(&decoded) {
+                                Ok(legacy_event) => match borsh::to_vec(&legacy_event.data) {
+                                    Ok(data) => Ok(EventEnvelope {
+                                        event_type: legacy_event.event_type,
+                                        version: legacy_event.version,
+                                        data,
+                                    }),
+                                    Err(e) => Err(Error::Message(e.to_string())),
+                                },
+                                Err(legacy_err) => {
+                                    error!(
+                                        "Failed to deserialize private retry payload as envelope ({envelope_err}) or legacy event ({legacy_err})"
+                                    );
+                                    Err(Error::Message(envelope_err.to_string()))
+                                }
+                            }
+                        }
+                    };
+
+                    match message {
                         Ok(message) => {
                             self.send_retry_private_message(
                                 &queued_message.sender_id,
@@ -296,10 +323,7 @@ impl NostrTransportService {
                             )
                             .await
                         }
-                        Err(e) => {
-                            error!("Failed to deserialize private retry payload: {e}");
-                            Err(Error::Message(e.to_string()))
-                        }
+                        Err(e) => Err(e),
                     }
                 }
                 None => {
@@ -349,7 +373,7 @@ impl NostrTransportService {
         message: EventEnvelope,
     ) -> Result<()> {
         let node = self.get_node_transport(sender);
-        if let Some(identity) = self.resolve_identity(node_id).await {
+        if let Some(identity) = self.resolve_retry_identity(node_id).await {
             node.send_private_event(sender, &identity, message).await?;
         } else {
             warn!("Failed to resolve recipient for retry message, node_id: {node_id}");
@@ -358,6 +382,37 @@ impl NostrTransportService {
             )));
         }
         Ok(())
+    }
+
+    async fn resolve_retry_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
+        if let Some(identity) = self.get_local_identity(node_id) {
+            return Some(identity);
+        }
+
+        if let Some(identity) = self.resolve_node_contact(node_id).await {
+            return Some(identity);
+        }
+
+        if let Ok(Some(nostr)) = self.nostr_contact_store.by_node_id(node_id).await {
+            let relays = if nostr.relays.is_empty() {
+                self.nostr_relays.clone()
+            } else {
+                nostr.relays
+            };
+            return Some(BillParticipant::Anon(BillAnonParticipant {
+                node_id: node_id.to_owned(),
+                nostr_relays: relays,
+            }));
+        }
+
+        if self.nostr_relays.is_empty() {
+            None
+        } else {
+            Some(BillParticipant::Anon(BillAnonParticipant {
+                node_id: node_id.to_owned(),
+                nostr_relays: self.nostr_relays.clone(),
+            }))
+        }
     }
 
     pub(crate) async fn connect(&self) {
