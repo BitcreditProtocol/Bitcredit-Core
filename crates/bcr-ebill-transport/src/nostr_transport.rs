@@ -373,7 +373,7 @@ impl NostrTransportService {
         message: EventEnvelope,
     ) -> Result<()> {
         let node = self.get_node_transport(sender);
-        if let Some(identity) = self.resolve_retry_identity(node_id).await {
+        if let Some(identity) = self.resolve_identity(node_id).await {
             node.send_private_event(sender, &identity, message).await?;
         } else {
             warn!("Failed to resolve recipient for retry message, node_id: {node_id}");
@@ -382,37 +382,6 @@ impl NostrTransportService {
             )));
         }
         Ok(())
-    }
-
-    async fn resolve_retry_identity(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        if let Some(identity) = self.get_local_identity(node_id) {
-            return Some(identity);
-        }
-
-        if let Some(identity) = self.resolve_node_contact(node_id).await {
-            return Some(identity);
-        }
-
-        if let Ok(Some(nostr)) = self.nostr_contact_store.by_node_id(node_id).await {
-            let relays = if nostr.relays.is_empty() {
-                self.nostr_relays.clone()
-            } else {
-                nostr.relays
-            };
-            return Some(BillParticipant::Anon(BillAnonParticipant {
-                node_id: node_id.to_owned(),
-                nostr_relays: relays,
-            }));
-        }
-
-        if self.nostr_relays.is_empty() {
-            None
-        } else {
-            Some(BillParticipant::Anon(BillAnonParticipant {
-                node_id: node_id.to_owned(),
-                nostr_relays: self.nostr_relays.clone(),
-            }))
-        }
     }
 
     pub(crate) async fn connect(&self) {
