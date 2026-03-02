@@ -646,6 +646,18 @@ pub mod tests {
             .unwrap()
     }
 
+    pub fn node_id_test_another() -> NodeId {
+        NodeId::from_str("bitcrt023827c9c6d3ff8de504c714997a2ad36efd761d09a8af5d5480f71199fcbb6098")
+            .unwrap()
+    }
+
+    pub fn private_key_test_another() -> secp256k1::SecretKey {
+        secp256k1::SecretKey::from_str(
+            "f50032a6a67bc86f9542e74b7becc31847ff94d74e7760dcb797435d45463345",
+        )
+        .unwrap()
+    }
+
     pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
         let data = EmailIdentityProofData {
             node_id: node_id_test(),

@@ -16,9 +16,13 @@ use bcr_ebill_core::{
                 },
                 participant::BillParticipant,
             },
-            company::{CompanyBlock, block::CompanySignCompanyBillBlockData},
+            company::{
+                CompanyBlock, CompanyBlockchain, CompanyOpCode, CompanyValidateActionData,
+                block::CompanySignCompanyBillBlockData,
+            },
             identity::{
-                IdentityBlock, IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
+                IdentityBlock, IdentityBlockchain, IdentitySignCompanyBillBlockData,
+                IdentitySignPersonBillBlockData,
             },
         },
         crypto::BcrKeys,
@@ -539,6 +543,37 @@ impl BillService {
         }
     }
 
+    async fn validate_and_add_identity_block(
+        &self,
+        chain: &mut IdentityBlockchain,
+        new_block: IdentityBlock,
+    ) -> Result<()> {
+        let try_add_block = chain.try_add_block(new_block.clone());
+        if try_add_block && chain.is_chain_valid() {
+            self.identity_blockchain_store.add_block(&new_block).await?;
+            Ok(())
+        } else {
+            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+        }
+    }
+
+    async fn validate_and_add_company_block(
+        &self,
+        company_id: &NodeId,
+        chain: &mut CompanyBlockchain,
+        new_block: CompanyBlock,
+    ) -> Result<()> {
+        let try_add_block = chain.try_add_block(new_block.clone());
+        if try_add_block && chain.is_chain_valid() {
+            self.company_blockchain_store
+                .add_block(company_id, &new_block)
+                .await?;
+            Ok(())
+        } else {
+            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+        }
+    }
+
     pub(super) async fn add_identity_and_company_chain_blocks_for_signed_bill_action(
         &self,
         signer_public_data: &BillParticipant,
@@ -600,9 +635,10 @@ impl BillService {
         timestamp: Timestamp,
         bill_keys: Option<BcrKeys>,
     ) -> Result<()> {
-        let previous_block = self.identity_blockchain_store.get_latest_block().await?;
+        let mut chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_block = chain.get_latest_block();
         let new_block = IdentityBlock::create_block_for_sign_person_bill(
-            &previous_block,
+            previous_block,
             &IdentitySignPersonBillBlockData {
                 bill_id: bill_id.to_owned(),
                 block_id: block.id,
@@ -614,7 +650,8 @@ impl BillService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.identity_blockchain_store.add_block(&new_block).await?;
+        self.validate_and_add_identity_block(&mut chain, new_block.clone())
+            .await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
@@ -634,9 +671,10 @@ impl BillService {
         identity: &IdentityWithAll,
         timestamp: Timestamp,
     ) -> Result<()> {
-        let previous_block = self.identity_blockchain_store.get_latest_block().await?;
+        let mut chain = self.identity_blockchain_store.get_chain().await?;
+        let previous_block = chain.get_latest_block();
         let new_block = IdentityBlock::create_block_for_sign_company_bill(
-            &previous_block,
+            previous_block,
             &IdentitySignCompanyBillBlockData {
                 bill_id: bill_id.to_owned(),
                 block_id: block.id,
@@ -648,7 +686,8 @@ impl BillService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.identity_blockchain_store.add_block(&new_block).await?;
+        self.validate_and_add_identity_block(&mut chain, new_block.clone())
+            .await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
@@ -670,13 +709,22 @@ impl BillService {
         timestamp: Timestamp,
         bill_keys: Option<BcrKeys>,
     ) -> Result<()> {
-        let previous_block = self
-            .company_blockchain_store
-            .get_latest_block(company_id)
-            .await?;
+        let mut chain = self.company_blockchain_store.get_chain(company_id).await?;
+        CompanyValidateActionData {
+            blockchain: chain.clone(),
+            company_id: company_id.to_owned(),
+            signer_node_id: signatory_identity.identity.node_id.clone(),
+            op: CompanyOpCode::SignCompanyBill,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: None,
+        }
+        .validate()?;
+        let previous_block = chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_sign_company_bill(
             company_id.to_owned(),
-            &previous_block,
+            previous_block,
             &CompanySignCompanyBillBlockData {
                 bill_id: bill_id.to_owned(),
                 block_id: block.id,
@@ -689,11 +737,8 @@ impl BillService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.company_blockchain_store
-            .add_block(company_id, &new_block)
+        self.validate_and_add_company_block(company_id, &mut chain, new_block.clone())
             .await?;
-
-        let chain = self.company_blockchain_store.get_chain(company_id).await?;
         let company = self.company_store.get(company_id).await?;
         self.transport_service
             .block_transport()

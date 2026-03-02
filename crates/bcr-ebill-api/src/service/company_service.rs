@@ -14,7 +14,6 @@ use bcr_ebill_core::application::company::{
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::application::identity::ActiveIdentityState;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
-use bcr_ebill_core::protocol::Identification;
 use bcr_ebill_core::protocol::Name;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
@@ -28,6 +27,7 @@ use bcr_ebill_core::protocol::blockchain::company::{
     },
     chain::CompanyBlockPlaintextWrapper,
 };
+use bcr_ebill_core::protocol::blockchain::company::{CompanyOpCode, CompanyValidateActionData};
 use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityAcceptSignatoryInviteBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
     IdentityInviteSignatoryBlockData, IdentityRejectSignatoryInviteBlockData,
@@ -41,6 +41,7 @@ use bcr_ebill_core::protocol::{City, ProtocolValidationError};
 use bcr_ebill_core::protocol::{Country, blockchain};
 use bcr_ebill_core::protocol::{Date, EmailIdentityProofData, SignedIdentityProof};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, PostalAddress};
+use bcr_ebill_core::protocol::{Identification, Validate};
 use bcr_ebill_core::protocol::{
     PublicKey, SecretKey,
     event::{CompanyChainEvent, IdentityChainEvent},
@@ -469,6 +470,10 @@ impl CompanyServiceApi for CompanyService {
             return Err(crate::service::Error::NotFound);
         }
         let identity = self.identity_store.get().await?;
+        // don't return signatories for anon
+        if identity.t == IdentityType::Anon {
+            return Err(crate::service::Error::NotFound);
+        }
         let company = self.store.get(id).await?;
         let contacts = self.contact_store.get_map().await?;
 
@@ -543,6 +548,12 @@ impl CompanyServiceApi for CompanyService {
     async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, BcrKeys)> {
         validate_node_id_network(id)?;
         if !self.store.exists(id).await {
+            return Err(crate::service::Error::NotFound);
+        }
+
+        // don't return company for anon user
+        let full_identity = self.identity_store.get_full().await?;
+        if full_identity.identity.t == IdentityType::Anon {
             return Err(crate::service::Error::NotFound);
         }
         let company = self.store.get(id).await?;
@@ -714,6 +725,17 @@ impl CompanyServiceApi for CompanyService {
             .await?;
 
         let reference_block = create_company_block.id();
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: full_identity.identity.node_id.clone(),
+            op: CompanyOpCode::IdentityProof,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: Some((proof.clone(), data.clone(), Some(reference_block))),
+        }
+        .validate()?;
         // Create and populate company proof block
         self.create_identity_proof_block(
             proof,
@@ -779,11 +801,18 @@ impl CompanyServiceApi for CompanyService {
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
 
-        if !company.is_authorized_signer(&node_id) {
-            return Err(super::Error::Validation(
-                ProtocolValidationError::CallerMustBeSignatory.into(),
-            ));
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: node_id.clone(),
+            op: CompanyOpCode::Update,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: None,
         }
+        .validate()?;
 
         let mut changed = false;
 
@@ -903,7 +932,6 @@ impl CompanyServiceApi for CompanyService {
 
         self.store.update(id, &company).await?;
 
-        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_update(
             id.to_owned(),
@@ -971,11 +999,19 @@ impl CompanyServiceApi for CompanyService {
         }
 
         let mut company = self.store.get(id).await?;
-        if !company.is_authorized_signer(&full_identity.identity.node_id) {
-            return Err(super::Error::Validation(
-                ProtocolValidationError::CallerMustBeSignatory.into(),
-            ));
+        let company_keys = self.store.get_key_pair(id).await?;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: full_identity.identity.node_id.clone(),
+            op: CompanyOpCode::InviteSignatory,
+            company_keys: company_keys.clone(),
+            invitee: Some(signatory_node_id.clone()),
+            removee: None,
+            identity_proof_data: None,
         }
+        .validate()?;
 
         let contacts = self.contact_store.get_map().await?;
         let is_in_contacts = contacts.iter().any(|(node_id, contact)| {
@@ -987,21 +1023,6 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
 
-        let company_keys = self.store.get_key_pair(id).await?;
-        // Can only be invited, if the signatory isnt already invited, or a signatory
-        if company.signatories.iter().any(|s| {
-            s.node_id == signatory_node_id
-                && !matches!(
-                    s.status,
-                    CompanySignatoryStatus::InviteRejected { .. }
-                        | CompanySignatoryStatus::Removed { .. }
-                )
-        }) {
-            return Err(super::Error::Validation(
-                ProtocolValidationError::SignatoryAlreadySignatory(signatory_node_id.to_string())
-                    .into(),
-            ));
-        }
         // If the signatory already exists - set to invited
         if let Some(signatory) = company
             .signatories
@@ -1026,7 +1047,6 @@ impl CompanyServiceApi for CompanyService {
 
         self.store.update(id, &company).await?;
 
-        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_invite_signatory(
             id.to_owned(),
@@ -1110,12 +1130,19 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
         let mut company = self.store.get(id).await?;
-        if !company.is_authorized_signer(&full_identity.identity.node_id) {
-            return Err(super::Error::Validation(
-                ProtocolValidationError::CallerMustBeSignatory.into(),
-            ));
-        }
         let company_keys = self.store.get_key_pair(id).await?;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: full_identity.identity.node_id.clone(),
+            op: CompanyOpCode::RemoveSignatory,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: Some(signatory_node_id.clone()),
+            identity_proof_data: None,
+        }
+        .validate()?;
 
         let signatory_idx = company
             .signatories
@@ -1126,30 +1153,6 @@ impl CompanyServiceApi for CompanyService {
                     ProtocolValidationError::NotASignatory(signatory_node_id.to_string()).into(),
                 )
             })?;
-
-        let is_proven_signatory = matches!(
-            company.signatories[signatory_idx].status,
-            CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
-        );
-
-        if is_proven_signatory {
-            let proven_count = company
-                .signatories
-                .iter()
-                .filter(|s| {
-                    matches!(
-                        s.status,
-                        CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
-                    )
-                })
-                .count();
-
-            if proven_count == 1 {
-                return Err(super::Error::Validation(
-                    ProtocolValidationError::CantRemoveLastSignatory.into(),
-                ));
-            }
-        }
 
         company.signatories[signatory_idx].status = CompanySignatoryStatus::Removed {
             ts: timestamp,
@@ -1163,7 +1166,6 @@ impl CompanyServiceApi for CompanyService {
 
         self.store.update(id, &company).await?;
 
-        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_remove_signatory(
             id.to_owned(),
@@ -1250,6 +1252,11 @@ impl CompanyServiceApi for CompanyService {
         file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
+        let full_identity = self.identity_store.get_full().await?;
+        // if we're anon - we don't return files for companies
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::NotFound);
+        }
         debug!("getting file {file_name} for company with id: {id}",);
         validate_node_id_network(id)?;
         let nostr_relays = get_config().nostr_config.relays.clone();
@@ -1383,6 +1390,17 @@ impl CompanyServiceApi for CompanyService {
         // update signatories list in the DB
         self.store.update(id, &company).await?;
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: identity.identity.node_id.clone(),
+            op: CompanyOpCode::IdentityProof,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: Some((proof.clone(), data.clone(), None)),
+        }
+        .validate()?;
         // Create and populate company proof block
         self.create_identity_proof_block(
             proof,
@@ -1468,6 +1486,12 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_active_company_invites(&self) -> Result<Vec<Company>> {
+        let full_identity = self.identity_store.get_full().await?;
+        // if we're anon - we don't return active invites
+        if full_identity.identity.t == IdentityType::Anon {
+            return Ok(vec![]);
+        }
+
         let invites = self.store.get_active_company_invites().await?;
         let companies: Vec<Company> = invites
             .into_iter()
@@ -1488,9 +1512,27 @@ impl CompanyServiceApi for CompanyService {
             return Err(super::Error::NotFound);
         }
         let full_identity = self.identity_store.get_full().await?;
+        // Can only accept if we're not anon
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ProtocolValidationError::IdentityCantBeAnon.into(),
+            ));
+        }
         let our_node_id = full_identity.identity.node_id;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: our_node_id.clone(),
+            op: CompanyOpCode::SignatoryAcceptInvite,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: None,
+        }
+        .validate()?;
 
         // check if we were invited
         let Some(signatory) = company
@@ -1502,12 +1544,6 @@ impl CompanyServiceApi for CompanyService {
                 ProtocolValidationError::NotInvitedAsSignatory.into(),
             ));
         };
-
-        if !matches!(signatory.status, CompanySignatoryStatus::Invited { .. }) {
-            return Err(Error::Validation(
-                ProtocolValidationError::NotInvitedAsSignatory.into(),
-            ));
-        }
 
         // check if email is confirmed
         let (proof, data) = self.check_confirmed_email(&our_node_id, id, email).await?;
@@ -1522,7 +1558,6 @@ impl CompanyServiceApi for CompanyService {
         self.store.update(id, &company).await?;
 
         // company block
-        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_accept_signatory_invite(
             id.to_owned(),
@@ -1568,6 +1603,17 @@ impl CompanyServiceApi for CompanyService {
             .await?;
 
         let reference_block = new_block.id();
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: our_node_id.clone(),
+            op: CompanyOpCode::IdentityProof,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: Some((proof.clone(), data.clone(), Some(reference_block))),
+        }
+        .validate()?;
         // Create and populate company proof block
         self.create_identity_proof_block(
             proof,
@@ -1592,9 +1638,27 @@ impl CompanyServiceApi for CompanyService {
         }
 
         let full_identity = self.identity_store.get_full().await?;
+        // Can only reject if we're not anon
+        if full_identity.identity.t == IdentityType::Anon {
+            return Err(super::Error::Validation(
+                ProtocolValidationError::IdentityCantBeAnon.into(),
+            ));
+        }
         let our_node_id = full_identity.identity.node_id;
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: our_node_id.clone(),
+            op: CompanyOpCode::SignatoryRejectInvite,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: None,
+        }
+        .validate()?;
 
         let Some(signatory) = company
             .signatories
@@ -1606,19 +1670,12 @@ impl CompanyServiceApi for CompanyService {
             ));
         };
 
-        if !matches!(signatory.status, CompanySignatoryStatus::Invited { .. }) {
-            return Err(Error::Validation(
-                ProtocolValidationError::NotInvitedAsSignatory.into(),
-            ));
-        }
-
         signatory.status = CompanySignatoryStatus::InviteRejected { ts: timestamp }; // invite rejected
         company.status = CompanyStatus::None; // not interested in the company anymore
         // update signatories list in the DB
         self.store.update(id, &company).await?;
 
         // company block
-        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_reject_signatory_invite(
             id.to_owned(),
@@ -1748,8 +1805,8 @@ pub mod tests {
             MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
             MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
             empty_address, empty_identity, empty_optional_address, node_id_test,
-            node_id_test_other, node_id_test_other2, private_key_test, signed_identity_proof_test,
-            test_ts,
+            node_id_test_another, node_id_test_other, node_id_test_other2, private_key_test,
+            private_key_test_another, signed_identity_proof_test, test_ts,
         },
         util::get_uuid_v4,
     };
@@ -1864,7 +1921,7 @@ pub mod tests {
 
     pub fn get_valid_company_chain() -> CompanyBlockchain {
         let (id, (company, company_keys)) = get_baseline_company_data();
-        CompanyBlockchain::new(
+        let mut chain = CompanyBlockchain::new(
             &CompanyCreateBlockData {
                 id,
                 name: company.name,
@@ -1881,12 +1938,88 @@ pub mod tests {
             },
             &BcrKeys::from_private_key(&private_key_test()),
             &company_keys,
-            test_ts(),
+            test_ts() - 10,
         )
-        .unwrap()
+        .unwrap();
+        let (proof, mut data) = signed_identity_proof_test();
+        data.company_node_id = Some(node_id_test());
+        let identity_proof_block = CompanyBlock::create_block_for_identity_proof(
+            node_id_test(),
+            chain.get_latest_block(),
+            &CompanyIdentityProofBlockData {
+                proof,
+                data,
+                reference_block: Some(chain.get_latest_block().id()),
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            &company_keys,
+            test_ts() - 9,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(identity_proof_block));
+        assert!(chain.is_chain_valid());
+        chain
     }
 
-    fn get_valid_identity_chain() -> IdentityBlockchain {
+    fn add_invite_signatory_block(mut chain: CompanyBlockchain) -> CompanyBlockchain {
+        let block = CompanyBlock::create_block_for_invite_signatory(
+            node_id_test(),
+            chain.get_latest_block(),
+            &CompanyInviteSignatoryBlockData {
+                invitee: node_id_test_another(),
+                inviter: node_id_test(),
+                t: SignatoryType::Solo,
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            &BcrKeys::from_private_key(&private_key_test()),
+            &node_id_test().pub_key(),
+            test_ts() - 8,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(block));
+        assert!(chain.is_chain_valid());
+        chain
+    }
+
+    fn add_accept_signatory_block(mut chain: CompanyBlockchain) -> CompanyBlockchain {
+        let block = CompanyBlock::create_block_for_accept_signatory_invite(
+            node_id_test(),
+            chain.get_latest_block(),
+            &CompanySignatoryAcceptInviteBlockData {
+                accepter: node_id_test_another(),
+            },
+            &BcrKeys::from_private_key(&private_key_test_another()),
+            &BcrKeys::from_private_key(&private_key_test()),
+            test_ts() - 7,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(block));
+        assert!(chain.is_chain_valid());
+        chain
+    }
+
+    fn add_identity_proof_block(mut chain: CompanyBlockchain) -> CompanyBlockchain {
+        let (proof, mut data) = signed_identity_proof_test();
+        data.company_node_id = Some(node_id_test());
+        let block = CompanyBlock::create_block_for_identity_proof(
+            node_id_test(),
+            chain.get_latest_block(),
+            &CompanyIdentityProofBlockData {
+                proof,
+                data,
+                reference_block: Some(chain.get_latest_block().id()),
+            },
+            &BcrKeys::from_private_key(&private_key_test_another()),
+            &BcrKeys::from_private_key(&private_key_test()),
+            test_ts() - 6,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(block));
+        assert!(chain.is_chain_valid());
+        chain
+    }
+
+    pub fn get_valid_identity_chain() -> IdentityBlockchain {
         IdentityBlockchain::new(&empty_identity().into(), &BcrKeys::new(), test_ts()).unwrap()
     }
 
@@ -1937,7 +2070,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
+            mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
@@ -1951,6 +2084,13 @@ pub mod tests {
             let company_data = get_baseline_company_data();
             map.insert(company_data.0, company_data.1);
             Ok(map)
+        });
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
         });
         let service = get_service(
             storage,
@@ -2015,7 +2155,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
+            mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
@@ -2031,6 +2171,13 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
         let service = get_service(
             storage,
             file_upload_store,
@@ -2089,7 +2236,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
+            mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
@@ -2103,6 +2250,13 @@ pub mod tests {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
                 "test error",
             )))
+        });
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
         });
         let service = get_service(
             storage,
@@ -2150,9 +2304,11 @@ pub mod tests {
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
         storage.expect_insert().returning(|_| Ok(()));
-        storage
-            .expect_get_email_confirmations()
-            .returning(|_| Ok(vec![signed_identity_proof_test()]));
+        storage.expect_get_email_confirmations().returning(|_| {
+            let (proof, mut data) = signed_identity_proof_test();
+            data.company_node_id = Some(node_id_test());
+            Ok(vec![(proof, data)])
+        });
         identity_store.expect_get_full().returning(|| {
             let mut identity = empty_identity();
             identity.nostr_relays = vec![url::Url::parse("ws://localhost:8080").unwrap()];
@@ -2230,6 +2386,7 @@ pub mod tests {
                 test_ts(),
             )
             .await;
+
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().name, Name::new("name").unwrap());
         assert_eq!(
@@ -2315,8 +2472,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn edit_company_baseline() {
-        let keys = BcrKeys::new();
-        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let keys = BcrKeys::from_private_key(&private_key_test());
+        let node_id = node_id_test();
         let (
             mut storage,
             mut file_upload_store,
@@ -2542,7 +2699,7 @@ pub mod tests {
             mut identity_store,
             contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -2559,6 +2716,10 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
@@ -2623,9 +2784,12 @@ pub mod tests {
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
-        storage
-            .expect_get_email_confirmations()
-            .returning(|_| Ok(vec![signed_identity_proof_test()]));
+        storage.expect_get_email_confirmations().returning(|_| {
+            let (proof, mut data) = signed_identity_proof_test();
+            data.node_id = node_id_test_another();
+            data.company_node_id = Some(node_id_test());
+            Ok(vec![(proof, data)])
+        });
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -2637,7 +2801,7 @@ pub mod tests {
             .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
             .once();
         transport.expect_on_block_transport(|t| {
             // sends company block
@@ -2649,7 +2813,7 @@ pub mod tests {
                 .returning(|_| Ok(()))
                 .once();
         });
-        let caller_keys = BcrKeys::new();
+        let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
         let caller_keys_clone = caller_keys.clone();
         let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
         let caller_node_id_clone = caller_node_id.clone();
@@ -2729,7 +2893,7 @@ pub mod tests {
             .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
             .once();
         transport.expect_on_block_transport(|t| {
             // sends company block
@@ -2741,7 +2905,7 @@ pub mod tests {
                 .returning(|_| Ok(()))
                 .once();
         });
-        let caller_keys = BcrKeys::new();
+        let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
         let caller_keys_clone = caller_keys.clone();
         let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
         let caller_node_id_clone = caller_node_id.clone();
@@ -2838,10 +3002,13 @@ pub mod tests {
             map.insert(signatory_node_id_clone.clone(), contact);
             Ok(map)
         });
-        let caller_keys = BcrKeys::new();
+        let caller_keys = BcrKeys::from_private_key(&private_key_test());
         let caller_keys_clone = caller_keys.clone();
-        let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
+        let caller_node_id = node_id_test();
         let caller_node_id_clone = caller_node_id.clone();
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1.0;
             data.signatories = vec![get_valid_activated_signatory(&caller_node_id_clone.clone())];
@@ -2890,7 +3057,7 @@ pub mod tests {
             mut identity_store,
             mut contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -2903,6 +3070,9 @@ pub mod tests {
             data.signatories = vec![get_valid_activated_signatory(&node_id_test())];
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
         let signatory_node_id_clone = signatory_node_id.clone();
         contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
@@ -2912,6 +3082,10 @@ pub mod tests {
             map.insert(signatory_node_id_clone.clone(), contact);
             Ok(map)
         });
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
         identity_store.expect_get_full().returning(|| {
             let identity = empty_identity();
             Ok(IdentityWithAll {
@@ -2947,7 +3121,7 @@ pub mod tests {
             mut identity_store,
             mut contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -2969,6 +3143,13 @@ pub mod tests {
                 key_pair: BcrKeys::new(),
             })
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
         let service = get_service(
             storage,
             file_upload_store,
@@ -3039,7 +3220,7 @@ pub mod tests {
             mut identity_store,
             mut contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -3064,6 +3245,13 @@ pub mod tests {
             data.signatories = vec![get_valid_activated_signatory(&node_id_test())];
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -3095,7 +3283,7 @@ pub mod tests {
             mut identity_store,
             mut contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -3115,6 +3303,10 @@ pub mod tests {
             map.insert(node_id_test(), contact);
             Ok(map)
         });
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
         storage.expect_update().returning(|_, _| {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
                 "test error",
@@ -3172,7 +3364,7 @@ pub mod tests {
             data.signatories
                 .push(get_valid_activated_signatory(&node_id_test_other2()));
             data.signatories
-                .push(get_valid_activated_signatory(&node_id_test_other()));
+                .push(get_valid_activated_signatory(&node_id_test_another()));
             Ok(data)
         });
         storage
@@ -3182,7 +3374,7 @@ pub mod tests {
             let identity = empty_identity();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
+                key_pair: BcrKeys::from_private_key(&private_key_test()),
             })
         });
         storage.expect_update().returning(|_, _| Ok(()));
@@ -3203,10 +3395,9 @@ pub mod tests {
                 .returning(|_| Ok(()))
                 .once();
         });
-
         company_chain_store
             .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
             .once();
 
         let service = get_service(
@@ -3223,8 +3414,9 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
+            .remove_signatory(&node_id_test(), node_id_test_another(), test_ts())
             .await;
+
         assert!(res.is_ok());
     }
 
@@ -3272,7 +3464,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn remove_signatory_removing_self_removes_company() {
-        let keys = BcrKeys::new();
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let (
             mut storage,
             file_upload_store,
@@ -3294,7 +3486,11 @@ pub mod tests {
             .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
+            .returning(|_| {
+                Ok(add_identity_proof_block(add_accept_signatory_block(
+                    add_invite_signatory_block(get_valid_company_chain()),
+                )))
+            })
             .once();
         transport.expect_on_block_transport(|t| {
             // sends company block
@@ -3382,7 +3578,7 @@ pub mod tests {
             mut identity_store,
             contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -3398,6 +3594,10 @@ pub mod tests {
 
             Ok(data)
         });
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
+            .once();
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -3436,7 +3636,7 @@ pub mod tests {
             mut identity_store,
             contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             transport,
             nostr_contact_store,
             email_client,
@@ -3447,6 +3647,10 @@ pub mod tests {
             let data = get_baseline_company_data().1.0;
             Ok(data)
         });
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
+            .once();
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -3500,7 +3704,7 @@ pub mod tests {
             .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
             .once();
 
         transport.expect_on_block_transport(|t| {
@@ -3524,7 +3728,7 @@ pub mod tests {
             let mut data = get_baseline_company_data().1.0;
             data.signatories.push(CompanySignatory {
                 t: SignatoryType::Solo,
-                node_id: node_id_test_other(),
+                node_id: node_id_test_another(),
                 status: CompanySignatoryStatus::Invited {
                     ts: test_ts(),
                     inviter: node_id_test(),
@@ -3559,7 +3763,7 @@ pub mod tests {
         );
 
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
+            .remove_signatory(&node_id_test(), node_id_test_another(), test_ts())
             .await;
         assert!(res.is_ok());
     }
@@ -3573,7 +3777,7 @@ pub mod tests {
             mut identity_store,
             contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
@@ -3588,6 +3792,10 @@ pub mod tests {
                 .push(get_valid_activated_signatory(&node_id_test_other()));
             Ok(data)
         });
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
+            .once();
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -3635,7 +3843,7 @@ pub mod tests {
             storage,
             file_upload_store,
             mut file_upload_client,
-            identity_store,
+            mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
@@ -3659,6 +3867,13 @@ pub mod tests {
             .expect_download()
             .times(1)
             .returning(move |_, _| Ok(expected_encrypted.clone()));
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
         let service = get_service(
             storage,
             file_upload_store,
@@ -3761,7 +3976,7 @@ pub mod tests {
             storage,
             file_upload_store,
             mut file_upload_client,
-            identity_store,
+            mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
@@ -3774,6 +3989,13 @@ pub mod tests {
             Err(crate::external::Error::ExternalFileStorageApi(
                 crate::external::file_storage::Error::InvalidRelayUrl,
             ))
+        });
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
         });
         let service = get_service(
             storage,
