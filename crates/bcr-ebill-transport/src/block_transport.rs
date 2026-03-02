@@ -11,7 +11,10 @@ use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
-use bcr_ebill_core::protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent};
+use bcr_ebill_core::protocol::event::{
+    BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
+};
+use bitcoin::base58;
 use log::{debug, error};
 
 use bcr_ebill_api::service::transport_service::{Error, Result};
@@ -156,8 +159,20 @@ impl BlockTransportServiceApi for BlockTransportService {
         if let Some((recipient, invite)) = events.generate_company_invite_message()
             && let Some(identity) = self.nostr_transport.resolve_identity(&recipient).await
         {
-            node.send_private_event(&events.sender(), &identity, invite.try_into()?)
-                .await?;
+            let message: EventEnvelope = invite.try_into()?;
+            if let Err(e) = node
+                .send_private_event(&events.sender(), &identity, message.clone())
+                .await
+            {
+                error!("Failed to send company invite, queuing for retry: {e}");
+                self.nostr_transport
+                    .queue_retry_message(
+                        &events.sender(),
+                        Some(&recipient),
+                        base58::encode(&borsh::to_vec(&message)?),
+                    )
+                    .await?;
+            }
         }
 
         Ok(())
@@ -216,8 +231,20 @@ impl BlockTransportServiceApi for BlockTransportService {
         if !invites.is_empty() {
             for (recipient, event) in invites {
                 if let Some(identity) = self.nostr_transport.resolve_identity(&recipient).await {
-                    node.send_private_event(&events.sender(), &identity, event.try_into()?)
-                        .await?;
+                    let message: EventEnvelope = event.try_into()?;
+                    if let Err(e) = node
+                        .send_private_event(&events.sender(), &identity, message.clone())
+                        .await
+                    {
+                        error!("Failed to send bill invite, queuing for retry: {e}");
+                        self.nostr_transport
+                            .queue_retry_message(
+                                &events.sender(),
+                                Some(&recipient),
+                                base58::encode(&borsh::to_vec(&message)?),
+                            )
+                            .await?;
+                    }
                 }
             }
         }

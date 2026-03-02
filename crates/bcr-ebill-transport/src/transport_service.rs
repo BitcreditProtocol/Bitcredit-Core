@@ -2445,6 +2445,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_send_retry_private_message_with_legacy_payload_format() {
+        init_test_cfg();
+
+        let (service, _) = expect_service(
+            |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
+                let recipient = node_id_test_other();
+                let message_id = "private_legacy_msg_id";
+                let sender = node_id_test();
+
+                let legacy_event = Event::new_bill(BillChainEventPayload {
+                    event_type: BillEventType::BillMintingRequested,
+                    bill_id: bill_id_test(),
+                    action_type: Some(ActionType::CheckBill),
+                    sum: Some(Sum::new_sat(1).unwrap()),
+                });
+
+                let payload = base58::encode(&borsh::to_vec(&legacy_event).unwrap());
+
+                let queued_message = NostrQueuedMessage {
+                    id: message_id.to_string(),
+                    sender_id: sender.to_owned(),
+                    recipient: Some(recipient.to_owned()),
+                    payload,
+                };
+
+                let identity = get_identity_public_data(
+                    &recipient,
+                    &Email::new("test@example.com").unwrap(),
+                    vec![],
+                );
+
+                mock_contact_store
+                    .expect_get()
+                    .with(eq(recipient.to_owned()))
+                    .returning(move |_| Ok(Some(as_contact(&identity))))
+                    .once();
+
+                mock_transport
+                    .expect_send_private_event()
+                    .returning(|_, _, _| Ok(()))
+                    .once();
+
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(move |_| Ok(vec![queued_message.clone()]))
+                    .once();
+                mock_queue
+                    .expect_get_retry_messages()
+                    .with(eq(1))
+                    .returning(|_| Ok(vec![]))
+                    .once();
+
+                mock_queue
+                    .expect_succeed_retry()
+                    .with(eq(message_id))
+                    .returning(|_| Ok(()))
+                    .once();
+            },
+        );
+
+        let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
     async fn test_send_retry_private_message_with_invalid_base58() {
         init_test_cfg();
 
