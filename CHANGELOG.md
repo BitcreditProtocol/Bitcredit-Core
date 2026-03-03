@@ -2,6 +2,7 @@
 
 * Add proper block validation for Company blocks
 * Add basic, deterministic algorithm for chain consensus for testing/dev
+* Add basic offline mode and improve nostr reliability
 
 # 0.5.1-1 (Hotfix)
 
