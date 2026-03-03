@@ -9,9 +9,10 @@ use crate::{
     },
     tests::tests::{
         bill_id_test, bill_id_test_other, bill_id_test_other2,
-        bill_identified_participant_only_node_id, empty_address, empty_bill_identified_participant,
-        empty_identity, init_test_cfg, node_id_test, node_id_test_other, private_key_test,
-        signed_identity_proof_test, test_ts, valid_payment_address_testnet,
+        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
+        empty_bill_identified_participant, empty_identity, init_test_cfg, node_id_test,
+        node_id_test_other, private_key_test, signed_identity_proof_test, test_ts,
+        valid_payment_address_testnet,
     },
     util::get_uuid_v4,
 };
@@ -31,7 +32,7 @@ use bcr_ebill_core::{
         blockchain::{
             Block, Blockchain,
             bill::{
-                BillBlock, BillOpCode, PastPaymentStatus, RecourseReason,
+                BillBlock, BillOpCode, PaymentStatus, RecourseReason,
                 block::{
                     BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
                     BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
@@ -66,7 +67,8 @@ use test_utils::{
 async fn get_bill_balances_baseline() {
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
-    let company_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+    let company_keys = BcrKeys::new();
+    let company_node_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
 
     let mut bill1 = get_baseline_bill(&bill_id_test());
     bill1.sum = Sum::new_sat(1000).expect("sat works");
@@ -119,7 +121,11 @@ async fn get_bill_balances_baseline() {
 
     // for identity
     let res = service
-        .get_bill_balances(&Currency::sat(), &identity.identity.node_id)
+        .get_bill_balances(
+            &Currency::sat(),
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     assert_eq!(
@@ -137,7 +143,13 @@ async fn get_bill_balances_baseline() {
 
     // for company
     let res_comp = service
-        .get_bill_balances(&Currency::sat(), &company_node_id)
+        .get_bill_balances(
+            &Currency::sat(),
+            &BillParticipant::Ident(bill_identified_participant_only_node_id(
+                company_node_id.clone(),
+            )),
+            &company_keys,
+        )
         .await;
     assert!(res_comp.is_ok());
     assert_eq!(
@@ -158,7 +170,8 @@ async fn get_bill_balances_baseline() {
 async fn get_search_bill() {
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
-    let company_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+    let company_keys = BcrKeys::new();
+    let company_node_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
 
     let mut bill1 = get_baseline_bill(&bill_id_test());
     bill1.issue_date = Date::new("2020-05-01").unwrap();
@@ -217,7 +230,10 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::All,
-            &company_node_id,
+            &BillParticipant::Ident(bill_identified_participant_only_node_id(
+                company_node_id.clone(),
+            )),
+            &company_keys,
         )
         .await;
     assert!(res_all_comp.is_ok());
@@ -229,7 +245,8 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::All,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
         )
         .await;
     assert!(res_all.is_ok());
@@ -242,7 +259,8 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::All,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
         )
         .await;
     assert!(res_term.is_ok());
@@ -257,7 +275,8 @@ async fn get_search_bill() {
             Some(from_ts),
             Some(to_ts),
             &BillsFilterRole::All,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
         )
         .await;
     assert!(res_fromto.is_ok());
@@ -270,7 +289,8 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::Payer,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
         )
         .await;
     assert!(res_role.is_ok());
@@ -283,7 +303,8 @@ async fn get_search_bill() {
             Some(from_ts),
             Some(to_ts),
             &BillsFilterRole::Payee,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
         )
         .await;
     assert!(res_comb.is_ok());
@@ -685,9 +706,13 @@ async fn get_bills_baseline() {
     });
 
     let service = get_service(ctx);
+    let identity = get_baseline_identity();
 
     let res = service
-        .get_bills(&get_baseline_identity().identity.node_id)
+        .get_bills(
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     let returned_bills = res.unwrap();
@@ -734,7 +759,10 @@ async fn get_bills_baseline_from_cache() {
     let service = get_service(ctx);
 
     let res = service
-        .get_bills(&get_baseline_identity().identity.node_id)
+        .get_bills(
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     let returned_bills = res.unwrap();
@@ -790,7 +818,10 @@ async fn get_bills_baseline_from_cache_with_payment_expiration() {
     let service = get_service(ctx);
 
     let res = service
-        .get_bills(&get_baseline_identity().identity.node_id)
+        .get_bills(
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     let returned_bills = res.unwrap();
@@ -800,7 +831,8 @@ async fn get_bills_baseline_from_cache_with_payment_expiration() {
 #[tokio::test]
 async fn get_bills_baseline_company() {
     let mut ctx = get_ctx();
-    let company_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+    let company_keys = BcrKeys::new();
+    let company_node_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
     let mut bill = get_baseline_bill(&bill_id_test());
     bill.payee = BillParticipant::Ident(
         BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
@@ -823,15 +855,26 @@ async fn get_bills_baseline_company() {
 
     let service = get_service(ctx);
 
+    let identity = get_baseline_identity();
     let res = service
-        .get_bills(&get_baseline_identity().identity.node_id)
+        .get_bills(
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     let returned_bills = res.unwrap();
     assert!(returned_bills.len() == 1);
     assert_eq!(returned_bills[0].id, bill_id_test());
 
-    let res = service.get_bills(&company_node_id).await;
+    let res = service
+        .get_bills(
+            &BillParticipant::Ident(bill_identified_participant_only_node_id(
+                company_node_id.clone(),
+            )),
+            &company_keys,
+        )
+        .await;
     assert!(res.is_ok());
     assert_eq!(res.as_ref().unwrap().len(), 0);
 }
@@ -886,8 +929,12 @@ async fn get_bills_req_to_pay() {
             .returning(|_| HashMap::new());
     });
 
+    let identity = get_baseline_identity();
     let res = get_service(ctx)
-        .get_bills(&get_baseline_identity().identity.node_id)
+        .get_bills(
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     let returned_bills = res.unwrap();
@@ -905,8 +952,12 @@ async fn get_bills_empty_for_no_bills() {
             .returning(|_| HashMap::new());
     });
     ctx.bill_store.expect_get_ids().returning(|| Ok(vec![]));
+    let identity = get_baseline_identity();
     let res = get_service(ctx)
-        .get_bills(&get_baseline_identity().identity.node_id)
+        .get_bills(
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
         .await;
     assert!(res.is_ok());
     assert!(res.unwrap().is_empty());
@@ -933,7 +984,8 @@ async fn get_detail_bill_baseline() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -990,7 +1042,8 @@ async fn get_detail_bill_baseline_from_cache() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1046,7 +1099,8 @@ async fn get_detail_bill_baseline_from_cache_with_payment_expiration() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1088,7 +1142,8 @@ async fn get_detail_bill_baseline_error_from_cache() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1118,12 +1173,14 @@ async fn get_detail_bill_fails_for_non_participant() {
             .with(eq(bill_id_test()))
             .returning(|_| None);
     });
+    let keys = BcrKeys::new();
 
     let res = get_service(ctx)
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet),
+            &bill_participant_only_node_id(NodeId::new(keys.pub_key(), bitcoin::Network::Testnet)),
+            &keys,
             test_ts(),
         )
         .await;
@@ -1160,7 +1217,8 @@ async fn get_detail_waiting_for_offer_to_sell() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1222,7 +1280,8 @@ async fn get_detail_waiting_for_offer_to_sell_and_sell() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1282,7 +1341,8 @@ async fn get_detail_waiting_for_offer_to_sell_and_expire() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -1349,7 +1409,8 @@ async fn get_detail_waiting_for_offer_to_sell_and_reject() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -1398,7 +1459,8 @@ async fn get_detail_bill_req_to_recourse() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1473,7 +1535,8 @@ async fn get_detail_bill_req_to_recourse_recoursed() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1539,7 +1602,8 @@ async fn get_detail_bill_req_to_recourse_rejected() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1601,7 +1665,8 @@ async fn get_detail_bill_req_to_recourse_expired() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -1658,7 +1723,8 @@ async fn get_detail_bill_req_to_pay() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1710,7 +1776,8 @@ async fn get_detail_bill_req_to_pay_paid() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1767,7 +1834,8 @@ async fn get_detail_bill_req_to_pay_rejected() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1823,7 +1891,8 @@ async fn get_detail_bill_req_to_pay_rejected_but_paid() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -1880,7 +1949,8 @@ async fn get_detail_bill_req_to_pay_expired() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -1936,7 +2006,8 @@ async fn get_detail_bill_req_to_pay_expired_but_paid() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -1988,7 +2059,8 @@ async fn get_detail_bill_req_to_accept() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -2040,7 +2112,8 @@ async fn get_detail_bill_req_to_accept_accepted() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -2096,7 +2169,8 @@ async fn get_detail_bill_req_to_accept_rejected() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -2151,7 +2225,8 @@ async fn get_detail_bill_req_to_accept_expired() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             now,
         )
         .await;
@@ -3354,7 +3429,8 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
         .get_detail(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             current_timestamp,
         )
         .await;
@@ -3376,7 +3452,8 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
         .get_endorsements(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -3927,7 +4004,8 @@ async fn get_endorsements_baseline() {
         .get_endorsements(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -4002,6 +4080,30 @@ async fn get_endorsements_multi_with_anon() {
             .unwrap();
             assert!(chain.try_add_block(endorse_block));
 
+            // add offer to sell block from endorsee to sell endorsee
+            let offer_to_sell_block = BillBlock::create_block_for_offer_to_sell(
+                bill_id_test(),
+                chain.get_latest_block(),
+                &BillOfferToSellBlockData {
+                    buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
+                    // endorsed by endorsee
+                    seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    signatory: None,
+                    signing_timestamp: now + 2,
+                    signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    buying_deadline_timestamp: now + 1000,
+                },
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
+                now + 2,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(offer_to_sell_block));
+
             // add sell block from endorsee to sell endorsee
             let sell_block = BillBlock::create_block_for_sell(
                 bill_id_test(),
@@ -4013,14 +4115,14 @@ async fn get_endorsements_multi_with_anon() {
                     sum: Sum::new_sat(15000).expect("sat works"),
                     payment_address: valid_payment_address_testnet(),
                     signatory: None,
-                    signing_timestamp: now + 2,
+                    signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
                 &BcrKeys::from_private_key(&private_key_test()),
-                now + 2,
+                now + 3,
             )
             .unwrap();
             assert!(chain.try_add_block(sell_block));
@@ -4035,14 +4137,14 @@ async fn get_endorsements_multi_with_anon() {
                     endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     sum: Sum::new_sat(15000).expect("sat works"),
                     signatory: None,
-                    signing_timestamp: now + 3,
+                    signing_timestamp: now + 4,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
                 &BcrKeys::from_private_key(&private_key_test()),
-                now + 3,
+                now + 4,
             )
             .unwrap();
             assert!(chain.try_add_block(mint_block));
@@ -4056,7 +4158,8 @@ async fn get_endorsements_multi_with_anon() {
         .get_endorsements(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -4143,6 +4246,29 @@ async fn get_endorsements_multi() {
             .unwrap();
             assert!(chain.try_add_block(endorse_block));
 
+            // add offer to sell block from endorsee to sell endorsee
+            let offer_to_sell_block = BillBlock::create_block_for_offer_to_sell(
+                bill_id_test(),
+                chain.get_latest_block(),
+                &BillOfferToSellBlockData {
+                    buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
+                    // endorsed by endorsee
+                    seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    signatory: None,
+                    signing_timestamp: now + 2,
+                    signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    buying_deadline_timestamp: now + 1000,
+                },
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test())),
+                &BcrKeys::from_private_key(&private_key_test()),
+                now + 2,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(offer_to_sell_block));
             // add sell block from endorsee to sell endorsee
             let sell_block = BillBlock::create_block_for_sell(
                 bill_id_test(),
@@ -4154,14 +4280,14 @@ async fn get_endorsements_multi() {
                     sum: Sum::new_sat(15000).expect("sat works"),
                     payment_address: valid_payment_address_testnet(),
                     signatory: None,
-                    signing_timestamp: now + 2,
+                    signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
                 &BcrKeys::from_private_key(&private_key_test()),
-                now + 2,
+                now + 3,
             )
             .unwrap();
             assert!(chain.try_add_block(sell_block));
@@ -4176,14 +4302,14 @@ async fn get_endorsements_multi() {
                     endorser: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     sum: Sum::new_sat(15000).expect("sat works"),
                     signatory: None,
-                    signing_timestamp: now + 3,
+                    signing_timestamp: now + 4,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
                 &BcrKeys::from_private_key(&private_key_test()),
-                now + 3,
+                now + 4,
             )
             .unwrap();
             assert!(chain.try_add_block(mint_block));
@@ -4197,7 +4323,8 @@ async fn get_endorsements_multi() {
         .get_endorsements(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;
@@ -4862,25 +4989,25 @@ async fn past_payments_baseline() {
     assert_eq!(res_past_payments.as_ref().unwrap().len(), 4);
     match res_past_payments.as_ref().unwrap()[0] {
         PastPaymentResult::Payment(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Paid(_)));
+            assert!(matches!(data.status, PaymentStatus::Paid(_)));
         }
         _ => panic!("wrong result"),
     };
     match res_past_payments.as_ref().unwrap()[1] {
         PastPaymentResult::Sell(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Paid(_)));
+            assert!(matches!(data.status, PaymentStatus::Paid(_)));
         }
         _ => panic!("wrong result"),
     };
     match res_past_payments.as_ref().unwrap()[2] {
         PastPaymentResult::Sell(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Rejected(_)));
+            assert!(matches!(data.status, PaymentStatus::Rejected(_)));
         }
         _ => panic!("wrong result"),
     };
     match res_past_payments.as_ref().unwrap()[3] {
         PastPaymentResult::Sell(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Expired(_)));
+            assert!(matches!(data.status, PaymentStatus::Expired(_)));
         }
         _ => panic!("wrong result"),
     };
@@ -4970,25 +5097,25 @@ async fn past_payments_recourse() {
     assert_eq!(res_past_payments.as_ref().unwrap().len(), 4);
     match res_past_payments.as_ref().unwrap()[0] {
         PastPaymentResult::Payment(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Rejected(_)));
+            assert!(matches!(data.status, PaymentStatus::Rejected(_)));
         }
         _ => panic!("wrong result"),
     };
     match res_past_payments.as_ref().unwrap()[1] {
         PastPaymentResult::Recourse(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Paid(_)));
+            assert!(matches!(data.status, PaymentStatus::Paid(_)));
         }
         _ => panic!("wrong result"),
     };
     match res_past_payments.as_ref().unwrap()[2] {
         PastPaymentResult::Recourse(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Rejected(_)));
+            assert!(matches!(data.status, PaymentStatus::Rejected(_)));
         }
         _ => panic!("wrong result"),
     };
     match res_past_payments.as_ref().unwrap()[3] {
         PastPaymentResult::Recourse(ref data) => {
-            assert!(matches!(data.status, PastPaymentStatus::Expired(_)));
+            assert!(matches!(data.status, PaymentStatus::Expired(_)));
         }
         _ => panic!("wrong result"),
     };
@@ -7031,7 +7158,8 @@ async fn wrong_network_failures() {
             .get_detail(
                 &mainnet_bill_id,
                 &identity.identity,
-                &node_id_test(),
+                &participant,
+                &BcrKeys::new(),
                 test_ts()
             )
             .await,
@@ -7044,7 +7172,8 @@ async fn wrong_network_failures() {
             .get_detail(
                 &bill_id_test(),
                 &identity.identity,
-                &mainnet_node_id,
+                &mainnet_participant,
+                &BcrKeys::new(),
                 test_ts()
             )
             .await,
@@ -7125,7 +7254,8 @@ async fn wrong_network_failures() {
             .get_endorsements(
                 &mainnet_bill_id,
                 &identity.identity,
-                &node_id_test(),
+                &participant,
+                &BcrKeys::new(),
                 test_ts()
             )
             .await,
@@ -7138,7 +7268,8 @@ async fn wrong_network_failures() {
             .get_endorsements(
                 &bill_id_test(),
                 &identity.identity,
-                &mainnet_node_id,
+                &mainnet_participant,
+                &BcrKeys::new(),
                 test_ts()
             )
             .await,
@@ -7400,7 +7531,8 @@ async fn get_bill_history_baseline() {
         .get_bill_history(
             &bill_id_test(),
             &identity.identity,
-            &identity.identity.node_id,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
             test_ts(),
         )
         .await;

@@ -7,9 +7,9 @@ pub mod tests {
     use bcr_ebill_core::{
         application::{
             bill::{
-                BillAcceptanceStatus, BillCallerActions, BillData, BillMintStatus,
-                BillParticipants, BillPaymentStatus, BillRecourseStatus, BillSellStatus,
-                BillStatus, BitcreditBillResult,
+                BillAcceptState, BillAcceptanceStatus, BillCallerActions, BillData, BillMintState,
+                BillMintStatus, BillParticipants, BillPaymentState, BillPaymentStatus,
+                BillRecourseStatus, BillSellStatus, BillState, BillStatus, BitcreditBillResult,
             },
             identity::Identity,
         },
@@ -173,10 +173,16 @@ pub mod tests {
                 has_requested_funds: false,
                 last_block_time: test_ts(),
             },
+            state: BillState {
+                mint: BillMintState::None,
+                accept: BillAcceptState::None,
+                payment: BillPaymentState::None,
+            },
             current_waiting_state: None,
             history: BillHistory { blocks: vec![] },
             actions: BillCallerActions {
                 bill_actions: vec![],
+                payment_actions: vec![],
             },
         }
     }

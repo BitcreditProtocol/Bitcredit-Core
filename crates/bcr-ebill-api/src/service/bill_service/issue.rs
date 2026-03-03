@@ -259,7 +259,8 @@ impl BillService {
             &chain,
             &bill_keys,
             &identity.identity,
-            &data.drawer_public_data.node_id(),
+            &data.drawer_public_data,
+            &data.drawer_keys,
             data.timestamp,
         )
         .await?;
