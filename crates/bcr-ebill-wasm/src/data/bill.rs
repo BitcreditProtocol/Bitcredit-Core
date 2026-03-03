@@ -2,9 +2,11 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::{
         bill::{
-            BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCombinedBitcoinKey,
-            BillCurrentWaitingState, BillData, BillMintStatus, BillParticipants, BillPaymentStatus,
-            BillRecourseStatus, BillSellStatus, BillStatus, BillWaitingForPaymentState,
+            BillAcceptState, BillAcceptanceStatus, BillCallerActions, BillCallerBillAction,
+            BillCallerPayment, BillCallerPaymentAction, BillCallerPaymentState,
+            BillCombinedBitcoinKey, BillCurrentWaitingState, BillData, BillMintState,
+            BillMintStatus, BillParticipants, BillPaymentState, BillPaymentStatus,
+            BillRecourseStatus, BillSellStatus, BillState, BillStatus, BillWaitingForPaymentState,
             BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
             BillsFilterRole, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
             LightSignedBy, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
@@ -18,7 +20,7 @@ use bcr_ebill_core::{
     protocol::{
         BitcoinAddress, BlockId, City, Country, Date, Email, Name, Timestamp,
         blockchain::bill::{
-            BillHistory, BillHistoryBlock, BillOpCode, PastPaymentStatus,
+            BillHistory, BillHistoryBlock, BillOpCode, PaymentStatus,
             participant::{
                 BillAnonParticipant, BillIdentParticipant, BillParticipant, PastEndorsee, SignedBy,
             },
@@ -370,18 +372,20 @@ impl From<PastPaymentResult> for PastPaymentResultWeb {
 
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
-pub enum PastPaymentStatusWeb {
+pub enum PaymentStatusWeb {
+    Requested(u64),
     Paid(u64),
     Rejected(u64),
     Expired(u64),
 }
 
-impl From<PastPaymentStatus> for PastPaymentStatusWeb {
-    fn from(val: PastPaymentStatus) -> Self {
+impl From<PaymentStatus> for PaymentStatusWeb {
+    fn from(val: PaymentStatus) -> Self {
         match val {
-            PastPaymentStatus::Paid(ts) => PastPaymentStatusWeb::Paid(ts.inner()),
-            PastPaymentStatus::Rejected(ts) => PastPaymentStatusWeb::Rejected(ts.inner()),
-            PastPaymentStatus::Expired(ts) => PastPaymentStatusWeb::Expired(ts.inner()),
+            PaymentStatus::Requested(ts) => PaymentStatusWeb::Requested(ts.inner()),
+            PaymentStatus::Paid(ts) => PaymentStatusWeb::Paid(ts.inner()),
+            PaymentStatus::Rejected(ts) => PaymentStatusWeb::Rejected(ts.inner()),
+            PaymentStatus::Expired(ts) => PaymentStatusWeb::Expired(ts.inner()),
         }
     }
 }
@@ -400,7 +404,7 @@ pub struct PastPaymentDataSellWeb {
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
-    pub status: PastPaymentStatusWeb,
+    pub status: PaymentStatusWeb,
 }
 
 impl From<PastPaymentDataSell> for PastPaymentDataSellWeb {
@@ -434,7 +438,7 @@ pub struct PastPaymentDataPaymentWeb {
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
-    pub status: PastPaymentStatusWeb,
+    pub status: PaymentStatusWeb,
 }
 impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
     fn from(val: PastPaymentDataPayment) -> Self {
@@ -467,7 +471,7 @@ pub struct PastPaymentDataRecourseWeb {
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
-    pub status: PastPaymentStatusWeb,
+    pub status: PaymentStatusWeb,
 }
 
 impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
@@ -495,6 +499,8 @@ pub struct BitcreditBillWeb {
     pub participants: BillParticipantsWeb,
     pub data: BillDataWeb,
     pub status: BillStatusWeb,
+    pub state: BillStateWeb,
+    /* Marked for deprecation */
     pub current_waiting_state: Option<BillCurrentWaitingStateWeb>,
     pub actions: BillCallerActionsWeb,
 }
@@ -506,12 +512,97 @@ impl From<BitcreditBillResult> for BitcreditBillWeb {
             participants: val.participants.into(),
             data: val.data.into(),
             status: val.status.into(),
+            state: val.state.into(),
             current_waiting_state: val.current_waiting_state.map(|cws| cws.into()),
             actions: val.actions.into(),
         }
     }
 }
 
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct BillStateWeb {
+    pub mint: BillMintStateWeb,
+    pub accept: BillAcceptStateWeb,
+    pub payment: BillPaymentStateWeb,
+}
+
+impl From<BillState> for BillStateWeb {
+    fn from(value: BillState) -> Self {
+        Self {
+            mint: value.mint.into(),
+            accept: value.accept.into(),
+            payment: value.payment.into(),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub enum BillAcceptStateWeb {
+    None,
+    Requested(u64),
+    Accepted(u64),
+    Expired(u64),
+    Rejected(u64),
+}
+
+impl From<BillAcceptState> for BillAcceptStateWeb {
+    fn from(value: BillAcceptState) -> Self {
+        match value {
+            BillAcceptState::None => BillAcceptStateWeb::None,
+            BillAcceptState::Requested(timestamp) => {
+                BillAcceptStateWeb::Requested(timestamp.inner())
+            }
+            BillAcceptState::Accepted(timestamp) => BillAcceptStateWeb::Accepted(timestamp.inner()),
+            BillAcceptState::Expired(timestamp) => BillAcceptStateWeb::Expired(timestamp.inner()),
+            BillAcceptState::Rejected(timestamp) => BillAcceptStateWeb::Rejected(timestamp.inner()),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub enum BillPaymentStateWeb {
+    None,
+    Requested(u64),
+    Paid(u64),
+    Expired(u64),
+    Rejected(u64),
+}
+
+impl From<BillPaymentState> for BillPaymentStateWeb {
+    fn from(value: BillPaymentState) -> Self {
+        match value {
+            BillPaymentState::None => BillPaymentStateWeb::None,
+            BillPaymentState::Requested(timestamp) => {
+                BillPaymentStateWeb::Requested(timestamp.inner())
+            }
+            BillPaymentState::Paid(timestamp) => BillPaymentStateWeb::Paid(timestamp.inner()),
+            BillPaymentState::Expired(timestamp) => BillPaymentStateWeb::Expired(timestamp.inner()),
+            BillPaymentState::Rejected(timestamp) => {
+                BillPaymentStateWeb::Rejected(timestamp.inner())
+            }
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub enum BillMintStateWeb {
+    None,
+    Requested,
+}
+impl From<BillMintState> for BillMintStateWeb {
+    fn from(value: BillMintState) -> Self {
+        match value {
+            BillMintState::None => BillMintStateWeb::None,
+            BillMintState::Requested => BillMintStateWeb::Requested,
+        }
+    }
+}
+
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub enum BillCurrentWaitingStateWeb {
@@ -534,6 +625,7 @@ impl From<BillCurrentWaitingState> for BillCurrentWaitingStateWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingStatePaymentDataWeb {
@@ -569,6 +661,7 @@ impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForSellStateWeb {
@@ -587,6 +680,7 @@ impl From<BillWaitingForSellState> for BillWaitingForSellStateWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForPaymentStateWeb {
@@ -605,6 +699,7 @@ impl From<BillWaitingForPaymentState> for BillWaitingForPaymentStateWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillWaitingForRecourseStateWeb {
@@ -625,14 +720,22 @@ impl From<BillWaitingForRecourseState> for BillWaitingForRecourseStateWeb {
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillStatusWeb {
+    /* Marked for deprecation */
     pub acceptance: BillAcceptanceStatusWeb,
+    /* Marked for deprecation */
     pub payment: BillPaymentStatusWeb,
+    /* Marked for deprecation */
     pub sell: BillSellStatusWeb,
+    /* Marked for deprecation */
     pub recourse: BillRecourseStatusWeb,
     pub mint: BillMintStatusWeb,
+    /* Marked for deprecation */
     pub redeemed_funds_available: bool,
+    /* Marked for deprecation */
     pub has_requested_funds: bool,
+    /* Marked for deprecation */
     #[tsify(type = "number")]
+    /* Marked for deprecation */
     pub last_block_time: Timestamp,
 }
 
@@ -651,6 +754,7 @@ impl From<BillStatus> for BillStatusWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillAcceptanceStatusWeb {
@@ -677,6 +781,7 @@ impl From<BillAcceptanceStatus> for BillAcceptanceStatusWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillPaymentStatusWeb {
@@ -702,6 +807,7 @@ impl From<BillPaymentStatus> for BillPaymentStatusWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillSellStatusWeb {
@@ -727,6 +833,7 @@ impl From<BillSellStatus> for BillSellStatusWeb {
     }
 }
 
+/* Marked for deprecation */
 #[derive(Tsify, Debug, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 pub struct BillRecourseStatusWeb {
@@ -840,12 +947,18 @@ impl From<BillParticipants> for BillParticipantsWeb {
 #[tsify(into_wasm_abi)]
 pub struct BillCallerActionsWeb {
     pub bill_actions: Vec<BillCallerBillActionWeb>,
+    pub payment_actions: Vec<BillCallerPaymentActionWeb>,
 }
 
 impl From<BillCallerActions> for BillCallerActionsWeb {
     fn from(value: BillCallerActions) -> Self {
         Self {
             bill_actions: value.bill_actions.into_iter().map(|ba| ba.into()).collect(),
+            payment_actions: value
+                .payment_actions
+                .into_iter()
+                .map(|ba| ba.into())
+                .collect(),
         }
     }
 }
@@ -892,6 +1005,120 @@ impl From<BillCallerBillAction> for BillCallerBillActionWeb {
             BillCallerBillAction::RejectPaymentForRecourse => {
                 BillCallerBillActionWeb::RejectPaymentForRecourse
             }
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum BillCallerPaymentActionWeb {
+    Pay(BillCallerPaymentWeb),
+    CheckPayment(BillCallerPaymentWeb),
+}
+
+impl From<BillCallerPaymentAction> for BillCallerPaymentActionWeb {
+    fn from(value: BillCallerPaymentAction) -> Self {
+        match value {
+            BillCallerPaymentAction::Pay(bill_caller_payment) => {
+                BillCallerPaymentActionWeb::Pay(bill_caller_payment.into())
+            }
+            BillCallerPaymentAction::CheckPayment(bill_caller_payment) => {
+                BillCallerPaymentActionWeb::CheckPayment(bill_caller_payment.into())
+            }
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub enum BillCallerPaymentWeb {
+    Sell {
+        buyer: BillParticipantWeb,
+        seller: BillParticipantWeb,
+        state: BillCallerPaymentStateWeb,
+    },
+    Payment {
+        payer: BillIdentParticipantWeb,
+        payee: BillParticipantWeb,
+        state: BillCallerPaymentStateWeb,
+    },
+    Recourse {
+        recourser: BillParticipantWeb,
+        recoursee: BillIdentParticipantWeb,
+        state: BillCallerPaymentStateWeb,
+    },
+}
+
+impl From<BillCallerPayment> for BillCallerPaymentWeb {
+    fn from(value: BillCallerPayment) -> Self {
+        match value {
+            BillCallerPayment::Sell {
+                buyer,
+                seller,
+                state,
+            } => BillCallerPaymentWeb::Sell {
+                buyer: buyer.into(),
+                seller: seller.into(),
+                state: state.into(),
+            },
+            BillCallerPayment::Payment {
+                payer,
+                payee,
+                state,
+            } => BillCallerPaymentWeb::Payment {
+                payer: payer.into(),
+                payee: payee.into(),
+                state: state.into(),
+            },
+            BillCallerPayment::Recourse {
+                recourser,
+                recoursee,
+                state,
+            } => BillCallerPaymentWeb::Recourse {
+                recourser: recourser.into(),
+                recoursee: recoursee.into(),
+                state: state.into(),
+            },
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillCallerPaymentStateWeb {
+    #[tsify(type = "number")]
+    pub time_of_request: Timestamp,
+    pub currency: String,
+    pub sum: String,
+    pub link_to_pay: String,
+    #[tsify(type = "string")]
+    pub address_to_pay: BitcoinAddress,
+    pub mempool_link_for_address_to_pay: String,
+    pub status: PaymentStatusWeb,
+    #[tsify(type = "number")]
+    pub payment_deadline: Timestamp,
+    pub tx_id: Option<String>,
+    pub in_mempool: bool,
+    pub confirmations: u64,
+    // only set if we're receiver
+    pub private_descriptor_to_spend: Option<String>,
+}
+
+impl From<BillCallerPaymentState> for BillCallerPaymentStateWeb {
+    fn from(value: BillCallerPaymentState) -> Self {
+        Self {
+            time_of_request: value.time_of_request,
+            currency: value.sum.currency().code().to_owned(),
+            sum: value.sum.as_sat_string(),
+            link_to_pay: value.link_to_pay,
+            address_to_pay: value.address_to_pay,
+            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
+            status: value.status.into(),
+            payment_deadline: value.payment_deadline,
+            tx_id: value.tx_id,
+            in_mempool: value.in_mempool,
+            confirmations: value.confirmations,
+            private_descriptor_to_spend: value.private_descriptor_to_spend,
         }
     }
 }

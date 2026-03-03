@@ -6,9 +6,10 @@ use super::{
     contact_service::ContactServiceApi,
 };
 use async_trait::async_trait;
-use bcr_common::core::NodeId;
 use bcr_ebill_core::application::bill::BillsFilterRole;
 use bcr_ebill_core::protocol::Currency;
+use bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use log::debug;
 use std::sync::Arc;
 
@@ -25,7 +26,8 @@ pub trait SearchServiceApi: ServiceTraitBounds {
         search_term: &str,
         currency: &Currency,
         item_types: &[GeneralSearchFilterItemType],
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<GeneralSearchResult>;
 }
 
@@ -61,9 +63,10 @@ impl SearchServiceApi for SearchService {
         search_term: &str,
         currency: &Currency,
         item_types: &[GeneralSearchFilterItemType],
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<GeneralSearchResult> {
-        validate_node_id_network(current_identity_node_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
         debug!("search for {search_term}, with {currency} and {item_types:?}");
         let search_term_lc = search_term.to_lowercase();
         let bills = if item_types.contains(&GeneralSearchFilterItemType::Bill) {
@@ -74,7 +77,8 @@ impl SearchServiceApi for SearchService {
                     None,
                     None,
                     &BillsFilterRole::All,
-                    current_identity_node_id,
+                    caller_public_data,
+                    caller_keys,
                 )
                 .await?
         } else {

@@ -2,6 +2,9 @@
 
 * If the bill holder is anon, the `signing_address` needs to not be set
 * If the bill holder is anon and a company, the `signatory` shouldn't have a `name` set (breaking DB and bill block change)
+* Adapt actions and status implementation for `BitcreditBillResult` (breaking DB change - bill cache clear is enough
+    * Add `payment_actions` and `state` to `BitcreditBillResult` 
+    * Rename `PastPaymentStatus` to `PaymentStatus` (breaking API change)
 
 # 0.5.3
 

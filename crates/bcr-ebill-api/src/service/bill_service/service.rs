@@ -13,8 +13,7 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::bill::{
     BillCombinedBitcoinKey, BillRole, BillsBalance, BillsBalanceOverview, BillsFilterRole,
-    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentDataPayment,
-    PastPaymentDataRecourse, PastPaymentDataSell, PastPaymentResult, PaymentState,
+    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentResult,
 };
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
@@ -28,8 +27,7 @@ use bcr_ebill_core::protocol::blockchain::bill::block::{
 use bcr_ebill_core::protocol::blockchain::bill::chain::BillBlockPlaintextWrapper;
 use bcr_ebill_core::protocol::blockchain::bill::{
     BillBlockchain, BillHistory, BillIssueData, BillOpCode, BillValidateActionData,
-    BillValidationActionMode, BitcreditBill, PastPaymentStatus,
-    create_bill_to_share_with_external_party,
+    BillValidationActionMode, BitcreditBill, create_bill_to_share_with_external_party,
     participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant, PastEndorsee},
 };
 use bcr_ebill_core::protocol::blockchain::{Blockchain, identity::IdentityType};
@@ -121,7 +119,8 @@ impl BillService {
         chain: &BillBlockchain,
         bill_keys: &BcrKeys,
         local_identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<()> {
         let calculated_bill = self
@@ -129,12 +128,13 @@ impl BillService {
                 chain,
                 bill_keys,
                 local_identity,
-                current_identity_node_id,
+                caller_public_data,
+                caller_keys,
                 current_timestamp,
             )
             .await?;
         self.store
-            .save_bill_to_cache(bill_id, current_identity_node_id, &calculated_bill)
+            .save_bill_to_cache(bill_id, &caller_public_data.node_id(), &calculated_bill)
             .await?;
         Ok(())
     }
@@ -755,18 +755,20 @@ impl BillServiceApi for BillService {
     async fn get_bill_balances(
         &self,
         _currency: &Currency,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<BillsBalanceOverview> {
+        let current_identity_node_id = caller_public_data.node_id();
         // TODO (currency): convert between currencies based on given currency
-        validate_node_id_network(current_identity_node_id)?;
-        let bills = self.get_bills(current_identity_node_id).await?;
+        validate_node_id_network(&current_identity_node_id)?;
+        let bills = self.get_bills(caller_public_data, caller_keys).await?;
 
         let mut payer_sum = 0;
         let mut payee_sum = 0;
         let mut contingent_sum = 0;
 
         for bill in bills {
-            if let Some(bill_role) = bill.get_bill_role_for_node_id(current_identity_node_id) {
+            if let Some(bill_role) = bill.get_bill_role_for_node_id(&current_identity_node_id) {
                 let sum = bill.data.sum;
                 match bill_role {
                     BillRole::Payee => payee_sum += sum.as_sat(),
@@ -778,7 +780,7 @@ impl BillServiceApi for BillService {
                         for endorsement in endorsements.iter() {
                             let holder = &endorsement.pay_to_the_order_of;
                             // we're in the chain as non-anon
-                            if &holder.node_id() == current_identity_node_id
+                            if holder.node_id() == current_identity_node_id
                                 && matches!(holder, LightBillParticipant::Ident(_))
                             {
                                 in_guarantee_chain_as_non_anon = true;
@@ -786,7 +788,7 @@ impl BillServiceApi for BillService {
                             }
                         }
                         if in_guarantee_chain_as_non_anon
-                            || &bill.participants.drawer.node_id == current_identity_node_id
+                            || bill.participants.drawer.node_id == current_identity_node_id
                         {
                             contingent_sum += sum.as_sat()
                         }
@@ -815,13 +817,15 @@ impl BillServiceApi for BillService {
         date_range_from: Option<Timestamp>,
         date_range_to: Option<Timestamp>,
         role: &BillsFilterRole,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<Vec<LightBitcreditBillResult>> {
         debug!(
             "searching bills with {search_term:?} from {date_range_from:?} to {date_range_to:?} and {role:?}"
         );
-        validate_node_id_network(current_identity_node_id)?;
-        let bills = self.get_bills(current_identity_node_id).await?;
+        let current_identity_node_id = caller_public_data.node_id();
+        validate_node_id_network(&current_identity_node_id)?;
+        let bills = self.get_bills(caller_public_data, caller_keys).await?;
         let mut result = vec![];
 
         // for now we do the search here - with the quick-fetch table, we can search in surrealDB
@@ -840,7 +844,7 @@ impl BillServiceApi for BillService {
                 continue;
             }
 
-            let bill_role = match bill.get_bill_role_for_node_id(current_identity_node_id) {
+            let bill_role = match bill.get_bill_role_for_node_id(&current_identity_node_id) {
                 Some(bill_role) => bill_role,
                 None => continue, // node is not in bill - don't add
             };
@@ -882,9 +886,10 @@ impl BillServiceApi for BillService {
 
     async fn get_bills(
         &self,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<Vec<BitcreditBillResult>> {
-        validate_node_id_network(current_identity_node_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
         let current_timestamp = Timestamp::now();
@@ -894,7 +899,7 @@ impl BillServiceApi for BillService {
 
         let mut bills = self
             .store
-            .get_bills_from_cache(&bill_ids, current_identity_node_id)
+            .get_bills_from_cache(&bill_ids, &caller_public_data.node_id())
             .await?;
         // extend identities for cached bills
         for bill in bills.iter_mut() {
@@ -912,7 +917,8 @@ impl BillServiceApi for BillService {
                     .recalculate_and_cache_bill(
                         &bill.id,
                         &identity,
-                        current_identity_node_id,
+                        caller_public_data,
+                        caller_keys,
                         current_timestamp,
                     )
                     .await?;
@@ -927,7 +933,8 @@ impl BillServiceApi for BillService {
                     .recalculate_and_cache_bill(
                         bill_id,
                         &identity,
-                        current_identity_node_id,
+                        caller_public_data,
+                        caller_keys,
                         current_timestamp,
                     )
                     .await?;
@@ -952,7 +959,7 @@ impl BillServiceApi for BillService {
                 b.participants
                     .all_participant_node_ids
                     .iter()
-                    .any(|p| p == current_identity_node_id)
+                    .any(|p| p == &caller_public_data.node_id())
             })
             .collect())
     }
@@ -992,16 +999,18 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &BillId,
         identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult> {
         validate_bill_id_network(bill_id)?;
-        validate_node_id_network(current_identity_node_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
         let res = self
             .get_full_bill(
                 bill_id,
                 identity,
-                current_identity_node_id,
+                caller_public_data,
+                caller_keys,
                 current_timestamp,
             )
             .await?;
@@ -1010,7 +1019,7 @@ impl BillServiceApi for BillService {
             .participants
             .all_participant_node_ids
             .iter()
-            .any(|p| p == current_identity_node_id)
+            .any(|p| p == &caller_public_data.node_id())
         {
             return Err(Error::NotFound);
         }
@@ -1121,7 +1130,8 @@ impl BillServiceApi for BillService {
             &blockchain,
             &bill_keys,
             &identity.identity,
-            &signer_public_data.node_id(),
+            signer_public_data,
+            signer_keys,
             timestamp,
         )
         .await?;
@@ -1335,182 +1345,44 @@ impl BillServiceApi for BillService {
                 return Err(Error::NotFound);
             }
         };
-
-        let mut result = vec![];
-
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
         let is_paid = self.store.is_paid(bill_id).await?;
         let bill = chain
             .get_first_version_bill(&bill_keys)
             .map_err(|e| Error::Protocol(e.into()))?;
-        let bill_parties = chain
-            .get_bill_parties(&bill_keys, &bill)
-            .map_err(|e| Error::Protocol(e.into()))?;
 
-        let holder = match bill_parties.endorsee {
-            None => &bill_parties.payee,
-            Some(ref endorsee) => endorsee,
-        };
-
-        let descriptor_to_spend = self.bitcoin_client.get_combined_private_descriptor(
-            &BcrKeys::from_private_key(&bill_keys.get_private_key())
-                .get_bitcoin_private_key(get_config().bitcoin_network()),
-            &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
-        )?;
-
-        // Request to Pay
-        if holder.node_id() == caller_public_data.node_id()
-            && let Some(req_to_pay) =
-                chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
-        {
-            let address_to_pay = self
-                .bitcoin_client
-                .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
-            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                &address_to_pay,
-                &bill.sum,
-                &format!("Payment in relation to a bill {}", bill.id.clone()),
-            );
-            let mempool_link_for_address_to_pay = self
-                .bitcoin_client
-                .get_mempool_link_for_address(&address_to_pay);
-
-            // we check for the payment expiration, not the request expiration
-            // if the request expired, but the payment deadline hasn't, it's not a past payment
-            let (is_expired, payment_deadline) = chain
-                .is_req_to_pay_block_payment_expired(
-                    req_to_pay,
-                    &bill_keys,
-                    timestamp,
-                    Some(&bill.maturity_date),
-                )
-                .map_err(|e| Error::Protocol(e.into()))?;
-
-            let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
-
-            if is_paid || is_rejected || is_expired {
-                result.push(PastPaymentResult::Payment(PastPaymentDataPayment {
-                    time_of_request: req_to_pay.timestamp,
-                    payer: bill_parties.drawee.clone().into(),
-                    payee: holder.clone().into(),
-                    sum: bill.sum.clone(),
-                    link_to_pay,
-                    address_to_pay,
-                    private_descriptor_to_spend: descriptor_to_spend.clone(),
-                    mempool_link_for_address_to_pay,
-                    status: if is_paid {
-                        if let Ok(Some(PaymentState::PaidConfirmed(paid_date))) =
-                            self.store.get_payment_state(bill_id).await
-                        {
-                            PastPaymentStatus::Paid(paid_date.block_time)
-                        } else {
-                            // fall back to req to pay time, if we don't have the paid ts
-                            PastPaymentStatus::Paid(req_to_pay.timestamp)
-                        }
-                    } else if is_rejected {
-                        let ts = if let Some(reject_to_pay_block) =
-                            chain.get_last_version_block_with_op_code(BillOpCode::RejectToPay)
-                        {
-                            reject_to_pay_block.timestamp
-                        } else {
-                            req_to_pay.timestamp
-                        };
-                        PastPaymentStatus::Rejected(ts)
-                    } else {
-                        PastPaymentStatus::Expired(payment_deadline)
-                    },
-                    payment_deadline,
-                }));
-            }
-        }
-
-        // OfferToSell
-        let past_sell_payments = chain
-            .get_past_sell_payments_for_node_id(
-                &bill_keys,
-                &caller_public_data.node_id(),
+        let res = self
+            .fetch_past_payments(
+                bill_id,
+                caller_public_data,
+                caller_keys,
                 timestamp,
-            )
-            .map_err(|e| Error::Protocol(e.into()))?;
-        for past_sell_payment in past_sell_payments {
-            let address_to_pay = past_sell_payment.0.payment_address;
-            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                &address_to_pay,
-                &past_sell_payment.0.sum,
-                &format!("Payment in relation to a bill {}", &bill.id),
-            );
-            let mempool_link_for_address_to_pay = self
-                .bitcoin_client
-                .get_mempool_link_for_address(&address_to_pay);
-
-            result.push(PastPaymentResult::Sell(PastPaymentDataSell {
-                time_of_request: past_sell_payment.2,
-                buyer: past_sell_payment.0.buyer,
-                seller: past_sell_payment.0.seller,
-                sum: past_sell_payment.0.sum,
-                link_to_pay,
-                address_to_pay,
-                private_descriptor_to_spend: descriptor_to_spend.clone(),
-                mempool_link_for_address_to_pay,
-                status: past_sell_payment.1,
-                payment_deadline: past_sell_payment.0.buying_deadline_timestamp,
-            }));
-        }
-
-        // Recourse
-        let past_recourse_payments = chain
-            .get_past_recourse_payments_for_node_id(
+                &chain,
                 &bill_keys,
-                &caller_public_data.node_id(),
-                timestamp,
+                is_paid,
+                &bill,
             )
-            .map_err(|e| Error::Protocol(e.into()))?;
-        for past_sell_payment in past_recourse_payments {
-            let address_to_pay = self.bitcoin_client.get_address_to_pay(
-                &bill_keys.pub_key(),
-                &past_sell_payment.0.recourser.node_id().pub_key(),
-            )?;
-            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                &address_to_pay,
-                &past_sell_payment.0.sum,
-                &format!("Payment in relation to a bill {}", &bill.id),
-            );
-            let mempool_link_for_address_to_pay = self
-                .bitcoin_client
-                .get_mempool_link_for_address(&address_to_pay);
-
-            result.push(PastPaymentResult::Recourse(PastPaymentDataRecourse {
-                time_of_request: past_sell_payment.2,
-                recoursee: past_sell_payment.0.recoursee.into(),
-                recourser: past_sell_payment.0.recourser.into(),
-                sum: past_sell_payment.0.sum,
-                link_to_pay,
-                address_to_pay,
-                private_descriptor_to_spend: descriptor_to_spend.clone(),
-                mempool_link_for_address_to_pay,
-                status: past_sell_payment.1,
-                payment_deadline: past_sell_payment.0.recourse_deadline_timestamp,
-            }));
-        }
-
-        Ok(result)
+            .await?;
+        Ok(res)
     }
 
     async fn get_endorsements(
         &self,
         bill_id: &BillId,
         identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<Vec<Endorsement>> {
         validate_bill_id_network(bill_id)?;
-        validate_node_id_network(current_identity_node_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
         let bill = self
             .get_detail(
                 bill_id,
                 identity,
-                current_identity_node_id,
+                caller_public_data,
+                caller_keys,
                 current_timestamp,
             )
             .await?;
@@ -1643,7 +1515,8 @@ impl BillServiceApi for BillService {
             &blockchain,
             &bill_keys,
             &identity,
-            &signer_public_data.node_id(),
+            signer_public_data,
+            signer_keys,
             timestamp,
         )
         .await?;
@@ -2008,14 +1881,16 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &BillId,
         local_identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BillHistory> {
         let detail = self
             .get_detail(
                 bill_id,
                 local_identity,
-                current_identity_node_id,
+                caller_public_data,
+                caller_keys,
                 current_timestamp,
             )
             .await?;

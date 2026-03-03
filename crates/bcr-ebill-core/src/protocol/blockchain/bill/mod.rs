@@ -86,10 +86,11 @@ pub struct RecoursePaymentInfo {
 }
 
 #[derive(Debug, Clone)]
-pub enum PastPaymentStatus {
-    Paid(Timestamp),     // timestamp
-    Rejected(Timestamp), // timestamp
-    Expired(Timestamp),  // timestamp
+pub enum PaymentStatus {
+    Requested(Timestamp),
+    Paid(Timestamp),
+    Rejected(Timestamp),
+    Expired(Timestamp),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
