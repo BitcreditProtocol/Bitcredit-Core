@@ -375,24 +375,7 @@ impl BillService {
                             &mint_request.mint_request_id
                         );
 
-                        // check status to check minting-status
-                        let updated_status = self
-                            .mint_client
-                            .lookup_quote_for_mint(
-                                &mint_cfg.default_mint_url,
-                                &mint_request.mint_request_id,
-                            )
-                            .await?;
-
-                        if matches!(updated_status, QuoteStatusReply::Accepted { .. }) {
-                            info!(
-                                "Quote {} is accepted, but minting not enabled - skipping",
-                                mint_request.mint_request_id
-                            );
-                            return Ok(());
-                        }
-
-                        // Quote is Accepted and Minting Enabled - attempt to mint
+                        // Quote is MintingEnabled - attempt to mint
                         // check keyset and try to mint and create tokens and persist
                         match self
                             .mint_client

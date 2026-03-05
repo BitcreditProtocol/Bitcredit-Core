@@ -6881,14 +6881,6 @@ async fn check_mint_state_minting_enabled_proofs() {
     ctx.mint_client
         .expect_mint()
         .returning(|_, _, _, _, _, _, _| Ok("proofs".into()));
-    ctx.mint_client
-        .expect_lookup_quote_for_mint()
-        .returning(|_, _| {
-            Ok(QuoteStatusReply::MintingEnabled {
-                minted_amount: bcr_common::cashu::Amount::ZERO,
-                keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-            })
-        });
     ctx.mint_store
         .expect_add_recovery_data_to_offer()
         .returning(|_, _, _| Ok(()));

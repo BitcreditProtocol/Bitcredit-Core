@@ -2,9 +2,9 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
-use bcr_common::client::keys::Client as KeysClient;
+use bcr_common::client::core::Client as CoreClient;
 use bcr_common::client::quote::Client as QuoteClient;
-use bcr_common::client::swap::Client as SwapClient;
+use bcr_common::client::treasury::Client as TreasuryClient;
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::{
@@ -139,14 +139,14 @@ impl MintClient {
         Ok(quote_client)
     }
 
-    pub fn key_client(&self, mint_url: &url::Url) -> Result<KeysClient> {
-        let key_client = KeysClient::new(mint_url.to_owned());
-        Ok(key_client)
+    pub fn core_client(&self, mint_url: &url::Url) -> Result<CoreClient> {
+        let core_client = CoreClient::new(mint_url.to_owned());
+        Ok(core_client)
     }
 
-    pub fn swap_client(&self, mint_url: &url::Url) -> Result<SwapClient> {
-        let swap_client = SwapClient::new(mint_url.to_owned());
-        Ok(swap_client)
+    pub fn treasury_client(&self, mint_url: &url::Url) -> Result<TreasuryClient> {
+        let treasury_client = TreasuryClient::new(mint_url.to_owned());
+        Ok(treasury_client)
     }
 }
 
@@ -174,7 +174,7 @@ impl MintClientApi for MintClient {
         })?;
 
         let keyset_info = self
-            .key_client(mint_url)?
+            .core_client(mint_url)?
             .keyset_info(keyset_id_parsed)
             .await
             .map_err(|e| {
@@ -189,7 +189,7 @@ impl MintClientApi for MintClient {
             .map_err(|_| Error::PubKey)?;
 
         let proof_states = self
-            .swap_client(mint_url)?
+            .core_client(mint_url)?
             .check_state(ys)
             .await
             .map_err(|e| {
@@ -219,7 +219,7 @@ impl MintClientApi for MintClient {
             .map_err(|_| Error::PrivateKey)?;
         let qid = quote_id.to_owned();
         let currency = self
-            .key_client(mint_url)?
+            .core_client(mint_url)?
             .keyset_info(keyset.id)
             .await
             .map_err(|e| {
@@ -230,7 +230,7 @@ impl MintClientApi for MintClient {
 
         // mint
         let blinded_signatures = self
-            .key_client(mint_url)?
+            .treasury_client(mint_url)?
             .mint(qid, blinded_messages, secret_key)
             .await
             .map_err(|e| {
