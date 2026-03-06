@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use anyhow::{Result, anyhow};
 use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;

@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 #![allow(clippy::arc_with_non_send_sync)]
 use api::general::VERSION;
 use bcr_common::core::NodeId;

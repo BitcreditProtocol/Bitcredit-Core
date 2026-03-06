@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use std::{collections::HashMap, sync::Arc};
 
 use bcr_common::core::NodeId;

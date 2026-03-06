@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 pub mod bill;
 pub mod company;
 pub mod constants;
