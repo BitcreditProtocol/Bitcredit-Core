@@ -16,8 +16,8 @@ use crate::{
     Error,
     constants::{
         DB_BILL_ID, DB_MINT_NODE_ID, DB_MINT_REQUEST_ID, DB_MINT_REQUESTER_NODE_ID, DB_PROOFS,
-        DB_PROOFS_SPENT, DB_RECOVERY_DATA, DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_OFFERED,
-        DB_STATUS_PENDING, DB_TABLE,
+        DB_PROOFS_SPENT, DB_RECOVERY_DATA, DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_MINTINGENABLED,
+        DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
     },
     mint::MintStoreApi,
 };
@@ -80,8 +80,12 @@ impl MintStoreApi for SurrealMintStore {
         bindings.add(DB_STATUS_OFFERED, MintRequestStatusDb::Offered)?;
         bindings.add(DB_STATUS_PENDING, MintRequestStatusDb::Pending)?;
         bindings.add(DB_STATUS_ACCEPTED, MintRequestStatusDb::Accepted)?;
+        bindings.add(
+            DB_STATUS_MINTINGENABLED,
+            MintRequestStatusDb::MintingEnabled,
+        )?;
         let results: Vec<MintRequestDb> = self.db
-            .query("SELECT * from type::table($table) WHERE status = $status_offered OR status = $status_pending OR status = $status_accepted", bindings).await?;
+            .query("SELECT * from type::table($table) WHERE status = $status_offered OR status = $status_pending OR status = $status_accepted OR status = $status_mintingenabled", bindings).await?;
         results.into_iter().map(|c| c.try_into()).collect()
     }
 

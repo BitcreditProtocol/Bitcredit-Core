@@ -1,3 +1,7 @@
+# 0.5.3
+
+* Fix minting URL and use new bcr-common
+
 # 0.5.2
 
 * Add proper block validation for Company blocks

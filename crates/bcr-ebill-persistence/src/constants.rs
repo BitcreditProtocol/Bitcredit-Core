@@ -28,6 +28,7 @@ pub const DB_STATUS_LAST_CHECKED_TIMESTAMP: &str = "status_last_checked_timestam
 pub const DB_STATUS_OFFERED: &str = "status_offered";
 pub const DB_STATUS_PENDING: &str = "status_pending";
 pub const DB_STATUS_ACCEPTED: &str = "status_accepted";
+pub const DB_STATUS_MINTINGENABLED: &str = "status_mintingenabled";
 pub const DB_MINT_NODE_ID: &str = "mint_node_id";
 pub const DB_MINT_REQUEST_ID: &str = "mint_request_id";
 pub const DB_PROOFS: &str = "proofs";
