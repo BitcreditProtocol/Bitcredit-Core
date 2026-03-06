@@ -1,5 +1,4 @@
 use crate::protocol::blockchain::bill::ContactType;
-use crate::protocol::blockchain::bill::block::BillSignatoryBlockData;
 use crate::protocol::blockchain::identity::IdentityType;
 use crate::protocol::{File, OptionalPostalAddress};
 use crate::{
@@ -63,15 +62,6 @@ impl From<Identity> for IdentityCreateBlockData {
             nostr_relays: value.nostr_relays,
             profile_picture_file: value.profile_picture_file,
             identity_document_file: value.identity_document_file,
-        }
-    }
-}
-
-impl From<Identity> for BillSignatoryBlockData {
-    fn from(value: Identity) -> Self {
-        Self {
-            name: value.name,
-            node_id: value.node_id,
         }
     }
 }
