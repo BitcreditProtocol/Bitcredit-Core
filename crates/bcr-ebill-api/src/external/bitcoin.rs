@@ -300,12 +300,14 @@ impl BitcoinClientApi for BitcoinClient {
             origin: None,
         };
         let desc_seckey = miniscript::descriptor::DescriptorSecretKey::Single(single);
-        let desc_pubkey = desc_seckey.to_public(secp256k1::global::SECP256K1).unwrap();
+        let desc_pubkey = desc_seckey
+            .to_public(secp256k1::global::SECP256K1)
+            .expect("is a valid key");
         let kmap = miniscript::descriptor::KeyMap::from_iter(std::iter::once((
             desc_pubkey.clone(),
             desc_seckey,
         )));
-        let desc = miniscript::Descriptor::new_wpkh(desc_pubkey).unwrap();
+        let desc = miniscript::Descriptor::new_wpkh(desc_pubkey).expect("is a valid descriptor");
         Ok(desc.to_string_with_secret(&kmap))
     }
 

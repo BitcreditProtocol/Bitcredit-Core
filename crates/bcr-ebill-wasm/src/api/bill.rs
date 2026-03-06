@@ -57,13 +57,15 @@ async fn get_attachment(bill_id: &str, file_name: &Name) -> Result<(Vec<u8>, Str
     let parsed_bill_id = BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
     let current_timestamp = Timestamp::now();
     let identity = get_ctx().identity_service.get_identity().await?;
+    let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
     // get bill
     let bill = get_ctx()
         .bill_service
         .get_detail(
             &parsed_bill_id,
             &identity,
-            &get_current_identity_node_id().await?,
+            &caller_public_data,
+            &caller_keys,
             current_timestamp,
         )
         .await?;
@@ -108,12 +110,14 @@ impl Bill {
             let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let result = get_ctx()
                 .bill_service
                 .get_endorsements(
                     &bill_id,
                     &identity,
-                    &get_current_identity_node_id().await?,
+                    &caller_public_data,
+                    &caller_keys,
                     current_timestamp,
                 )
                 .await?;
@@ -254,6 +258,7 @@ impl Bill {
                     (Some(from), Some(to))
                 }
             };
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let bills = get_ctx()
                 .bill_service
                 .search_bills(
@@ -262,7 +267,8 @@ impl Bill {
                     from,
                     to,
                     &BillsFilterRole::from(filter.role),
-                    &get_current_identity_node_id().await?,
+                    &caller_public_data,
+                    &caller_keys,
                 )
                 .await?;
 
@@ -277,9 +283,10 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<LightBillsResponse>")]
     pub async fn list_light(&self) -> JsValue {
         let res: Result<LightBillsResponse> = async {
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let bills: Vec<LightBitcreditBillResult> = get_ctx()
                 .bill_service
-                .get_bills(&get_current_identity_node_id().await?)
+                .get_bills(&caller_public_data, &caller_keys)
                 .await?
                 .into_iter()
                 .map(|b| b.into())
@@ -295,9 +302,10 @@ impl Bill {
     #[wasm_bindgen(unchecked_return_type = "TSResult<BillsResponse>")]
     pub async fn list(&self) -> JsValue {
         let res: Result<BillsResponse> = async {
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let bills = get_ctx()
                 .bill_service
-                .get_bills(&get_current_identity_node_id().await?)
+                .get_bills(&caller_public_data, &caller_keys)
                 .await?;
             Ok(BillsResponse {
                 bills: bills.into_iter().map(|b| b.into()).collect(),
@@ -313,12 +321,15 @@ impl Bill {
             let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
+
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let bill_detail = get_ctx()
                 .bill_service
                 .get_detail(
                     &bill_id,
                     &identity,
-                    &get_current_identity_node_id().await?,
+                    &caller_public_data,
+                    &caller_keys,
                     current_timestamp,
                 )
                 .await?;
@@ -1093,12 +1104,14 @@ impl Bill {
                 BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
             let current_timestamp = Timestamp::now();
             let identity = get_ctx().identity_service.get_identity().await?;
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let res: BillHistoryResponse = get_ctx()
                 .bill_service
                 .get_bill_history(
                     &parsed_bill_id,
                     &identity,
-                    &get_current_identity_node_id().await?,
+                    &caller_public_data,
+                    &caller_keys,
                     current_timestamp,
                 )
                 .await?

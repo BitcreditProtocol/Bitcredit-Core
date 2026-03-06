@@ -19,29 +19,26 @@ use crate::{
 };
 use bcr_ebill_core::{
     application::bill::{
-        BillAcceptanceStatus, BillCallerActions, BillData, BillMintStatus, BillParticipants,
-        BillPaymentStatus, BillRecourseStatus, BillSellStatus, BillStatus, PaidData, PaymentState,
+        BillAcceptState, BillAcceptanceStatus, BillCallerActions, BillData, BillMintState,
+        BillMintStatus, BillParticipants, BillPaymentState, BillPaymentStatus, BillRecourseStatus,
+        BillSellStatus, BillState, BillStatus, PaidData, PaymentState,
     },
-    protocol::Address,
-    protocol::BitcoinAddress,
-    protocol::City,
-    protocol::Country,
-    protocol::Date,
-    protocol::Name,
-    protocol::Sum,
-    protocol::Timestamp,
-    protocol::blockchain::bill::participant::{BillIdentParticipant, BillParticipant},
-    protocol::blockchain::bill::{
-        BillBlock,
-        block::{
-            BillAcceptBlockData, BillIssueBlockData, BillOfferToSellBlockData,
-            BillParticipantBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
-            BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
-            BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+    protocol::{
+        Address, BitcoinAddress, City, Country, Date, Name, Sum, Timestamp,
+        blockchain::bill::{
+            BillBlock,
+            block::{
+                BillAcceptBlockData, BillIssueBlockData, BillOfferToSellBlockData,
+                BillParticipantBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
+                BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
+                BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+            },
+            participant::{BillIdentParticipant, BillParticipant},
         },
-    },
-    protocol::constants::{
-        ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
+        constants::{
+            ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
+            RECOURSE_DEADLINE_SECONDS,
+        },
     },
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
@@ -152,10 +149,16 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             has_requested_funds: false,
             last_block_time: test_ts(),
         },
+        state: BillState {
+            mint: BillMintState::None,
+            accept: BillAcceptState::None,
+            payment: BillPaymentState::None,
+        },
         current_waiting_state: None,
         history: BillHistory { blocks: vec![] },
         actions: BillCallerActions {
             bill_actions: vec![],
+            payment_actions: vec![],
         },
     }
 }

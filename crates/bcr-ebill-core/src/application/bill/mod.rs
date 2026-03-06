@@ -5,7 +5,7 @@ use super::{
 use crate::protocol::{
     BitcoinAddress, City, Country, Date, File, PostalAddress, Sum, Timestamp,
     blockchain::bill::{
-        BillHistory, BillOpCode, ContactType, PastPaymentStatus,
+        BillHistory, BillOpCode, ContactType, PaymentStatus,
         participant::{BillIdentParticipant, BillParticipant, SignedBy},
     },
 };
@@ -53,6 +53,48 @@ impl BillCallerBillAction {
     }
 }
 
+/// Possible Bill Payment Actions a caller can do on a bill
+#[derive(Debug, Clone)]
+pub enum BillCallerPaymentAction {
+    Pay(BillCallerPayment),
+    CheckPayment(BillCallerPayment),
+}
+
+#[derive(Debug, Clone)]
+pub enum BillCallerPayment {
+    Sell {
+        buyer: BillParticipant,
+        seller: BillParticipant,
+        state: BillCallerPaymentState,
+    },
+    Payment {
+        payer: BillIdentParticipant,
+        payee: BillParticipant,
+        state: BillCallerPaymentState,
+    },
+    Recourse {
+        recourser: BillParticipant,
+        recoursee: BillIdentParticipant,
+        state: BillCallerPaymentState,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct BillCallerPaymentState {
+    pub time_of_request: Timestamp,
+    pub sum: Sum,
+    pub link_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
+    pub mempool_link_for_address_to_pay: String,
+    pub status: PaymentStatus,
+    pub payment_deadline: Timestamp,
+    pub tx_id: Option<String>,
+    pub in_mempool: bool,
+    pub confirmations: u64,
+    // only set if we're receiver
+    pub private_descriptor_to_spend: Option<String>,
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Eq)]
 pub enum BillType {
@@ -67,12 +109,16 @@ pub struct BitcreditBillResult {
     pub id: BillId,
     pub participants: BillParticipants,
     pub data: BillData,
+    /* Marked for deprecation */
     pub status: BillStatus,
+    pub state: BillState,
+    /* Marked for deprecation */
     pub current_waiting_state: Option<BillCurrentWaitingState>,
     pub history: BillHistory,
     pub actions: BillCallerActions,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BillCurrentWaitingState {
     Sell(BillWaitingForSellState),
@@ -80,6 +126,7 @@ pub enum BillCurrentWaitingState {
     Recourse(BillWaitingForRecourseState),
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForSellState {
     pub buyer: BillParticipant,
@@ -87,6 +134,7 @@ pub struct BillWaitingForSellState {
     pub payment_data: BillWaitingStatePaymentData,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForPaymentState {
     pub payer: BillIdentParticipant,
@@ -94,6 +142,7 @@ pub struct BillWaitingForPaymentState {
     pub payment_data: BillWaitingStatePaymentData,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingForRecourseState {
     pub recourser: BillParticipant,
@@ -101,6 +150,7 @@ pub struct BillWaitingForRecourseState {
     pub payment_data: BillWaitingStatePaymentData,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillWaitingStatePaymentData {
     pub time_of_request: Timestamp,
@@ -114,18 +164,51 @@ pub struct BillWaitingStatePaymentData {
     pub payment_deadline: Option<Timestamp>,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone)]
 pub struct BillStatus {
     pub acceptance: BillAcceptanceStatus,
     pub payment: BillPaymentStatus,
     pub sell: BillSellStatus,
     pub recourse: BillRecourseStatus,
-    pub mint: BillMintStatus,
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
     pub last_block_time: Timestamp,
+    pub mint: BillMintStatus,
 }
 
+#[derive(Debug, Clone)]
+pub struct BillState {
+    pub mint: BillMintState,
+    pub accept: BillAcceptState,
+    pub payment: BillPaymentState,
+}
+
+#[derive(Debug, Clone)]
+pub enum BillAcceptState {
+    None,
+    Requested(Timestamp),
+    Accepted(Timestamp),
+    Expired(Timestamp),
+    Rejected(Timestamp),
+}
+
+#[derive(Debug, Clone)]
+pub enum BillPaymentState {
+    None,
+    Requested(Timestamp),
+    Paid(Timestamp),
+    Expired(Timestamp),
+    Rejected(Timestamp),
+}
+
+#[derive(Debug, Clone)]
+pub enum BillMintState {
+    None,
+    Requested,
+}
+
+/* Marked for deprecation */
 #[derive(Debug, Clone)]
 pub struct BillAcceptanceStatus {
     pub time_of_request_to_accept: Option<Timestamp>,
@@ -136,6 +219,7 @@ pub struct BillAcceptanceStatus {
     pub acceptance_deadline_timestamp: Option<Timestamp>,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone)]
 pub struct BillPaymentStatus {
     pub time_of_request_to_pay: Option<Timestamp>,
@@ -146,6 +230,7 @@ pub struct BillPaymentStatus {
     pub payment_deadline_timestamp: Option<Timestamp>,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone)]
 pub struct BillSellStatus {
     pub time_of_last_offer_to_sell: Option<Timestamp>,
@@ -156,6 +241,7 @@ pub struct BillSellStatus {
     pub buying_deadline_timestamp: Option<Timestamp>,
 }
 
+/* Marked for deprecation */
 #[derive(Debug, Clone)]
 pub struct BillRecourseStatus {
     pub time_of_last_request_to_recourse: Option<Timestamp>,
@@ -202,6 +288,7 @@ pub struct BillParticipants {
 pub struct BillCallerActions {
     /// Actions that concern the bill chain directly - e.g. Accept etc.
     pub bill_actions: Vec<BillCallerBillAction>,
+    pub payment_actions: Vec<BillCallerPaymentAction>,
 }
 
 impl BillHistory {
@@ -452,7 +539,7 @@ pub struct PastPaymentDataSell {
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
-    pub status: PastPaymentStatus,
+    pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
 
@@ -466,7 +553,7 @@ pub struct PastPaymentDataPayment {
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
-    pub status: PastPaymentStatus,
+    pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
 
@@ -480,7 +567,7 @@ pub struct PastPaymentDataRecourse {
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
     pub mempool_link_for_address_to_pay: String,
-    pub status: PastPaymentStatus,
+    pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
 
