@@ -2,11 +2,14 @@ use super::{
     contact::{LightBillIdentParticipant, LightBillParticipant},
     notification::Notification,
 };
-use crate::protocol::{
-    BitcoinAddress, City, Country, Date, File, PostalAddress, Sum, Timestamp,
-    blockchain::bill::{
-        BillHistory, BillOpCode, ContactType, PastPaymentStatus,
-        participant::{BillIdentParticipant, BillParticipant, SignedBy},
+use crate::{
+    application::contact::LightBillSignatory,
+    protocol::{
+        BitcoinAddress, City, Country, Date, File, PostalAddress, Sum, Timestamp,
+        blockchain::bill::{
+            BillHistory, BillOpCode, PastPaymentStatus,
+            participant::{BillIdentParticipant, BillParticipant, SignedBy},
+        },
     },
 };
 use bcr_common::core::{BillId, NodeId};
@@ -416,20 +419,16 @@ pub struct Endorsement {
 #[derive(Clone, Debug)]
 pub struct LightSignedBy {
     pub data: LightBillParticipant,
-    pub signatory: Option<LightBillIdentParticipant>,
+    pub signatory: Option<LightBillSignatory>,
 }
 
 impl From<SignedBy> for LightSignedBy {
     fn from(value: SignedBy) -> Self {
         Self {
             data: value.data.into(),
-            signatory: value.signatory.map(|s| {
-                LightBillIdentParticipant {
-                    // signatories are always identified people
-                    t: ContactType::Person,
-                    name: s.name,
-                    node_id: s.node_id,
-                }
+            signatory: value.signatory.map(|s| LightBillSignatory {
+                name: s.name,
+                node_id: s.node_id,
             }),
         }
     }

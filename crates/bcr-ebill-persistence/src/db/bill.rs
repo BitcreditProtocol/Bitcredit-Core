@@ -16,7 +16,7 @@ use bcr_ebill_core::application::bill::{
 };
 use bcr_ebill_core::application::contact::{
     LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
-    LightBillParticipant,
+    LightBillParticipant, LightBillSignatory,
 };
 use bcr_ebill_core::protocol::BlockId;
 use bcr_ebill_core::protocol::City;
@@ -988,7 +988,7 @@ impl From<&Endorsement> for EndorsementDb {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LightSignedByDb {
     pub data: BillParticipantDb,
-    pub signatory: Option<LightBillIdentParticipantDb>,
+    pub signatory: Option<LightBillSignatoryDb>,
 }
 
 impl From<LightSignedByDb> for SignedBy {
@@ -1025,14 +1025,10 @@ impl From<&SignedBy> for LightSignedByDb {
     fn from(value: &SignedBy) -> Self {
         Self {
             data: (&value.data).into(),
-            signatory: value
-                .signatory
-                .as_ref()
-                .map(|s| LightBillIdentParticipantDb {
-                    t: ContactType::Person, // signatory is always person
-                    name: s.name.to_owned(),
-                    node_id: s.node_id.to_owned(),
-                }),
+            signatory: value.signatory.as_ref().map(|s| LightBillSignatoryDb {
+                name: s.name.to_owned(),
+                node_id: s.node_id.to_owned(),
+            }),
         }
     }
 }
@@ -1086,6 +1082,30 @@ impl From<&LightBillIdentParticipant> for LightBillIdentParticipantDb {
     fn from(value: &LightBillIdentParticipant) -> Self {
         Self {
             t: value.t.to_owned(),
+            name: value.name.to_owned(),
+            node_id: value.node_id.to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LightBillSignatoryDb {
+    pub name: Option<Name>,
+    pub node_id: NodeId,
+}
+
+impl From<LightBillSignatoryDb> for LightBillSignatory {
+    fn from(value: LightBillSignatoryDb) -> Self {
+        Self {
+            name: value.name,
+            node_id: value.node_id,
+        }
+    }
+}
+
+impl From<&LightBillSignatory> for LightBillSignatoryDb {
+    fn from(value: &LightBillSignatory) -> Self {
+        Self {
             name: value.name.to_owned(),
             node_id: value.node_id.to_owned(),
         }

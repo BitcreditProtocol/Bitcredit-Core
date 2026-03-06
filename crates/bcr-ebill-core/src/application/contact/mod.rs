@@ -67,6 +67,12 @@ pub struct LightBillIdentParticipant {
     pub node_id: NodeId,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LightBillSignatory {
+    pub name: Option<Name>,
+    pub node_id: NodeId,
+}
+
 impl From<BillParticipant> for LightBillParticipant {
     fn from(value: BillParticipant) -> Self {
         match value {

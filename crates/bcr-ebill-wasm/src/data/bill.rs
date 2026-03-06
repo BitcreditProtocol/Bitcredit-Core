@@ -12,7 +12,7 @@ use bcr_ebill_core::{
         },
         contact::{
             LightBillAnonParticipant, LightBillIdentParticipant,
-            LightBillIdentParticipantWithAddress, LightBillParticipant,
+            LightBillIdentParticipantWithAddress, LightBillParticipant, LightBillSignatory,
         },
     },
     protocol::{
@@ -207,7 +207,7 @@ impl From<PastEndorsee> for PastEndorseeWeb {
 #[tsify(into_wasm_abi)]
 pub struct LightSignedByWeb {
     pub data: LightBillParticipantWeb,
-    pub signatory: Option<LightBillIdentParticipantWeb>,
+    pub signatory: Option<LightBillSignatoryWeb>,
 }
 
 impl From<LightSignedBy> for LightSignedByWeb {
@@ -223,8 +223,7 @@ impl From<SignedBy> for LightSignedByWeb {
     fn from(val: SignedBy) -> Self {
         LightSignedByWeb {
             data: LightBillParticipant::from(val.data).into(),
-            signatory: val.signatory.map(|s| LightBillIdentParticipantWeb {
-                t: ContactTypeWeb::Person,
+            signatory: val.signatory.map(|s| LightBillSignatoryWeb {
                 name: s.name,
                 node_id: s.node_id,
             }),
@@ -1077,6 +1076,24 @@ impl From<BillIdentParticipant> for LightBillIdentParticipantWeb {
     fn from(val: BillIdentParticipant) -> Self {
         LightBillIdentParticipantWeb {
             t: val.t.into(),
+            name: val.name,
+            node_id: val.node_id,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct LightBillSignatoryWeb {
+    #[tsify(type = "string | undefined")]
+    pub name: Option<Name>,
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+}
+
+impl From<LightBillSignatory> for LightBillSignatoryWeb {
+    fn from(val: LightBillSignatory) -> Self {
+        Self {
             name: val.name,
             node_id: val.node_id,
         }

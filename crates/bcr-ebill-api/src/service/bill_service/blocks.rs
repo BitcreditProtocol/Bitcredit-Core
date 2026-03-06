@@ -12,7 +12,7 @@ use bcr_ebill_core::{
                     BillOfferToSellBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
                     BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
                     BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
-                    ContactType,
+                    BillSignatoryBlockData, ContactType,
                 },
                 participant::BillParticipant,
             },
@@ -109,9 +109,16 @@ impl BillService {
                     } else {
                         signer_public_data.clone().into()
                     },
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -141,9 +148,16 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     currency: currency.to_owned(),
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -188,9 +202,16 @@ impl BillService {
                     recoursee: recoursee.clone().into(),
                     sum,
                     recourse_reason: reason,
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -227,9 +248,16 @@ impl BillService {
                     recoursee: recoursee.clone().into(),
                     sum: sum.clone(),
                     recourse_reason: reason,
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -260,9 +288,16 @@ impl BillService {
                     },
                     endorsee: mint.clone().into(),
                     sum: sum.clone(),
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -298,9 +333,16 @@ impl BillService {
                     buyer: buyer.clone().into(),
                     sum: sum.clone(),
                     payment_address: address_to_pay,
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -333,9 +375,16 @@ impl BillService {
                     buyer: buyer.clone().into(),
                     sum: sum.clone(),
                     payment_address: payment_address.to_owned(),
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -365,9 +414,16 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     endorsee: endorsee.clone().into(),
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -426,9 +482,16 @@ impl BillService {
                     } else {
                         signer_public_data.clone().into()
                     },
-                    signatory: signing_keys.signatory_identity,
+                    signatory: signatory_for_signer(
+                        holder_is_anon,
+                        signing_keys.signatory_identity,
+                    ),
                     signing_timestamp: timestamp,
-                    signing_address: signer_public_data.postal_address(),
+                    signing_address: if holder_is_anon {
+                        None
+                    } else {
+                        signer_public_data.postal_address()
+                    },
                     signer_identity_proof: if holder_is_anon {
                         None
                     } else {
@@ -752,4 +815,17 @@ impl BillService {
             .await?;
         Ok(())
     }
+}
+
+/// if the signer is anonymous, the signatory also needs to be anonymous
+fn signatory_for_signer(
+    signer_is_anon: bool,
+    signatory_data: Option<BillSignatoryBlockData>,
+) -> Option<BillSignatoryBlockData> {
+    signatory_data.map(|mut d| {
+        if signer_is_anon {
+            d.name = None;
+        }
+        d
+    })
 }
