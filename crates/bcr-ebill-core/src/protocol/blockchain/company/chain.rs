@@ -468,7 +468,8 @@ mod tests {
 
     use super::*;
     use crate::protocol::{
-        BlockId, City, Country, Date, Email, Identification, Name,
+        Address, BlockId, City, Country, Date, EditOptionalFieldMode, Email, Identification, Name,
+        Zip,
         blockchain::{
             bill::BillOpCode,
             company::block::{
@@ -480,7 +481,7 @@ mod tests {
         },
         tests::tests::{
             bill_id_test, node_id_test, node_id_test_other, private_key_test,
-            signed_identity_proof_test, test_ts, valid_address, valid_optional_address,
+            signed_identity_proof_test, test_ts, valid_address,
         },
     };
 
@@ -555,13 +556,16 @@ mod tests {
             &CompanyUpdateBlockData {
                 name: Some(Name::new("new_name").unwrap()),
                 email: None,
-                postal_address: valid_optional_address(),
-                country_of_registration: None,
-                city_of_registration: None,
-                registration_number: None,
-                registration_date: None,
-                logo_file: None,
-                proof_of_registration_file: None,
+                country: Some(Country::AT),
+                city: Some(City::new("Vienna").unwrap()),
+                zip: EditOptionalFieldMode::Set(Zip::new("1010").unwrap()),
+                address: Some(Address::new("Kärntner Straße 1").unwrap()),
+                country_of_registration: EditOptionalFieldMode::Ignore,
+                city_of_registration: EditOptionalFieldMode::Ignore,
+                registration_number: EditOptionalFieldMode::Ignore,
+                registration_date: EditOptionalFieldMode::Ignore,
+                logo_file: EditOptionalFieldMode::Ignore,
+                proof_of_registration_file: EditOptionalFieldMode::Ignore,
             },
             &identity_keys,
             &company_keys,

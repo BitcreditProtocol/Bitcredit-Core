@@ -4,11 +4,13 @@ use bcr_ebill_api::service::file_upload_service::{
     UploadFileHandler, detect_content_type_for_bytes,
 };
 use bcr_ebill_core::{
-    application::GeneralSearchFilterItemType, application::GeneralSearchResult,
-    application::UploadFileResult, application::ValidationError, protocol::Address, protocol::City,
-    protocol::Country, protocol::Date, protocol::File, protocol::Name,
-    protocol::OptionalPostalAddress, protocol::PostalAddress, protocol::Sha256Hash,
-    protocol::Timestamp, protocol::Zip,
+    application::{
+        GeneralSearchFilterItemType, GeneralSearchResult, UploadFileResult, ValidationError,
+    },
+    protocol::{
+        Address, City, Country, Date, EditOptionalFieldMode, File, Name, OptionalPostalAddress,
+        PostalAddress, Sha256Hash, Timestamp, Zip,
+    },
 };
 use bcr_ebill_persistence::notification::NotificationFilter;
 use bill::LightBitcreditBillWeb;
@@ -379,8 +381,40 @@ impl From<UploadFileResult> for UploadFileResponse {
     }
 }
 
-pub fn has_field(js_value: &JsValue, field: &str) -> bool {
-    js_sys::Reflect::has(js_value, &JsValue::from_str(field)).unwrap_or(false)
+// Checks if the given JS Value has the given field - also works with nested fields like postal_address.zip
+fn has_field(js_value: &JsValue, field: &str) -> bool {
+    let mut current = js_value.to_owned();
+
+    for part in field.split('.') {
+        let key = JsValue::from_str(part);
+
+        if !js_sys::Reflect::has(&current, &key).unwrap_or(false) {
+            return false;
+        }
+
+        match js_sys::Reflect::get(&current, &key) {
+            Ok(v) => current = v,
+            Err(_) => return false,
+        }
+    }
+
+    true
+}
+
+// If the field is set with a value, set it, if it's set to undefined, unset it, if it's not there, ignore it
+pub fn edit_field_mode<T>(
+    js_value: &JsValue,
+    field: &str,
+    data: Option<T>,
+) -> EditOptionalFieldMode<T> {
+    if has_field(js_value, field) {
+        match data {
+            Some(d) => EditOptionalFieldMode::Set(d),
+            None => EditOptionalFieldMode::Unset,
+        }
+    } else {
+        EditOptionalFieldMode::Ignore
+    }
 }
 
 /// Parses the given date of format YYYY-mm-dd to a UTC end-of-day timestamp

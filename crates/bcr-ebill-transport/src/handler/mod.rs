@@ -346,7 +346,10 @@ mod test_utils {
         identity::{Identity, IdentityWithAll},
         notification::{Notification, NotificationType},
     };
-    use bcr_ebill_core::protocol::blockchain::company::block::SignatoryType;
+    use bcr_ebill_core::protocol::blockchain::company::block::{
+        CompanyUpdateBlockData, SignatoryType,
+    };
+    use bcr_ebill_core::protocol::blockchain::identity::IdentityUpdateBlockData;
     use bcr_ebill_core::protocol::{
         Address, BlockId, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
         PostalAddress, PublicKey, SecretKey, Sum, Timestamp,
@@ -362,7 +365,9 @@ mod test_utils {
         crypto::BcrKeys,
         event::ActionType,
     };
-    use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
+    use bcr_ebill_core::protocol::{
+        EditOptionalFieldMode, EmailIdentityProofData, SignedIdentityProof,
+    };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result, ShareDirection,
         bill::{BillChainStoreApi, BillStoreApi},
@@ -865,5 +870,40 @@ mod test_utils {
             "f50032a6a67bc86f9542e74b7becc31847ff94d74e7760dcb797435d45463345",
         )
         .unwrap()
+    }
+
+    pub fn update_company_block_with_name(name: Option<Name>) -> CompanyUpdateBlockData {
+        CompanyUpdateBlockData {
+            name,
+            email: Default::default(),
+            country: Default::default(),
+            city: Default::default(),
+            zip: EditOptionalFieldMode::Ignore,
+            address: Default::default(),
+            country_of_registration: EditOptionalFieldMode::Ignore,
+            city_of_registration: EditOptionalFieldMode::Ignore,
+            registration_number: EditOptionalFieldMode::Ignore,
+            registration_date: EditOptionalFieldMode::Ignore,
+            logo_file: EditOptionalFieldMode::Ignore,
+            proof_of_registration_file: EditOptionalFieldMode::Ignore,
+        }
+    }
+
+    pub fn update_identity_block_with_name(name: Option<Name>) -> IdentityUpdateBlockData {
+        IdentityUpdateBlockData {
+            t: Default::default(),
+            name,
+            email: Default::default(),
+            country: Default::default(),
+            city: Default::default(),
+            zip: EditOptionalFieldMode::Ignore,
+            address: Default::default(),
+            date_of_birth: EditOptionalFieldMode::Ignore,
+            country_of_birth: EditOptionalFieldMode::Ignore,
+            city_of_birth: EditOptionalFieldMode::Ignore,
+            identification_number: EditOptionalFieldMode::Ignore,
+            profile_picture_file: EditOptionalFieldMode::Ignore,
+            identity_document_file: EditOptionalFieldMode::Ignore,
+        }
     }
 }

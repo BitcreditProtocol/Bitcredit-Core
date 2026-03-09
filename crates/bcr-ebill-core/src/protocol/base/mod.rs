@@ -128,3 +128,46 @@ pub struct File {
     )]
     pub nostr_hash: Sha256HexHash, // the identification hash on Nostr for the encrypted file, sha256 as hex
 }
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq,
+)]
+pub enum EditOptionalFieldMode<T> {
+    Set(T),
+    Unset,
+    Ignore,
+}
+
+impl<T> EditOptionalFieldMode<T> {
+    /// Converts an Option without unset - so None is ignore
+    pub fn from_option_no_unset(value: Option<T>) -> EditOptionalFieldMode<T> {
+        match value {
+            Some(v) => EditOptionalFieldMode::Set(v),
+            None => EditOptionalFieldMode::Ignore,
+        }
+    }
+
+    /// Given the previous value and an edit mode, calculates the new value
+    pub fn apply_to_option(&self, current: &Option<T>) -> Option<T>
+    where
+        T: Clone,
+    {
+        match self {
+            EditOptionalFieldMode::Set(v) => Some(v.to_owned()),
+            EditOptionalFieldMode::Unset => None,
+            EditOptionalFieldMode::Ignore => current.to_owned(),
+        }
+    }
+
+    /// Swaps in the given U value with the same mode the T had
+    pub fn swap_value<U>(self, value: Option<U>) -> EditOptionalFieldMode<U> {
+        match self {
+            EditOptionalFieldMode::Set(_) => match value {
+                Some(v) => EditOptionalFieldMode::Set(v),
+                None => EditOptionalFieldMode::Ignore,
+            },
+            EditOptionalFieldMode::Unset => EditOptionalFieldMode::Unset,
+            EditOptionalFieldMode::Ignore => EditOptionalFieldMode::Ignore,
+        }
+    }
+}

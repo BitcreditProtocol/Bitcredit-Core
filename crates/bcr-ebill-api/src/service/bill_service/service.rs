@@ -324,7 +324,7 @@ impl BillService {
                 self.transport_service
                     .notification_transport()
                     .send_request_to_action_timed_out_event(
-                        &identity.node_id, // TODO(company-notifications): how to handle jobs as company participant?
+                        &identity.node_id,
                         bill_id,
                         Some(bill.sum),
                         action.to_owned(),

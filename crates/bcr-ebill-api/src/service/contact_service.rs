@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
+use bcr_ebill_core::protocol::{Address, EditOptionalFieldMode, Zip};
 use bcr_ebill_core::protocol::{
-    City, Country, Date, Email, File, Identification, Name, OptionalPostalAddress, PostalAddress,
-    PublicKey, SecretKey, Sha256Hash,
+    City, Country, Date, Email, File, Identification, Name, PostalAddress, PublicKey, SecretKey,
+    Sha256Hash,
     blockchain::bill::{block::ContactType, participant::BillParticipant},
     crypto::{self, BcrKeys, DeriveKeypair},
 };
@@ -68,15 +69,16 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         node_id: &NodeId,
         name: Option<Name>,
         email: Option<Email>,
-        postal_address: OptionalPostalAddress,
-        date_of_birth_or_registration: Option<Date>,
-        country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<City>,
-        identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<Uuid>,
-        ignore_avatar_file_upload_id: bool,
-        proof_document_file_upload_id: Option<Uuid>,
-        ignore_proof_document_file_upload_id: bool,
+        country: Option<Country>,
+        city: Option<City>,
+        zip: EditOptionalFieldMode<Zip>,
+        address: Option<Address>,
+        date_of_birth_or_registration: EditOptionalFieldMode<Date>,
+        country_of_birth_or_registration: EditOptionalFieldMode<Country>,
+        city_of_birth_or_registration: EditOptionalFieldMode<City>,
+        identification_number: EditOptionalFieldMode<Identification>,
+        avatar_file_upload_id: EditOptionalFieldMode<Uuid>,
+        proof_document_file_upload_id: EditOptionalFieldMode<Uuid>,
     ) -> Result<()>;
 
     /// Adds a new contact
@@ -336,15 +338,16 @@ impl ContactServiceApi for ContactService {
         node_id: &NodeId,
         name: Option<Name>,
         email: Option<Email>,
-        postal_address: OptionalPostalAddress,
-        date_of_birth_or_registration: Option<Date>,
-        country_of_birth_or_registration: Option<Country>,
-        city_of_birth_or_registration: Option<City>,
-        identification_number: Option<Identification>,
-        avatar_file_upload_id: Option<Uuid>,
-        ignore_avatar_file_upload_id: bool,
-        proof_document_file_upload_id: Option<Uuid>,
-        ignore_proof_document_file_upload_id: bool,
+        country: Option<Country>,
+        city: Option<City>,
+        zip: EditOptionalFieldMode<Zip>,
+        address: Option<Address>,
+        date_of_birth_or_registration: EditOptionalFieldMode<Date>,
+        country_of_birth_or_registration: EditOptionalFieldMode<Country>,
+        city_of_birth_or_registration: EditOptionalFieldMode<City>,
+        identification_number: EditOptionalFieldMode<Identification>,
+        avatar_file_upload_id: EditOptionalFieldMode<Uuid>,
+        proof_document_file_upload_id: EditOptionalFieldMode<Uuid>,
     ) -> Result<()> {
         debug!("updating contact with node_id: {node_id}");
         validate_node_id_network(node_id)?;
@@ -374,23 +377,19 @@ impl ContactServiceApi for ContactService {
             }
 
             if let Some(ref mut contact_postal_address) = contact.postal_address {
-                if let Some(ref postal_address_city_to_set) = postal_address.city {
+                if let Some(ref postal_address_city_to_set) = city {
                     contact_postal_address.city = postal_address_city_to_set.clone();
                     changed = true;
                 }
 
-                if let Some(ref postal_address_country_to_set) = postal_address.country {
+                if let Some(ref postal_address_country_to_set) = country {
                     contact_postal_address.country = postal_address_country_to_set.clone();
                     changed = true;
                 }
 
-                util::update_optional_field(
-                    &mut contact_postal_address.zip,
-                    &postal_address.zip,
-                    &mut changed,
-                );
+                util::handle_optional_field(&mut contact_postal_address.zip, &zip, &mut changed);
 
-                if let Some(ref postal_address_address_to_set) = postal_address.address {
+                if let Some(ref postal_address_address_to_set) = address {
                     contact_postal_address.address = postal_address_address_to_set.clone();
                     changed = true;
                 }
@@ -400,80 +399,105 @@ impl ContactServiceApi for ContactService {
                 )));
             }
 
-            util::update_optional_field(
+            util::handle_optional_field(
                 &mut contact.date_of_birth_or_registration,
                 &date_of_birth_or_registration,
                 &mut changed,
             );
 
-            util::update_optional_field(
+            util::handle_optional_field(
                 &mut contact.country_of_birth_or_registration,
                 &country_of_birth_or_registration,
                 &mut changed,
             );
 
-            util::update_optional_field(
+            util::handle_optional_field(
                 &mut contact.city_of_birth_or_registration,
                 &city_of_birth_or_registration,
                 &mut changed,
             );
 
-            util::update_optional_field(
+            util::handle_optional_field(
                 &mut contact.identification_number,
                 &identification_number,
                 &mut changed,
             );
 
-            // remove the avatar
-            if !ignore_avatar_file_upload_id && avatar_file_upload_id.is_none() {
-                contact.avatar_file = None;
-                changed = true;
-            }
+            let _avatar_file = match avatar_file_upload_id {
+                EditOptionalFieldMode::Set(avatar_file_upload_id) => {
+                    // TODO(multi-relay): don't default to first
+                    if let Some(nostr_relay) = nostr_relays.first() {
+                        let avatar_file = self
+                            .process_upload_file(
+                                &Some(avatar_file_upload_id),
+                                node_id,
+                                &identity.key_pair.pub_key(),
+                                nostr_relay,
+                                UploadFileType::Picture,
+                            )
+                            .await?;
 
-            // remove the proof document
-            if !ignore_proof_document_file_upload_id && proof_document_file_upload_id.is_none() {
-                contact.proof_document_file = None;
-                changed = true;
-            }
+                        // only override the picture, if there is a new one
+                        if avatar_file.is_some() {
+                            contact.avatar_file = avatar_file.clone();
+                            changed = true;
+                        }
+                        avatar_file
+                    } else {
+                        None
+                    }
+                }
+                EditOptionalFieldMode::Unset => {
+                    // remove the avatar
+                    contact.avatar_file = None;
+                    changed = true;
+                    None
+                }
+                EditOptionalFieldMode::Ignore => {
+                    // nothing to do
+                    None
+                }
+            };
+
+            let _proof_document_file = match proof_document_file_upload_id {
+                EditOptionalFieldMode::Set(proof_document_file_upload_id) => {
+                    // TODO(multi-relay): don't default to first
+                    if let Some(nostr_relay) = nostr_relays.first() {
+                        let proof_document_file = self
+                            .process_upload_file(
+                                &Some(proof_document_file_upload_id),
+                                node_id,
+                                &identity.key_pair.pub_key(),
+                                nostr_relay,
+                                UploadFileType::Document,
+                            )
+                            .await?;
+
+                        // only override the document, if there is a new one
+                        if proof_document_file.is_some() {
+                            contact.proof_document_file = proof_document_file.clone();
+                            changed = true;
+                        }
+                        proof_document_file
+                    } else {
+                        None
+                    }
+                }
+                EditOptionalFieldMode::Unset => {
+                    // remove the proof document
+                    contact.proof_document_file = None;
+                    changed = true;
+                    None
+                }
+                EditOptionalFieldMode::Ignore => {
+                    // nothing to do
+                    None
+                }
+            };
 
             if !changed {
                 return Ok(());
             }
-
-            // TODO(multi-relay): don't default to first
-            if let Some(nostr_relay) = nostr_relays.first() {
-                if !ignore_avatar_file_upload_id {
-                    let avatar_file = self
-                        .process_upload_file(
-                            &avatar_file_upload_id,
-                            node_id,
-                            &identity.key_pair.pub_key(),
-                            nostr_relay,
-                            UploadFileType::Picture,
-                        )
-                        .await?;
-                    // only override the picture, if there is a new one
-                    if avatar_file.is_some() {
-                        contact.avatar_file = avatar_file;
-                    }
-                }
-
-                if !ignore_proof_document_file_upload_id {
-                    let proof_document_file = self
-                        .process_upload_file(
-                            &proof_document_file_upload_id,
-                            node_id,
-                            &identity.key_pair.pub_key(),
-                            nostr_relay,
-                            UploadFileType::Document,
-                        )
-                        .await?;
-                    // only override the document, if there is a new one
-                    if proof_document_file.is_some() {
-                        contact.proof_document_file = proof_document_file;
-                    }
-                }
-            };
         }
 
         self.store.update(node_id, contact.clone()).await?;
@@ -893,7 +917,7 @@ pub mod tests {
         tests::tests::{
             MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
             MockIdentityStoreApiMock, MockNostrContactStore, NODE_ID_TEST_STR, empty_address,
-            empty_optional_address, init_test_cfg, node_id_test, node_id_test_other,
+            init_test_cfg, node_id_test, node_id_test_other,
         },
     };
     use bcr_ebill_core::{application::nostr_contact::HandshakeStatus, protocol::crypto::BcrKeys};
@@ -1089,15 +1113,16 @@ pub mod tests {
                     &mainnet_node_id,
                     None,
                     None,
-                    OptionalPostalAddress::empty(),
                     None,
                     None,
+                    EditOptionalFieldMode::Ignore,
                     None,
-                    None,
-                    None,
-                    true,
-                    None,
-                    true,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
                 )
                 .await
                 .is_err()
@@ -1207,15 +1232,16 @@ pub mod tests {
             &node_id_test(),
             Some(Name::new("new_name").unwrap()),
             None,
-            empty_optional_address(),
             None,
             None,
+            EditOptionalFieldMode::Ignore,
             None,
-            None,
-            None,
-            true,
-            None,
-            true,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
         )
         .await;
         assert!(result.is_ok());

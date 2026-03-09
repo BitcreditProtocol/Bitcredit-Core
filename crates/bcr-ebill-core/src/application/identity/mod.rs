@@ -100,49 +100,39 @@ impl Identity {
             self.name = payload.name.to_owned().unwrap_or(self.name.to_owned());
             self.email = payload.email.to_owned().or(self.email.to_owned());
             self.postal_address.country = payload
-                .postal_address
                 .country
                 .to_owned()
                 .or(self.postal_address.country.to_owned());
             self.postal_address.city = payload
-                .postal_address
                 .city
                 .to_owned()
                 .or(self.postal_address.city.to_owned());
-            self.postal_address.zip = payload
-                .postal_address
-                .zip
-                .to_owned()
-                .or(self.postal_address.zip.to_owned());
+            self.postal_address.zip = payload.zip.apply_to_option(&self.postal_address.zip);
+
             self.postal_address.address = payload
-                .postal_address
                 .address
                 .to_owned()
                 .or(self.postal_address.address.to_owned());
-            self.date_of_birth = payload
-                .date_of_birth
-                .to_owned()
-                .or(self.date_of_birth.to_owned());
+
+            self.date_of_birth = payload.date_of_birth.apply_to_option(&self.date_of_birth);
+
             self.country_of_birth = payload
                 .country_of_birth
-                .to_owned()
-                .or(self.country_of_birth.to_owned());
-            self.city_of_birth = payload
-                .city_of_birth
-                .to_owned()
-                .or(self.city_of_birth.to_owned());
+                .apply_to_option(&self.country_of_birth);
+
+            self.city_of_birth = payload.city_of_birth.apply_to_option(&self.city_of_birth);
+
             self.identification_number = payload
                 .identification_number
-                .to_owned()
-                .or(self.identification_number.to_owned());
+                .apply_to_option(&self.identification_number);
+
             self.profile_picture_file = payload
                 .profile_picture_file
-                .to_owned()
-                .or(self.profile_picture_file.to_owned());
+                .apply_to_option(&self.profile_picture_file);
+
             self.identity_document_file = payload
                 .identity_document_file
-                .to_owned()
-                .or(self.identity_document_file.to_owned());
+                .apply_to_option(&self.identity_document_file);
         }
     }
 

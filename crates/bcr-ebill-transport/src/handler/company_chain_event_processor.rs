@@ -843,7 +843,7 @@ pub mod tests {
 
     use crate::handler::test_utils::{
         MockNotificationStore, get_valid_activated_signatory, node_id_test_another,
-        private_key_test, private_key_test_another,
+        private_key_test, private_key_test_another, update_company_block_with_name,
     };
     use crate::push_notification::MockPushApi;
     use crate::test_utils::{signed_identity_proof_test, test_ts};
@@ -1113,10 +1113,7 @@ pub mod tests {
         )];
         let mut chain = CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
         chain = add_creator_identity_proof_block(chain);
-        let data = CompanyUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_company_block_with_name(Some(Name::new("new_name").unwrap()));
         let update_block = get_company_update_block(
             node_id.clone(),
             chain.get_latest_block(),
@@ -1226,11 +1223,7 @@ pub mod tests {
         let mut skipped_chain =
             CompanyBlockchain::new_from_blocks(blocks).expect("could not create chain");
         skipped_chain = add_creator_identity_proof_block(skipped_chain);
-        let data_skipped = CompanyUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
-
+        let data_skipped = update_company_block_with_name(Some(Name::new("new_name").unwrap()));
         let skipped_block = get_company_update_block(
             node_id.clone(),
             skipped_chain.get_latest_block(),
@@ -1242,10 +1235,7 @@ pub mod tests {
         let mut full_chain = skipped_chain.clone();
         assert!(full_chain.try_add_block(skipped_block.clone()));
 
-        let data = CompanyUpdateBlockData {
-            name: Some(Name::new("another_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_company_block_with_name(Some(Name::new("another_name").unwrap()));
         let update_block = get_company_update_block(
             node_id.clone(),
             full_chain.get_latest_block(),
@@ -2213,10 +2203,9 @@ pub mod tests {
         let identity_node_id = identity_full.identity.node_id.clone();
         let identity_node_id_for_closure = identity_node_id.clone();
 
-        let update_data = CompanyBlockPayload::Update(CompanyUpdateBlockData {
-            name: Some(Name::new("Updated Company".to_string()).unwrap()),
-            ..Default::default()
-        });
+        let update_data = CompanyBlockPayload::Update(update_company_block_with_name(Some(
+            Name::new("Updated Company").unwrap(),
+        )));
 
         // CRITICAL: add_block should NEVER be called during side effect processing
         chain_store.expect_add_block().times(0);

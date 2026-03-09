@@ -508,6 +508,7 @@ pub mod tests {
     };
     use mockall::predicate::{always, eq};
 
+    use crate::handler::test_utils::update_identity_block_with_name;
     use crate::test_utils::{signed_identity_proof_test, test_ts};
     use crate::{
         handler::{
@@ -625,10 +626,7 @@ pub mod tests {
         let keys = full.key_pair.clone();
         let blocks = vec![get_identity_create_block(full.identity, &full.key_pair)];
         let chain = IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
-        let data = IdentityUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_identity_block_with_name(Some(Name::new("new_name").unwrap()));
         let update_block = get_identity_update_block(chain.get_latest_block(), &keys, &data);
 
         // checks if we already have the chain
@@ -694,20 +692,13 @@ pub mod tests {
         let skipped_chain =
             IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
 
-        let data_skipped = IdentityUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data_skipped = update_identity_block_with_name(Some(Name::new("new_name").unwrap()));
         let skipped_block =
             get_identity_update_block(skipped_chain.get_latest_block(), &keys, &data_skipped);
 
         let mut full_chain = skipped_chain.clone();
         full_chain.try_add_block(skipped_block.clone());
-
-        let data = IdentityUpdateBlockData {
-            name: Some(Name::new("another_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_identity_block_with_name(Some(Name::new("another_name").unwrap()));
         let update_block = get_identity_update_block(full_chain.get_latest_block(), &keys, &data);
 
         let event1 = generate_test_event(
@@ -940,10 +931,9 @@ pub mod tests {
         let full = get_baseline_identity();
         let identity = full.identity.clone();
 
-        let update_data = IdentityBlockPayload::Update(IdentityUpdateBlockData {
-            name: Some(Name::new("Updated".to_string()).unwrap()),
-            ..Default::default()
-        });
+        let update_data = IdentityBlockPayload::Update(update_identity_block_with_name(Some(
+            Name::new("Updated").unwrap(),
+        )));
 
         // CRITICAL: add_block should NEVER be called during side effect processing
         chain_store.expect_add_block().times(0);
