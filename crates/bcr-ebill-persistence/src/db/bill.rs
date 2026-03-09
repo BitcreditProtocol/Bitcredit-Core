@@ -8,11 +8,12 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::bill::{
-    BillAcceptanceStatus, BillCallerActions, BillCallerBillAction, BillCurrentWaitingState,
-    BillData, BillMintStatus, BillParticipants, BillPaymentStatus, BillRecourseStatus,
-    BillSellStatus, BillStatus, BillWaitingForPaymentState, BillWaitingForRecourseState,
-    BillWaitingForSellState, BillWaitingStatePaymentData, BitcreditBillResult, Endorsement,
-    InMempoolData, LightSignedBy, PaidData, PaymentState,
+    BillAcceptState, BillAcceptanceStatus, BillCallerActions, BillCallerBillAction,
+    BillCallerPayment, BillCallerPaymentAction, BillCallerPaymentState, BillCurrentWaitingState,
+    BillData, BillMintState, BillMintStatus, BillParticipants, BillPaymentState, BillPaymentStatus,
+    BillRecourseStatus, BillSellStatus, BillState, BillStatus, BillWaitingForPaymentState,
+    BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
+    BitcreditBillResult, Endorsement, InMempoolData, LightSignedBy, PaidData, PaymentState,
 };
 use bcr_ebill_core::application::contact::{
     LightBillAnonParticipant, LightBillIdentParticipant, LightBillIdentParticipantWithAddress,
@@ -28,7 +29,7 @@ use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::participant::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, BillSignatory, SignedBy,
 };
-use bcr_ebill_core::protocol::blockchain::bill::{BillHistory, BillHistoryBlock};
+use bcr_ebill_core::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PaymentStatus};
 use bcr_ebill_core::protocol::blockchain::bill::{BillOpCode, ContactType};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{BitcoinAddress, SecretKey};
@@ -379,6 +380,7 @@ pub struct BitcreditBillResultDb {
     pub participants: BillParticipantsDb,
     pub data: BillDataDb,
     pub status: BillStatusDb,
+    pub state: BillStateDb,
     pub current_waiting_state: Option<BillCurrentWaitingStateDb>,
     pub history: BillHistoryDb,
     pub actions: BillCallerActionsDb,
@@ -392,6 +394,7 @@ impl From<BitcreditBillResultDb> for BitcreditBillResult {
             participants: value.participants.into(),
             data: value.data.into(),
             status: value.status.into(),
+            state: value.state.into(),
             current_waiting_state: value.current_waiting_state.map(|cws| cws.into()),
             history: value.history.into(),
             actions: value.actions.into(),
@@ -406,9 +409,10 @@ impl From<(&BitcreditBillResult, &NodeId)> for BitcreditBillResultDb {
             participants: (&value.participants).into(),
             data: (&value.data).into(),
             status: (&value.status).into(),
+            state: (&value.state).into(),
             current_waiting_state: value.current_waiting_state.as_ref().map(|cws| cws.into()),
             history: value.history.clone().into(),
-            actions: value.actions.clone().into(),
+            actions: (&value.actions).into(),
             identity_node_id: identity_node_id.to_owned(),
         }
     }
@@ -613,6 +617,133 @@ impl From<&BillStatus> for BillStatusDb {
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
             last_block_time: value.last_block_time,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillStateDb {
+    pub mint: BillMintStateDb,
+    pub accept: BillAcceptStateDb,
+    pub payment: BillPaymentStateDb,
+}
+
+impl From<BillStateDb> for BillState {
+    fn from(value: BillStateDb) -> Self {
+        Self {
+            mint: value.mint.into(),
+            accept: value.accept.into(),
+            payment: value.payment.into(),
+        }
+    }
+}
+
+impl From<&BillState> for BillStateDb {
+    fn from(value: &BillState) -> Self {
+        Self {
+            mint: (&value.mint).into(),
+            accept: (&value.accept).into(),
+            payment: (&value.payment).into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillAcceptStateDb {
+    None,
+    Requested(Timestamp),
+    Accepted(Timestamp),
+    Expired(Timestamp),
+    Rejected(Timestamp),
+}
+
+impl From<BillAcceptStateDb> for BillAcceptState {
+    fn from(value: BillAcceptStateDb) -> Self {
+        match value {
+            BillAcceptStateDb::None => BillAcceptState::None,
+            BillAcceptStateDb::Requested(timestamp) => BillAcceptState::Requested(timestamp),
+            BillAcceptStateDb::Accepted(timestamp) => BillAcceptState::Accepted(timestamp),
+            BillAcceptStateDb::Expired(timestamp) => BillAcceptState::Expired(timestamp),
+            BillAcceptStateDb::Rejected(timestamp) => BillAcceptState::Rejected(timestamp),
+        }
+    }
+}
+
+impl From<&BillAcceptState> for BillAcceptStateDb {
+    fn from(value: &BillAcceptState) -> Self {
+        match value {
+            BillAcceptState::None => BillAcceptStateDb::None,
+            BillAcceptState::Requested(timestamp) => {
+                BillAcceptStateDb::Requested(timestamp.to_owned())
+            }
+            BillAcceptState::Accepted(timestamp) => {
+                BillAcceptStateDb::Accepted(timestamp.to_owned())
+            }
+            BillAcceptState::Expired(timestamp) => BillAcceptStateDb::Expired(timestamp.to_owned()),
+            BillAcceptState::Rejected(timestamp) => {
+                BillAcceptStateDb::Rejected(timestamp.to_owned())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillPaymentStateDb {
+    None,
+    Requested(Timestamp),
+    Paid(Timestamp),
+    Expired(Timestamp),
+    Rejected(Timestamp),
+}
+
+impl From<BillPaymentStateDb> for BillPaymentState {
+    fn from(value: BillPaymentStateDb) -> Self {
+        match value {
+            BillPaymentStateDb::None => BillPaymentState::None,
+            BillPaymentStateDb::Requested(timestamp) => BillPaymentState::Requested(timestamp),
+            BillPaymentStateDb::Paid(timestamp) => BillPaymentState::Paid(timestamp),
+            BillPaymentStateDb::Expired(timestamp) => BillPaymentState::Expired(timestamp),
+            BillPaymentStateDb::Rejected(timestamp) => BillPaymentState::Rejected(timestamp),
+        }
+    }
+}
+
+impl From<&BillPaymentState> for BillPaymentStateDb {
+    fn from(value: &BillPaymentState) -> Self {
+        match value {
+            BillPaymentState::None => BillPaymentStateDb::None,
+            BillPaymentState::Requested(timestamp) => {
+                BillPaymentStateDb::Requested(timestamp.to_owned())
+            }
+            BillPaymentState::Paid(timestamp) => BillPaymentStateDb::Paid(timestamp.to_owned()),
+            BillPaymentState::Expired(timestamp) => {
+                BillPaymentStateDb::Expired(timestamp.to_owned())
+            }
+            BillPaymentState::Rejected(timestamp) => {
+                BillPaymentStateDb::Rejected(timestamp.to_owned())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillMintStateDb {
+    None,
+    Requested,
+}
+impl From<BillMintStateDb> for BillMintState {
+    fn from(value: BillMintStateDb) -> Self {
+        match value {
+            BillMintStateDb::None => BillMintState::None,
+            BillMintStateDb::Requested => BillMintState::Requested,
+        }
+    }
+}
+impl From<&BillMintState> for BillMintStateDb {
+    fn from(value: &BillMintState) -> Self {
+        match value {
+            BillMintState::None => BillMintStateDb::None,
+            BillMintState::Requested => BillMintStateDb::Requested,
         }
     }
 }
@@ -898,20 +1029,230 @@ impl From<BillHistory> for BillHistoryDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillCallerActionsDb {
     pub bill_actions: Vec<BillCallerBillAction>,
+    pub payment_actions: Vec<BillCallerPaymentActionDb>,
 }
 
 impl From<BillCallerActionsDb> for BillCallerActions {
     fn from(value: BillCallerActionsDb) -> Self {
         Self {
             bill_actions: value.bill_actions,
+            payment_actions: value
+                .payment_actions
+                .into_iter()
+                .map(|b| b.into())
+                .collect(),
         }
     }
 }
 
-impl From<BillCallerActions> for BillCallerActionsDb {
-    fn from(value: BillCallerActions) -> Self {
+impl From<&BillCallerActions> for BillCallerActionsDb {
+    fn from(value: &BillCallerActions) -> Self {
         Self {
-            bill_actions: value.bill_actions,
+            bill_actions: value.bill_actions.to_owned(),
+            payment_actions: value.payment_actions.iter().map(|b| b.into()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillCallerPaymentActionDb {
+    Pay(BillCallerPaymentDb),
+    CheckPayment(BillCallerPaymentDb),
+}
+
+impl From<BillCallerPaymentActionDb> for BillCallerPaymentAction {
+    fn from(value: BillCallerPaymentActionDb) -> Self {
+        match value {
+            BillCallerPaymentActionDb::Pay(bill_caller_payment_db) => {
+                BillCallerPaymentAction::Pay(bill_caller_payment_db.into())
+            }
+            BillCallerPaymentActionDb::CheckPayment(bill_caller_payment_db) => {
+                BillCallerPaymentAction::CheckPayment(bill_caller_payment_db.into())
+            }
+        }
+    }
+}
+
+impl From<&BillCallerPaymentAction> for BillCallerPaymentActionDb {
+    fn from(value: &BillCallerPaymentAction) -> Self {
+        match value {
+            BillCallerPaymentAction::Pay(bill_caller_payment_db) => {
+                BillCallerPaymentActionDb::Pay(bill_caller_payment_db.into())
+            }
+            BillCallerPaymentAction::CheckPayment(bill_caller_payment_db) => {
+                BillCallerPaymentActionDb::CheckPayment(bill_caller_payment_db.into())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillCallerPaymentDb {
+    Sell {
+        buyer: BillParticipantDb,
+        seller: BillParticipantDb,
+        state: BillCallerPaymentStateDb,
+    },
+    Payment {
+        payer: BillIdentParticipantDb,
+        payee: BillParticipantDb,
+        state: BillCallerPaymentStateDb,
+    },
+    Recourse {
+        recourser: BillParticipantDb,
+        recoursee: BillIdentParticipantDb,
+        state: BillCallerPaymentStateDb,
+    },
+}
+
+impl From<BillCallerPaymentDb> for BillCallerPayment {
+    fn from(value: BillCallerPaymentDb) -> Self {
+        match value {
+            BillCallerPaymentDb::Sell {
+                buyer,
+                seller,
+                state,
+            } => BillCallerPayment::Sell {
+                buyer: buyer.into(),
+                seller: seller.into(),
+                state: state.into(),
+            },
+            BillCallerPaymentDb::Payment {
+                payer,
+                payee,
+                state,
+            } => BillCallerPayment::Payment {
+                payer: payer.into(),
+                payee: payee.into(),
+                state: state.into(),
+            },
+            BillCallerPaymentDb::Recourse {
+                recourser,
+                recoursee,
+                state,
+            } => BillCallerPayment::Recourse {
+                recourser: recourser.into(),
+                recoursee: recoursee.into(),
+                state: state.into(),
+            },
+        }
+    }
+}
+
+impl From<&BillCallerPayment> for BillCallerPaymentDb {
+    fn from(value: &BillCallerPayment) -> Self {
+        match value {
+            BillCallerPayment::Sell {
+                buyer,
+                seller,
+                state,
+            } => BillCallerPaymentDb::Sell {
+                buyer: buyer.into(),
+                seller: seller.into(),
+                state: state.into(),
+            },
+            BillCallerPayment::Payment {
+                payer,
+                payee,
+                state,
+            } => BillCallerPaymentDb::Payment {
+                payer: payer.into(),
+                payee: payee.into(),
+                state: state.into(),
+            },
+            BillCallerPayment::Recourse {
+                recourser,
+                recoursee,
+                state,
+            } => BillCallerPaymentDb::Recourse {
+                recourser: recourser.into(),
+                recoursee: recoursee.into(),
+                state: state.into(),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BillCallerPaymentStateDb {
+    pub time_of_request: Timestamp,
+    pub sum: Sum,
+    pub link_to_pay: String,
+    pub address_to_pay: BitcoinAddress,
+    pub private_descriptor_to_spend: Option<String>,
+    pub mempool_link_for_address_to_pay: String,
+    pub status: PaymentStatusDb,
+    pub payment_deadline: Timestamp,
+    pub tx_id: Option<String>,
+    pub in_mempool: bool,
+    pub confirmations: u64,
+}
+
+impl From<BillCallerPaymentStateDb> for BillCallerPaymentState {
+    fn from(value: BillCallerPaymentStateDb) -> Self {
+        Self {
+            time_of_request: value.time_of_request,
+            sum: value.sum,
+            link_to_pay: value.link_to_pay,
+            address_to_pay: value.address_to_pay,
+            private_descriptor_to_spend: value.private_descriptor_to_spend,
+            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
+            status: value.status.into(),
+            payment_deadline: value.payment_deadline,
+            tx_id: value.tx_id,
+            in_mempool: value.in_mempool,
+            confirmations: value.confirmations,
+        }
+    }
+}
+
+impl From<&BillCallerPaymentState> for BillCallerPaymentStateDb {
+    fn from(value: &BillCallerPaymentState) -> Self {
+        Self {
+            time_of_request: value.time_of_request,
+            sum: value.sum.to_owned(),
+            link_to_pay: value.link_to_pay.to_owned(),
+            address_to_pay: value.address_to_pay.to_owned(),
+            private_descriptor_to_spend: value
+                .private_descriptor_to_spend
+                .as_ref()
+                .map(|pd| pd.to_owned()),
+            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.to_owned(),
+            status: (&value.status).into(),
+            payment_deadline: value.payment_deadline,
+            tx_id: value.tx_id.as_ref().map(|tx| tx.to_owned()),
+            in_mempool: value.in_mempool,
+            confirmations: value.confirmations,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PaymentStatusDb {
+    Requested(Timestamp),
+    Paid(Timestamp),
+    Rejected(Timestamp),
+    Expired(Timestamp),
+}
+
+impl From<PaymentStatusDb> for PaymentStatus {
+    fn from(value: PaymentStatusDb) -> Self {
+        match value {
+            PaymentStatusDb::Requested(timestamp) => PaymentStatus::Requested(timestamp),
+            PaymentStatusDb::Paid(timestamp) => PaymentStatus::Paid(timestamp),
+            PaymentStatusDb::Rejected(timestamp) => PaymentStatus::Rejected(timestamp),
+            PaymentStatusDb::Expired(timestamp) => PaymentStatus::Expired(timestamp),
+        }
+    }
+}
+
+impl From<&PaymentStatus> for PaymentStatusDb {
+    fn from(value: &PaymentStatus) -> Self {
+        match value {
+            PaymentStatus::Requested(timestamp) => PaymentStatusDb::Requested(timestamp.to_owned()),
+            PaymentStatus::Paid(timestamp) => PaymentStatusDb::Paid(timestamp.to_owned()),
+            PaymentStatus::Rejected(timestamp) => PaymentStatusDb::Rejected(timestamp.to_owned()),
+            PaymentStatus::Expired(timestamp) => PaymentStatusDb::Expired(timestamp.to_owned()),
         }
     }
 }

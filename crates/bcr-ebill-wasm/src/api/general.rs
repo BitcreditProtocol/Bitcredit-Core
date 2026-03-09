@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     TSResult,
-    api::identity::get_current_identity_node_id,
+    api::bill::get_signer_public_data_and_keys,
     context::get_ctx,
     data::{
         BalanceResponse, BinaryFileResponse, CurrenciesResponse, CurrencyResponse,
@@ -108,9 +108,10 @@ impl General {
             };
 
             let parsed_currency = Currency::sat();
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let result = get_ctx()
                 .bill_service
-                .get_bill_balances(&parsed_currency, &get_current_identity_node_id().await?)
+                .get_bill_balances(&parsed_currency, &caller_public_data, &caller_keys)
                 .await?;
 
             Ok(OverviewResponse {
@@ -147,13 +148,15 @@ impl General {
                 .into_iter()
                 .map(GeneralSearchFilterItemType::from)
                 .collect();
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
             let result = get_ctx()
                 .search_service
                 .search(
                     &search_filter.filter.search_term,
                     &Currency::sat(),
                     &filters,
-                    &get_current_identity_node_id().await?,
+                    &caller_public_data,
+                    &caller_keys,
                 )
                 .await?;
 

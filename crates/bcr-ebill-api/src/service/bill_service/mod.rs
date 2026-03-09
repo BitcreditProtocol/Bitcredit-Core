@@ -51,7 +51,8 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn get_bill_balances(
         &self,
         currency: &Currency,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<BillsBalanceOverview>;
 
     /// Search for bills
@@ -62,13 +63,15 @@ pub trait BillServiceApi: ServiceTraitBounds {
         date_range_from: Option<Timestamp>,
         date_range_to: Option<Timestamp>,
         role: &BillsFilterRole,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<Vec<LightBitcreditBillResult>>;
 
     /// Gets all bills
     async fn get_bills(
         &self,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
     ) -> Result<Vec<BitcreditBillResult>>;
 
     /// Gets the combined bitcoin private key for a given bill
@@ -84,7 +87,8 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         bill_id: &BillId,
         local_identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult>;
 
@@ -170,7 +174,8 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         bill_id: &BillId,
         identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<Vec<Endorsement>>;
 
@@ -247,7 +252,8 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         bill_id: &BillId,
         local_identity: &Identity,
-        current_identity_node_id: &NodeId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BillHistory>;
 }

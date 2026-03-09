@@ -16,7 +16,7 @@ use crate::protocol::blockchain::bill::participant::{
     BillParticipant, BillSignatory, PastEndorsee, SignedBy,
 };
 use crate::protocol::blockchain::bill::validation::get_expiration_deadline_base_for_req_to_pay;
-use crate::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PastPaymentStatus};
+use crate::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PaymentStatus};
 use crate::protocol::blockchain::{Block, Blockchain, Error, borsh_to_json_value};
 use crate::protocol::crypto::BcrKeys;
 use bcr_common::core::NodeId;
@@ -355,7 +355,7 @@ impl BillBlockchain {
         bill_keys: &BcrKeys,
         node_id: &NodeId,
         timestamp: Timestamp,
-    ) -> Result<Vec<(SellPaymentInfo, PastPaymentStatus, Timestamp)>> {
+    ) -> Result<Vec<(SellPaymentInfo, PaymentStatus, Timestamp)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut sell_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -426,14 +426,14 @@ impl BillBlockchain {
                     BillOpCode::RejectToBuy => {
                         result.push((
                             payment_info,
-                            PastPaymentStatus::Rejected(reject_or_sell_block.timestamp),
+                            PaymentStatus::Rejected(reject_or_sell_block.timestamp),
                             offer_to_sell_block.timestamp,
                         ));
                     }
                     BillOpCode::Sell => {
                         result.push((
                             payment_info,
-                            PastPaymentStatus::Paid(reject_or_sell_block.timestamp),
+                            PaymentStatus::Paid(reject_or_sell_block.timestamp),
                             offer_to_sell_block.timestamp,
                         ));
                     }
@@ -446,9 +446,7 @@ impl BillBlockchain {
                     {
                         result.push((
                             payment_info,
-                            PastPaymentStatus::Expired(
-                                block_data_decrypted.buying_deadline_timestamp,
-                            ),
+                            PaymentStatus::Expired(block_data_decrypted.buying_deadline_timestamp),
                             offer_to_sell_block.timestamp,
                         ));
                     }
@@ -465,7 +463,7 @@ impl BillBlockchain {
         bill_keys: &BcrKeys,
         node_id: &NodeId,
         timestamp: Timestamp,
-    ) -> Result<Vec<(RecoursePaymentInfo, PastPaymentStatus, Timestamp)>> {
+    ) -> Result<Vec<(RecoursePaymentInfo, PaymentStatus, Timestamp)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut recourse_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -536,14 +534,14 @@ impl BillBlockchain {
                     BillOpCode::RejectToPayRecourse => {
                         result.push((
                             payment_info,
-                            PastPaymentStatus::Rejected(reject_or_recourse_block.timestamp),
+                            PaymentStatus::Rejected(reject_or_recourse_block.timestamp),
                             request_to_recourse_block.timestamp,
                         ));
                     }
                     BillOpCode::Recourse => {
                         result.push((
                             payment_info,
-                            PastPaymentStatus::Paid(reject_or_recourse_block.timestamp),
+                            PaymentStatus::Paid(reject_or_recourse_block.timestamp),
                             request_to_recourse_block.timestamp,
                         ));
                     }
@@ -556,7 +554,7 @@ impl BillBlockchain {
                     {
                         result.push((
                             payment_info,
-                            PastPaymentStatus::Expired(
+                            PaymentStatus::Expired(
                                 block_data_decrypted.recourse_deadline_timestamp,
                             ),
                             request_to_recourse_block.timestamp,
