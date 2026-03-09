@@ -179,11 +179,11 @@ pub struct SignedBy {
     pub signatory: Option<BillSignatory>,
 }
 
-/// The name and node_id of a company signatory
+/// The optional name and node_id of a company signatory
 #[derive(Debug, Clone)]
 pub struct BillSignatory {
     pub node_id: NodeId,
-    pub name: Name,
+    pub name: Option<Name>,
 }
 
 impl From<(BillParticipantBlockData, Option<BillSignatoryBlockData>)> for SignedBy {

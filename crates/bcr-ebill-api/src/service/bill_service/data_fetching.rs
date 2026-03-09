@@ -127,7 +127,10 @@ impl BillService {
                         (
                             signatory_identity.key_pair.clone(),
                             Some(signer_keys.clone()),
-                            Some(signatory_identity.identity.clone().into()),
+                            Some(BillSignatoryBlockData {
+                                node_id: signatory_identity.identity.node_id.clone(),
+                                name: Some(signatory_identity.identity.name.clone()),
+                            }),
                         )
                     }
                 };

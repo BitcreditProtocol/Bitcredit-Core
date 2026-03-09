@@ -440,7 +440,7 @@ impl TryFrom<u64> for ContactType {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillSignatoryBlockData {
     pub node_id: NodeId,
-    pub name: Name,
+    pub name: Option<Name>, // only set if the signer the signatory is signing for is not an anon holder
 }
 
 /// The identity proof data, signature and witness for the signer of the block
@@ -1976,7 +1976,7 @@ pub mod tests {
                 payment_address: valid_payment_address_testnet(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: buyer.node_id().clone(),
-                    name: Name::new("some name").unwrap(),
+                    name: Some(Name::new("some name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
@@ -2631,7 +2631,7 @@ pub mod tests {
                 bill,
                 Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 test_ts(),
                 signed_identity_proof_test(),
@@ -2660,7 +2660,7 @@ pub mod tests {
                 endorsee: BillParticipant::Ident(other_party.clone()).into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2693,7 +2693,7 @@ pub mod tests {
                 sum: Sum::new_sat(5000).expect("sat works"),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2724,7 +2724,7 @@ pub mod tests {
                 requester: BillParticipant::Ident(signer.clone()).into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2757,7 +2757,7 @@ pub mod tests {
                 currency: Currency::sat(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2789,7 +2789,7 @@ pub mod tests {
                 accepter: signer.clone().into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
@@ -2823,7 +2823,7 @@ pub mod tests {
                 payment_address: valid_payment_address_testnet(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2858,7 +2858,7 @@ pub mod tests {
                 payment_address: valid_payment_address_testnet(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2889,7 +2889,7 @@ pub mod tests {
                 rejecter: signer.clone().into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
@@ -2920,7 +2920,7 @@ pub mod tests {
                 rejecter: BillParticipant::Ident(signer.clone()).into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2951,7 +2951,7 @@ pub mod tests {
                 rejecter: signer.clone().into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
@@ -2982,7 +2982,7 @@ pub mod tests {
                 rejecter: signer.clone().into(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: signer.postal_address.clone(),
@@ -3017,7 +3017,7 @@ pub mod tests {
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -3052,7 +3052,7 @@ pub mod tests {
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -3097,7 +3097,7 @@ pub mod tests {
                 bill,
                 Some(BillSignatoryBlockData {
                     node_id: node_id_test(),
-                    name: Name::new("signatory name").unwrap(),
+                    name: Some(Name::new("signatory name").unwrap()),
                 }),
                 test_ts(),
                 signed_identity_proof_test(),
@@ -3153,7 +3153,7 @@ pub mod tests {
     fn valid_bill_signatory_block_data() -> BillSignatoryBlockData {
         BillSignatoryBlockData {
             node_id: node_id_test(),
-            name: Name::new("Johanna Smith").unwrap(),
+            name: Some(Name::new("Johanna Smith").unwrap()),
         }
     }
 

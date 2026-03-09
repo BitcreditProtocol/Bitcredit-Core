@@ -9,8 +9,9 @@ use crate::{
     },
     tests::tests::{
         bill_id_test, bill_id_test_other, bill_id_test_other2,
-        bill_identified_participant_only_node_id, empty_address, empty_bill_identified_participant,
-        empty_identity, init_test_cfg, node_id_test, node_id_test_other, private_key_test,
+        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
+        empty_bill_identified_participant, empty_identity, init_test_cfg, node_id_test,
+        node_id_test_another, node_id_test_other, private_key_test, private_key_test_another,
         signed_identity_proof_test, test_ts, valid_payment_address_testnet,
     },
     util::get_uuid_v4,
@@ -31,7 +32,7 @@ use bcr_ebill_core::{
         blockchain::{
             Block, Blockchain,
             bill::{
-                BillBlock, BillOpCode, PastPaymentStatus, RecourseReason,
+                BillBlock, BillOpCode, ContactType, PastPaymentStatus, RecourseReason,
                 block::{
                     BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
                     BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
@@ -3441,6 +3442,104 @@ async fn endorse_bitcredit_bill_anon_baseline() {
 }
 
 #[tokio::test]
+async fn endorse_bitcredit_bill_anon_company_and_back() {
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+    let company_node_id = node_id_test_another();
+    let company_participant =
+        BillAnonParticipant::from(bill_participant_only_node_id(company_node_id.clone()));
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+        identity.identity.node_id.clone(),
+    ));
+    ctx.bill_store
+        .expect_save_bill_to_cache()
+        .returning(|_, _, _| Ok(()));
+    let company_participant_clone = company_participant.clone();
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| {
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+
+            // add endorse block from payee to endorsee
+            let endorse_block = BillBlock::create_block_for_endorse(
+                bill_id_test(),
+                chain.get_latest_block(),
+                &BillEndorseBlockData {
+                    endorsee: BillParticipantBlockData::Anon(
+                        company_participant_clone.clone().into(),
+                    ),
+                    // endorsed by payee
+                    endorser: BillParticipantBlockData::Ident(
+                        BillIdentParticipant::new(get_baseline_identity().identity)
+                            .unwrap()
+                            .into(),
+                    ),
+                    signatory: None,
+                    signing_timestamp: test_ts() - 14,
+                    signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                },
+                &BcrKeys::from_private_key(&private_key_test()),
+                Some(&BcrKeys::from_private_key(&private_key_test_another())),
+                &BcrKeys::from_private_key(&private_key_test()),
+                test_ts() - 14,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(endorse_block));
+            Ok(chain)
+        });
+    // Bill is endorsed event should be sent
+    ctx.transport_service
+        .expect_send_bill_is_endorsed_event()
+        .returning(|_| Ok(()));
+    ctx.company_store
+        .expect_get_email_confirmations()
+        .returning(|_| Ok(vec![signed_identity_proof_test()]))
+        .times(1);
+    ctx.company_store.expect_get().returning(|_| {
+        let mut company = get_baseline_company_data();
+        company.1.0.id = node_id_test_another();
+        Ok(company.1.0)
+    });
+
+    // Populates identity block
+    expect_populates_company_and_identity_block(&mut ctx);
+
+    let service = get_service(ctx);
+
+    let mut company_ident_participant = bill_participant_only_node_id(company_node_id.clone());
+    if let BillParticipant::Ident(ref mut bill_ident_participant) = company_ident_participant {
+        bill_ident_participant.t = ContactType::Company;
+    };
+
+    let res = service
+        .execute_bill_action(
+            &bill_id_test(),
+            BillAction::Endorse(BillParticipant::Ident(
+                BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+            )),
+            &company_ident_participant,
+            &BcrKeys::from_private_key(&private_key_test_another()),
+            test_ts(),
+        )
+        .await;
+    assert!(res.is_ok());
+    assert!(res.as_ref().unwrap().blocks().len() == 3);
+    assert!(res.as_ref().unwrap().blocks()[1].op_code == BillOpCode::Endorse);
+    assert!(res.as_ref().unwrap().blocks()[2].op_code == BillOpCode::Endorse);
+    let last_endorse_data: BillEndorseBlockData = res
+        .unwrap()
+        .blocks()
+        .get(2)
+        .unwrap()
+        .get_decrypted_block(&BcrKeys::from_private_key(&private_key_test()))
+        .unwrap();
+    assert!(last_endorse_data.signatory.as_ref().unwrap().name.is_none()); // name is not set, because company was anon signer
+    assert!(last_endorse_data.signing_address.is_none()); // address is not set, because company was anon signer
+}
+
+#[tokio::test]
 async fn endorse_bitcredit_bill_fails_if_waiting_for_offer_to_sell() {
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
@@ -5622,7 +5721,7 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: Some(BillSignatoryBlockData {
                         node_id: get_baseline_identity().identity.node_id.clone(),
-                        name: get_baseline_identity().identity.name.clone(),
+                        name: Some(get_baseline_identity().identity.name.clone()),
                     }),
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),

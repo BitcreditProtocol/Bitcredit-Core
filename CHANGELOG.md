@@ -1,3 +1,8 @@
+# 0.5.4
+
+* If the bill holder is anon, the `signing_address` needs to not be set
+* If the bill holder is anon and a company, the `signatory` shouldn't have a `name` set (breaking DB and bill block change)
+
 # 0.5.3
 
 * Fix minting URL and use new bcr-common
