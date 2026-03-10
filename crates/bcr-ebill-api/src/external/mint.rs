@@ -5,6 +5,7 @@ use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk
 use bcr_common::client::core::Client as CoreClient;
 use bcr_common::client::quote::Client as QuoteClient;
 use bcr_common::client::treasury::Client as TreasuryClient;
+use bcr_common::core::BillId;
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::{
@@ -87,6 +88,7 @@ pub trait MintClientApi: ServiceTraitBounds {
     /// Mint and return encoded token
     async fn mint(
         &self,
+        bill_id: &BillId,
         mint_url: &url::Url,
         keyset: cdk02::KeySet,
         quote_id: &Uuid,
@@ -205,6 +207,7 @@ impl MintClientApi for MintClient {
 
     async fn mint(
         &self,
+        bill_id: &BillId,
         mint_url: &url::Url,
         keyset: cdk02::KeySet,
         quote_id: &Uuid,
@@ -246,8 +249,12 @@ impl MintClientApi for MintClient {
         })?;
 
         // generate token from proofs
-        let token =
-            bcr_wallet_lib::wallet::Token::new_bitcr(token_mint_url, proofs, None, currency);
+        let token = bcr_wallet_lib::wallet::Token::new_bitcr(
+            token_mint_url,
+            proofs,
+            Some(bill_id.to_string()),
+            currency,
+        );
 
         Ok(token.to_string())
     }

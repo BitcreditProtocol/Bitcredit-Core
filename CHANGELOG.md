@@ -5,6 +5,7 @@
 * Adapt actions and status implementation for `BitcreditBillResult` (breaking DB change - bill cache clear is enough
     * Add `payment_actions` and `state` to `BitcreditBillResult` 
     * Rename `PastPaymentStatus` to `PaymentStatus` (breaking API change)
+* Add bill id in minted user token
 
 # 0.5.3
 

@@ -7105,7 +7105,7 @@ async fn check_mint_state_minting_enabled_proofs() {
     });
     ctx.mint_client
         .expect_mint()
-        .returning(|_, _, _, _, _, _, _| Ok("proofs".into()));
+        .returning(|_, _, _, _, _, _, _, _| Ok("proofs".into()));
     ctx.mint_store
         .expect_add_recovery_data_to_offer()
         .returning(|_, _, _| Ok(()));
