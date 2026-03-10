@@ -123,10 +123,16 @@ impl From<bcr_ebill_core::protocol::ProtocolError> for Error {
 pub struct NostrContactData {
     pub metadata: Metadata,
     pub relays: Vec<RelayUrl>,
+    pub blossom_servers: Vec<url::Url>,
 }
 
 impl NostrContactData {
-    pub fn new(name: &Name, relays: Vec<url::Url>, bcr_data: BcrMetadata) -> Self {
+    pub fn new(
+        name: &Name,
+        relays: Vec<url::Url>,
+        blossom_servers: Vec<url::Url>,
+        bcr_data: BcrMetadata,
+    ) -> Self {
         // At some point we might want to add more metadata like payment info
         let mut metadata = Metadata::new()
             .name(name.as_str())
@@ -141,6 +147,7 @@ impl NostrContactData {
                 .into_iter()
                 .filter_map(|r| r.try_into_url().ok())
                 .collect(),
+            blossom_servers,
         }
     }
 
@@ -164,17 +171,25 @@ pub struct BcrMetadata {
 pub struct NostrConfig {
     pub keys: BcrKeys,
     pub relays: Vec<url::Url>,
+    pub blossom_servers: Vec<url::Url>,
     pub default_timeout: Duration,
     pub is_primary: bool,
     pub node_id: NodeId,
 }
 
 impl NostrConfig {
-    pub fn new(keys: BcrKeys, relays: Vec<url::Url>, is_primary: bool, node_id: NodeId) -> Self {
+    pub fn new(
+        keys: BcrKeys,
+        relays: Vec<url::Url>,
+        blossom_servers: Vec<url::Url>,
+        is_primary: bool,
+        node_id: NodeId,
+    ) -> Self {
         assert!(!relays.is_empty());
         Self {
             keys,
             relays,
+            blossom_servers,
             default_timeout: Duration::from_secs(20),
             is_primary,
             node_id,

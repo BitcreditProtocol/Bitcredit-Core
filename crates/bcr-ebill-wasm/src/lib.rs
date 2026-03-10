@@ -64,6 +64,7 @@ pub struct Config {
     )]
     pub esplora_base_urls: Vec<String>,
     pub nostr_relays: Vec<String>,
+    pub blossom_servers: Option<Vec<String>>,
     pub nostr_only_known_contacts: Option<bool>,
     pub nostr_max_relays: Option<usize>,
     pub job_runner_initial_delay_seconds: u32,
@@ -208,6 +209,12 @@ pub async fn initialize_api(
         .iter()
         .map(|nr| url::Url::parse(nr).expect("nostr relay is not a valid URL"))
         .collect();
+    let blossom_servers: Vec<url::Url> = config
+        .blossom_servers
+        .unwrap_or_default()
+        .iter()
+        .map(|server| url::Url::parse(server).expect("blossom server is not a valid URL"))
+        .collect();
     let mint_node_id = NodeId::from_str(&config.default_mint_node_id).expect("is a valid mint id");
     let api_config = ApiConfig {
         app_url: url::Url::parse(&config.app_url).expect("app url is not a valid URL"),
@@ -221,6 +228,7 @@ pub async fn initialize_api(
         files_db_config: SurrealDbConfig::default(), // unused in WASM builds
         nostr_config: NostrConfig {
             relays: nostr_relays,
+            blossom_servers,
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
             max_relays: config.nostr_max_relays.or(Some(50)),
         },

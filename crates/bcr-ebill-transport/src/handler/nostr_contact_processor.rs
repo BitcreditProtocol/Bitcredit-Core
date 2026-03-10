@@ -46,10 +46,12 @@ impl NostrContactProcessorApi for NostrContactProcessor {
             return;
         }
 
-        // we already have the contact in the store, no need to resolve it
-        if let Ok(Some(_)) = self.nostr_contact_store.by_node_id(node_id).await {
-            return;
-        }
+        let existing_contact = self
+            .nostr_contact_store
+            .by_node_id(node_id)
+            .await
+            .ok()
+            .flatten();
         // Let's try to get some details and add the contact
         if let Ok(Some(contact)) = self.transport.resolve_contact(node_id).await {
             let relays = contact.relays.iter().map(|r| r.to_owned().into()).collect();
@@ -58,12 +60,29 @@ impl NostrContactProcessorApi for NostrContactProcessor {
                 &NostrContact {
                     npub: node_id.npub(),
                     node_id: node_id.clone(),
-                    name: contact.metadata.name.and_then(|n| Name::new(&n).ok()), // if it's a valid name, set it, otherwise set it to None
+                    name: contact
+                        .metadata
+                        .name
+                        .and_then(|n| Name::new(&n).ok())
+                        .or_else(|| {
+                            existing_contact
+                                .as_ref()
+                                .and_then(|existing| existing.name.clone())
+                        }),
                     relays,
-                    trust_level: TrustLevel::Participant,
-                    handshake_status: HandshakeStatus::None,
-                    contact_private_key: None,
-                    mint_url: None,
+                    blossom_servers: contact.blossom_servers,
+                    trust_level: existing_contact
+                        .as_ref()
+                        .map(|existing| existing.trust_level.clone())
+                        .unwrap_or(TrustLevel::Participant),
+                    handshake_status: existing_contact
+                        .as_ref()
+                        .map(|existing| existing.handshake_status.clone())
+                        .unwrap_or(HandshakeStatus::None),
+                    contact_private_key: existing_contact
+                        .as_ref()
+                        .and_then(|existing| existing.contact_private_key),
+                    mint_url: existing_contact.and_then(|existing| existing.mint_url),
                 },
             )
             .await;

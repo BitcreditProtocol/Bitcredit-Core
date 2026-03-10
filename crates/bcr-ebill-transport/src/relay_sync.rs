@@ -311,6 +311,7 @@ mod tests {
         let client = crate::nostr::NostrClient::new(
             vec![(node_id, keys)],
             user_relays.clone(),
+            vec![],
             std::time::Duration::from_secs(10),
             None,
             Some(store.clone()),
@@ -360,6 +361,7 @@ mod tests {
         let client = crate::nostr::NostrClient::new(
             vec![(node_id, keys)],
             user_relays.clone(),
+            vec![],
             std::time::Duration::from_secs(10),
             None,
             Some(store.clone()),

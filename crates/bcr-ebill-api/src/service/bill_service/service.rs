@@ -6,7 +6,10 @@ use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
-use crate::service::file_upload_service::UploadFileType;
+use crate::service::Error as ServiceError;
+use crate::service::file_server_service::{
+    configured_blossom_servers, download_from_blossom_servers,
+};
 use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
 use async_trait::async_trait;
@@ -18,6 +21,7 @@ use bcr_ebill_core::application::bill::{
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+use bcr_ebill_core::protocol::Email;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::block::{
@@ -35,7 +39,6 @@ use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
 use bcr_ebill_core::protocol::event::ActionType;
 use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::protocol::{Currency, Sum};
-use bcr_ebill_core::protocol::{Email, ProtocolValidationError};
 use bcr_ebill_core::{
     application::ServiceTraitBounds, application::ValidationError, protocol::File,
     protocol::Validate,
@@ -47,7 +50,7 @@ use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::mint::MintStoreApi;
 use bcr_ebill_persistence::nostr::NostrContactStoreApi;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use secp256k1::SecretKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -713,40 +716,44 @@ impl BillService {
         })
     }
 
-    /// Download the files, decrypt them, encrypt and upload them for the given node id
-    /// and relay url and return a list of urls to the uploaded files
     async fn upload_bill_files_for_node_id(
         &self,
         bill_id: &BillId,
         bill_private_key: &SecretKey,
-        node_id: &NodeId,
-        relay_url: &url::Url,
         files: &[File],
     ) -> Result<Vec<url::Url>> {
         if files.is_empty() {
             return Ok(vec![]);
         }
-        let mut result = Vec::with_capacity(files.len());
+        let blossom_servers = configured_blossom_servers(&get_config().nostr_config);
+        let primary_server = blossom_servers.first().ok_or(Error::NotFound)?;
+
         for file in files {
-            let decrypted_file = self
+            let _ = self
                 .open_and_decrypt_attached_file(bill_id, file, bill_private_key)
                 .await?;
-            let uploaded_file = self
-                .encrypt_and_save_uploaded_file(
-                    &file.name,
-                    &decrypted_file,
-                    bill_id,
-                    &node_id.pub_key(),
-                    relay_url,
-                    UploadFileType::Document,
-                )
-                .await?;
-            result.push(file_storage::to_url(
-                relay_url,
-                &uploaded_file.nostr_hash.to_string(),
-            )?);
         }
-        Ok(result)
+
+        files
+            .iter()
+            .map(|file| file_storage::to_url(primary_server, &file.nostr_hash.to_string()))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// Collects the decryption keys we can use for bill attachments, including legacy participant keys.
+    async fn attachment_decryption_keys(&self, bill_private_key: &SecretKey) -> Vec<SecretKey> {
+        let mut keys = vec![*bill_private_key];
+        if let Ok(identity) = self.identity_store.get_full().await {
+            keys.push(identity.key_pair.get_private_key());
+        }
+        if let Ok(active_identity) = self.identity_store.get_current_identity().await
+            && let Some(company_id) = active_identity.company
+            && let Ok(company_keys) = self.company_store.get_key_pair(&company_id).await
+        {
+            keys.push(company_keys.get_private_key());
+        }
+        keys
     }
 }
 
@@ -1047,26 +1054,32 @@ impl BillServiceApi for BillService {
     ) -> Result<Vec<u8>> {
         debug!("getting file {} for bill with id: {bill_id}", file.name);
         validate_bill_id_network(bill_id)?;
-        let nostr_relays = get_config().nostr_config.relays.clone();
-        // TODO(multi-relay): don't default to first
-        if let Some(nostr_relay) = nostr_relays.first() {
-            let file_bytes = self
-                .file_upload_client
-                .download(nostr_relay, &file.nostr_hash)
-                .await?;
-            let decrypted = crypto::decrypt_ecies(&file_bytes, bill_private_key)?;
-            let file_hash = Sha256Hash::from_bytes(&decrypted);
-            if file_hash != file.hash {
-                error!(
-                    "Hash for bill file {} did not match uploaded file",
-                    file.name
-                );
-                return Err(super::Error::NotFound);
+        let file_bytes = download_from_blossom_servers(
+            self.file_upload_client.as_ref(),
+            &configured_blossom_servers(&get_config().nostr_config),
+            &file.nostr_hash,
+        )
+        .await
+        .map_err(|e| match e {
+            ServiceError::ExternalApi(err) => Error::ExternalApi(err),
+            ServiceError::CryptoUtil(err) => Error::Cryptography(err),
+            ServiceError::Validation(err) => Error::Validation(err),
+            ServiceError::NotFound => Error::NotFound,
+            _ => Error::NotFound,
+        })?;
+        for key in self.attachment_decryption_keys(bill_private_key).await {
+            if let Ok(decrypted) = crypto::decrypt_ecies(&file_bytes, &key) {
+                let file_hash = Sha256Hash::from_bytes(&decrypted);
+                if file_hash == file.hash {
+                    return Ok(decrypted);
+                }
             }
-            Ok(decrypted)
-        } else {
-            return Err(super::Error::NotFound);
         }
+        error!(
+            "Hash for bill file {} did not match uploaded file",
+            file.name
+        );
+        Err(super::Error::NotFound)
     }
 
     async fn issue_new_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {
@@ -1464,25 +1477,9 @@ impl BillServiceApi for BillService {
 
         // Upload existing files for the mint
         // TODO(multi-relay): don't default to first, but to file upload relay of receiver
-        let file_urls_for_mint = match mint_anon_participant.nostr_relays().first() {
-            Some(relay_url) => {
-                self.upload_bill_files_for_node_id(
-                    bill_id,
-                    &bill_keys.get_private_key(),
-                    &mint_anon_participant.node_id(),
-                    relay_url,
-                    &bill.files,
-                )
-                .await?
-            }
-            None => {
-                warn!(
-                    "mint {} does not have a nostr relay",
-                    &mint_anon_participant.node_id()
-                );
-                vec![]
-            }
-        };
+        let file_urls_for_mint = self
+            .upload_bill_files_for_node_id(bill_id, &bill_keys.get_private_key(), &bill.files)
+            .await?;
 
         // Send request to mint to mint
         let bill_to_share = create_bill_to_share_with_external_party(
@@ -1837,24 +1834,9 @@ impl BillServiceApi for BillService {
 
         // Upload existing files for the court to our relay
         // TODO(multi-relay): don't default to first, but to file upload relay of receiver
-        let file_urls_for_court = match signer_public_data.nostr_relays().first() {
-            Some(relay_url) => {
-                self.upload_bill_files_for_node_id(
-                    bill_id,
-                    &bill_keys.get_private_key(),
-                    court_node_id,
-                    relay_url,
-                    &bill.files,
-                )
-                .await?
-            }
-            None => {
-                warn!("caller does not have a nostr relay",);
-                return Err(Error::Validation(
-                    ProtocolValidationError::InvalidRelayUrl.into(),
-                ));
-            }
-        };
+        let file_urls_for_court = self
+            .upload_bill_files_for_node_id(bill_id, &bill_keys.get_private_key(), &bill.files)
+            .await?;
 
         // Send request to share with court
         let bill_to_share = create_bill_to_share_with_external_party(

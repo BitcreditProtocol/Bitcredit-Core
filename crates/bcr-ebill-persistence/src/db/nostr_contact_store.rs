@@ -532,6 +532,8 @@ pub struct NostrContactDb {
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.
     pub relays: Vec<url::Url>,
+    #[serde(default)]
+    pub blossom_servers: Vec<url::Url>,
     /// The trust level we assign to this contact.
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
@@ -549,6 +551,7 @@ impl From<NostrContact> for NostrContactDb {
             node_id: contact.node_id,
             name: contact.name,
             relays: contact.relays,
+            blossom_servers: contact.blossom_servers,
             trust_level: contact.trust_level,
             handshake_status: contact.handshake_status,
             contact_private_key: contact.contact_private_key,
@@ -565,6 +568,7 @@ impl TryFrom<NostrContactDb> for NostrContact {
             node_id: db.node_id,
             name: db.name,
             relays: db.relays,
+            blossom_servers: db.blossom_servers,
             trust_level: db.trust_level,
             handshake_status: db.handshake_status,
             contact_private_key: db.contact_private_key,
@@ -920,6 +924,7 @@ mod tests {
             node_id: node_id.clone(),
             name: name.or(Some(Name::new("contact_name").unwrap())),
             relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+            blossom_servers: vec![],
             trust_level: TrustLevel::None,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,

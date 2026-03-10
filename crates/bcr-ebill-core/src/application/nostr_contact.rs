@@ -24,6 +24,9 @@ pub struct NostrContact {
     /// The relays we found for this contact either from a message or the result of a relay list
     /// query.
     pub relays: Vec<url::Url>,
+    /// The Blossom servers we found for this contact from the user server list or relay fallback.
+    #[serde(default)]
+    pub blossom_servers: Vec<url::Url>,
     /// The trust level we assign to this contact.
     pub trust_level: TrustLevel,
     /// The handshake status with this contact.
@@ -47,6 +50,7 @@ impl NostrContact {
             node_id: contact.node_id.clone(),
             name: Some(contact.name.clone()),
             relays: contact.nostr_relays.clone(),
+            blossom_servers: vec![],
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
             contact_private_key: private_key,
@@ -64,6 +68,7 @@ impl NostrContact {
             node_id: self.node_id.clone(),
             name: Some(contact.name.clone()),
             relays: relays.into_iter().collect(),
+            blossom_servers: self.blossom_servers.clone(),
             trust_level: TrustLevel::Trusted,
             handshake_status: HandshakeStatus::Added,
             contact_private_key: private_key.or(self.contact_private_key),

@@ -29,7 +29,13 @@ use crate::{
     Config,
     external::file_storage::FileStorageClientApi,
     get_config,
-    service::{file_upload_service::UploadFileType, transport_service::TransportServiceApi},
+    service::{
+        file_server_service::{
+            download_from_blossom_servers, resolve_blossom_servers, upload_to_blossom_servers,
+        },
+        file_upload_service::UploadFileType,
+        transport_service::TransportServiceApi,
+    },
     util::{self, validate_node_id_network},
 };
 
@@ -201,7 +207,7 @@ impl ContactService {
         upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
+        fallback_relays: &[url::Url],
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -220,7 +226,13 @@ impl ContactService {
                 ));
             }
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, relay_url)
+                .encrypt_and_save_uploaded_file(
+                    file_name,
+                    file_bytes,
+                    id,
+                    public_key,
+                    fallback_relays,
+                )
                 .await?;
             return Ok(Some(file));
         }
@@ -233,11 +245,17 @@ impl ContactService {
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
+        fallback_relays: &[url::Url],
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
+        let blossom_servers = self.get_blossom_servers(node_id, fallback_relays).await;
+        let nostr_hash = upload_to_blossom_servers(
+            self.file_upload_client.as_ref(),
+            &blossom_servers,
+            encrypted,
+        )
+        .await?;
         info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
         Ok(File {
             name: file_name.to_owned(),
@@ -257,6 +275,22 @@ impl ContactService {
         };
         self.nostr_contact_store.upsert(&nostr_contact).await?;
         Ok(())
+    }
+
+    async fn get_blossom_servers(
+        &self,
+        node_id: &NodeId,
+        fallback_relays: &[url::Url],
+    ) -> Vec<url::Url> {
+        let known_servers = self
+            .nostr_contact_store
+            .by_node_id(node_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|contact| contact.blossom_servers)
+            .unwrap_or_default();
+        resolve_blossom_servers(&known_servers, fallback_relays)
     }
 }
 
@@ -425,27 +459,21 @@ impl ContactServiceApi for ContactService {
 
             let _avatar_file = match avatar_file_upload_id {
                 EditOptionalFieldMode::Set(avatar_file_upload_id) => {
-                    // TODO(multi-relay): don't default to first
-                    if let Some(nostr_relay) = nostr_relays.first() {
-                        let avatar_file = self
-                            .process_upload_file(
-                                &Some(avatar_file_upload_id),
-                                node_id,
-                                &identity.key_pair.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Picture,
-                            )
-                            .await?;
+                    let avatar_file = self
+                        .process_upload_file(
+                            &Some(avatar_file_upload_id),
+                            node_id,
+                            &identity.key_pair.pub_key(),
+                            &nostr_relays,
+                            UploadFileType::Picture,
+                        )
+                        .await?;
 
-                        // only override the picture, if there is a new one
-                        if avatar_file.is_some() {
-                            contact.avatar_file = avatar_file.clone();
-                            changed = true;
-                        }
-                        avatar_file
-                    } else {
-                        None
+                    if avatar_file.is_some() {
+                        contact.avatar_file = avatar_file.clone();
+                        changed = true;
                     }
+                    avatar_file
                 }
                 EditOptionalFieldMode::Unset => {
                     // remove the avatar
@@ -461,27 +489,21 @@ impl ContactServiceApi for ContactService {
 
             let _proof_document_file = match proof_document_file_upload_id {
                 EditOptionalFieldMode::Set(proof_document_file_upload_id) => {
-                    // TODO(multi-relay): don't default to first
-                    if let Some(nostr_relay) = nostr_relays.first() {
-                        let proof_document_file = self
-                            .process_upload_file(
-                                &Some(proof_document_file_upload_id),
-                                node_id,
-                                &identity.key_pair.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Document,
-                            )
-                            .await?;
+                    let proof_document_file = self
+                        .process_upload_file(
+                            &Some(proof_document_file_upload_id),
+                            node_id,
+                            &identity.key_pair.pub_key(),
+                            &nostr_relays,
+                            UploadFileType::Document,
+                        )
+                        .await?;
 
-                        // only override the document, if there is a new one
-                        if proof_document_file.is_some() {
-                            contact.proof_document_file = proof_document_file.clone();
-                            changed = true;
-                        }
-                        proof_document_file
-                    } else {
-                        None
+                    if proof_document_file.is_some() {
+                        contact.proof_document_file = proof_document_file.clone();
+                        changed = true;
                     }
+                    proof_document_file
                 }
                 EditOptionalFieldMode::Unset => {
                     // remove the proof document
@@ -536,32 +558,25 @@ impl ContactServiceApi for ContactService {
 
         let contact = match t {
             ContactType::Company | ContactType::Person => {
-                // TODO(multi-relay): don't default to first
-                let (avatar_file, proof_document_file) = match nostr_relays.first() {
-                    Some(nostr_relay) => {
-                        let avatar_file = self
-                            .process_upload_file(
-                                &avatar_file_upload_id,
-                                node_id,
-                                &identity.key_pair.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Picture,
-                            )
-                            .await?;
+                let avatar_file = self
+                    .process_upload_file(
+                        &avatar_file_upload_id,
+                        node_id,
+                        &identity.key_pair.pub_key(),
+                        &nostr_relays,
+                        UploadFileType::Picture,
+                    )
+                    .await?;
 
-                        let proof_document_file = self
-                            .process_upload_file(
-                                &proof_document_file_upload_id,
-                                node_id,
-                                &identity.key_pair.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Document,
-                            )
-                            .await?;
-                        (avatar_file, proof_document_file)
-                    }
-                    None => (None, None),
-                };
+                let proof_document_file = self
+                    .process_upload_file(
+                        &proof_document_file_upload_id,
+                        node_id,
+                        &identity.key_pair.pub_key(),
+                        &nostr_relays,
+                        UploadFileType::Document,
+                    )
+                    .await?;
 
                 Contact {
                     node_id: node_id.clone(),
@@ -655,32 +670,25 @@ impl ContactServiceApi for ContactService {
 
         let identity_public_key = self.identity_store.get_key_pair().await?.pub_key();
 
-        // TODO(multi-relay): don't default to first
-        let (avatar_file, proof_document_file) = match nostr_relays.first() {
-            Some(nostr_relay) => {
-                let avatar_file = self
-                    .process_upload_file(
-                        &avatar_file_upload_id,
-                        node_id,
-                        &identity_public_key,
-                        nostr_relay,
-                        UploadFileType::Picture,
-                    )
-                    .await?;
+        let avatar_file = self
+            .process_upload_file(
+                &avatar_file_upload_id,
+                node_id,
+                &identity_public_key,
+                &nostr_relays,
+                UploadFileType::Picture,
+            )
+            .await?;
 
-                let proof_document_file = self
-                    .process_upload_file(
-                        &proof_document_file_upload_id,
-                        node_id,
-                        &identity_public_key,
-                        nostr_relay,
-                        UploadFileType::Document,
-                    )
-                    .await?;
-                (avatar_file, proof_document_file)
-            }
-            None => (None, None),
-        };
+        let proof_document_file = self
+            .process_upload_file(
+                &proof_document_file_upload_id,
+                node_id,
+                &identity_public_key,
+                &nostr_relays,
+                UploadFileType::Document,
+            )
+            .await?;
 
         let contact = Contact {
             node_id: node_id.clone(),
@@ -742,39 +750,38 @@ impl ContactServiceApi for ContactService {
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for contact with id: {node_id}",);
         validate_node_id_network(node_id)?;
-        let nostr_relays = contact.nostr_relays.clone();
-        // TODO(multi-relay): don't default to first
-        if let Some(nostr_relay) = nostr_relays.first() {
-            let mut file = None;
-            if let Some(avatar_file) = contact.avatar_file
-                && &avatar_file.name == file_name
-            {
-                file = Some(avatar_file);
-            }
+        let mut file = None;
+        if let Some(avatar_file) = contact.avatar_file
+            && &avatar_file.name == file_name
+        {
+            file = Some(avatar_file);
+        }
 
-            if let Some(proof_document_file) = contact.proof_document_file
-                && &proof_document_file.name == file_name
-            {
-                file = Some(proof_document_file);
-            }
+        if let Some(proof_document_file) = contact.proof_document_file
+            && &proof_document_file.name == file_name
+        {
+            file = Some(proof_document_file);
+        }
 
-            if let Some(file) = file {
-                let file_bytes = self
-                    .file_upload_client
-                    .download(nostr_relay, &file.nostr_hash)
-                    .await?;
-                let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
-                let file_hash = Sha256Hash::from_bytes(&decrypted);
-                if file_hash != file.hash {
-                    error!("Hash for contact file {file_name} did not match uploaded file");
-                    return Err(super::Error::NotFound);
-                }
-                Ok(decrypted)
-            } else {
+        if let Some(file) = file {
+            let blossom_servers = self
+                .get_blossom_servers(node_id, &contact.nostr_relays)
+                .await;
+            let file_bytes = download_from_blossom_servers(
+                self.file_upload_client.as_ref(),
+                &blossom_servers,
+                &file.nostr_hash,
+            )
+            .await?;
+            let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
+            let file_hash = Sha256Hash::from_bytes(&decrypted);
+            if file_hash != file.hash {
+                error!("Hash for contact file {file_name} did not match uploaded file");
                 return Err(super::Error::NotFound);
             }
+            Ok(decrypted)
         } else {
-            return Err(super::Error::NotFound);
+            Err(super::Error::NotFound)
         }
     }
 
@@ -949,6 +956,7 @@ pub mod tests {
             node_id: node_id_test_other(),
             name: Some(Name::new("Other Contact").unwrap()),
             relays: vec![],
+            blossom_servers: vec![],
             trust_level: TrustLevel::Participant,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,
@@ -1527,6 +1535,7 @@ pub mod tests {
                 node_id: node_id_test(),
                 name: None,
                 relays: vec![],
+                blossom_servers: vec![],
                 trust_level: TrustLevel::Participant,
                 handshake_status: HandshakeStatus::None,
                 contact_private_key: None,

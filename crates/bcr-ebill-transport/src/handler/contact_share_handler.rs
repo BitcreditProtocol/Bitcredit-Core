@@ -582,6 +582,7 @@ mod tests {
         NostrContactData::new(
             &Name::new("My Name").unwrap(),
             vec![],
+            vec![],
             BcrMetadata {
                 contact_data: encypted,
             },

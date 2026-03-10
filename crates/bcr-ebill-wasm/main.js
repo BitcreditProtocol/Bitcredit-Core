@@ -113,6 +113,8 @@ let config = {
   esplora_base_url: "https://esplora.minibill.tech",
   // nostr_relays: ["ws://localhost:8080"],
   nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+  // this would be the default with current relay config
+  blossom_servers: ["https://bcr-relay-dev.minibill.tech"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 5,

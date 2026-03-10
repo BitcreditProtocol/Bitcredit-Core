@@ -103,6 +103,7 @@ pub async fn create_nostr_clients(
     let client = NostrClient::new(
         identities,
         config.nostr_config.relays.clone(),
+        config.nostr_config.blossom_servers.clone(),
         std::time::Duration::from_secs(20),
         config.nostr_config.max_relays,
         Some(nostr_contact_store),
@@ -332,6 +333,7 @@ pub async fn create_restore_account_service(
     let nostr_config = NostrConfig::new(
         keys.clone(),
         config.nostr_config.relays.clone(),
+        config.nostr_config.blossom_servers.clone(),
         true,
         node_id.clone(),
     );

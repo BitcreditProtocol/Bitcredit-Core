@@ -3,6 +3,9 @@ use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::service::Error;
+use crate::service::file_server_service::{
+    configured_blossom_servers, download_from_blossom_servers, upload_to_blossom_servers,
+};
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::{self, validate_node_id_network};
@@ -243,7 +246,6 @@ impl CompanyService {
         upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -262,7 +264,7 @@ impl CompanyService {
                 ));
             }
             let file = self
-                .encrypt_and_upload_file(file_name, file_bytes, id, public_key, relay_url)
+                .encrypt_and_upload_file(file_name, file_bytes, id, public_key)
                 .await?;
             return Ok(Some(file));
         }
@@ -275,11 +277,15 @@ impl CompanyService {
         file_bytes: &[u8],
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
+        let nostr_hash = upload_to_blossom_servers(
+            self.file_upload_client.as_ref(),
+            &configured_blossom_servers(&get_config().nostr_config),
+            encrypted,
+        )
+        .await?;
         info!("Saved company file {file_name} with hash {file_hash} for company {id}");
         Ok(File {
             name: file_name.to_owned(),
@@ -595,7 +601,6 @@ impl CompanyServiceApi for CompanyService {
         let company_keys = self.store.get_key_pair(&id).await?;
 
         let full_identity = self.identity_store.get_full().await?;
-        let nostr_relays = full_identity.identity.nostr_relays.clone();
         // company can only be created by identified identity
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
@@ -608,33 +613,23 @@ impl CompanyServiceApi for CompanyService {
             .check_confirmed_email(&full_identity.identity.node_id, &id, &creator_email)
             .await?;
 
-        // TODO(multi-relay): don't default to first
-        let (proof_of_registration_file, logo_file) = match nostr_relays.first() {
-            Some(nostr_relay) => {
-                // Save the files locally with the identity public key
-                let proof_of_registration_file = self
-                    .process_upload_file(
-                        &proof_of_registration_file_upload_id,
-                        &id,
-                        &company_keys.pub_key(),
-                        nostr_relay,
-                        UploadFileType::Document,
-                    )
-                    .await?;
+        let proof_of_registration_file = self
+            .process_upload_file(
+                &proof_of_registration_file_upload_id,
+                &id,
+                &company_keys.pub_key(),
+                UploadFileType::Document,
+            )
+            .await?;
 
-                let logo_file = self
-                    .process_upload_file(
-                        &logo_file_upload_id,
-                        &id,
-                        &company_keys.pub_key(),
-                        nostr_relay,
-                        UploadFileType::Picture,
-                    )
-                    .await?;
-                (proof_of_registration_file, logo_file)
-            }
-            None => (None, None),
-        };
+        let logo_file = self
+            .process_upload_file(
+                &logo_file_upload_id,
+                &id,
+                &company_keys.pub_key(),
+                UploadFileType::Picture,
+            )
+            .await?;
 
         let status = CompanyStatus::Active; // we're creator, so it's an active company
         let company = Company {
@@ -793,7 +788,6 @@ impl CompanyServiceApi for CompanyService {
             return Err(super::Error::NotFound);
         }
         let full_identity = self.identity_store.get_full().await?;
-        let nostr_relays = full_identity.identity.nostr_relays.clone();
         // company can only be edited by identified identity
         if full_identity.identity.t == IdentityType::Anon {
             return Err(super::Error::Validation(
@@ -871,29 +865,22 @@ impl CompanyServiceApi for CompanyService {
         );
 
         let logo_file = match logo_file_upload_id {
-            EditOptionalFieldMode::Set(logo_file_upload_id) => {
-                // TODO(multi-relay): don't default to first
-                if let Some(nostr_relay) = nostr_relays.first() {
+                EditOptionalFieldMode::Set(logo_file_upload_id) => {
                     let logo_file = self
                         .process_upload_file(
                             &Some(logo_file_upload_id),
                             id,
                             &company_keys.pub_key(),
-                            nostr_relay,
                             UploadFileType::Picture,
                         )
                         .await?;
 
-                    // only override the picture, if there is a new one
                     if logo_file.is_some() {
                         company.logo_file = logo_file.clone();
                         changed = true;
                     }
                     logo_file
-                } else {
-                    None
                 }
-            }
             EditOptionalFieldMode::Unset => {
                 // remove the logo
                 company.logo_file = None;
@@ -907,29 +894,22 @@ impl CompanyServiceApi for CompanyService {
         };
 
         let proof_of_registration_file = match proof_of_registration_file_upload_id {
-            EditOptionalFieldMode::Set(proof_of_registration_file_upload_id) => {
-                // TODO(multi-relay): don't default to first
-                if let Some(nostr_relay) = nostr_relays.first() {
+                EditOptionalFieldMode::Set(proof_of_registration_file_upload_id) => {
                     let proof_of_registration_file = self
                         .process_upload_file(
                             &Some(proof_of_registration_file_upload_id),
                             id,
                             &company_keys.pub_key(),
-                            nostr_relay,
                             UploadFileType::Document,
                         )
                         .await?;
 
-                    // only override the document, if there is a new one
                     if proof_of_registration_file.is_some() {
                         company.proof_of_registration_file = proof_of_registration_file.clone();
                         changed = true;
                     }
                     proof_of_registration_file
-                } else {
-                    None
                 }
-            }
             EditOptionalFieldMode::Unset => {
                 // remove the proof of registration
                 company.proof_of_registration_file = None;
@@ -1289,39 +1269,35 @@ impl CompanyServiceApi for CompanyService {
         }
         debug!("getting file {file_name} for company with id: {id}",);
         validate_node_id_network(id)?;
-        let nostr_relays = get_config().nostr_config.relays.clone();
-        // TODO(multi-relay): don't default to first
-        if let Some(nostr_relay) = nostr_relays.first() {
-            let mut file = None;
-            if let Some(logo_file) = company.logo_file
-                && &logo_file.name == file_name
-            {
-                file = Some(logo_file);
-            }
+        let mut file = None;
+        if let Some(logo_file) = company.logo_file
+            && &logo_file.name == file_name
+        {
+            file = Some(logo_file);
+        }
 
-            if let Some(proof_of_registration_file) = company.proof_of_registration_file
-                && &proof_of_registration_file.name == file_name
-            {
-                file = Some(proof_of_registration_file);
-            }
+        if let Some(proof_of_registration_file) = company.proof_of_registration_file
+            && &proof_of_registration_file.name == file_name
+        {
+            file = Some(proof_of_registration_file);
+        }
 
-            if let Some(file) = file {
-                let file_bytes = self
-                    .file_upload_client
-                    .download(nostr_relay, &file.nostr_hash)
-                    .await?;
-                let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
-                let file_hash = Sha256Hash::from_bytes(&decrypted);
-                if file_hash != file.hash {
-                    error!("Hash for company file {file_name} did not match uploaded file");
-                    return Err(super::Error::NotFound);
-                }
-                Ok(decrypted)
-            } else {
+        if let Some(file) = file {
+            let file_bytes = download_from_blossom_servers(
+                self.file_upload_client.as_ref(),
+                &configured_blossom_servers(&get_config().nostr_config),
+                &file.nostr_hash,
+            )
+            .await?;
+            let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
+            let file_hash = Sha256Hash::from_bytes(&decrypted);
+            if file_hash != file.hash {
+                error!("Hash for company file {file_name} did not match uploaded file");
                 return Err(super::Error::NotFound);
             }
+            Ok(decrypted)
         } else {
-            return Err(super::Error::NotFound);
+            Err(super::Error::NotFound)
         }
     }
 
@@ -1367,7 +1343,12 @@ impl CompanyServiceApi for CompanyService {
         let relays = get_config().nostr_config.relays.clone();
         let mint_url = Some(get_config().mint_config.default_mint_url.clone());
         let bcr_data = get_bcr_data(company, keys, relays.clone(), mint_url)?;
-        let contact_data = NostrContactData::new(&company.name, relays, bcr_data);
+        let contact_data = NostrContactData::new(
+            &company.name,
+            relays,
+            configured_blossom_servers(&get_config().nostr_config),
+            bcr_data,
+        );
         debug!("Publishing company contact data: {contact_data:?}");
         self.transport_service
             .contact_transport()
@@ -3928,7 +3909,6 @@ pub mod tests {
                 &file_bytes,
                 &company_id,
                 &node_id_test().pub_key(),
-                &url::Url::parse("ws://localhost:8080").unwrap(),
             )
             .await
             .unwrap();
@@ -3997,7 +3977,6 @@ pub mod tests {
                     &[],
                     &node_id_test(),
                     &node_id_test().pub_key(),
-                    &url::Url::parse("ws://localhost:8080").unwrap(),
                 )
                 .await
                 .is_err()

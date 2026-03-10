@@ -2,6 +2,9 @@ use super::Result;
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
+use crate::service::file_server_service::{
+    configured_blossom_servers, download_from_blossom_servers, upload_to_blossom_servers,
+};
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::validate_node_id_network;
@@ -178,7 +181,6 @@ impl IdentityService {
         upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -197,7 +199,7 @@ impl IdentityService {
                 ));
             }
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, relay_url)
+                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key)
                 .await?;
             return Ok(Some(file));
         }
@@ -210,11 +212,15 @@ impl IdentityService {
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
+        let nostr_hash = upload_to_blossom_servers(
+            self.file_upload_client.as_ref(),
+            &configured_blossom_servers(&get_config().nostr_config),
+            encrypted,
+        )
+        .await?;
         info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
         Ok(File {
             name: file_name.to_owned(),
@@ -391,8 +397,6 @@ impl IdentityServiceApi for IdentityService {
         let mut profile_picture_file = None;
         let mut identity_document_file = None;
 
-        let nostr_relays = identity.nostr_relays.clone();
-
         let keys = self.store.get_key_pair().await?;
 
         if let Some(ref name_to_set) = name
@@ -445,26 +449,19 @@ impl IdentityServiceApi for IdentityService {
 
             profile_picture_file = match profile_picture_file_upload_id {
                 EditOptionalFieldMode::Set(profile_picture_file_upload_id) => {
-                    // TODO(multi-relay): don't default to first
-                    if let Some(nostr_relay) = nostr_relays.first() {
-                        let profile_picture_file = self
-                            .process_upload_file(
-                                &Some(profile_picture_file_upload_id),
-                                &identity.node_id,
-                                &keys.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Picture,
-                            )
-                            .await?;
-                        // only override the picture, if there is a new one
-                        if profile_picture_file.is_some() {
-                            identity.profile_picture_file = profile_picture_file.clone();
-                            changed = true;
-                        }
-                        profile_picture_file
-                    } else {
-                        None
+                    let profile_picture_file = self
+                        .process_upload_file(
+                            &Some(profile_picture_file_upload_id),
+                            &identity.node_id,
+                            &keys.pub_key(),
+                            UploadFileType::Picture,
+                        )
+                        .await?;
+                    if profile_picture_file.is_some() {
+                        identity.profile_picture_file = profile_picture_file.clone();
+                        changed = true;
                     }
+                    profile_picture_file
                 }
                 EditOptionalFieldMode::Unset => {
                     // remove the profile picture
@@ -480,25 +477,18 @@ impl IdentityServiceApi for IdentityService {
 
             identity_document_file = match identity_document_file_upload_id {
                 EditOptionalFieldMode::Set(identity_document_file_upload_id) => {
-                    // TODO(multi-relay): don't default to first
-                    if let Some(nostr_relay) = nostr_relays.first() {
-                        let identity_document_file = self
-                            .process_upload_file(
-                                &Some(identity_document_file_upload_id),
-                                &identity.node_id,
-                                &keys.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Document,
-                            )
-                            .await?;
-                        // only override the document, if there is a new one
-                        if identity_document_file.is_some() {
-                            identity.identity_document_file = identity_document_file.clone();
-                        }
-                        identity_document_file
-                    } else {
-                        None
+                    let identity_document_file = self
+                        .process_upload_file(
+                            &Some(identity_document_file_upload_id),
+                            &identity.node_id,
+                            &keys.pub_key(),
+                            UploadFileType::Document,
+                        )
+                        .await?;
+                    if identity_document_file.is_some() {
+                        identity.identity_document_file = identity_document_file.clone();
                     }
+                    identity_document_file
                 }
                 EditOptionalFieldMode::Unset => {
                     // remove the document
@@ -638,38 +628,27 @@ impl IdentityServiceApi for IdentityService {
         let keys = self.store.get_or_create_key_pair().await?;
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
         validate_create_identity(t.clone(), &email, &postal_address)?;
-        let nostr_relays = get_config().nostr_config.relays.clone();
-
         let email_confirmation = self.check_confirmed_email(&email, &t, &node_id).await?;
 
         let identity = match t {
             IdentityType::Ident => {
-                // TODO(multi-relay): don't default to first
-                let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
-                    Some(nostr_relay) => {
-                        let profile_picture_file = self
-                            .process_upload_file(
-                                &profile_picture_file_upload_id,
-                                &node_id,
-                                &keys.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Picture,
-                            )
-                            .await?;
+                let profile_picture_file = self
+                    .process_upload_file(
+                        &profile_picture_file_upload_id,
+                        &node_id,
+                        &keys.pub_key(),
+                        UploadFileType::Picture,
+                    )
+                    .await?;
 
-                        let identity_document_file = self
-                            .process_upload_file(
-                                &identity_document_file_upload_id,
-                                &node_id,
-                                &keys.pub_key(),
-                                nostr_relay,
-                                UploadFileType::Document,
-                            )
-                            .await?;
-                        (profile_picture_file, identity_document_file)
-                    }
-                    None => (None, None),
-                };
+                let identity_document_file = self
+                    .process_upload_file(
+                        &identity_document_file_upload_id,
+                        &node_id,
+                        &keys.pub_key(),
+                        UploadFileType::Document,
+                    )
+                    .await?;
 
                 Identity {
                     t: t.clone(),
@@ -742,8 +721,6 @@ impl IdentityServiceApi for IdentityService {
         debug!("deanonymizing identity");
         let existing_identity = self.store.get().await?;
         let keys = self.store.get_key_pair().await?;
-        let nostr_relays = existing_identity.nostr_relays.clone();
-
         // can't de-anonymize to an anonymous identity
         if t == IdentityType::Anon {
             return Err(super::Error::Validation(
@@ -764,32 +741,23 @@ impl IdentityServiceApi for IdentityService {
             .check_confirmed_email(&email, &t, &existing_identity.node_id)
             .await?;
 
-        // TODO(multi-relay): don't default to first
-        let (profile_picture_file, identity_document_file) = match nostr_relays.first() {
-            Some(nostr_relay) => {
-                let profile_picture_file = self
-                    .process_upload_file(
-                        &profile_picture_file_upload_id,
-                        &existing_identity.node_id,
-                        &keys.pub_key(),
-                        nostr_relay,
-                        UploadFileType::Picture,
-                    )
-                    .await?;
+        let profile_picture_file = self
+            .process_upload_file(
+                &profile_picture_file_upload_id,
+                &existing_identity.node_id,
+                &keys.pub_key(),
+                UploadFileType::Picture,
+            )
+            .await?;
 
-                let identity_document_file = self
-                    .process_upload_file(
-                        &identity_document_file_upload_id,
-                        &existing_identity.node_id,
-                        &keys.pub_key(),
-                        nostr_relay,
-                        UploadFileType::Document,
-                    )
-                    .await?;
-                (profile_picture_file, identity_document_file)
-            }
-            None => (None, None),
-        };
+        let identity_document_file = self
+            .process_upload_file(
+                &identity_document_file_upload_id,
+                &existing_identity.node_id,
+                &keys.pub_key(),
+                UploadFileType::Document,
+            )
+            .await?;
 
         let identity = Identity {
             t: t.clone(),
@@ -868,40 +836,36 @@ impl IdentityServiceApi for IdentityService {
     ) -> Result<Vec<u8>> {
         validate_node_id_network(id)?;
         debug!("getting file {file_name} for identity with id: {id}");
-        let nostr_relays = identity.nostr_relays.clone();
-        // TODO(multi-relay): don't default to first
-        if let Some(nostr_relay) = nostr_relays.first() {
-            let mut file = None;
+        let mut file = None;
 
-            if let Some(profile_picture_file) = identity.profile_picture_file
-                && &profile_picture_file.name == file_name
-            {
-                file = Some(profile_picture_file);
-            }
+        if let Some(profile_picture_file) = identity.profile_picture_file
+            && &profile_picture_file.name == file_name
+        {
+            file = Some(profile_picture_file);
+        }
 
-            if let Some(identity_document_file) = identity.identity_document_file
-                && &identity_document_file.name == file_name
-            {
-                file = Some(identity_document_file);
-            }
+        if let Some(identity_document_file) = identity.identity_document_file
+            && &identity_document_file.name == file_name
+        {
+            file = Some(identity_document_file);
+        }
 
-            if let Some(file) = file {
-                let file_bytes = self
-                    .file_upload_client
-                    .download(nostr_relay, &file.nostr_hash)
-                    .await?;
-                let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
-                let file_hash = Sha256Hash::from_bytes(&decrypted);
-                if file_hash != file.hash {
-                    error!("Hash for identity file {file_name} did not match uploaded file");
-                    return Err(super::Error::NotFound);
-                }
-                Ok(decrypted)
-            } else {
+        if let Some(file) = file {
+            let file_bytes = download_from_blossom_servers(
+                self.file_upload_client.as_ref(),
+                &configured_blossom_servers(&get_config().nostr_config),
+                &file.nostr_hash,
+            )
+            .await?;
+            let decrypted = crypto::decrypt_ecies(&file_bytes, private_key)?;
+            let file_hash = Sha256Hash::from_bytes(&decrypted);
+            if file_hash != file.hash {
+                error!("Hash for identity file {file_name} did not match uploaded file");
                 return Err(super::Error::NotFound);
             }
+            Ok(decrypted)
         } else {
-            return Err(super::Error::NotFound);
+            Err(super::Error::NotFound)
         }
     }
 
@@ -976,8 +940,12 @@ impl IdentityServiceApi for IdentityService {
         debug!("Publishing our identity contact to nostr profile");
         let mint_url = Some(get_config().mint_config.default_mint_url.clone());
         let bcr_data = get_bcr_data(identity, keys, mint_url)?;
-        let contact_data =
-            NostrContactData::new(&identity.name, identity.nostr_relays.clone(), bcr_data);
+        let contact_data = NostrContactData::new(
+            &identity.name,
+            identity.nostr_relays.clone(),
+            configured_blossom_servers(&get_config().nostr_config),
+            bcr_data,
+        );
         self.block_transport
             .contact_transport()
             .publish_contact(&identity.node_id, &contact_data)
