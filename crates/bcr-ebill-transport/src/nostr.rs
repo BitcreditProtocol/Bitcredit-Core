@@ -1625,6 +1625,140 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_publish_and_fetch_blossom_server_list() {
+        let relay = get_mock_relay().await;
+        let relay_url = url::Url::parse(&relay.url()).unwrap();
+
+        let sender_keys = BcrKeys::new();
+        let sender_node_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let sender_config = NostrConfig::new(
+            sender_keys.clone(),
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            sender_node_id.clone(),
+        );
+        let sender = NostrClient::default(&sender_config).await.unwrap();
+        sender.connect().await.unwrap();
+
+        let receiver_keys = BcrKeys::new();
+        let receiver_node_id = NodeId::new(receiver_keys.pub_key(), bitcoin::Network::Testnet);
+        let receiver_config = NostrConfig::new(
+            receiver_keys,
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            receiver_node_id,
+        );
+        let receiver = NostrClient::default(&receiver_config).await.unwrap();
+        receiver.connect().await.unwrap();
+
+        let expected = vec![
+            url::Url::parse("https://blossom-one.example.com").unwrap(),
+            url::Url::parse("https://blossom-two.example.com").unwrap(),
+        ];
+
+        sender
+            .publish_blossom_server_list(&sender_node_id, expected.clone())
+            .await
+            .unwrap();
+        time::sleep(Duration::from_millis(100)).await;
+
+        let fetched = receiver
+            .fetch_blossom_server_list(sender_node_id.npub(), vec![relay_url])
+            .await
+            .unwrap();
+
+        assert_eq!(fetched, expected);
+    }
+
+    #[tokio::test]
+    async fn test_nostr_consumer_receives_blossom_server_list_event() {
+        let relay = get_mock_relay().await;
+        let relay_url = url::Url::parse(&relay.url()).unwrap();
+
+        let sender_keys = BcrKeys::new();
+        let sender_node_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let sender_config = NostrConfig::new(
+            sender_keys.clone(),
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            sender_node_id.clone(),
+        );
+        let sender = NostrClient::default(&sender_config).await.unwrap();
+        sender.connect().await.unwrap();
+
+        let receiver_keys = BcrKeys::new();
+        let receiver_node_id = NodeId::new(receiver_keys.pub_key(), bitcoin::Network::Testnet);
+        let receiver_config = NostrConfig::new(
+            receiver_keys,
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            receiver_node_id,
+        );
+        let receiver = Arc::new(NostrClient::default(&receiver_config).await.unwrap());
+
+        let mut contact_service = MockContactService::new();
+        let sender_npub = sender_node_id.npub();
+        contact_service
+            .expect_get_nostr_npubs()
+            .returning(move || Ok(vec![sender_npub]))
+            .once();
+        contact_service
+            .expect_is_known_npub()
+            .with(predicate::eq(sender_npub))
+            .returning(|_| Ok(true))
+            .once();
+
+        let mut offset_store = MockNostrEventOffsetStore::new();
+        offset_store
+            .expect_current_offset()
+            .returning(|_| Ok(Timestamp::zero()));
+        offset_store
+            .expect_is_processed()
+            .returning(|_| Ok(false))
+            .once();
+        offset_store
+            .expect_add_event()
+            .withf(|event: &NostrEventOffset| event.success)
+            .returning(|_| Ok(()))
+            .once();
+
+        let consumer = NostrConsumer::new(
+            receiver,
+            Arc::new(contact_service),
+            vec![],
+            Arc::new(offset_store),
+            Arc::new(MockChainKeyService::new()),
+        );
+
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async move {
+                let handle = tokio::task::spawn_local(async move {
+                    consumer
+                        .start()
+                        .await
+                        .expect("failed to start nostr consumer");
+                });
+
+                sender
+                    .publish_blossom_server_list(
+                        &sender_node_id,
+                        vec![url::Url::parse("https://blossom.example.com").unwrap()],
+                    )
+                    .await
+                    .unwrap();
+
+                time::sleep(Duration::from_millis(150)).await;
+                handle.abort();
+            })
+            .await;
+    }
+
+    #[tokio::test]
     async fn test_nostr_consumer_single_client_multi_identity() {
         let relay = get_mock_relay().await;
         let url = url::Url::parse(&relay.url()).unwrap();

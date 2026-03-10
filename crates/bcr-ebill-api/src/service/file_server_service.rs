@@ -129,3 +129,140 @@ pub async fn download_from_blossom_servers(
         None => Err(Error::NotFound),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::external::file_storage::{Error as FileStorageError, MockFileStorageClientApi};
+    use mockall::predicate::eq;
+    use std::str::FromStr;
+
+    fn test_config() -> NostrConfig {
+        NostrConfig {
+            only_known_contacts: false,
+            relays: vec![url::Url::parse("wss://relay.example.com").unwrap()],
+            blossom_servers: vec![],
+            max_relays: Some(50),
+        }
+    }
+
+    #[test]
+    fn blossom_server_from_relay_converts_websocket_schemes() {
+        assert_eq!(
+            blossom_server_from_relay(&url::Url::parse("ws://relay.example.com").unwrap())
+                .unwrap()
+                .as_str(),
+            "http://relay.example.com/"
+        );
+        assert_eq!(
+            blossom_server_from_relay(&url::Url::parse("wss://relay.example.com").unwrap())
+                .unwrap()
+                .as_str(),
+            "https://relay.example.com/"
+        );
+    }
+
+    #[test]
+    fn configured_and_resolved_blossom_servers_prefer_explicit_values() {
+        let explicit = url::Url::parse("https://blossom.example.com").unwrap();
+        let mut config = test_config();
+        config.blossom_servers = vec![explicit.clone()];
+
+        assert_eq!(configured_blossom_servers(&config), vec![explicit.clone()]);
+        assert_eq!(
+            resolve_blossom_servers(std::slice::from_ref(&explicit), &config.relays),
+            vec![explicit]
+        );
+    }
+
+    #[test]
+    fn configured_and_resolved_blossom_servers_fallback_to_first_relay() {
+        let config = test_config();
+        let expected = url::Url::parse("https://relay.example.com/").unwrap();
+
+        assert_eq!(configured_blossom_servers(&config), vec![expected.clone()]);
+        assert_eq!(resolve_blossom_servers(&[], &config.relays), vec![expected]);
+    }
+
+    #[test]
+    fn merge_blossom_servers_preserves_order_and_deduplicates() {
+        let merged = merge_blossom_servers(&[
+            &[
+                url::Url::parse("https://one.example.com").unwrap(),
+                url::Url::parse("https://two.example.com").unwrap(),
+            ],
+            &[
+                url::Url::parse("https://two.example.com").unwrap(),
+                url::Url::parse("https://three.example.com").unwrap(),
+            ],
+        ]);
+
+        assert_eq!(
+            merged,
+            vec![
+                url::Url::parse("https://one.example.com").unwrap(),
+                url::Url::parse("https://two.example.com").unwrap(),
+                url::Url::parse("https://three.example.com").unwrap(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_to_blossom_servers_succeeds_when_any_server_accepts_upload() {
+        let mut client = MockFileStorageClientApi::new();
+        let first = url::Url::parse("https://one.example.com").unwrap();
+        let second = url::Url::parse("https://two.example.com").unwrap();
+        let bytes = b"hello".to_vec();
+        let expected = Sha256HexHash::from_str(
+            "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+        )
+        .unwrap();
+
+        client
+            .expect_upload()
+            .with(eq(first.clone()), eq(bytes.clone()))
+            .returning(|_, _| Err(FileStorageError::InvalidRelayUrl.into()))
+            .once();
+        client
+            .expect_upload()
+            .with(eq(second.clone()), eq(bytes.clone()))
+            .returning(move |_, _| Ok(expected))
+            .once();
+
+        let result = upload_to_blossom_servers(&client, &[first, second], bytes)
+            .await
+            .unwrap();
+
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn download_from_blossom_servers_falls_back_until_one_server_returns_data() {
+        let mut client = MockFileStorageClientApi::new();
+        let first = url::Url::parse("https://one.example.com").unwrap();
+        let second = url::Url::parse("https://two.example.com").unwrap();
+        let nostr_hash = Sha256HexHash::from_str(
+            "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+        )
+        .unwrap();
+        let expected = b"hello".to_vec();
+
+        client
+            .expect_download()
+            .with(eq(first.clone()), eq(nostr_hash))
+            .returning(|_, _| Err(FileStorageError::InvalidRelayUrl.into()))
+            .once();
+        let expected_clone = expected.clone();
+        client
+            .expect_download()
+            .with(eq(second.clone()), eq(nostr_hash))
+            .returning(move |_, _| Ok(expected_clone.clone()))
+            .once();
+
+        let result = download_from_blossom_servers(&client, &[first, second], &nostr_hash)
+            .await
+            .unwrap();
+
+        assert_eq!(result, expected);
+    }
+}

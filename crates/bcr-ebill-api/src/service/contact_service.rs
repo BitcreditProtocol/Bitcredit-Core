@@ -1829,4 +1829,87 @@ pub mod tests {
 
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn get_blossom_servers_prefers_known_contact_servers() {
+        let (
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            mut nostr_contact_store,
+            transport,
+        ) = get_storages();
+        let expected = url::Url::parse("https://known-blossom.example.com").unwrap();
+
+        let expected_for_mock = expected.clone();
+        nostr_contact_store
+            .expect_by_node_id()
+            .returning(move |_| {
+                let mut contact = get_baseline_nostr_contact();
+                contact.blossom_servers = vec![expected_for_mock.clone()];
+                Ok(Some(contact))
+            })
+            .once();
+
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            nostr_contact_store,
+            transport,
+        );
+
+        let result = service
+            .get_blossom_servers(
+                &node_id_test_other(),
+                &[url::Url::parse("wss://relay.example.com").unwrap()],
+            )
+            .await;
+
+        assert_eq!(result, vec![expected]);
+    }
+
+    #[tokio::test]
+    async fn get_blossom_servers_falls_back_to_first_contact_relay() {
+        let (
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            mut nostr_contact_store,
+            transport,
+        ) = get_storages();
+
+        nostr_contact_store
+            .expect_by_node_id()
+            .returning(|_| Ok(None))
+            .once();
+
+        let service = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            identity_store,
+            company_store,
+            nostr_contact_store,
+            transport,
+        );
+
+        let result = service
+            .get_blossom_servers(
+                &node_id_test_other(),
+                &[url::Url::parse("wss://relay.example.com").unwrap()],
+            )
+            .await;
+
+        assert_eq!(
+            result,
+            vec![url::Url::parse("https://relay.example.com/").unwrap()]
+        );
+    }
 }
