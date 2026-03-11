@@ -22,6 +22,23 @@
             <img id="uploaded_file"/>
         </div>
         <div>
+            <h3>Attach Current Upload</h3>
+            <button type="button" id="attach_identity_profile_picture">Attach to current identity profile picture</button>
+            <button type="button" id="attach_contact_avatar">Attach to current contact avatar</button>
+            <button type="button" id="attach_company_proof">Attach to current company proof</button>
+            <div>Bill creation already uses the current file upload id automatically.</div>
+        </div>
+        <div>
+            <h3>Blossom URL Helper</h3>
+            Blossom base URL: <input type="text" id="blossom_base_url" size="50"/>
+            <br />
+            Nostr hash: <input type="text" id="blossom_nostr_hash" size="70"/>
+            <button type="button" id="build_blossom_url">Build URL</button>
+            <button type="button" id="open_blossom_url">Open URL</button>
+            <br />
+            Direct Blossom URL: <a id="blossom_direct_url" href="#" target="_blank" rel="noreferrer"></a>
+        </div>
+        <div>
             Contact node id: <input type="text" id="contact_id"/>
             File name: <input type="text" id="contact_file_name"/>
             <button type="button" id="fetch_contact_file">fetch file by node id and file name</button>
@@ -221,4 +238,3 @@
     <script type="module" src="/main.js"></script>
 </body>
 </html>
-
