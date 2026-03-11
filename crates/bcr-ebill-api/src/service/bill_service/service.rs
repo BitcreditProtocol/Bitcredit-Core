@@ -719,7 +719,7 @@ impl BillService {
 
     pub(super) async fn upload_bill_files_for_node_id(
         &self,
-        _bill_id: &BillId,
+        bill_id: &BillId,
         bill_private_key: &SecretKey,
         receiver_public_key: &PublicKey,
         files: &[File],
@@ -732,7 +732,7 @@ impl BillService {
         let mut file_urls = Vec::with_capacity(files.len());
         for file in files {
             let decrypted_file = self
-                .open_and_decrypt_attached_file(_bill_id, file, bill_private_key)
+                .open_and_decrypt_attached_file(bill_id, file, bill_private_key)
                 .await?;
             let encrypted_file = crypto::encrypt_ecies(&decrypted_file, receiver_public_key)?;
 
