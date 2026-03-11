@@ -7,7 +7,8 @@ use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::service::file_server_service::{
-    configured_blossom_servers, download_from_blossom_servers, upload_to_blossom_servers,
+    configured_blossom_servers, download_from_blossom_servers,
+    upload_to_blossom_servers_with_server,
 };
 use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
@@ -727,7 +728,6 @@ impl BillService {
             return Ok(vec![]);
         }
         let blossom_servers = configured_blossom_servers(&get_config().nostr_config);
-        let primary_server = blossom_servers.first().ok_or(Error::NotFound)?;
 
         let mut file_urls = Vec::with_capacity(files.len());
         for file in files {
@@ -736,7 +736,7 @@ impl BillService {
                 .await?;
             let encrypted_file = crypto::encrypt_ecies(&decrypted_file, receiver_public_key)?;
 
-            let uploaded_hash = upload_to_blossom_servers(
+            let (uploaded_server, uploaded_hash) = upload_to_blossom_servers_with_server(
                 self.file_upload_client.as_ref(),
                 &blossom_servers,
                 encrypted_file,
@@ -745,7 +745,7 @@ impl BillService {
             .map_err(Error::from)?;
 
             file_urls.push(file_storage::to_url(
-                primary_server,
+                &uploaded_server,
                 &uploaded_hash.to_string(),
             )?);
         }

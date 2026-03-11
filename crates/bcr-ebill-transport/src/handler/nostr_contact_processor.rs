@@ -70,7 +70,14 @@ impl NostrContactProcessorApi for NostrContactProcessor {
                                 .and_then(|existing| existing.name.clone())
                         }),
                     relays,
-                    blossom_servers: contact.blossom_servers,
+                    blossom_servers: if contact.blossom_servers.is_empty() {
+                        existing_contact
+                            .as_ref()
+                            .map(|existing| existing.blossom_servers.clone())
+                            .unwrap_or_default()
+                    } else {
+                        contact.blossom_servers.clone()
+                    },
                     trust_level: existing_contact
                         .as_ref()
                         .map(|existing| existing.trust_level.clone())

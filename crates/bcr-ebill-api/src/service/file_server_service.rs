@@ -1,6 +1,7 @@
 use crate::NostrConfig;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::{Error, Result};
+use bcr_ebill_core::protocol::ProtocolValidationError;
 use log::warn;
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 
@@ -16,10 +17,10 @@ pub fn blossom_server_from_relay(relay_url: &url::Url) -> Result<url::Url> {
     match blossom_url.scheme() {
         "ws" => blossom_url
             .set_scheme("http")
-            .map_err(|_| Error::NotFound)?,
+            .map_err(|_| Error::Validation(ProtocolValidationError::InvalidRelayUrl.into()))?,
         "wss" => blossom_url
             .set_scheme("https")
-            .map_err(|_| Error::NotFound)?,
+            .map_err(|_| Error::Validation(ProtocolValidationError::InvalidRelayUrl.into()))?,
         _ => {}
     }
     Ok(blossom_url)
@@ -72,6 +73,15 @@ pub async fn upload_to_blossom_servers(
     servers: &[url::Url],
     bytes: Vec<u8>,
 ) -> Result<Sha256HexHash> {
+    let (_, hash) = upload_to_blossom_servers_with_server(client, servers, bytes).await?;
+    Ok(hash)
+}
+
+pub async fn upload_to_blossom_servers_with_server(
+    client: &dyn FileStorageClientApi,
+    servers: &[url::Url],
+    bytes: Vec<u8>,
+) -> Result<(url::Url, Sha256HexHash)> {
     if servers.is_empty() {
         return Err(Error::NotFound);
     }
@@ -83,7 +93,7 @@ pub async fn upload_to_blossom_servers(
         match client.upload(server, bytes.clone()).await {
             Ok(hash) => {
                 if first_success.is_none() {
-                    first_success = Some(hash);
+                    first_success = Some((server.clone(), hash));
                 }
             }
             Err(err) => {
@@ -93,8 +103,8 @@ pub async fn upload_to_blossom_servers(
         }
     }
 
-    if let Some(hash) = first_success {
-        return Ok(hash);
+    if let Some(success) = first_success {
+        return Ok(success);
     }
 
     match last_error {
@@ -234,6 +244,36 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn upload_to_blossom_servers_with_server_returns_first_successful_server() {
+        let mut client = MockFileStorageClientApi::new();
+        let first = url::Url::parse("https://one.example.com").unwrap();
+        let second = url::Url::parse("https://two.example.com").unwrap();
+        let bytes = b"hello".to_vec();
+        let expected = Sha256HexHash::from_str(
+            "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+        )
+        .unwrap();
+
+        client
+            .expect_upload()
+            .with(eq(first.clone()), eq(bytes.clone()))
+            .returning(|_, _| Err(FileStorageError::InvalidRelayUrl.into()))
+            .once();
+        client
+            .expect_upload()
+            .with(eq(second.clone()), eq(bytes.clone()))
+            .returning(move |_, _| Ok(expected))
+            .once();
+
+        let result =
+            upload_to_blossom_servers_with_server(&client, &[first, second.clone()], bytes)
+                .await
+                .unwrap();
+
+        assert_eq!(result, (second, expected));
     }
 
     #[tokio::test]
