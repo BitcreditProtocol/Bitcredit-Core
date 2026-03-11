@@ -454,6 +454,7 @@ impl BillService {
                                 let proofs = self
                                     .mint_client
                                     .mint(
+                                        &mint_request.bill_id,
                                         &mint_cfg.default_mint_url,
                                         keyset_info,
                                         &mint_request.mint_request_id,
