@@ -865,22 +865,22 @@ impl CompanyServiceApi for CompanyService {
         );
 
         let logo_file = match logo_file_upload_id {
-                EditOptionalFieldMode::Set(logo_file_upload_id) => {
-                    let logo_file = self
-                        .process_upload_file(
-                            &Some(logo_file_upload_id),
-                            id,
-                            &company_keys.pub_key(),
-                            UploadFileType::Picture,
-                        )
-                        .await?;
+            EditOptionalFieldMode::Set(logo_file_upload_id) => {
+                let logo_file = self
+                    .process_upload_file(
+                        &Some(logo_file_upload_id),
+                        id,
+                        &company_keys.pub_key(),
+                        UploadFileType::Picture,
+                    )
+                    .await?;
 
-                    if logo_file.is_some() {
-                        company.logo_file = logo_file.clone();
-                        changed = true;
-                    }
-                    logo_file
+                if logo_file.is_some() {
+                    company.logo_file = logo_file.clone();
+                    changed = true;
                 }
+                logo_file
+            }
             EditOptionalFieldMode::Unset => {
                 // remove the logo
                 company.logo_file = None;
@@ -894,22 +894,22 @@ impl CompanyServiceApi for CompanyService {
         };
 
         let proof_of_registration_file = match proof_of_registration_file_upload_id {
-                EditOptionalFieldMode::Set(proof_of_registration_file_upload_id) => {
-                    let proof_of_registration_file = self
-                        .process_upload_file(
-                            &Some(proof_of_registration_file_upload_id),
-                            id,
-                            &company_keys.pub_key(),
-                            UploadFileType::Document,
-                        )
-                        .await?;
+            EditOptionalFieldMode::Set(proof_of_registration_file_upload_id) => {
+                let proof_of_registration_file = self
+                    .process_upload_file(
+                        &Some(proof_of_registration_file_upload_id),
+                        id,
+                        &company_keys.pub_key(),
+                        UploadFileType::Document,
+                    )
+                    .await?;
 
-                    if proof_of_registration_file.is_some() {
-                        company.proof_of_registration_file = proof_of_registration_file.clone();
-                        changed = true;
-                    }
-                    proof_of_registration_file
+                if proof_of_registration_file.is_some() {
+                    company.proof_of_registration_file = proof_of_registration_file.clone();
+                    changed = true;
                 }
+                proof_of_registration_file
+            }
             EditOptionalFieldMode::Unset => {
                 // remove the proof of registration
                 company.proof_of_registration_file = None;
