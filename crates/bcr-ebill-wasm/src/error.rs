@@ -63,6 +63,7 @@ enum JsErrorType {
     InvalidMint,
     IssueDateAfterMaturityDate,
     MaturityDateInThePast,
+    RequestToPayBeforeMaturityDate,
     InvalidFileUploadId,
     InvalidNodeId,
     InvalidBillId,
@@ -286,6 +287,9 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         }
         ProtocolValidationError::IssueDateAfterMaturityDate => {
             err_400(e, JsErrorType::IssueDateAfterMaturityDate)
+        }
+        ProtocolValidationError::RequestToPayBeforeMaturityDate => {
+            err_400(e, JsErrorType::RequestToPayBeforeMaturityDate)
         }
         ProtocolValidationError::InvalidFileUploadId => {
             err_400(e, JsErrorType::InvalidFileUploadId)

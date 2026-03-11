@@ -137,6 +137,10 @@ pub enum ProtocolValidationError {
     #[error("Issue date after maturity date")]
     IssueDateAfterMaturityDate,
 
+    /// error returned if the request to pay happened before the maturity date
+    #[error("Request to pay before maturity date")]
+    RequestToPayBeforeMaturityDate,
+
     /// error returned if the currency was invalid
     #[error("Invalid currency")]
     InvalidCurrency,

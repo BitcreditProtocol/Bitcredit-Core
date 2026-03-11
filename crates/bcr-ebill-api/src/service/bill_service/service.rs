@@ -227,20 +227,12 @@ impl BillService {
         let bill_keys = self.store.get_keys(bill_id).await?;
         let contacts = self.contact_store.get_map().await?;
         let mut recoursee = None;
-        let bill_data = chain
-            .get_first_version_bill(&bill_keys)
-            .map_err(|e| Error::Protocol(e.into()))?;
 
         let latest_block = chain.get_latest_block();
         if let Some(action) = match latest_block.op_code {
             BillOpCode::RequestToPay
                 if chain
-                    .is_req_to_pay_block_payment_expired(
-                        latest_block,
-                        &bill_keys,
-                        now,
-                        Some(&bill_data.maturity_date),
-                    )
+                    .is_req_to_pay_block_payment_expired(latest_block, &bill_keys, now)
                     .map_err(|e| Error::Protocol(e.into()))?
                     .0 =>
             {

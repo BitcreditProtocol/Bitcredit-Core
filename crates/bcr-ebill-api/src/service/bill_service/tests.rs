@@ -6414,15 +6414,6 @@ fn check_req_for_expiration_baseline() {
             .check_requests_for_expiration(&bill_payment, Timestamp::new(1531593929).unwrap())
             .unwrap()
     );
-    // false, because maturity date is after the deadline, but we call in-between
-    // deadline: 1531766728 (2018-07-16)
-    // maturity: 1531864799 (2018-07-15 + 2d end of day)
-    // called with: Timestamp::new(1531864789).unwrap()(in-between)
-    assert!(
-        !service
-            .check_requests_for_expiration(&bill_payment, Timestamp::new(1531864789).unwrap())
-            .unwrap()
-    );
     // true, because after maturity date
     assert!(
         service
@@ -6459,16 +6450,6 @@ fn check_req_for_expiration_baseline() {
             .unwrap()
     );
     bill_payment.current_waiting_state = None;
-    // req to pay expired, but not yet 2 days after end of day maturity date
-    // but no current waiting state, so was already checked
-    assert!(
-        !service
-            .check_requests_for_expiration(
-                &bill_payment,
-                Timestamp::new(1531593929).unwrap() + PAYMENT_DEADLINE_SECONDS + 1
-            )
-            .unwrap()
-    );
     // after req to pay, and after end of day maturity date, payment expired
     assert!(
         service
