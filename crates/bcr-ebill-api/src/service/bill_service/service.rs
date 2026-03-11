@@ -6,9 +6,8 @@ use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
-use crate::service::Error as ServiceError;
 use crate::service::file_server_service::{
-    configured_blossom_servers, download_from_blossom_servers,
+    configured_blossom_servers, download_from_blossom_servers, upload_to_blossom_servers,
 };
 use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
@@ -22,6 +21,7 @@ use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
 use bcr_ebill_core::protocol::Email;
+use bcr_ebill_core::protocol::PublicKey;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::block::{
@@ -716,10 +716,11 @@ impl BillService {
         })
     }
 
-    async fn upload_bill_files_for_node_id(
+    pub(super) async fn upload_bill_files_for_node_id(
         &self,
-        bill_id: &BillId,
+        _bill_id: &BillId,
         bill_private_key: &SecretKey,
+        receiver_public_key: &PublicKey,
         files: &[File],
     ) -> Result<Vec<url::Url>> {
         if files.is_empty() {
@@ -728,17 +729,28 @@ impl BillService {
         let blossom_servers = configured_blossom_servers(&get_config().nostr_config);
         let primary_server = blossom_servers.first().ok_or(Error::NotFound)?;
 
+        let mut file_urls = Vec::with_capacity(files.len());
         for file in files {
-            let _ = self
-                .open_and_decrypt_attached_file(bill_id, file, bill_private_key)
+            let decrypted_file = self
+                .open_and_decrypt_attached_file(_bill_id, file, bill_private_key)
                 .await?;
+            let encrypted_file = crypto::encrypt_ecies(&decrypted_file, receiver_public_key)?;
+
+            let uploaded_hash = upload_to_blossom_servers(
+                self.file_upload_client.as_ref(),
+                &blossom_servers,
+                encrypted_file,
+            )
+            .await
+            .map_err(Error::from)?;
+
+            file_urls.push(file_storage::to_url(
+                primary_server,
+                &uploaded_hash.to_string(),
+            )?);
         }
 
-        files
-            .iter()
-            .map(|file| file_storage::to_url(primary_server, &file.nostr_hash.to_string()))
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
+        Ok(file_urls)
     }
 
     /// Collects the decryption keys we can use for bill attachments, including legacy participant keys.
@@ -1060,13 +1072,7 @@ impl BillServiceApi for BillService {
             &file.nostr_hash,
         )
         .await
-        .map_err(|e| match e {
-            ServiceError::ExternalApi(err) => Error::ExternalApi(err),
-            ServiceError::CryptoUtil(err) => Error::Cryptography(err),
-            ServiceError::Validation(err) => Error::Validation(err),
-            ServiceError::NotFound => Error::NotFound,
-            _ => Error::NotFound,
-        })?;
+        .map_err(Error::from)?;
         for key in self.attachment_decryption_keys(bill_private_key).await {
             if let Ok(decrypted) = crypto::decrypt_ecies(&file_bytes, &key) {
                 let file_hash = Sha256Hash::from_bytes(&decrypted);
@@ -1478,7 +1484,12 @@ impl BillServiceApi for BillService {
         // Upload existing files for the mint
         // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_mint = self
-            .upload_bill_files_for_node_id(bill_id, &bill_keys.get_private_key(), &bill.files)
+            .upload_bill_files_for_node_id(
+                bill_id,
+                &bill_keys.get_private_key(),
+                &mint_anon_participant.node_id().pub_key(),
+                &bill.files,
+            )
             .await?;
 
         // Send request to mint to mint
@@ -1835,7 +1846,12 @@ impl BillServiceApi for BillService {
         // Upload existing files for the court to our relay
         // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_court = self
-            .upload_bill_files_for_node_id(bill_id, &bill_keys.get_private_key(), &bill.files)
+            .upload_bill_files_for_node_id(
+                bill_id,
+                &bill_keys.get_private_key(),
+                &court_node_id.pub_key(),
+                &bill.files,
+            )
             .await?;
 
         // Send request to share with court

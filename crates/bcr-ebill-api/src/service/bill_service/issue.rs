@@ -2,7 +2,6 @@ use super::{BillAction, BillServiceApi, Result, error::Error, service::BillServi
 use crate::{
     constants::MAX_BILL_ATTACHMENTS,
     get_config,
-    service::Error as ServiceError,
     service::{
         file_server_service::{configured_blossom_servers, upload_to_blossom_servers},
         file_upload_service::UploadFileType,
@@ -53,13 +52,7 @@ impl BillService {
             encrypted,
         )
         .await
-        .map_err(|e| match e {
-            ServiceError::ExternalApi(err) => Error::ExternalApi(err),
-            ServiceError::CryptoUtil(err) => Error::Cryptography(err),
-            ServiceError::Validation(err) => Error::Validation(err),
-            ServiceError::NotFound => Error::NotFound,
-            _ => Error::NotFound,
-        })?;
+        .map_err(Error::from)?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
         Ok(File {
             name: file_name.to_owned(),
