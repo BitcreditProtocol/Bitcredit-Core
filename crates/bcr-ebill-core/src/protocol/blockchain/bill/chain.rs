@@ -8,14 +8,12 @@ use super::block::{
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
-use crate::protocol::Date;
 use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
 use crate::protocol::blockchain::bill::block::BillRejectToBuyBlockData;
 use crate::protocol::blockchain::bill::participant::{
     BillParticipant, BillSignatory, PastEndorsee, SignedBy,
 };
-use crate::protocol::blockchain::bill::validation::get_expiration_deadline_base_for_req_to_pay;
 use crate::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PaymentStatus};
 use crate::protocol::blockchain::{Block, Blockchain, Error, borsh_to_json_value};
 use crate::protocol::crypto::BcrKeys;
@@ -614,19 +612,12 @@ impl BillBlockchain {
         req_to_pay: &BillBlock,
         bill_keys: &BcrKeys,
         current_timestamp: Timestamp,
-        bill_maturity_date: Option<&Date>,
     ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillRequestToPayBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
 
         let deadline = block_data_decrypted.payment_deadline_timestamp;
-        let deadline_base = if let Some(maturity_date) = bill_maturity_date {
-            get_expiration_deadline_base_for_req_to_pay(deadline, maturity_date)?
-        } else {
-            deadline
-        };
-
-        if current_timestamp.has_deadline_passed(&deadline_base) {
+        if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
         Ok((false, deadline))

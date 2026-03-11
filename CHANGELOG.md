@@ -1,3 +1,7 @@
+# 0.5.5
+
+* Request to pay can only be done after maturity date end-of-day
+
 # 0.5.4
 
 * If the bill holder is anon, the `signing_address` needs to not be set

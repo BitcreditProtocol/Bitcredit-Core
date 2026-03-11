@@ -32,7 +32,6 @@ use bcr_ebill_core::{
             BitcreditBill, OfferToSellWaitingForPayment, RecourseReason, RecourseWaitingForPayment,
             block::{BillSignatoryBlockData, ContactType},
             participant::{BillParticipant, PastEndorsee},
-            validation::get_expiration_deadline_base_for_req_to_pay,
         },
         identity::IdentityType,
     },
@@ -279,16 +278,10 @@ impl BillService {
             }
 
             let (is_expired, payment_deadline) = chain
-                .is_req_to_pay_block_payment_expired(
-                    req_to_pay_block,
-                    bill_keys,
-                    current_timestamp,
-                    Some(&bill.maturity_date),
-                )
+                .is_req_to_pay_block_payment_expired(req_to_pay_block, bill_keys, current_timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
             payment_deadline_timestamp = Some(payment_deadline);
             if !paid && !rejected_to_pay && is_expired {
-                // this is true, if the payment is expired (after maturity date)
                 request_to_pay_timed_out = true;
                 bill_payment_state = BillPaymentState::Expired(payment_deadline);
             }
@@ -559,11 +552,6 @@ impl BillService {
                     None
                 } else if request_to_pay_timed_out {
                     // payment expired, we're not waiting anymore
-                    None
-                } else if let Some(payment_deadline) = payment_deadline_timestamp
-                    && current_timestamp.has_deadline_passed(&payment_deadline)
-                {
-                    // the request timed out, we're not waiting anymore, but the payment isn't expired
                     None
                 } else {
                     // we're waiting, collect data
@@ -1035,12 +1023,7 @@ impl BillService {
             // we check for the payment expiration, not the request expiration
             // if the request expired, but the payment deadline hasn't, it's not a past payment
             let (is_expired, payment_deadline) = chain
-                .is_req_to_pay_block_payment_expired(
-                    req_to_pay,
-                    bill_keys,
-                    timestamp,
-                    Some(&bill.maturity_date),
-                )
+                .is_req_to_pay_block_payment_expired(req_to_pay, bill_keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
 
             let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
@@ -1176,23 +1159,9 @@ impl BillService {
             && !payment.rejected_to_pay
             && !payment.request_to_pay_timed_out
             && let Some(payment_deadline) = payment.payment_deadline_timestamp
+            && current_timestamp.has_deadline_passed(&payment_deadline)
         {
-            let deadline_base = get_expiration_deadline_base_for_req_to_pay(
-                payment_deadline,
-                &bill.data.maturity_date,
-            )?;
-            // payment has expired (after maturity date)
-            if current_timestamp.has_deadline_passed(&deadline_base) {
-                invalidate_and_recalculate = true;
-            }
-            // if it was req to pay and is currently waiting, we have to check, if it's expired
-            // once it's expired, we don't have to check this anymore
-            if let Some(BillCurrentWaitingState::Payment(_)) = bill.current_waiting_state {
-                // req to pay has expired (before maturity date)
-                if current_timestamp.has_deadline_passed(&payment_deadline) {
-                    invalidate_and_recalculate = true;
-                }
-            }
+            invalidate_and_recalculate = true;
         }
 
         let sell = &bill.status.sell;
@@ -1549,7 +1518,33 @@ pub mod tests {
         )
         .expect("to work");
 
-        // holder can OfferToSell, Endorse, Req to Pay, Req to Accept
+        // holder can OfferToSell, Endorse, Req to Accept
+        assert_eq!(res.len(), 3);
+        assert!(res.contains(&BillCallerBillAction::OfferToSell));
+        assert!(res.contains(&BillCallerBillAction::Endorse));
+        assert!(res.contains(&BillCallerBillAction::RequestAcceptance));
+
+        // initial bill, called by payee, maturity date in the past
+        let res = calculate_possible_bill_actions_for_caller(
+            chain.clone(),
+            drawee.clone(),
+            payee.clone(),
+            endorsee.clone(),
+            Date::new("1999-10-15").unwrap(),
+            bill_keys.clone(),
+            timestamp,
+            payee.clone(), // caller is payee
+            is_paid,
+            is_waiting_for_req_to_pay,
+            waiting_for_recourse_payment.clone(),
+            waiting_for_offer_to_sell.clone(),
+            is_req_to_pay_expired,
+            is_req_to_accept_expired,
+            past_endorsees.clone(),
+        )
+        .expect("to work");
+
+        // holder can OfferToSell, Endorse, Req to Accept
         assert_eq!(res.len(), 4);
         assert!(res.contains(&BillCallerBillAction::OfferToSell));
         assert!(res.contains(&BillCallerBillAction::Endorse));
@@ -1627,10 +1622,9 @@ pub mod tests {
         .expect("to work");
 
         // holder can OfferToSell, Endorse, Req to Pay
-        assert_eq!(res.len(), 3);
+        assert_eq!(res.len(), 2);
         assert!(res.contains(&BillCallerBillAction::OfferToSell));
         assert!(res.contains(&BillCallerBillAction::Endorse));
-        assert!(res.contains(&BillCallerBillAction::RequestToPay));
 
         // req to accept  bill, called by drawee
         let res = calculate_possible_bill_actions_for_caller(
