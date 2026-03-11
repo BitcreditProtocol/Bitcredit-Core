@@ -1707,18 +1707,19 @@ pub mod tests {
             bill_id_test, bill_id_test_other, bill_identified_participant_only_node_id,
             cached_bill, empty_address, empty_bitcredit_bill, get_bill_keys, node_id_test,
             node_id_test_other, private_key_test, signed_identity_proof_test, test_ts,
+            valid_payment_address_testnet,
         },
     };
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{
         application::bill::{PaidData, PaymentState},
         protocol::{
-            BitcoinAddress, BlockId, Currency, Date, Sha256Hash, Sum, Timestamp,
+            BlockId, Date, Sha256Hash, Sum, Timestamp,
             blockchain::bill::{
                 BillBlock, BillOpCode,
                 block::{
                     BillIssueBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
-                    BillRecourseBlockData, BillRecourseReasonBlockData,
+                    BillPaymentBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
                     BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
                     BillRequestToPayBlockData, BillSellBlockData,
                 },
@@ -1731,7 +1732,6 @@ pub mod tests {
         },
     };
     use chrono::Months;
-    use std::str::FromStr;
     use surrealdb::{Surreal, engine::any::Any};
 
     async fn get_db() -> Surreal<Any> {
@@ -1802,12 +1802,15 @@ pub mod tests {
                         requester: BillParticipantBlockData::Ident(
                             bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
-                        currency: Currency::sat(),
+                        payment_data: BillPaymentBlockData {
+                            sum: Sum::new_sat(15000).expect("sat works"),
+                            payment_address: valid_payment_address_testnet(),
+                            payment_deadline: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
+                        },
                         signatory: None,
                         signing_timestamp: test_ts(),
                         signing_address: Some(empty_address()),
                         signer_identity_proof: Some(signed_identity_proof_test().into()),
-                        payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     None,
@@ -2021,12 +2024,15 @@ pub mod tests {
                         requester: BillParticipantBlockData::Ident(
                             bill_identified_participant_only_node_id(node_id_test()).into(),
                         ),
-                        currency: Currency::sat(),
+                        payment_data: BillPaymentBlockData {
+                            sum: Sum::new_sat(500).expect("sat works"),
+                            payment_address: valid_payment_address_testnet(),
+                            payment_deadline: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
+                        },
                         signatory: None,
                         signing_timestamp: test_ts(),
                         signing_address: Some(empty_address()),
                         signer_identity_proof: Some(signed_identity_proof_test().into()),
-                        payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
                     },
                     &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
                     None,
@@ -2096,16 +2102,15 @@ pub mod tests {
                     ))
                     .into(),
                 ),
-                sum: Sum::new_sat(15000).expect("sat works"),
-                payment_address: BitcoinAddress::from_str(
-                    "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0",
-                )
-                .unwrap(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: now + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
                 signing_timestamp: now,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: now + 2 * DAY_IN_SECS,
             },
             &BcrKeys::from_private_key(&get_bill_keys().get_private_key()),
             None,
@@ -2139,11 +2144,6 @@ pub mod tests {
                             ))
                             .into(),
                         ),
-                        sum: Sum::new_sat(15000).expect("sat works"),
-                        payment_address: BitcoinAddress::from_str(
-                            "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0",
-                        )
-                        .unwrap(),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -2205,16 +2205,15 @@ pub mod tests {
                     ))
                     .into(),
                 ),
-                sum: Sum::new_sat(15000).expect("sat works"),
-                payment_address: BitcoinAddress::from_str(
-                    "tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0",
-                )
-                .unwrap(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: now_minus_one_month + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: now_minus_one_month + 2 * DAY_IN_SECS,
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,
@@ -2339,12 +2338,15 @@ pub mod tests {
                 requester: BillParticipantBlockData::Ident(
                     bill_identified_participant_only_node_id(node_id_test()).into(),
                 ),
-                currency: Currency::sat(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: ts + 2 * PAYMENT_DEADLINE_SECONDS,
+                },
                 signatory: None,
                 signing_timestamp: ts,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: ts + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,
@@ -2385,13 +2387,16 @@ pub mod tests {
                     bitcoin::Network::Testnet,
                 ))
                 .into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: now + 2 * RECOURSE_DEADLINE_SECONDS,
+                },
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: now,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,
@@ -2424,8 +2429,6 @@ pub mod tests {
                             bitcoin::Network::Testnet,
                         ))
                         .into(),
-                        recourse_reason: BillRecourseReasonBlockData::Pay,
-                        sum: Sum::new_sat(15000).expect("sat works"),
                         signatory: None,
                         signing_timestamp: now,
                         signing_address: Some(empty_address()),
@@ -2486,12 +2489,15 @@ pub mod tests {
                 ))
                 .into(),
                 recourse_reason: BillRecourseReasonBlockData::Pay,
-                sum: Sum::new_sat(15000).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: now_minus_one_month + 2 * RECOURSE_DEADLINE_SECONDS,
+                },
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: now_minus_one_month + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &BcrKeys::from_private_key(&private_key_test()),
             None,

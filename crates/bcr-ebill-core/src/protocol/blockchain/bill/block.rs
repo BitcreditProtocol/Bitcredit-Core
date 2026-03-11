@@ -10,6 +10,7 @@ use crate::protocol::Date;
 use crate::protocol::Name;
 use crate::protocol::SchnorrSignature;
 use crate::protocol::Sha256Hash;
+use crate::protocol::Sum;
 use crate::protocol::Timestamp;
 use crate::protocol::blockchain::Block;
 use crate::protocol::blockchain::bill::participant::SignedBy;
@@ -22,7 +23,6 @@ use crate::protocol::constants::{
 use crate::protocol::crypto::{self, BcrKeys};
 use crate::protocol::{BlockId, Email};
 use crate::protocol::{City, EmailIdentityProofData, SignedIdentityProof};
-use crate::protocol::{Currency, Sum};
 
 use crate::protocol::{BitcoinAddress, File, PostalAddress, ProtocolValidationError, Validate};
 use bcr_common::core::{BillId, NodeId};
@@ -159,12 +159,11 @@ pub struct BillAcceptBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToPayBlockData {
     pub requester: BillParticipantBlockData, // requester is holder and can be anon
-    pub currency: Currency,
+    pub payment_data: BillPaymentBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>, // address of the requester
     pub signer_identity_proof: Option<BillSignerIdentityProofBlockdata>,
-    pub payment_deadline_timestamp: Timestamp,
 }
 
 impl Validate for BillRequestToPayBlockData {
@@ -172,7 +171,7 @@ impl Validate for BillRequestToPayBlockData {
         // The deadline has to be at or after the end of the day of signing time plus 48h
         let signing_ts_plus_minimum_deadline = self.signing_timestamp + PAYMENT_DEADLINE_SECONDS;
         if !signing_ts_plus_minimum_deadline
-            .deadline_is_at_or_after_end_of_day_of(&self.payment_deadline_timestamp)
+            .deadline_is_at_or_after_end_of_day_of(&self.payment_data.payment_deadline)
         {
             return Err(ProtocolValidationError::DeadlineBeforeMinimum);
         }
@@ -230,17 +229,11 @@ impl Validate for BillMintBlockData {
 pub struct BillOfferToSellBlockData {
     pub seller: BillParticipantBlockData, // seller is holder and can be anon
     pub buyer: BillParticipantBlockData,  // buyer can be anon
-    pub sum: Sum,
-    #[borsh(
-        serialize_with = "crate::protocol::serialization::serialize_bitcoin_address",
-        deserialize_with = "crate::protocol::serialization::deserialize_bitcoin_address"
-    )]
-    pub payment_address: BitcoinAddress,
+    pub payment_data: BillPaymentBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>, // address of the seller
     pub signer_identity_proof: Option<BillSignerIdentityProofBlockdata>,
-    pub buying_deadline_timestamp: Timestamp,
 }
 
 impl Validate for BillOfferToSellBlockData {
@@ -252,7 +245,7 @@ impl Validate for BillOfferToSellBlockData {
         // The deadline has to be at or after the end of the day of signing time
         if !self
             .signing_timestamp
-            .deadline_is_at_or_after_end_of_day_of(&self.buying_deadline_timestamp)
+            .deadline_is_at_or_after_end_of_day_of(&self.payment_data.payment_deadline)
         {
             return Err(ProtocolValidationError::DeadlineBeforeMinimum);
         }
@@ -265,12 +258,6 @@ impl Validate for BillOfferToSellBlockData {
 pub struct BillSellBlockData {
     pub seller: BillParticipantBlockData, // seller is holder and can be anon
     pub buyer: BillParticipantBlockData,  // buyer can be anon
-    pub sum: Sum,
-    #[borsh(
-        serialize_with = "crate::protocol::serialization::serialize_bitcoin_address",
-        deserialize_with = "crate::protocol::serialization::deserialize_bitcoin_address"
-    )]
-    pub payment_address: BitcoinAddress,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>, // address of the seller
@@ -311,13 +298,12 @@ impl Validate for BillEndorseBlockData {
 pub struct BillRequestRecourseBlockData {
     pub recourser: BillParticipantBlockData, // anon can do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
-    pub sum: Sum,
+    pub payment_data: BillPaymentBlockData,
     pub recourse_reason: BillRecourseReasonBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>, // address of the recourser
     pub signer_identity_proof: Option<BillSignerIdentityProofBlockdata>,
-    pub recourse_deadline_timestamp: Timestamp,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -335,7 +321,7 @@ impl Validate for BillRequestRecourseBlockData {
         // The deadline has to be at or after the end of the day of signing time plus 48h
         let signing_ts_plus_minimum_deadline = self.signing_timestamp + RECOURSE_DEADLINE_SECONDS;
         if !signing_ts_plus_minimum_deadline
-            .deadline_is_at_or_after_end_of_day_of(&self.recourse_deadline_timestamp)
+            .deadline_is_at_or_after_end_of_day_of(&self.payment_data.payment_deadline)
         {
             return Err(ProtocolValidationError::DeadlineBeforeMinimum);
         }
@@ -348,8 +334,6 @@ impl Validate for BillRequestRecourseBlockData {
 pub struct BillRecourseBlockData {
     pub recourser: BillParticipantBlockData, // anon can do recourse
     pub recoursee: BillIdentParticipantBlockData, // anon can't be recoursed against
-    pub sum: Sum,
-    pub recourse_reason: BillRecourseReasonBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: Timestamp,
     pub signing_address: Option<PostalAddress>, // address of the endorser
@@ -364,6 +348,17 @@ impl Validate for BillRecourseBlockData {
 
         Ok(())
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct BillPaymentBlockData {
+    pub sum: Sum,
+    #[borsh(
+        serialize_with = "crate::protocol::serialization::serialize_bitcoin_address",
+        deserialize_with = "crate::protocol::serialization::deserialize_bitcoin_address"
+    )]
+    pub payment_address: BitcoinAddress,
+    pub payment_deadline: Timestamp,
 }
 
 /// Participant in a bill transaction - either anonymous, or identified
@@ -1252,7 +1247,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     None,
-                    Some(block_data_decrypted.payment_deadline_timestamp),
+                    Some(block_data_decrypted.payment_data.payment_deadline),
                     SignedBy::from((
                         block_data_decrypted.requester,
                         block_data_decrypted.signatory,
@@ -1266,7 +1261,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     Some(block_data_decrypted.buyer.into()),
-                    Some(block_data_decrypted.buying_deadline_timestamp),
+                    Some(block_data_decrypted.payment_data.payment_deadline),
                     SignedBy::from((block_data_decrypted.seller, block_data_decrypted.signatory)),
                     block_data_decrypted.signing_address,
                 )
@@ -1344,7 +1339,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     Some(BillParticipantBlockData::Ident(block_data_decrypted.recoursee).into()),
-                    Some(block_data_decrypted.recourse_deadline_timestamp),
+                    Some(block_data_decrypted.payment_data.payment_deadline),
                     SignedBy::from((
                         block_data_decrypted.recourser,
                         block_data_decrypted.signatory,
@@ -1483,8 +1478,8 @@ impl BillBlock {
                     data.requester.node_id(),
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::RequestToPay(
-                        data.currency,
-                        data.payment_deadline_timestamp,
+                        data.payment_data.sum.currency().to_owned(),
+                        data.payment_data.payment_deadline,
                     )),
                     data.signer_identity_proof,
                 )
@@ -1497,8 +1492,8 @@ impl BillBlock {
                     data.signatory.map(|s| s.node_id),
                     Some(BillAction::OfferToSell(
                         data.buyer.into(),
-                        data.sum,
-                        data.buying_deadline_timestamp,
+                        data.payment_data.sum,
+                        data.payment_data.payment_deadline,
                     )),
                     data.signer_identity_proof,
                 )
@@ -1509,11 +1504,7 @@ impl BillBlock {
                 (
                     data.seller.node_id(),
                     data.signatory.map(|s| s.node_id),
-                    Some(BillAction::Sell(
-                        data.buyer.into(),
-                        data.sum,
-                        data.payment_address,
-                    )),
+                    Some(BillAction::Sell(data.buyer.into())),
                     data.signer_identity_proof,
                 )
             }
@@ -1560,7 +1551,9 @@ impl BillBlock {
             RequestRecourse => {
                 let data: BillRequestRecourseBlockData = self.get_decrypted_block(bill_keys)?;
                 let reason = match data.recourse_reason {
-                    BillRecourseReasonBlockData::Pay => RecourseReason::Pay(data.sum.clone()),
+                    BillRecourseReasonBlockData::Pay => {
+                        RecourseReason::Pay(data.payment_data.sum.clone())
+                    }
                     BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
                 };
                 data.validate()?;
@@ -1570,26 +1563,18 @@ impl BillBlock {
                     Some(BillAction::RequestRecourse(
                         data.recoursee.into(),
                         reason,
-                        data.recourse_deadline_timestamp,
+                        data.payment_data.payment_deadline,
                     )),
                     data.signer_identity_proof,
                 )
             }
             Recourse => {
                 let data: BillRecourseBlockData = self.get_decrypted_block(bill_keys)?;
-                let reason = match data.recourse_reason {
-                    BillRecourseReasonBlockData::Pay => RecourseReason::Pay(data.sum.clone()),
-                    BillRecourseReasonBlockData::Accept => RecourseReason::Accept,
-                };
                 data.validate()?;
                 (
                     data.recourser.node_id(),
                     data.signatory.map(|s| s.node_id),
-                    Some(BillAction::Recourse(
-                        data.recoursee.into(),
-                        data.sum,
-                        reason,
-                    )),
+                    Some(BillAction::Recourse(data.recoursee.into())),
                     data.signer_identity_proof,
                 )
             }
@@ -1908,12 +1893,15 @@ pub mod tests {
             &get_first_block(),
             &BillRequestToPayBlockData {
                 requester: requester.clone().into(),
-                currency: Currency::sat(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(500).unwrap(),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
+                },
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &get_baseline_identity().1,
             None,
@@ -1939,13 +1927,15 @@ pub mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(5000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().1,
             None,
@@ -1972,8 +1962,6 @@ pub mod tests {
             &BillSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: buyer.node_id().clone(),
                     name: Some(Name::new("some name").unwrap()),
@@ -2123,13 +2111,16 @@ pub mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
+                },
                 recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(recourser.postal_address),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &get_baseline_identity().1,
             None,
@@ -2160,8 +2151,6 @@ pub mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(recourser.clone()).into(),
                 recoursee: recoursee.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
-                recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(recourser.postal_address),
@@ -2311,12 +2300,15 @@ pub mod tests {
             &issue_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
-                currency: Currency::sat(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(500).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
+                },
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
@@ -2370,13 +2362,15 @@ pub mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(5000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &identity_keys,
             None,
@@ -2402,8 +2396,6 @@ pub mod tests {
             &BillSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2423,7 +2415,7 @@ pub mod tests {
         );
         assert!(matches!(
             sell_result.as_ref().unwrap().1,
-            Some(BillAction::Sell(_, _, _))
+            Some(BillAction::Sell(_))
         ));
         assert!(sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2546,13 +2538,16 @@ pub mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
+                },
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &identity_keys,
             None,
@@ -2578,8 +2573,6 @@ pub mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
-                recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
@@ -2599,7 +2592,7 @@ pub mod tests {
         );
         assert!(matches!(
             recourse_result.as_ref().unwrap().1,
-            Some(BillAction::Recourse(_, _, _))
+            Some(BillAction::Recourse(_))
         ));
         assert!(recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
     }
@@ -2754,7 +2747,11 @@ pub mod tests {
             &issue_block,
             &BillRequestToPayBlockData {
                 requester: BillParticipant::Ident(signer.clone()).into(),
-                currency: Currency::sat(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(500).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
+                },
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Some(Name::new("signatory name").unwrap()),
@@ -2762,7 +2759,6 @@ pub mod tests {
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -2819,8 +2815,11 @@ pub mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(5000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * DAY_IN_SECS,
+                },
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Some(Name::new("signatory name").unwrap()),
@@ -2828,7 +2827,6 @@ pub mod tests {
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -2854,8 +2852,6 @@ pub mod tests {
             &BillSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Some(Name::new("signatory name").unwrap()),
@@ -2878,7 +2874,7 @@ pub mod tests {
         );
         assert!(matches!(
             sell_result.as_ref().unwrap().1,
-            Some(BillAction::Sell(_, _, _))
+            Some(BillAction::Sell(_))
         ));
         assert!(sell_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -3013,7 +3009,11 @@ pub mod tests {
             &BillRequestRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
+                },
                 recourse_reason: BillRecourseReasonBlockData::Accept,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
@@ -3022,7 +3022,6 @@ pub mod tests {
                 signing_timestamp: test_ts(),
                 signing_address: Some(signer.postal_address.clone()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
             },
             &identity_keys,
             Some(&company_keys),
@@ -3048,8 +3047,6 @@ pub mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(signer.clone()).into(),
                 recoursee: other_party.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
-                recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: Some(BillSignatoryBlockData {
                     node_id: NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet),
                     name: Some(Name::new("signatory name").unwrap()),
@@ -3072,7 +3069,7 @@ pub mod tests {
         );
         assert!(matches!(
             recourse_result.as_ref().unwrap().1,
-            Some(BillAction::Recourse(_, _, _))
+            Some(BillAction::Recourse(_))
         ));
         assert!(recourse_block.validate_plaintext_hash(&bill_keys.get_private_key()));
     }
@@ -3204,12 +3201,15 @@ pub mod tests {
     fn valid_req_to_pay_block_data() -> BillRequestToPayBlockData {
         BillRequestToPayBlockData {
             requester: valid_bill_participant_block_data(),
-            currency: Currency::sat(),
+            payment_data: BillPaymentBlockData {
+                sum: Sum::new_sat(500).expect("sat works"),
+                payment_address: valid_payment_address_testnet(),
+                payment_deadline: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
+            },
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            payment_deadline_timestamp: test_ts() + 2 * PAYMENT_DEADLINE_SECONDS,
         }
     }
 
@@ -3241,13 +3241,15 @@ pub mod tests {
         BillOfferToSellBlockData {
             seller: valid_bill_participant_block_data(),
             buyer: other_valid_bill_participant_block_data(),
-            sum: Sum::new_sat(500).expect("sat works"),
-            payment_address: valid_payment_address_testnet(),
+            payment_data: BillPaymentBlockData {
+                sum: Sum::new_sat(500).expect("sat works"),
+                payment_address: valid_payment_address_testnet(),
+                payment_deadline: test_ts() + 2 * DAY_IN_SECS,
+            },
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
         }
     }
 
@@ -3261,8 +3263,6 @@ pub mod tests {
         BillSellBlockData {
             seller: valid_bill_participant_block_data(),
             buyer: other_valid_bill_participant_block_data(),
-            sum: Sum::new_sat(500).expect("sat works"),
-            payment_address: valid_payment_address_testnet(),
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
@@ -3297,13 +3297,16 @@ pub mod tests {
         BillRequestRecourseBlockData {
             recourser: valid_bill_participant_block_data(),
             recoursee: other_valid_bill_identity_block_data(),
-            sum: Sum::new_sat(500).expect("sat works"),
+            payment_data: BillPaymentBlockData {
+                sum: Sum::new_sat(500).expect("sat works"),
+                payment_address: valid_payment_address_testnet(),
+                payment_deadline: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
+            },
             recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),
             signer_identity_proof: Some(signed_identity_proof_test().into()),
-            recourse_deadline_timestamp: test_ts() + 2 * RECOURSE_DEADLINE_SECONDS,
         }
     }
 
@@ -3317,8 +3320,6 @@ pub mod tests {
         BillRecourseBlockData {
             recourser: BillParticipantBlockData::Ident(valid_bill_identity_block_data()),
             recoursee: other_valid_bill_identity_block_data(),
-            sum: Sum::new_sat(500).expect("sat works"),
-            recourse_reason: BillRecourseReasonBlockData::Pay,
             signatory: Some(valid_bill_signatory_block_data()),
             signing_timestamp: test_ts(),
             signing_address: Some(valid_address()),

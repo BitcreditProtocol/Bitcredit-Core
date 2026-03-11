@@ -35,9 +35,10 @@ use bcr_ebill_core::{
                 BillBlock, BillOpCode, ContactType, PaymentStatus, RecourseReason,
                 block::{
                     BillEndorseBlockData, BillMintBlockData, BillOfferToSellBlockData,
-                    BillParticipantBlockData, BillRecourseReasonBlockData, BillRejectBlockData,
-                    BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
-                    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
+                    BillParticipantBlockData, BillPaymentBlockData, BillRecourseReasonBlockData,
+                    BillRejectBlockData, BillRequestRecourseBlockData,
+                    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+                    BillSignatoryBlockData,
                 },
                 participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
             },
@@ -999,12 +1000,15 @@ async fn get_bills_req_to_pay() {
                             .unwrap()
                             .into(),
                     ),
-                    currency: Currency::sat(),
+                    payment_data: BillPaymentBlockData {
+                        sum: bill.sum.clone(),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * PAYMENT_DEADLINE_SECONDS,
+                    },
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 None,
@@ -3101,13 +3105,15 @@ async fn sell_bitcredit_bill_baseline() {
                 &BillOfferToSellBlockData {
                     seller: bill.payee.clone().into(),
                     buyer: BillParticipantBlockData::Ident(buyer_clone.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * DAY_IN_SECS,
+                    },
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    buying_deadline_timestamp: test_ts() - 1 + 2 * DAY_IN_SECS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -3134,11 +3140,7 @@ async fn sell_bitcredit_bill_baseline() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Sell(
-                BillParticipant::Ident(buyer),
-                Sum::new_sat(15000).expect("sat works"),
-                valid_payment_address_testnet(),
-            ),
+            BillAction::Sell(BillParticipant::Ident(buyer)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -3176,13 +3178,15 @@ async fn sell_bitcredit_bill_anon_baseline() {
                 &BillOfferToSellBlockData {
                     seller: bill.payee.clone().into(),
                     buyer: BillParticipantBlockData::Anon(buyer_clone.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * DAY_IN_SECS,
+                    },
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    buying_deadline_timestamp: test_ts() - 1 + 2 * DAY_IN_SECS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -3209,11 +3213,7 @@ async fn sell_bitcredit_bill_anon_baseline() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Sell(
-                BillParticipant::Anon(buyer),
-                Sum::new_sat(15000).expect("sat works"),
-                valid_payment_address_testnet(),
-            ),
+            BillAction::Sell(BillParticipant::Anon(buyer)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -3247,13 +3247,15 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
                 &BillOfferToSellBlockData {
                     seller: bill.payee.clone().into(),
                     buyer: bill.payee.clone().into(), // buyer is seller, which is invalid
-                    sum: Sum::new_sat(10000).expect("sat works"), // different sum
-                    payment_address: valid_payment_address_testnet(),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(10000).expect("sat works"), // different sum
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * DAY_IN_SECS,
+                    },
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    buying_deadline_timestamp: test_ts() - 1 + 2 * DAY_IN_SECS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -3274,11 +3276,7 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Sell(
-                BillParticipant::Ident(buyer),
-                Sum::new_sat(15000).expect("sat works"),
-                valid_payment_address_testnet(),
-            ),
+            BillAction::Sell(BillParticipant::Ident(buyer)),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -3307,14 +3305,12 @@ async fn sell_bitcredit_bill_fails_if_not_offer_to_sell_waiting_for_payment() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Sell(
-                BillParticipant::Ident(bill_identified_participant_only_node_id(NodeId::new(
+            BillAction::Sell(BillParticipant::Ident(
+                bill_identified_participant_only_node_id(NodeId::new(
                     BcrKeys::new().pub_key(),
                     bitcoin::Network::Testnet,
-                ))),
-                Sum::new_sat(15000).expect("sat works"),
-                valid_payment_address_testnet(),
-            ),
+                )),
+            )),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -3340,14 +3336,12 @@ async fn sell_bitcredit_bill_fails_if_payee_not_caller() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Sell(
-                BillParticipant::Ident(bill_identified_participant_only_node_id(NodeId::new(
+            BillAction::Sell(BillParticipant::Ident(
+                bill_identified_participant_only_node_id(NodeId::new(
                     BcrKeys::new().pub_key(),
                     bitcoin::Network::Testnet,
-                ))),
-                Sum::new_sat(15000).expect("sat works"),
-                valid_payment_address_testnet(),
-            ),
+                )),
+            )),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -4285,13 +4279,15 @@ async fn get_endorsements_multi_with_anon() {
                     buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     // endorsed by endorsee
                     seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 1000,
+                    },
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    buying_deadline_timestamp: now + 1000,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4309,8 +4305,6 @@ async fn get_endorsements_multi_with_anon() {
                     buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     // endorsed by endorsee
                     seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
                     signatory: None,
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
@@ -4451,13 +4445,15 @@ async fn get_endorsements_multi() {
                     buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     // endorsed by endorsee
                     seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 1000,
+                    },
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    buying_deadline_timestamp: now + 1000,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -4474,8 +4470,6 @@ async fn get_endorsements_multi() {
                     buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     // endorsed by endorsee
                     seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
                     signatory: None,
                     signing_timestamp: now + 3,
                     signing_address: Some(empty_address()),
@@ -4695,8 +4689,6 @@ async fn get_past_endorsees_multi_with_anon() {
                     buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     // endorsed by endorsee
                     seller: BillParticipantBlockData::Anon(endorse_endorsee.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
@@ -4936,8 +4928,6 @@ async fn get_past_endorsees_multi() {
                     buyer: BillParticipantBlockData::Ident(sell_endorsee.clone().into()),
                     // endorsed by endorsee
                     seller: BillParticipantBlockData::Ident(endorse_endorsee.clone().into()),
-                    sum: Sum::new_sat(15000).expect("sat works"),
-                    payment_address: valid_payment_address_testnet(),
                     signatory: None,
                     signing_timestamp: now + 2,
                     signing_address: Some(empty_address()),
@@ -5576,12 +5566,15 @@ async fn reject_payment() {
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
                     requester: payee.clone().into(),
-                    currency: Currency::sat(),
+                    payment_data: BillPaymentBlockData {
+                        sum: bill.sum.clone(),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * PAYMENT_DEADLINE_SECONDS,
+                    },
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 None,
@@ -5645,12 +5638,15 @@ async fn reject_payment_fails_for_anon() {
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
                     requester: payee.clone().into(),
-                    currency: Currency::sat(),
+                    payment_data: BillPaymentBlockData {
+                        sum: bill.sum.clone(),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * PAYMENT_DEADLINE_SECONDS,
+                    },
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    payment_deadline_timestamp: now + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 None,
@@ -5714,13 +5710,16 @@ async fn reject_recourse() {
                     recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                         .unwrap()
                         .into(),
-                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * RECOURSE_DEADLINE_SECONDS,
+                    },
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 None,
@@ -5789,13 +5788,16 @@ async fn reject_recourse_fails_for_anon() {
                     recoursee: BillIdentParticipant::new(get_baseline_identity().identity)
                         .unwrap()
                         .into(),
-                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * RECOURSE_DEADLINE_SECONDS,
+                    },
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 None,
@@ -5864,13 +5866,16 @@ async fn check_bills_in_recourse_payment_baseline() {
                     )
                     .into(),
                     recoursee: bill_identified_participant_only_node_id(recoursee.clone()).into(),
-                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * RECOURSE_DEADLINE_SECONDS,
+                    },
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 None,
@@ -5942,7 +5947,11 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
                     ))
                     .into(),
                     recoursee: bill_identified_participant_only_node_id(recoursee.clone()).into(),
-                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: now + 2 * RECOURSE_DEADLINE_SECONDS,
+                    },
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: Some(BillSignatoryBlockData {
                         node_id: get_baseline_identity().identity.node_id.clone(),
@@ -5951,7 +5960,6 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
                     signing_timestamp: now,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    recourse_deadline_timestamp: now + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::from_private_key(&private_key_test()),
                 Some(&BcrKeys::from_private_key(&private_key_test())),
@@ -6136,12 +6144,15 @@ async fn request_recourse_works_for_anon() {
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
                     requester: bill.payee.clone().into(),
-                    currency: Currency::sat(),
+                    payment_data: BillPaymentBlockData {
+                        sum: bill.sum.clone(),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * PAYMENT_DEADLINE_SECONDS,
+                    },
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    payment_deadline_timestamp: test_ts() - 1 + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -6243,12 +6254,15 @@ async fn request_recourse_payment_baseline() {
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
                     requester: bill.payee.clone().into(),
-                    currency: Currency::sat(),
+                    payment_data: BillPaymentBlockData {
+                        sum: bill.sum.clone(),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * PAYMENT_DEADLINE_SECONDS,
+                    },
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    payment_deadline_timestamp: test_ts() - 1 + 2 * PAYMENT_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -6342,13 +6356,16 @@ async fn recourse_bitcredit_bill_baseline() {
                     )
                     .into(),
                     recoursee: recoursee_clone.clone().into(),
-                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * RECOURSE_DEADLINE_SECONDS,
+                    },
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    recourse_deadline_timestamp: test_ts() - 1 + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -6375,11 +6392,7 @@ async fn recourse_bitcredit_bill_baseline() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Recourse(
-                recoursee,
-                Sum::new_sat(15000).expect("sat works"),
-                RecourseReason::Pay(Sum::new_sat(15000).expect("sat works")),
-            ),
+            BillAction::Recourse(recoursee),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -6425,13 +6438,16 @@ async fn recourse_bitcredit_bill_works_for_anon() {
                     )
                     .into(),
                     recoursee: recoursee_clone.clone().into(),
-                    sum: Sum::new_sat(15000).expect("sat works"),
+                    payment_data: BillPaymentBlockData {
+                        sum: Sum::new_sat(15000).expect("sat works"),
+                        payment_address: valid_payment_address_testnet(),
+                        payment_deadline: test_ts() - 1 + 2 * RECOURSE_DEADLINE_SECONDS,
+                    },
                     recourse_reason: BillRecourseReasonBlockData::Pay,
                     signatory: None,
                     signing_timestamp: test_ts() - 1,
                     signing_address: Some(empty_address()),
                     signer_identity_proof: Some(signed_identity_proof_test().into()),
-                    recourse_deadline_timestamp: test_ts() - 1 + 2 * RECOURSE_DEADLINE_SECONDS,
                 },
                 &BcrKeys::new(),
                 None,
@@ -6455,11 +6471,7 @@ async fn recourse_bitcredit_bill_works_for_anon() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::Recourse(
-                recoursee,
-                Sum::new_sat(15000).expect("sat works"),
-                RecourseReason::Pay(Sum::new_sat(15000).expect("sat works")),
-            ),
+            BillAction::Recourse(recoursee),
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
             test_ts(),

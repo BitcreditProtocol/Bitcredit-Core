@@ -1,6 +1,9 @@
 # 0.5.5
 
 * Request to pay can only be done after maturity date end-of-day
+* Add payment data to payment blocks (RequestToPay, OfferToSell, RequestRecourse) (breaking DB & breaking bill chain change)
+    * These blocks now have `payment_data: BillPaymentBlockData`
+    * Remove payment data from `Sell` and `Recourse` endorsement blocks
 
 # 0.5.4
 

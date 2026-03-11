@@ -9,10 +9,11 @@ use bcr_ebill_core::{
                 BillBlock, BillBlockchain, BitcreditBill, RecourseReason,
                 block::{
                     BillAcceptBlockData, BillEndorseBlockData, BillMintBlockData,
-                    BillOfferToSellBlockData, BillRecourseBlockData, BillRecourseReasonBlockData,
-                    BillRejectBlockData, BillRejectToBuyBlockData, BillRequestRecourseBlockData,
-                    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
-                    BillSignatoryBlockData, ContactType,
+                    BillOfferToSellBlockData, BillPaymentBlockData, BillRecourseBlockData,
+                    BillRecourseReasonBlockData, BillRejectBlockData, BillRejectToBuyBlockData,
+                    BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
+                    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
+                    ContactType,
                 },
                 participant::BillParticipant,
             },
@@ -139,7 +140,11 @@ impl BillService {
                 .map_err(|e| Error::Protocol(e.into()))?
             }
             // can req to pay as anon
-            BillAction::RequestToPay(currency, payment_deadline_timestamp) => {
+            BillAction::RequestToPay(_currency, payment_deadline_timestamp) => {
+                let address_to_pay = self.bitcoin_client.get_address_to_pay(
+                    &bill_keys.pub_key(),
+                    &signer_public_data.node_id().pub_key(),
+                )?;
                 let block_data = BillRequestToPayBlockData {
                     requester: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -147,7 +152,11 @@ impl BillService {
                     } else {
                         signer_public_data.clone().into()
                     },
-                    currency: currency.to_owned(),
+                    payment_data: BillPaymentBlockData {
+                        sum: bill.sum.clone(),
+                        payment_address: address_to_pay,
+                        payment_deadline: *payment_deadline_timestamp,
+                    },
                     signatory: signatory_for_signer(
                         holder_is_anon,
                         signing_keys.signatory_identity,
@@ -163,7 +172,6 @@ impl BillService {
                     } else {
                         identity_proof.map(|sp| sp.into())
                     },
-                    payment_deadline_timestamp: *payment_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_to_pay(
@@ -192,6 +200,10 @@ impl BillService {
                         (sum.to_owned(), BillRecourseReasonBlockData::Pay)
                     }
                 };
+                let address_to_pay = self.bitcoin_client.get_address_to_pay(
+                    &bill_keys.pub_key(),
+                    &signer_public_data.node_id().pub_key(),
+                )?;
                 let block_data = BillRequestRecourseBlockData {
                     recourser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -200,7 +212,11 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     recoursee: recoursee.clone().into(),
-                    sum,
+                    payment_data: BillPaymentBlockData {
+                        sum,
+                        payment_address: address_to_pay,
+                        payment_deadline: *recourse_deadline_timestamp,
+                    },
                     recourse_reason: reason,
                     signatory: signatory_for_signer(
                         holder_is_anon,
@@ -217,7 +233,6 @@ impl BillService {
                     } else {
                         identity_proof.map(|sp| sp.into())
                     },
-                    recourse_deadline_timestamp: *recourse_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_request_recourse(
@@ -232,12 +247,8 @@ impl BillService {
                 .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to recourse
-            BillAction::Recourse(recoursee, sum, recourse_reason) => {
+            BillAction::Recourse(recoursee) => {
                 validate_node_id_network(&recoursee.node_id)?;
-                let reason = match *recourse_reason {
-                    RecourseReason::Accept => BillRecourseReasonBlockData::Accept,
-                    RecourseReason::Pay(_) => BillRecourseReasonBlockData::Pay,
-                };
                 let block_data = BillRecourseBlockData {
                     recourser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -246,8 +257,6 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     recoursee: recoursee.clone().into(),
-                    sum: sum.clone(),
-                    recourse_reason: reason,
                     signatory: signatory_for_signer(
                         holder_is_anon,
                         signing_keys.signatory_identity,
@@ -331,8 +340,11 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     buyer: buyer.clone().into(),
-                    sum: sum.clone(),
-                    payment_address: address_to_pay,
+                    payment_data: BillPaymentBlockData {
+                        sum: sum.clone(),
+                        payment_address: address_to_pay,
+                        payment_deadline: *buying_deadline_timestamp,
+                    },
                     signatory: signatory_for_signer(
                         holder_is_anon,
                         signing_keys.signatory_identity,
@@ -348,7 +360,6 @@ impl BillService {
                     } else {
                         identity_proof.map(|sp| sp.into())
                     },
-                    buying_deadline_timestamp: *buying_deadline_timestamp,
                 };
                 block_data.validate()?;
                 BillBlock::create_block_for_offer_to_sell(
@@ -363,7 +374,7 @@ impl BillService {
                 .map_err(|e| Error::Protocol(e.into()))?
             }
             // can be anon to sell
-            BillAction::Sell(buyer, sum, payment_address) => {
+            BillAction::Sell(buyer) => {
                 validate_node_id_network(&buyer.node_id())?;
                 let block_data = BillSellBlockData {
                     seller: if holder_is_anon {
@@ -373,8 +384,6 @@ impl BillService {
                         signer_public_data.clone().into()
                     },
                     buyer: buyer.clone().into(),
-                    sum: sum.clone(),
-                    payment_address: payment_address.to_owned(),
                     signatory: signatory_for_signer(
                         holder_is_anon,
                         signing_keys.signatory_identity,

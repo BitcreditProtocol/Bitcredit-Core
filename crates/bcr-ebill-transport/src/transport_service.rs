@@ -487,7 +487,7 @@ mod tests {
     use bcr_ebill_core::protocol::blockchain::Blockchain;
     use bcr_ebill_core::protocol::blockchain::bill::block::{
         BillAcceptBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
-        BillRecourseBlockData, BillRecourseReasonBlockData, BillRequestToAcceptBlockData,
+        BillPaymentBlockData, BillRecourseBlockData, BillRequestToAcceptBlockData,
         BillRequestToPayBlockData,
     };
     use bcr_ebill_core::protocol::blockchain::bill::{BillBlock, BillBlockchain};
@@ -496,10 +496,7 @@ mod tests {
     };
     use bcr_ebill_core::protocol::event::{ChainInvite, EventEnvelope, EventType};
     use bcr_ebill_core::{
-        protocol::Email,
-        protocol::Result,
-        protocol::crypto::BcrKeys,
-        protocol::{Currency, Sum},
+        protocol::Email, protocol::Result, protocol::Sum, protocol::crypto::BcrKeys,
     };
     use bcr_ebill_persistence::nostr::NostrQueuedMessage;
     use bitcoin::base58;
@@ -681,13 +678,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: Sum::new_sat(100).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(100).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
-                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -818,13 +817,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: Sum::new_sat(100).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(100).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
-                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -905,13 +906,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: Sum::new_sat(100).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(100).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
-                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1018,13 +1021,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: Sum::new_sat(100).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(100).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
-                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1325,12 +1330,15 @@ mod tests {
             chain.get_latest_block(),
             &BillRequestToPayBlockData {
                 requester: BillParticipantBlockData::Ident(payee.clone().into()),
-                currency: Currency::sat(),
+                payment_data: BillPaymentBlockData {
+                    sum: bill.sum.clone(),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * PAYMENT_DEADLINE_SECONDS,
+                },
                 signatory: None,
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                payment_deadline_timestamp: timestamp + 2 * PAYMENT_DEADLINE_SECONDS,
             },
             &keys,
             None,
@@ -1493,13 +1501,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: Sum::new_sat(100).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(100).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
-                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1569,13 +1579,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 seller: BillParticipantBlockData::Ident(payee.clone().into()),
                 buyer: BillParticipantBlockData::Ident(buyer.clone().into()),
-                sum: Sum::new_sat(100).expect("sat works"),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(100).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: timestamp + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
-                payment_address: valid_payment_address_testnet(),
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: timestamp + 2 * DAY_IN_SECS,
             },
             &keys,
             None,
@@ -1647,8 +1659,6 @@ mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(payee.clone()).into(),
                 recoursee: recoursee.clone().into(),
-                sum: Sum::new_sat(100).expect("sat works"),
-                recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: timestamp,
                 signing_address: Some(empty_address()),

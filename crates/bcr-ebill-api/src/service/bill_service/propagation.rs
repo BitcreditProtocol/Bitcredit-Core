@@ -60,7 +60,7 @@ impl BillService {
                     .send_recourse_action_event(&chain_event, action_type, recoursee)
                     .await?;
             }
-            BillAction::Recourse(recoursee, _, _) => {
+            BillAction::Recourse(recoursee) => {
                 self.transport_service
                     .send_bill_recourse_paid_event(&chain_event, recoursee)
                     .await?;
@@ -75,7 +75,7 @@ impl BillService {
                     .send_offer_to_sell_event(&chain_event, buyer)
                     .await?;
             }
-            BillAction::Sell(buyer, _, _) => {
+            BillAction::Sell(buyer) => {
                 self.transport_service
                     .send_bill_is_sold_event(&chain_event, buyer)
                     .await?;
