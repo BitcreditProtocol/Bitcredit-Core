@@ -7,7 +7,7 @@ use crate::data::contact::{
 };
 use crate::data::{
     Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, PostalAddressWeb, UploadFile,
-    UploadFileResponse, has_field,
+    UploadFileResponse, edit_field_mode,
 };
 use crate::{Result, context::get_ctx};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -303,54 +303,90 @@ impl Contact {
         #[wasm_bindgen(unchecked_param_type = "EditContactPayload")] payload: JsValue,
     ) -> JsValue {
         let res: Result<()> = async {
-            // if it's not there, we ignore it, if it's set to undefined, we remove
-            let has_avatar_file_upload_id = has_field(&payload, "avatar_file_upload_id");
-            let has_proof_document_file_upload_id =
-                has_field(&payload, "proof_document_file_upload_id");
+            let contact_payload: EditContactPayload =
+                serde_wasm_bindgen::from_value(payload.clone())?;
 
-            let contact_payload: EditContactPayload = serde_wasm_bindgen::from_value(payload)?;
+            let date_of_birth_or_registration = contact_payload
+                .date_of_birth_or_registration
+                .map(|d| Date::new(&d))
+                .transpose()?;
+            let edit_date_of_birth_or_registration = edit_field_mode(
+                &payload,
+                "date_of_birth_or_registration",
+                date_of_birth_or_registration,
+            );
+
+            let country_of_birth_or_registration = contact_payload
+                .country_of_birth_or_registration
+                .map(|d| Country::parse(&d))
+                .transpose()?;
+            let edit_country_of_birth_or_registration = edit_field_mode(
+                &payload,
+                "country_of_birth_or_registration",
+                country_of_birth_or_registration,
+            );
+
+            let city_of_birth_or_registration = contact_payload
+                .city_of_birth_or_registration
+                .map(|d| City::new(&d))
+                .transpose()?;
+            let edit_city_of_birth_or_registration = edit_field_mode(
+                &payload,
+                "city_of_birth_or_registration",
+                city_of_birth_or_registration,
+            );
+
+            let identification_number = contact_payload
+                .identification_number
+                .map(|d| Identification::new(&d))
+                .transpose()?;
+            let edit_identification_number =
+                edit_field_mode(&payload, "identification_number", identification_number);
+
+            let avatar_file_upload_id = contact_payload
+                .avatar_file_upload_id
+                .as_ref()
+                .map(|s| {
+                    Uuid::from_str(s).map_err(|_| ProtocolValidationError::InvalidFileUploadId)
+                })
+                .transpose()?;
+            let edit_avatar_file =
+                edit_field_mode(&payload, "avatar_file_upload_id", avatar_file_upload_id);
+
+            let proof_document_file_upload_id = contact_payload
+                .proof_document_file_upload_id
+                .as_ref()
+                .map(|s| {
+                    Uuid::from_str(s).map_err(|_| ProtocolValidationError::InvalidFileUploadId)
+                })
+                .transpose()?;
+            let edit_proof_file = edit_field_mode(
+                &payload,
+                "proof_document_file_upload_id",
+                proof_document_file_upload_id,
+            );
+
+            let addr = OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                contact_payload.postal_address,
+            )?);
+            let edit_zip = edit_field_mode(&payload, "postal_address.zip", addr.zip);
+
             get_ctx()
                 .contact_service
                 .update_contact(
                     &contact_payload.node_id,
                     contact_payload.name.map(Name::new).transpose()?,
                     contact_payload.email.map(Email::new).transpose()?,
-                    OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
-                        contact_payload.postal_address,
-                    )?),
-                    contact_payload
-                        .date_of_birth_or_registration
-                        .map(|d| Date::new(&d))
-                        .transpose()?,
-                    contact_payload
-                        .country_of_birth_or_registration
-                        .as_deref()
-                        .map(Country::parse)
-                        .transpose()?,
-                    contact_payload
-                        .city_of_birth_or_registration
-                        .map(City::new)
-                        .transpose()?,
-                    contact_payload
-                        .identification_number
-                        .map(Identification::new)
-                        .transpose()?,
-                    contact_payload
-                        .avatar_file_upload_id
-                        .map(|s| {
-                            Uuid::from_str(&s)
-                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
-                        })
-                        .transpose()?,
-                    !has_avatar_file_upload_id,
-                    contact_payload
-                        .proof_document_file_upload_id
-                        .map(|s| {
-                            Uuid::from_str(&s)
-                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
-                        })
-                        .transpose()?,
-                    !has_proof_document_file_upload_id,
+                    addr.country,
+                    addr.city,
+                    edit_zip,
+                    addr.address,
+                    edit_date_of_birth_or_registration,
+                    edit_country_of_birth_or_registration,
+                    edit_city_of_birth_or_registration,
+                    edit_identification_number,
+                    edit_avatar_file,
+                    edit_proof_file,
                 )
                 .await?;
             Ok(())

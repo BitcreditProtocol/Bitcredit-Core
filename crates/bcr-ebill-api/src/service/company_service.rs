@@ -14,7 +14,7 @@ use bcr_ebill_core::application::company::{
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::application::identity::ActiveIdentityState;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
-use bcr_ebill_core::protocol::Name;
+use bcr_ebill_core::protocol::EditOptionalFieldMode;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::ContactType;
@@ -36,11 +36,12 @@ use bcr_ebill_core::protocol::blockchain::identity::{
 use bcr_ebill_core::protocol::blockchain::identity::{IdentityBlockchain, IdentityType};
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
+use bcr_ebill_core::protocol::{Address, Name, Zip};
 use bcr_ebill_core::protocol::{BlockId, Email};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
 use bcr_ebill_core::protocol::{Country, blockchain};
 use bcr_ebill_core::protocol::{Date, EmailIdentityProofData, SignedIdentityProof};
-use bcr_ebill_core::protocol::{File, OptionalPostalAddress, PostalAddress};
+use bcr_ebill_core::protocol::{File, PostalAddress};
 use bcr_ebill_core::protocol::{Identification, Validate};
 use bcr_ebill_core::protocol::{
     PublicKey, SecretKey,
@@ -102,15 +103,16 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         id: &NodeId,
         name: Option<Name>,
         email: Option<Email>,
-        postal_address: OptionalPostalAddress,
-        country_of_registration: Option<Country>,
-        city_of_registration: Option<City>,
-        registration_number: Option<Identification>,
-        registration_date: Option<Date>,
-        logo_file_upload_id: Option<Uuid>,
-        ignore_logo_file_upload_id: bool,
-        proof_of_registration_file_upload_id: Option<Uuid>,
-        ignore_proof_of_registration_file_upload_id: bool,
+        country: Option<Country>,
+        city: Option<City>,
+        zip: EditOptionalFieldMode<Zip>,
+        address: Option<Address>,
+        country_of_registration: EditOptionalFieldMode<Country>,
+        city_of_registration: EditOptionalFieldMode<City>,
+        registration_number: EditOptionalFieldMode<Identification>,
+        registration_date: EditOptionalFieldMode<Date>,
+        logo_file_upload_id: EditOptionalFieldMode<Uuid>,
+        proof_of_registration_file_upload_id: EditOptionalFieldMode<Uuid>,
         timestamp: Timestamp,
     ) -> Result<()>;
 
@@ -772,15 +774,16 @@ impl CompanyServiceApi for CompanyService {
         id: &NodeId,
         name: Option<Name>,
         email: Option<Email>,
-        postal_address: OptionalPostalAddress,
-        country_of_registration: Option<Country>,
-        city_of_registration: Option<City>,
-        registration_number: Option<Identification>,
-        registration_date: Option<Date>,
-        logo_file_upload_id: Option<Uuid>,
-        ignore_logo_file_upload_id: bool,
-        proof_of_registration_file_upload_id: Option<Uuid>,
-        ignore_proof_of_registration_file_upload_id: bool,
+        country: Option<Country>,
+        city: Option<City>,
+        zip: EditOptionalFieldMode<Zip>,
+        address: Option<Address>,
+        country_of_registration: EditOptionalFieldMode<Country>,
+        city_of_registration: EditOptionalFieldMode<City>,
+        registration_number: EditOptionalFieldMode<Identification>,
+        registration_date: EditOptionalFieldMode<Date>,
+        logo_file_upload_id: EditOptionalFieldMode<Uuid>,
+        proof_of_registration_file_upload_id: EditOptionalFieldMode<Uuid>,
         timestamp: Timestamp,
     ) -> Result<()> {
         debug!("editing company with id: {id}");
@@ -826,109 +829,122 @@ impl CompanyServiceApi for CompanyService {
             changed = true;
         }
 
-        if let Some(ref postal_address_city_to_set) = postal_address.city {
+        if let Some(ref postal_address_city_to_set) = city {
             company.postal_address.city = postal_address_city_to_set.clone();
             changed = true;
         }
 
-        if let Some(ref postal_address_country_to_set) = postal_address.country {
+        if let Some(ref postal_address_country_to_set) = country {
             company.postal_address.country = postal_address_country_to_set.clone();
             changed = true;
         }
 
-        util::update_optional_field(
-            &mut company.postal_address.zip,
-            &postal_address.zip,
-            &mut changed,
-        );
+        if let Some(ref postal_address_address_to_set) = address {
+            company.postal_address.address = postal_address_address_to_set.clone();
+            changed = true;
+        }
 
-        util::update_optional_field(
+        util::handle_optional_field(&mut company.postal_address.zip, &zip, &mut changed);
+
+        util::handle_optional_field(
             &mut company.country_of_registration,
             &country_of_registration,
             &mut changed,
         );
 
-        util::update_optional_field(
+        util::handle_optional_field(
             &mut company.city_of_registration,
             &city_of_registration,
             &mut changed,
         );
 
-        util::update_optional_field(
+        util::handle_optional_field(
             &mut company.registration_date,
             &registration_date,
             &mut changed,
         );
 
-        util::update_optional_field(
+        util::handle_optional_field(
             &mut company.registration_number,
             &registration_number,
             &mut changed,
         );
 
-        if let Some(ref postal_address_address_to_set) = postal_address.address {
-            company.postal_address.address = postal_address_address_to_set.clone();
-            changed = true;
-        }
+        let logo_file = match logo_file_upload_id {
+            EditOptionalFieldMode::Set(logo_file_upload_id) => {
+                // TODO(multi-relay): don't default to first
+                if let Some(nostr_relay) = nostr_relays.first() {
+                    let logo_file = self
+                        .process_upload_file(
+                            &Some(logo_file_upload_id),
+                            id,
+                            &company_keys.pub_key(),
+                            nostr_relay,
+                            UploadFileType::Picture,
+                        )
+                        .await?;
 
-        // remove the logo
-        if !ignore_logo_file_upload_id && logo_file_upload_id.is_none() {
-            company.logo_file = None;
-            changed = true;
-        }
+                    // only override the picture, if there is a new one
+                    if logo_file.is_some() {
+                        company.logo_file = logo_file.clone();
+                        changed = true;
+                    }
+                    logo_file
+                } else {
+                    None
+                }
+            }
+            EditOptionalFieldMode::Unset => {
+                // remove the logo
+                company.logo_file = None;
+                changed = true;
+                None
+            }
+            EditOptionalFieldMode::Ignore => {
+                // nothing to do
+                None
+            }
+        };
 
-        // remove the proof of registration
-        if !ignore_proof_of_registration_file_upload_id
-            && proof_of_registration_file_upload_id.is_none()
-        {
-            company.proof_of_registration_file = None;
-            changed = true;
-        }
+        let proof_of_registration_file = match proof_of_registration_file_upload_id {
+            EditOptionalFieldMode::Set(proof_of_registration_file_upload_id) => {
+                // TODO(multi-relay): don't default to first
+                if let Some(nostr_relay) = nostr_relays.first() {
+                    let proof_of_registration_file = self
+                        .process_upload_file(
+                            &Some(proof_of_registration_file_upload_id),
+                            id,
+                            &company_keys.pub_key(),
+                            nostr_relay,
+                            UploadFileType::Document,
+                        )
+                        .await?;
+
+                    // only override the document, if there is a new one
+                    if proof_of_registration_file.is_some() {
+                        company.proof_of_registration_file = proof_of_registration_file.clone();
+                        changed = true;
+                    }
+                    proof_of_registration_file
+                } else {
+                    None
+                }
+            }
+            EditOptionalFieldMode::Unset => {
+                // remove the proof of registration
+                company.proof_of_registration_file = None;
+                changed = true;
+                None
+            }
+            EditOptionalFieldMode::Ignore => {
+                // nothing to do
+                None
+            }
+        };
 
         if !changed {
             return Ok(());
         }
-
-        // TODO(multi-relay): don't default to first
-        let (logo_file, proof_of_registration_file) = match nostr_relays.first() {
-            Some(nostr_relay) => {
-                let logo_file = if ignore_logo_file_upload_id {
-                    None
-                } else {
-                    self.process_upload_file(
-                        &logo_file_upload_id,
-                        id,
-                        &company_keys.pub_key(),
-                        nostr_relay,
-                        UploadFileType::Picture,
-                    )
-                    .await?
-                };
-                // only override the picture, if there is a new one
-                if logo_file.is_some() {
-                    company.logo_file = logo_file.clone();
-                }
-
-                let proof_of_registration_file = if ignore_proof_of_registration_file_upload_id {
-                    None
-                } else {
-                    self.process_upload_file(
-                        &proof_of_registration_file_upload_id,
-                        id,
-                        &company_keys.pub_key(),
-                        nostr_relay,
-                        UploadFileType::Document,
-                    )
-                    .await?
-                };
-                // only override the document, if there is a new one
-                if proof_of_registration_file.is_some() {
-                    company.proof_of_registration_file = proof_of_registration_file.clone();
-                }
-                (logo_file, proof_of_registration_file)
-            }
-            None => (None, None),
-        };
 
         self.store.update(id, &company).await?;
 
@@ -939,13 +955,17 @@ impl CompanyServiceApi for CompanyService {
             &CompanyUpdateBlockData {
                 name,
                 email,
-                postal_address,
+                country,
+                city,
+                zip,
+                address,
                 country_of_registration,
                 city_of_registration,
                 registration_number,
                 registration_date,
-                logo_file,
-                proof_of_registration_file,
+                logo_file: logo_file_upload_id.swap_value(logo_file),
+                proof_of_registration_file: proof_of_registration_file_upload_id
+                    .swap_value(proof_of_registration_file),
             },
             &full_identity.key_pair,
             &company_keys,
@@ -963,13 +983,24 @@ impl CompanyServiceApi for CompanyService {
 
         debug!("company with id {id} updated");
 
-        if let Some(upload_id) = logo_file_upload_id
-            && let Err(e) = self
-                .file_upload_store
-                .remove_temp_upload_folder(&upload_id)
-                .await
+        // clean up temporary file uploads, if there are any, logging any errors
+        for upload_id in [proof_of_registration_file_upload_id, logo_file_upload_id]
+            .iter()
+            .filter_map(|mode| {
+                if let EditOptionalFieldMode::Set(v) = mode {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
         {
-            error!("Error while cleaning up temporary file uploads for {upload_id}: {e}");
+            if let Err(e) = self
+                .file_upload_store
+                .remove_temp_upload_folder(upload_id)
+                .await
+            {
+                error!("Error while cleaning up temporary file uploads for {upload_id}: {e}");
+            }
         }
 
         Ok(())
@@ -1212,7 +1243,6 @@ impl CompanyServiceApi for CompanyService {
             .await?;
 
         if full_identity.identity.node_id == signatory_node_id {
-            // TODO NOSTR: stop susbcribing to company topic
             info!("Removed self from company {id} - deleting company chain");
             if let Err(e) = self.company_blockchain_store.remove(id).await {
                 error!("Could not delete local company chain for {id}: {e}");
@@ -1804,9 +1834,9 @@ pub mod tests {
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
             MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
             MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
-            empty_address, empty_identity, empty_optional_address, node_id_test,
-            node_id_test_another, node_id_test_other, node_id_test_other2, private_key_test,
-            private_key_test_another, signed_identity_proof_test, test_ts,
+            empty_address, empty_identity, node_id_test, node_id_test_another, node_id_test_other,
+            node_id_test_other2, private_key_test, private_key_test_another,
+            signed_identity_proof_test, test_ts,
         },
         util::get_uuid_v4,
     };
@@ -2565,15 +2595,16 @@ pub mod tests {
                 &node_id_test(),
                 Some(Name::new("name").unwrap()),
                 Some(Email::new("company@example.com").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                Some(get_uuid_v4()),
-                false,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Set(get_uuid_v4()),
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
@@ -2614,15 +2645,16 @@ pub mod tests {
                 &node_id_test_other(),
                 Some(Name::new("name").unwrap()),
                 Some(Email::new("company@example.com").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                None,
-                true,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
@@ -2675,15 +2707,16 @@ pub mod tests {
                 &node_id_test(),
                 Some(Name::new("name").unwrap()),
                 Some(Email::new("company@example.com").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                None,
-                true,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
@@ -2752,15 +2785,16 @@ pub mod tests {
                 &node_id_test(),
                 Some(Name::new("name").unwrap()),
                 Some(Email::new("company@example.com").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                None,
-                true,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
@@ -4245,15 +4279,16 @@ pub mod tests {
                     &mainnet_node_id,
                     None,
                     None,
-                    OptionalPostalAddress::empty(),
                     None,
                     None,
+                    EditOptionalFieldMode::Ignore,
                     None,
-                    None,
-                    None,
-                    true,
-                    None,
-                    true,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
+                    EditOptionalFieldMode::Ignore,
                     test_ts()
                 )
                 .await

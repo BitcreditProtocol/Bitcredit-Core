@@ -6,6 +6,7 @@ use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::validate_node_id_network;
 use crate::{get_config, util};
+use bcr_ebill_core::protocol::{Address, EditOptionalFieldMode, Zip};
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -43,15 +44,16 @@ pub trait IdentityServiceApi: ServiceTraitBounds {
     async fn update_identity(
         &self,
         name: Option<Name>,
-        postal_address: OptionalPostalAddress,
-        date_of_birth: Option<Date>,
-        country_of_birth: Option<Country>,
-        city_of_birth: Option<City>,
-        identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<Uuid>,
-        ignore_profile_picture_file_upload_id: bool,
-        identity_document_file_upload_id: Option<Uuid>,
-        ignore_identity_document_file_upload_id: bool,
+        country: Option<Country>,
+        city: Option<City>,
+        zip: EditOptionalFieldMode<Zip>,
+        address: Option<Address>,
+        date_of_birth: EditOptionalFieldMode<Date>,
+        country_of_birth: EditOptionalFieldMode<Country>,
+        city_of_birth: EditOptionalFieldMode<City>,
+        identification_number: EditOptionalFieldMode<Identification>,
+        profile_picture_file_upload_id: EditOptionalFieldMode<Uuid>,
+        identity_document_file_upload_id: EditOptionalFieldMode<Uuid>,
         timestamp: Timestamp,
     ) -> Result<()>;
     /// Updates the identity email
@@ -370,15 +372,16 @@ impl IdentityServiceApi for IdentityService {
     async fn update_identity(
         &self,
         name: Option<Name>,
-        postal_address: OptionalPostalAddress,
-        date_of_birth: Option<Date>,
-        country_of_birth: Option<Country>,
-        city_of_birth: Option<City>,
-        identification_number: Option<Identification>,
-        profile_picture_file_upload_id: Option<Uuid>,
-        ignore_profile_picture_file_upload_id: bool,
-        identity_document_file_upload_id: Option<Uuid>,
-        ignore_identity_document_file_upload_id: bool,
+        country: Option<Country>,
+        city: Option<City>,
+        zip: EditOptionalFieldMode<Zip>,
+        address: Option<Address>,
+        date_of_birth: EditOptionalFieldMode<Date>,
+        country_of_birth: EditOptionalFieldMode<Country>,
+        city_of_birth: EditOptionalFieldMode<City>,
+        identification_number: EditOptionalFieldMode<Identification>,
+        profile_picture_file_upload_id: EditOptionalFieldMode<Uuid>,
+        identity_document_file_upload_id: EditOptionalFieldMode<Uuid>,
         timestamp: Timestamp,
     ) -> Result<()> {
         debug!("updating identity");
@@ -401,101 +404,117 @@ impl IdentityServiceApi for IdentityService {
 
         // for anonymous identity, we only consider name
         if identity.t == IdentityType::Ident {
-            if let Some(ref country_to_set) = postal_address.country
+            if let Some(ref country_to_set) = country
                 && identity.postal_address.country.as_ref() != Some(country_to_set)
             {
                 identity.postal_address.country = Some(country_to_set.to_owned());
                 changed = true;
             }
 
-            if let Some(ref city_to_set) = postal_address.city
+            if let Some(ref city_to_set) = city
                 && identity.postal_address.city.as_ref() != Some(city_to_set)
             {
                 identity.postal_address.city = Some(city_to_set.to_owned());
                 changed = true;
             }
 
-            util::update_optional_field(
-                &mut identity.postal_address.zip,
-                &postal_address.zip,
-                &mut changed,
-            );
+            util::handle_optional_field(&mut identity.postal_address.zip, &zip, &mut changed);
 
-            if let Some(ref address_to_set) = postal_address.address
+            if let Some(ref address_to_set) = address
                 && identity.postal_address.address.as_ref() != Some(address_to_set)
             {
                 identity.postal_address.address = Some(address_to_set.to_owned());
                 changed = true;
             }
 
-            util::update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
+            util::handle_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
 
-            util::update_optional_field(
+            util::handle_optional_field(
                 &mut identity.country_of_birth,
                 &country_of_birth,
                 &mut changed,
             );
 
-            util::update_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
+            util::handle_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
 
-            util::update_optional_field(
+            util::handle_optional_field(
                 &mut identity.identification_number,
                 &identification_number,
                 &mut changed,
             );
 
-            // remove the profile picture
-            if !ignore_profile_picture_file_upload_id && profile_picture_file_upload_id.is_none() {
-                identity.profile_picture_file = None;
-                changed = true;
-            }
+            profile_picture_file = match profile_picture_file_upload_id {
+                EditOptionalFieldMode::Set(profile_picture_file_upload_id) => {
+                    // TODO(multi-relay): don't default to first
+                    if let Some(nostr_relay) = nostr_relays.first() {
+                        let profile_picture_file = self
+                            .process_upload_file(
+                                &Some(profile_picture_file_upload_id),
+                                &identity.node_id,
+                                &keys.pub_key(),
+                                nostr_relay,
+                                UploadFileType::Picture,
+                            )
+                            .await?;
+                        // only override the picture, if there is a new one
+                        if profile_picture_file.is_some() {
+                            identity.profile_picture_file = profile_picture_file.clone();
+                            changed = true;
+                        }
+                        profile_picture_file
+                    } else {
+                        None
+                    }
+                }
+                EditOptionalFieldMode::Unset => {
+                    // remove the profile picture
+                    identity.profile_picture_file = None;
+                    changed = true;
+                    None
+                }
+                EditOptionalFieldMode::Ignore => {
+                    // nothing to do
+                    None
+                }
+            };
 
-            // remove the identity document
-            if !ignore_identity_document_file_upload_id
-                && identity_document_file_upload_id.is_none()
-            {
-                identity.identity_document_file = None;
-                changed = true;
-            }
+            identity_document_file = match identity_document_file_upload_id {
+                EditOptionalFieldMode::Set(identity_document_file_upload_id) => {
+                    // TODO(multi-relay): don't default to first
+                    if let Some(nostr_relay) = nostr_relays.first() {
+                        let identity_document_file = self
+                            .process_upload_file(
+                                &Some(identity_document_file_upload_id),
+                                &identity.node_id,
+                                &keys.pub_key(),
+                                nostr_relay,
+                                UploadFileType::Document,
+                            )
+                            .await?;
+                        // only override the document, if there is a new one
+                        if identity_document_file.is_some() {
+                            identity.identity_document_file = identity_document_file.clone();
+                        }
+                        identity_document_file
+                    } else {
+                        None
+                    }
+                }
+                EditOptionalFieldMode::Unset => {
+                    // remove the document
+                    identity.identity_document_file = None;
+                    changed = true;
+                    None
+                }
+                EditOptionalFieldMode::Ignore => {
+                    // nothing to do
+                    None
+                }
+            };
 
             if !changed {
                 return Ok(());
             }
-
-            // TODO(multi-relay): don't default to first
-            if let Some(nostr_relay) = nostr_relays.first() {
-                if !ignore_profile_picture_file_upload_id {
-                    profile_picture_file = self
-                        .process_upload_file(
-                            &profile_picture_file_upload_id,
-                            &identity.node_id,
-                            &keys.pub_key(),
-                            nostr_relay,
-                            UploadFileType::Picture,
-                        )
-                        .await?;
-                    // only override the picture, if there is a new one
-                    if profile_picture_file.is_some() {
-                        identity.profile_picture_file = profile_picture_file.clone();
-                    }
-                }
-
-                if !ignore_identity_document_file_upload_id {
-                    identity_document_file = self
-                        .process_upload_file(
-                            &identity_document_file_upload_id,
-                            &identity.node_id,
-                            &keys.pub_key(),
-                            nostr_relay,
-                            UploadFileType::Document,
-                        )
-                        .await?;
-                    // only override the document, if there is a new one
-                    if identity_document_file.is_some() {
-                        identity.identity_document_file = identity_document_file.clone();
-                    }
-                }
-            };
         }
 
         let mut identity_chain = self.blockchain_store.get_chain().await?;
@@ -504,13 +523,17 @@ impl IdentityServiceApi for IdentityService {
             t: None,
             name,
             email: None,
-            postal_address,
+            country,
+            city,
+            zip,
+            address,
             date_of_birth,
             country_of_birth,
             city_of_birth,
             identification_number,
-            profile_picture_file,
-            identity_document_file,
+            profile_picture_file: profile_picture_file_upload_id.swap_value(profile_picture_file),
+            identity_document_file: identity_document_file_upload_id
+                .swap_value(identity_document_file),
         };
         block_data.validate()?;
         let new_block =
@@ -556,13 +579,16 @@ impl IdentityServiceApi for IdentityService {
             t: None,
             name: None,
             email: Some(email.to_owned()),
-            postal_address: OptionalPostalAddress::empty(),
-            date_of_birth: None,
-            country_of_birth: None,
-            city_of_birth: None,
-            identification_number: None,
-            profile_picture_file: None,
-            identity_document_file: None,
+            country: None,
+            city: None,
+            zip: EditOptionalFieldMode::Ignore,
+            address: None,
+            date_of_birth: EditOptionalFieldMode::Ignore,
+            country_of_birth: EditOptionalFieldMode::Ignore,
+            city_of_birth: EditOptionalFieldMode::Ignore,
+            identification_number: EditOptionalFieldMode::Ignore,
+            profile_picture_file: EditOptionalFieldMode::Ignore,
+            identity_document_file: EditOptionalFieldMode::Ignore,
         };
         block_data.validate()?;
         let new_block =
@@ -786,13 +812,20 @@ impl IdentityServiceApi for IdentityService {
             t: Some(t.clone()),
             name: Some(name),
             email,
-            postal_address,
-            date_of_birth,
-            country_of_birth,
-            city_of_birth,
-            identification_number,
-            profile_picture_file,
-            identity_document_file,
+            country: postal_address.country,
+            city: postal_address.city,
+            zip: EditOptionalFieldMode::from_option_no_unset(postal_address.zip),
+            address: postal_address.address,
+            date_of_birth: EditOptionalFieldMode::from_option_no_unset(date_of_birth),
+            country_of_birth: EditOptionalFieldMode::from_option_no_unset(country_of_birth),
+            city_of_birth: EditOptionalFieldMode::from_option_no_unset(city_of_birth),
+            identification_number: EditOptionalFieldMode::from_option_no_unset(
+                identification_number,
+            ),
+            profile_picture_file: EditOptionalFieldMode::from_option_no_unset(profile_picture_file),
+            identity_document_file: EditOptionalFieldMode::from_option_no_unset(
+                identity_document_file,
+            ),
         };
         block_data.validate()?;
         let new_block =
@@ -1359,15 +1392,16 @@ mod tests {
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                None,
-                true,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
@@ -1392,15 +1426,16 @@ mod tests {
         let res = service
             .update_identity(
                 Some(Name::new("name").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                None,
-                true,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
@@ -1439,15 +1474,16 @@ mod tests {
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),
-                empty_optional_address(),
                 None,
                 None,
+                EditOptionalFieldMode::Ignore,
                 None,
-                None,
-                None,
-                true,
-                None,
-                true,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;

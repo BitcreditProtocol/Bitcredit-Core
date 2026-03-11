@@ -105,7 +105,7 @@ impl BillService {
             blockchain,
             bill_keys,
             true,
-            &identity.node_id, // TODO(company-notifications): how to handle jobs as company participant?
+            &identity.node_id,
         )?;
         self.transport_service
             .send_bill_is_paid_event(&chain_event)

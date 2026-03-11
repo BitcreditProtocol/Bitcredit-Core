@@ -14,6 +14,7 @@ pub mod tests;
 // base types
 pub use base::BitcoinAddress;
 pub use base::DateTimeUtc;
+pub use base::EditOptionalFieldMode;
 pub use base::File;
 pub use base::OptionalPostalAddress;
 pub use base::PostalAddress;

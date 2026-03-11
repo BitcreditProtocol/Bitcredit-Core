@@ -1,8 +1,6 @@
 use super::super::bill::BillOpCode;
 use super::Result;
 use super::{Block, CompanyOpCode};
-use crate::protocol::City;
-use crate::protocol::Country;
 use crate::protocol::Date;
 use crate::protocol::Email;
 use crate::protocol::Identification;
@@ -12,8 +10,10 @@ use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
 use crate::protocol::base::identity_proof::{EmailIdentityProofData, SignedIdentityProof};
 use crate::protocol::crypto::{self, BcrKeys};
+use crate::protocol::{Address, Country, Zip};
 use crate::protocol::{BlockId, ProtocolValidationError};
-use crate::protocol::{File, OptionalPostalAddress, PostalAddress};
+use crate::protocol::{City, EditOptionalFieldMode};
+use crate::protocol::{File, PostalAddress};
 use bcr_common::core::BillId;
 use bcr_common::core::NodeId;
 use bitcoin::base58;
@@ -92,19 +92,20 @@ pub struct CompanyCreateBlockData {
     pub creator: NodeId,
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Default, PartialEq,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyUpdateBlockData {
     pub name: Option<Name>,
     pub email: Option<Email>,
-    pub postal_address: OptionalPostalAddress,
-    pub country_of_registration: Option<Country>,
-    pub city_of_registration: Option<City>,
-    pub registration_number: Option<Identification>,
-    pub registration_date: Option<Date>,
-    pub logo_file: Option<File>,
-    pub proof_of_registration_file: Option<File>,
+    pub country: Option<Country>,
+    pub city: Option<City>,
+    pub zip: EditOptionalFieldMode<Zip>,
+    pub address: Option<Address>,
+    pub country_of_registration: EditOptionalFieldMode<Country>,
+    pub city_of_registration: EditOptionalFieldMode<City>,
+    pub registration_number: EditOptionalFieldMode<Identification>,
+    pub registration_date: EditOptionalFieldMode<Date>,
+    pub logo_file: EditOptionalFieldMode<File>,
+    pub proof_of_registration_file: EditOptionalFieldMode<File>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]

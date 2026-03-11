@@ -30,7 +30,7 @@ use crate::{
             LocallyHideSignatoryPayload, RemoveSignatoryPayload, ResyncCompanyPayload,
             SignatoryResponse, VerifyEmailPayload,
         },
-        has_field,
+        edit_field_mode,
         identity::{IdentityEmailConfirmationWeb, ShareCompanyContactTo},
     },
     error::WasmError,
@@ -288,20 +288,78 @@ impl Company {
         #[wasm_bindgen(unchecked_param_type = "EditCompanyPayload")] payload: JsValue,
     ) -> JsValue {
         let res: Result<()> = async {
-            // if it's not there, we ignore it, if it's set to undefined, we remove
-            let has_logo_file_upload_id = has_field(&payload, "logo_file_upload_id");
-            let has_proof_of_registration_file_upload_id =
-                has_field(&payload, "proof_of_registration_file_upload_id");
+            let company_payload: EditCompanyPayload =
+                serde_wasm_bindgen::from_value(payload.clone())?;
 
-            let company_payload: EditCompanyPayload = serde_wasm_bindgen::from_value(payload)?;
+            let country_of_registration = company_payload
+                .country_of_registration
+                .as_deref()
+                .map(Country::parse)
+                .transpose()?;
+            let edit_country_of_registration = edit_field_mode(
+                &payload,
+                "country_of_registration",
+                country_of_registration.to_owned(),
+            );
 
-            if company_payload.name.is_none()
-                && company_payload.email.is_none()
-                && company_payload.postal_address.is_none()
-                && company_payload.logo_file_upload_id.is_none()
-            {
-                return Ok(());
-            }
+            let city_of_registration = company_payload
+                .city_of_registration
+                .map(City::new)
+                .transpose()?;
+            let edit_city_of_registration = edit_field_mode(
+                &payload,
+                "city_of_registration",
+                city_of_registration.to_owned(),
+            );
+
+            let registration_number = company_payload
+                .registration_number
+                .map(Identification::new)
+                .transpose()?;
+            let edit_registration_number = edit_field_mode(
+                &payload,
+                "registration_number",
+                registration_number.to_owned(),
+            );
+
+            let registration_date = company_payload
+                .registration_date
+                .map(Date::new)
+                .transpose()?;
+            let edit_registration_date =
+                edit_field_mode(&payload, "registration_date", registration_date.to_owned());
+
+            let logo_file_upload_id = company_payload
+                .logo_file_upload_id
+                .as_ref()
+                .map(|s| {
+                    Uuid::from_str(s).map_err(|_| ProtocolValidationError::InvalidFileUploadId)
+                })
+                .transpose()?;
+            let edit_logo_file = edit_field_mode(
+                &payload,
+                "logo_file_upload_id",
+                logo_file_upload_id.to_owned(),
+            );
+
+            let proof_of_registration_file_upload_id = company_payload
+                .proof_of_registration_file_upload_id
+                .as_ref()
+                .map(|s| {
+                    Uuid::from_str(s).map_err(|_| ProtocolValidationError::InvalidFileUploadId)
+                })
+                .transpose()?;
+            let edit_proof_file = edit_field_mode(
+                &payload,
+                "proof_of_registration_file_upload_id",
+                proof_of_registration_file_upload_id.to_owned(),
+            );
+
+            let addr = OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                company_payload.postal_address,
+            )?);
+            let edit_zip = edit_field_mode(&payload, "postal_address.zip", addr.zip);
+
             let timestamp = Timestamp::now();
             get_ctx()
                 .company_service
@@ -309,42 +367,16 @@ impl Company {
                     &company_payload.id,
                     company_payload.name.map(Name::new).transpose()?,
                     company_payload.email.map(Email::new).transpose()?,
-                    OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
-                        company_payload.postal_address,
-                    )?),
-                    company_payload
-                        .country_of_registration
-                        .as_deref()
-                        .map(Country::parse)
-                        .transpose()?,
-                    company_payload
-                        .city_of_registration
-                        .map(City::new)
-                        .transpose()?,
-                    company_payload
-                        .registration_number
-                        .map(Identification::new)
-                        .transpose()?,
-                    company_payload
-                        .registration_date
-                        .map(|d| Date::new(&d))
-                        .transpose()?,
-                    company_payload
-                        .logo_file_upload_id
-                        .map(|s| {
-                            Uuid::from_str(&s)
-                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
-                        })
-                        .transpose()?,
-                    !has_logo_file_upload_id,
-                    company_payload
-                        .proof_of_registration_file_upload_id
-                        .map(|s| {
-                            Uuid::from_str(&s)
-                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
-                        })
-                        .transpose()?,
-                    !has_proof_of_registration_file_upload_id,
+                    addr.country,
+                    addr.city,
+                    edit_zip,
+                    addr.address,
+                    edit_country_of_registration,
+                    edit_city_of_registration,
+                    edit_registration_number,
+                    edit_registration_date,
+                    edit_logo_file,
+                    edit_proof_file,
                     timestamp,
                 )
                 .await?;

@@ -5,7 +5,7 @@ use crate::{
     context::get_ctx,
     data::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressWeb, UploadFile,
-        UploadFileResponse, has_field,
+        UploadFileResponse, edit_field_mode,
         identity::{
             ChangeIdentityEmailPayload, ChangeIdentityPayload, ConfirmEmailPayload,
             IdentityEmailConfirmationWeb, IdentityTypeWeb, IdentityWeb, NewIdentityPayload,
@@ -261,63 +261,80 @@ impl Identity {
         #[wasm_bindgen(unchecked_param_type = "ChangeIdentityPayload")] payload: JsValue,
     ) -> JsValue {
         let res: Result<()> = async {
-            // if it's not there, we ignore it, if it's set to undefined, we remove
-            let has_profile_picture_file_upload_id =
-                has_field(&payload, "profile_picture_file_upload_id");
-            let has_identity_document_file_upload_id =
-                has_field(&payload, "identity_document_file_upload_id");
+            let identity_payload: ChangeIdentityPayload =
+                serde_wasm_bindgen::from_value(payload.clone())?;
 
-            let identity_payload: ChangeIdentityPayload = serde_wasm_bindgen::from_value(payload)?;
+            let date_of_birth = identity_payload
+                .date_of_birth
+                .map(|d| Date::new(&d))
+                .transpose()?;
+            let edit_date_of_birth = edit_field_mode(&payload, "date_of_birth", date_of_birth);
 
-            if identity_payload.name.is_none()
-                && identity_payload.postal_address.is_none()
-                && identity_payload.date_of_birth.is_none()
-                && identity_payload.country_of_birth.is_none()
-                && identity_payload.city_of_birth.is_none()
-                && identity_payload.identification_number.is_none()
-                && identity_payload.profile_picture_file_upload_id.is_none()
-                && identity_payload.identity_document_file_upload_id.is_none()
-            {
-                return Ok(());
-            }
+            let country_of_birth = identity_payload
+                .country_of_birth
+                .map(|d| Country::parse(&d))
+                .transpose()?;
+            let edit_country_of_birth =
+                edit_field_mode(&payload, "country_of_birth", country_of_birth);
+
+            let city_of_birth = identity_payload
+                .city_of_birth
+                .map(|d| City::new(&d))
+                .transpose()?;
+            let edit_city_of_birth = edit_field_mode(&payload, "city_of_birth", city_of_birth);
+
+            let identification_number = identity_payload
+                .identification_number
+                .map(|d| Identification::new(&d))
+                .transpose()?;
+            let edit_identification_number =
+                edit_field_mode(&payload, "identification_number", identification_number);
+
+            let profile_picture_file_upload_id = identity_payload
+                .profile_picture_file_upload_id
+                .as_ref()
+                .map(|s| {
+                    Uuid::from_str(s).map_err(|_| ProtocolValidationError::InvalidFileUploadId)
+                })
+                .transpose()?;
+            let profile_picture_file = edit_field_mode(
+                &payload,
+                "profile_picture_file_upload_id",
+                profile_picture_file_upload_id,
+            );
+            let identity_document_file_upload_id = identity_payload
+                .identity_document_file_upload_id
+                .as_ref()
+                .map(|s| {
+                    Uuid::from_str(s).map_err(|_| ProtocolValidationError::InvalidFileUploadId)
+                })
+                .transpose()?;
+            let identity_document_file = edit_field_mode(
+                &payload,
+                "identity_document_file_upload_id",
+                identity_document_file_upload_id,
+            );
+
+            let addr = OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
+                identity_payload.postal_address,
+            )?);
+            let edit_zip = edit_field_mode(&payload, "postal_address.zip", addr.zip);
+
             let timestamp = Timestamp::now();
             get_ctx()
                 .identity_service
                 .update_identity(
                     identity_payload.name.map(Name::new).transpose()?,
-                    OptionalPostalAddress::from(OptionalPostalAddressWeb::try_from(
-                        identity_payload.postal_address,
-                    )?),
-                    identity_payload
-                        .date_of_birth
-                        .map(|d| Date::new(&d))
-                        .transpose()?,
-                    identity_payload
-                        .country_of_birth
-                        .as_deref()
-                        .map(Country::parse)
-                        .transpose()?,
-                    identity_payload.city_of_birth.map(City::new).transpose()?,
-                    identity_payload
-                        .identification_number
-                        .map(Identification::new)
-                        .transpose()?,
-                    identity_payload
-                        .profile_picture_file_upload_id
-                        .map(|s| {
-                            Uuid::from_str(&s)
-                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
-                        })
-                        .transpose()?,
-                    !has_profile_picture_file_upload_id,
-                    identity_payload
-                        .identity_document_file_upload_id
-                        .map(|s| {
-                            Uuid::from_str(&s)
-                                .map_err(|_| ProtocolValidationError::InvalidFileUploadId)
-                        })
-                        .transpose()?,
-                    !has_identity_document_file_upload_id,
+                    addr.country,
+                    addr.city,
+                    edit_zip,
+                    addr.address,
+                    edit_date_of_birth,
+                    edit_country_of_birth,
+                    edit_city_of_birth,
+                    edit_identification_number,
+                    profile_picture_file,
+                    identity_document_file,
                     timestamp,
                 )
                 .await?;

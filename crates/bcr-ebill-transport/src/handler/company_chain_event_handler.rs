@@ -124,12 +124,11 @@ mod tests {
 
     use bcr_ebill_core::{
         application::company::Company,
-        protocol::Name,
-        protocol::blockchain::{
-            Blockchain,
-            company::{CompanyBlockchain, block::CompanyUpdateBlockData},
+        protocol::{
+            Name,
+            blockchain::{Blockchain, company::CompanyBlockchain},
+            crypto::BcrKeys,
         },
-        protocol::crypto::BcrKeys,
     };
     use mockall::predicate::{always, eq};
 
@@ -140,7 +139,7 @@ mod tests {
         },
         test_utils::{
             MockCompanyStore, MockNostrChainEventStore, get_company_data, get_test_nostr_event,
-            node_id_test, private_key_test,
+            node_id_test, private_key_test, update_company_block_with_name,
         },
     };
 
@@ -151,10 +150,7 @@ mod tests {
         let (mut store, mut processor, mut chain_event_store) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let chain = create_company_chain(node_id.clone(), company.clone(), &keys);
-        let data = CompanyUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_company_block_with_name(Some(Name::new("new_name").unwrap()));
         let block = get_company_update_block(
             node_id.clone(),
             chain.get_latest_block(),
@@ -215,10 +211,7 @@ mod tests {
         let (mut store, mut processor, chain_event_store) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let chain = create_company_chain(node_id.clone(), company.clone(), &keys);
-        let data = CompanyUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_company_block_with_name(Some(Name::new("new_name").unwrap()));
         let block = get_company_update_block(
             node_id.clone(),
             chain.get_latest_block(),

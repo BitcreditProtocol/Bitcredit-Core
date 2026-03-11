@@ -14,6 +14,7 @@ document.getElementById("contact_test").addEventListener("click", triggerContact
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
 document.getElementById("fetch_contacts").addEventListener("click", fetchContacts);
 document.getElementById("remove_contact_avatar").addEventListener("click", removeContactAvatar);
+document.getElementById("edit_contact").addEventListener("click", editContact);
 document.getElementById("delete_contact").addEventListener("click", deleteContact);
 document.getElementById("fetch_temp").addEventListener("click", fetchTempFile);
 document.getElementById("fetch_contact_file").addEventListener("click", fetchContactFile);
@@ -26,6 +27,7 @@ document.getElementById("sync_identity_chain").addEventListener("click", syncIde
 document.getElementById("confirm_email").addEventListener("click", confirmEmail);
 document.getElementById("verify_email").addEventListener("click", verifyEmail);
 document.getElementById("change_email").addEventListener("click", changeEmail);
+document.getElementById("edit_identity").addEventListener("click", editIdentity);
 document.getElementById("get_confirmations").addEventListener("click", getIdentityConfirmations);
 document.getElementById("get_identity").addEventListener("click", getIdentity);
 document.getElementById("change_name").addEventListener("click", changeName);
@@ -893,6 +895,14 @@ async function changeEmail() {
   await measured();
 }
 
+async function editIdentity() {
+  console.log("editIdentity");
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.change({ postal_address: { country: "AT", zip: "1020" } }));
+  });
+  await measured();
+}
+
 async function getIdentityConfirmations() {
   console.log("getIdentityConfirmations");
   let measured = measure(async () => {
@@ -999,6 +1009,14 @@ async function removeContactAvatar() {
   let node_id = document.getElementById("node_id_contact").value;
   let measured = measure(async () => {
     return success_or_fail(await window.contactApi.edit({ node_id: node_id, avatar_file_upload_id: undefined, postal_address: {} }));
+  });
+  await measured();
+}
+
+async function editContact() {
+  let node_id = document.getElementById("node_id_contact").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.contactApi.edit({ node_id: node_id, postal_address: { country: "AT", zip: undefined } }));
   });
   await measured();
 }

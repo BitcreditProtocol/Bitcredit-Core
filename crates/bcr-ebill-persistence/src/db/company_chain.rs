@@ -266,13 +266,11 @@ mod tests {
     use crate::{
         db::get_memory_db,
         protocol::crypto::BcrKeys,
-        tests::tests::{
-            empty_address, empty_optional_address, node_id_test, private_key_test, test_ts,
-        },
+        tests::tests::{empty_address, node_id_test, private_key_test, test_ts},
     };
     use bcr_ebill_core::protocol::{
-        City, Country, Date, Email, Identification, Name,
-        blockchain::company::{block::CompanyCreateBlockData, block::CompanyUpdateBlockData},
+        Address, City, Country, Date, EditOptionalFieldMode, Email, Identification, Name, Zip,
+        blockchain::company::block::{CompanyCreateBlockData, CompanyUpdateBlockData},
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -325,13 +323,16 @@ mod tests {
             &CompanyUpdateBlockData {
                 name: None,
                 email: None,
-                postal_address: empty_optional_address(),
-                country_of_registration: None,
-                city_of_registration: None,
-                registration_number: None,
-                registration_date: None,
-                logo_file: None,
-                proof_of_registration_file: None,
+                country: Some(Country::AT),
+                city: Some(City::new("Vienna").unwrap()),
+                zip: EditOptionalFieldMode::Set(Zip::new("1010").unwrap()),
+                address: Some(Address::new("Kärntner Straße 1").unwrap()),
+                country_of_registration: EditOptionalFieldMode::Ignore,
+                city_of_registration: EditOptionalFieldMode::Ignore,
+                registration_number: EditOptionalFieldMode::Ignore,
+                registration_date: EditOptionalFieldMode::Ignore,
+                logo_file: EditOptionalFieldMode::Ignore,
+                proof_of_registration_file: EditOptionalFieldMode::Ignore,
             },
             &BcrKeys::new(),
             &get_company_keys(),

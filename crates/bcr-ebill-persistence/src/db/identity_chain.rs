@@ -241,9 +241,11 @@ mod tests {
     use crate::{
         db::get_memory_db,
         protocol::crypto::BcrKeys,
-        tests::tests::{empty_identity, empty_optional_address, test_ts},
+        tests::tests::{empty_identity, test_ts},
     };
-    use bcr_ebill_core::protocol::blockchain::identity::IdentityUpdateBlockData;
+    use bcr_ebill_core::protocol::{
+        EditOptionalFieldMode, blockchain::identity::IdentityUpdateBlockData,
+    };
 
     async fn get_store() -> SurrealIdentityChainStore {
         let mem_db = get_memory_db("test", "identity_chain")
@@ -276,13 +278,16 @@ mod tests {
                 t: None,
                 name: None,
                 email: None,
-                postal_address: empty_optional_address(),
-                date_of_birth: None,
-                country_of_birth: None,
-                city_of_birth: None,
-                identification_number: None,
-                profile_picture_file: None,
-                identity_document_file: None,
+                country: None,
+                city: None,
+                zip: EditOptionalFieldMode::Ignore,
+                address: None,
+                date_of_birth: EditOptionalFieldMode::Ignore,
+                country_of_birth: EditOptionalFieldMode::Ignore,
+                city_of_birth: EditOptionalFieldMode::Ignore,
+                identification_number: EditOptionalFieldMode::Ignore,
+                profile_picture_file: EditOptionalFieldMode::Ignore,
+                identity_document_file: EditOptionalFieldMode::Ignore,
             },
             &BcrKeys::new(),
             test_ts(),

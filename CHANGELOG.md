@@ -6,6 +6,11 @@
     * Add `payment_actions` and `state` to `BitcreditBillResult` 
     * Rename `PastPaymentStatus` to `PaymentStatus` (breaking API change)
 * Add bill id in minted user token
+* Add option to un-set optional fields (breaking DB change, breaking identity and company block change)
+    * Approach: If a field is not there, we ignore it, if it's set to undefined explicitly, we remove it
+    * Example (Unset): `{ "zip": undefined, "name": "Minka" }` => Removes `zip`
+    * Example (Ignore): `{ "name": "Minka" }` => Ignores `zip`
+    * Example (Set): `{ "zip": "1020", "name": "Minka" }` => Sets `zip` to 1020
 
 # 0.5.3
 

@@ -126,7 +126,7 @@ mod tests {
         protocol::Name,
         protocol::blockchain::{
             Blockchain,
-            identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData},
+            identity::{IdentityBlock, IdentityBlockchain},
         },
     };
     use mockall::predicate::always;
@@ -139,7 +139,7 @@ mod tests {
             },
             test_utils::{
                 MockIdentityStore, MockNostrChainEventStore, get_baseline_identity,
-                get_test_nostr_event, node_id_test,
+                get_test_nostr_event, node_id_test, update_identity_block_with_name,
             },
         },
         test_utils::test_ts,
@@ -154,10 +154,7 @@ mod tests {
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
         let chain = create_identity_chain(full.clone());
-        let data = IdentityUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_identity_block_with_name(Some(Name::new("new_name").unwrap()));
         let block = get_identity_update_block(chain.get_latest_block(), &keys, &data);
         let original_event = Box::new(get_test_nostr_event());
 
@@ -214,10 +211,7 @@ mod tests {
         let keys = full.key_pair.clone();
         let node_id = identity.node_id.clone();
         let chain = create_identity_chain(full.clone());
-        let data = IdentityUpdateBlockData {
-            name: Some(Name::new("new_name").unwrap()),
-            ..Default::default()
-        };
+        let data = update_identity_block_with_name(Some(Name::new("new_name").unwrap()));
         let block = IdentityBlock::create_block_for_update(
             chain.get_latest_block(),
             &data,

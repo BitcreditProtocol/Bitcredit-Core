@@ -1,8 +1,6 @@
 use super::Result;
 use super::bill::BillOpCode;
 use super::{Block, Blockchain};
-use crate::protocol::BlockId;
-use crate::protocol::City;
 use crate::protocol::Country;
 use crate::protocol::Date;
 use crate::protocol::Email;
@@ -14,6 +12,8 @@ use crate::protocol::Timestamp;
 use crate::protocol::base::identity_proof::{EmailIdentityProofData, SignedIdentityProof};
 use crate::protocol::blockchain::{Error, borsh_to_json_value};
 use crate::protocol::crypto::{self, BcrKeys};
+use crate::protocol::{Address, City, Zip};
+use crate::protocol::{BlockId, EditOptionalFieldMode};
 use crate::protocol::{Field, ProtocolValidationError, Validate};
 use crate::protocol::{File, OptionalPostalAddress};
 use bcr_common::core::{BillId, NodeId};
@@ -189,20 +189,21 @@ impl TryFrom<u64> for IdentityType {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Default, Debug, Clone, PartialEq,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct IdentityUpdateBlockData {
     pub t: Option<IdentityType>, // for deanonymization
     pub name: Option<Name>,
     pub email: Option<Email>,
-    pub postal_address: OptionalPostalAddress,
-    pub date_of_birth: Option<Date>,
-    pub country_of_birth: Option<Country>,
-    pub city_of_birth: Option<City>,
-    pub identification_number: Option<Identification>,
-    pub profile_picture_file: Option<File>,
-    pub identity_document_file: Option<File>,
+    pub country: Option<Country>,
+    pub city: Option<City>,
+    pub zip: EditOptionalFieldMode<Zip>,
+    pub address: Option<Address>,
+    pub date_of_birth: EditOptionalFieldMode<Date>,
+    pub country_of_birth: EditOptionalFieldMode<Country>,
+    pub city_of_birth: EditOptionalFieldMode<City>,
+    pub identification_number: EditOptionalFieldMode<Identification>,
+    pub profile_picture_file: EditOptionalFieldMode<File>,
+    pub identity_document_file: EditOptionalFieldMode<File>,
 }
 
 impl Validate for IdentityUpdateBlockData {
@@ -214,7 +215,13 @@ impl Validate for IdentityUpdateBlockData {
                 return Err(ProtocolValidationError::FieldEmpty(Field::Email));
             }
             // For Ident, the postal address needs to be fully set
-            self.postal_address.validate_to_be_non_optional()?;
+            let addr = OptionalPostalAddress {
+                country: self.country.clone(),
+                city: self.city.clone(),
+                zip: None, // irrelevant for the validation
+                address: self.address.clone(),
+            };
+            addr.validate_to_be_non_optional()?;
         }
         Ok(())
     }
@@ -742,7 +749,7 @@ mod tests {
     use super::*;
     use crate::protocol::tests::tests::{
         bill_id_test, empty_identity, node_id_test, private_key_test, signed_identity_proof_test,
-        test_ts, valid_optional_address,
+        test_ts,
     };
 
     #[test]
@@ -783,13 +790,16 @@ mod tests {
                 t: None,
                 name: Some(Name::new("newname").unwrap()),
                 email: None,
-                postal_address: valid_optional_address(),
-                date_of_birth: None,
-                country_of_birth: None,
-                city_of_birth: None,
-                identification_number: None,
-                profile_picture_file: None,
-                identity_document_file: None,
+                country: Some(Country::AT),
+                city: Some(City::new("Vienna").unwrap()),
+                zip: EditOptionalFieldMode::Set(Zip::new("1010").unwrap()),
+                address: Some(Address::new("Kärntner Straße 1").unwrap()),
+                date_of_birth: EditOptionalFieldMode::Ignore,
+                country_of_birth: EditOptionalFieldMode::Ignore,
+                city_of_birth: EditOptionalFieldMode::Ignore,
+                identification_number: EditOptionalFieldMode::Ignore,
+                profile_picture_file: EditOptionalFieldMode::Ignore,
+                identity_document_file: EditOptionalFieldMode::Ignore,
             },
             &keys,
             test_ts(),
