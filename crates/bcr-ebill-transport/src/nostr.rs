@@ -18,7 +18,7 @@ use bcr_ebill_core::{
 };
 use bitcoin::base58;
 use log::{debug, error, info, trace, warn};
-use nostr::{Keys, nips::nip65::RelayMetadata, signer::NostrSigner};
+use nostr::{Keys, Tag, nips::nip65::RelayMetadata, signer::NostrSigner};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Event, EventBuilder, EventId, Filter, Kind, Metadata,
     PublicKey, RelayPoolNotification, RelayStatus, RelayUrl, SingleLetterTag, TagKind, TagStandard,
@@ -35,6 +35,7 @@ use bcr_ebill_api::{
     constants::NOSTR_MAX_RELAYS,
     service::{
         contact_service::ContactServiceApi,
+        file_server_service::resolve_blossom_servers,
         transport_service::{
             Error, NostrConfig, NostrContactData, Result, transport_client::TransportClientApi,
         },
@@ -50,6 +51,8 @@ pub enum SortOrder {
     Asc,
     Desc,
 }
+
+const BLOSSOM_SERVER_LIST_KIND: Kind = Kind::Custom(10063);
 
 /// Check the output of sending an event to Nostr relays.
 /// Logs warnings for individual relay failures and returns an error if no relay
@@ -87,6 +90,7 @@ pub struct NostrClient {
     client: Client,
     signers: Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
     relays: Vec<url::Url>,
+    blossom_servers: Vec<url::Url>,
     default_timeout: Duration,
     connected: Arc<AtomicBool>,
     sync_running: Arc<AtomicBool>, // Prevents concurrent sync
@@ -100,6 +104,7 @@ impl NostrClient {
     pub async fn new(
         identities: Vec<(NodeId, BcrKeys)>,
         relays: Vec<url::Url>,
+        blossom_servers: Vec<url::Url>,
         default_timeout: Duration,
         max_relays: Option<usize>,
         nostr_store: Option<Arc<dyn NostrStoreApi>>,
@@ -134,6 +139,7 @@ impl NostrClient {
             client,
             signers: Arc::new(Mutex::new(signers)),
             relays,
+            blossom_servers,
             default_timeout,
             connected: Arc::new(AtomicBool::new(false)),
             sync_running: Arc::new(AtomicBool::new(false)),
@@ -149,6 +155,7 @@ impl NostrClient {
         Self::new(
             identities,
             config.relays.clone(),
+            config.blossom_servers.clone(),
             config.default_timeout,
             None, // max_relays not available in old config
             None, // store not available
@@ -246,6 +253,31 @@ impl NostrClient {
                     )))
                     .filter_map(|f| match f {
                         TagStandard::RelayMetadata { relay_url, .. } => Some(relay_url.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    pub async fn fetch_blossom_server_list(
+        &self,
+        npub: PublicKey,
+        relays: Vec<url::Url>,
+    ) -> Result<Vec<url::Url>> {
+        let filter = Filter::new()
+            .author(npub)
+            .kind(BLOSSOM_SERVER_LIST_KIND)
+            .limit(1);
+        let events = self.fetch_events(filter, None, Some(relays)).await?;
+        Ok(events
+            .first()
+            .map(|event| {
+                event
+                    .tags
+                    .iter()
+                    .filter_map(|tag| match tag.as_slice() {
+                        [kind, url, ..] if kind == "server" => url::Url::parse(url).ok(),
                         _ => None,
                     })
                     .collect()
@@ -567,9 +599,13 @@ impl TransportClientApi for NostrClient {
                 let relays = self
                     .fetch_relay_list(node_id.npub(), self.relays.clone())
                     .await?;
+                let blossom_servers = self
+                    .fetch_blossom_server_list(node_id.npub(), self.relays.clone())
+                    .await?;
                 Ok(Some(NostrContactData {
                     metadata: meta,
                     relays,
+                    blossom_servers,
                 }))
             }
             _ => Ok(None),
@@ -656,6 +692,37 @@ impl TransportClientApi for NostrClient {
         check_send_output(output, "publish_relay_list")
     }
 
+    async fn publish_blossom_server_list(
+        &self,
+        node_id: &NodeId,
+        blossom_servers: Vec<url::Url>,
+    ) -> Result<()> {
+        let signer = self.get_signer(node_id)?;
+        let tags = blossom_servers
+            .into_iter()
+            .map(|server| Tag::parse(["server", server.as_str()]))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| {
+                error!("Failed to build Blossom server list tags: {e}");
+                Error::Message("Failed to build Blossom server list tags".to_string())
+            })?;
+        let event = EventBuilder::new(BLOSSOM_SERVER_LIST_KIND, "")
+            .tags(tags)
+            .build(signer.public_key())
+            .sign(&*signer)
+            .await
+            .map_err(|e| {
+                error!("Failed to sign Blossom server list event: {e}");
+                Error::Crypto("Failed to sign Blossom server list event".to_string())
+            })?;
+
+        let output = self.client().await?.send_event(&event).await.map_err(|e| {
+            error!("Failed to send Blossom server list with Nostr client: {e}");
+            Error::Network("Failed to send Blossom server list with Nostr client".to_string())
+        })?;
+        check_send_output(output, "publish_blossom_server_list")
+    }
+
     async fn connect(&self) -> Result<()> {
         if self
             .connected
@@ -671,11 +738,21 @@ impl TransportClientApi for NostrClient {
                 .iter()
                 .filter_map(|r| RelayUrl::parse(r.as_str()).ok())
                 .collect();
+            let blossom_servers = resolve_blossom_servers(&self.blossom_servers, &self.relays);
 
             for node_id in node_ids {
                 if let Err(e) = self.publish_relay_list(&node_id, relay_urls.clone()).await {
                     error!(
                         "Failed to publish relay list for identity {}: {}",
+                        node_id, e
+                    );
+                }
+                if let Err(e) = self
+                    .publish_blossom_server_list(&node_id, blossom_servers.clone())
+                    .await
+                {
+                    error!(
+                        "Failed to publish Blossom server list for identity {}: {}",
                         node_id, e
                     );
                 }
@@ -701,6 +778,17 @@ impl TransportClientApi for NostrClient {
             debug!("Adding subscription for direct messages to identity: {node_id}");
             self.subscribe(Filter::new().pubkey(node_id.npub()).kinds(kinds))
                 .await?;
+            let relay_urls: Vec<RelayUrl> = self
+                .relays
+                .iter()
+                .filter_map(|r| RelayUrl::parse(r.as_str()).ok())
+                .collect();
+            self.publish_relay_list(&node_id, relay_urls).await?;
+            self.publish_blossom_server_list(
+                &node_id,
+                resolve_blossom_servers(&self.blossom_servers, &self.relays),
+            )
+            .await?;
         }
 
         Ok(())
@@ -881,7 +969,12 @@ impl NostrConsumer {
             .subscribe(
                 Filter::new()
                     .authors(contacts)
-                    .kinds(vec![Kind::TextNote, Kind::RelayList, Kind::Metadata])
+                    .kinds(vec![
+                        Kind::TextNote,
+                        Kind::RelayList,
+                        Kind::Metadata,
+                        BLOSSOM_SERVER_LIST_KIND,
+                    ])
                     .since(earliest_offset.into()),
             )
             .await
@@ -1001,6 +1094,18 @@ pub async fn determine_recipient(
             let signer = client.get_signer(&node_id)?;
             Ok((node_id, signer as Arc<dyn NostrSigner>))
         }
+        kind if kind == BLOSSOM_SERVER_LIST_KIND => {
+            let node_id = client
+                .signers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
+            let signer = client.get_signer(&node_id)?;
+            Ok((node_id, signer as Arc<dyn NostrSigner>))
+        }
         _ => Err(Error::Message(format!(
             "Unsupported event kind: {:?}",
             event.kind
@@ -1047,6 +1152,10 @@ pub async fn process_event(
         Kind::RelayList => {
             // we have not subscribed to relaylist events yet
             debug!("Received relay list from: {}", event.pubkey);
+            (true, Timestamp::zero())
+        }
+        kind if kind == BLOSSOM_SERVER_LIST_KIND => {
+            debug!("Received blossom server list from: {}", event.pubkey);
             (true, Timestamp::zero())
         }
         Kind::Metadata => {
@@ -1246,6 +1355,7 @@ mod tests {
         let config = NostrConfig::new(
             keys.clone(),
             vec![url.to_owned()],
+            vec![],
             true,
             NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
         );
@@ -1265,6 +1375,7 @@ mod tests {
         let config = NostrConfig::new(
             keys.clone(),
             vec![url],
+            vec![],
             true,
             NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
         );
@@ -1306,6 +1417,7 @@ mod tests {
         let config1 = NostrConfig::new(
             keys1.clone(),
             vec![url.to_owned()],
+            vec![],
             true,
             NodeId::new(keys1.pub_key(), bitcoin::Network::Testnet),
         );
@@ -1318,6 +1430,7 @@ mod tests {
         let config2 = NostrConfig::new(
             keys2.clone(),
             vec![url.to_owned()],
+            vec![],
             true,
             NodeId::new(keys2.pub_key(), bitcoin::Network::Testnet),
         );
@@ -1440,9 +1553,16 @@ mod tests {
             (node_id2.clone(), keys2.clone()),
         ];
 
-        let client = NostrClient::new(identities, vec![url], Duration::from_secs(20), None, None)
-            .await
-            .expect("failed to create multi-identity client");
+        let client = NostrClient::new(
+            identities,
+            vec![url],
+            vec![],
+            Duration::from_secs(20),
+            None,
+            None,
+        )
+        .await
+        .expect("failed to create multi-identity client");
 
         // Should be able to get signer for each identity
         assert!(client.get_signer(&node_id1).is_ok());
@@ -1471,6 +1591,7 @@ mod tests {
         let client = NostrClient::new(
             identities,
             vec![url.clone()],
+            vec![],
             Duration::from_secs(20),
             None,
             None,
@@ -1504,6 +1625,140 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_publish_and_fetch_blossom_server_list() {
+        let relay = get_mock_relay().await;
+        let relay_url = url::Url::parse(&relay.url()).unwrap();
+
+        let sender_keys = BcrKeys::new();
+        let sender_node_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let sender_config = NostrConfig::new(
+            sender_keys.clone(),
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            sender_node_id.clone(),
+        );
+        let sender = NostrClient::default(&sender_config).await.unwrap();
+        sender.connect().await.unwrap();
+
+        let receiver_keys = BcrKeys::new();
+        let receiver_node_id = NodeId::new(receiver_keys.pub_key(), bitcoin::Network::Testnet);
+        let receiver_config = NostrConfig::new(
+            receiver_keys,
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            receiver_node_id,
+        );
+        let receiver = NostrClient::default(&receiver_config).await.unwrap();
+        receiver.connect().await.unwrap();
+
+        let expected = vec![
+            url::Url::parse("https://blossom-one.example.com").unwrap(),
+            url::Url::parse("https://blossom-two.example.com").unwrap(),
+        ];
+
+        sender
+            .publish_blossom_server_list(&sender_node_id, expected.clone())
+            .await
+            .unwrap();
+        time::sleep(Duration::from_millis(100)).await;
+
+        let fetched = receiver
+            .fetch_blossom_server_list(sender_node_id.npub(), vec![relay_url])
+            .await
+            .unwrap();
+
+        assert_eq!(fetched, expected);
+    }
+
+    #[tokio::test]
+    async fn test_nostr_consumer_receives_blossom_server_list_event() {
+        let relay = get_mock_relay().await;
+        let relay_url = url::Url::parse(&relay.url()).unwrap();
+
+        let sender_keys = BcrKeys::new();
+        let sender_node_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let sender_config = NostrConfig::new(
+            sender_keys.clone(),
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            sender_node_id.clone(),
+        );
+        let sender = NostrClient::default(&sender_config).await.unwrap();
+        sender.connect().await.unwrap();
+
+        let receiver_keys = BcrKeys::new();
+        let receiver_node_id = NodeId::new(receiver_keys.pub_key(), bitcoin::Network::Testnet);
+        let receiver_config = NostrConfig::new(
+            receiver_keys,
+            vec![relay_url.clone()],
+            vec![],
+            true,
+            receiver_node_id,
+        );
+        let receiver = Arc::new(NostrClient::default(&receiver_config).await.unwrap());
+
+        let mut contact_service = MockContactService::new();
+        let sender_npub = sender_node_id.npub();
+        contact_service
+            .expect_get_nostr_npubs()
+            .returning(move || Ok(vec![sender_npub]))
+            .once();
+        contact_service
+            .expect_is_known_npub()
+            .with(predicate::eq(sender_npub))
+            .returning(|_| Ok(true))
+            .once();
+
+        let mut offset_store = MockNostrEventOffsetStore::new();
+        offset_store
+            .expect_current_offset()
+            .returning(|_| Ok(Timestamp::zero()));
+        offset_store
+            .expect_is_processed()
+            .returning(|_| Ok(false))
+            .once();
+        offset_store
+            .expect_add_event()
+            .withf(|event: &NostrEventOffset| event.success)
+            .returning(|_| Ok(()))
+            .once();
+
+        let consumer = NostrConsumer::new(
+            receiver,
+            Arc::new(contact_service),
+            vec![],
+            Arc::new(offset_store),
+            Arc::new(MockChainKeyService::new()),
+        );
+
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async move {
+                let handle = tokio::task::spawn_local(async move {
+                    consumer
+                        .start()
+                        .await
+                        .expect("failed to start nostr consumer");
+                });
+
+                sender
+                    .publish_blossom_server_list(
+                        &sender_node_id,
+                        vec![url::Url::parse("https://blossom.example.com").unwrap()],
+                    )
+                    .await
+                    .unwrap();
+
+                time::sleep(Duration::from_millis(150)).await;
+                handle.abort();
+            })
+            .await;
+    }
+
+    #[tokio::test]
     async fn test_nostr_consumer_single_client_multi_identity() {
         let relay = get_mock_relay().await;
         let url = url::Url::parse(&relay.url()).unwrap();
@@ -1524,6 +1779,7 @@ mod tests {
             NostrClient::new(
                 identities,
                 vec![url.clone()],
+                vec![],
                 Duration::from_secs(20),
                 None,
                 None,
@@ -1632,6 +1888,7 @@ mod relay_calculation_tests {
             node_id,
             name: None,
             relays: relays.iter().map(|r| url::Url::parse(r).unwrap()).collect(),
+            blossom_servers: vec![],
             trust_level,
             handshake_status: HandshakeStatus::None,
             contact_private_key: None,

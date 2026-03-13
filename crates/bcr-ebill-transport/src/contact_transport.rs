@@ -60,6 +60,9 @@ impl ContactTransportServiceApi for ContactTransportService {
         transport
             .publish_relay_list(node_id, data.relays.clone())
             .await?;
+        transport
+            .publish_blossom_server_list(node_id, data.blossom_servers.clone())
+            .await?;
         Ok(())
     }
 

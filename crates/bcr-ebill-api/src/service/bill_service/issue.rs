@@ -1,6 +1,11 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
 use crate::{
-    constants::MAX_BILL_ATTACHMENTS, get_config, service::file_upload_service::UploadFileType,
+    constants::MAX_BILL_ATTACHMENTS,
+    get_config,
+    service::{
+        file_server_service::{configured_blossom_servers, upload_to_blossom_servers},
+        file_upload_service::UploadFileType,
+    },
     util::validate_node_id_network,
 };
 use bcr_common::core::BillId;
@@ -31,7 +36,6 @@ impl BillService {
         file_bytes: &[u8],
         bill_id: &BillId,
         public_key: &PublicKey,
-        relay_url: &url::Url,
         upload_file_type: UploadFileType,
     ) -> Result<File> {
         // validate file size for upload file type
@@ -42,7 +46,13 @@ impl BillService {
         }
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = self.file_upload_client.upload(relay_url, encrypted).await?;
+        let nostr_hash = upload_to_blossom_servers(
+            self.file_upload_client.as_ref(),
+            &configured_blossom_servers(&get_config().nostr_config),
+            encrypted,
+        )
+        .await
+        .map_err(Error::from)?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
         Ok(File {
             name: file_name.to_owned(),
@@ -153,7 +163,6 @@ impl BillService {
         debug!("issuing bill with drawee {public_data_drawee:?} and payee {public_data_payee:?}");
 
         let identity = self.identity_store.get_full().await?;
-        let nostr_relays = identity.identity.nostr_relays.clone();
         let bill_keys = BcrKeys::new();
         let public_key = bill_keys.pub_key();
 
@@ -166,26 +175,22 @@ impl BillService {
         }
 
         let mut bill_files: Vec<File> = vec![];
-        // TODO(multi-relay): don't default to first
-        if let Some(nostr_relay) = nostr_relays.first() {
-            for file_upload_id in data.file_upload_ids.iter() {
-                let (file_name, file_bytes) = &self
-                    .file_upload_store
-                    .read_temp_upload_file(file_upload_id)
-                    .await
-                    .map_err(|_| Error::Validation(ValidationError::NoFileForFileUploadId))?;
-                bill_files.push(
-                    self.encrypt_and_save_uploaded_file(
-                        file_name,
-                        file_bytes,
-                        &bill_id,
-                        &public_key,
-                        nostr_relay,
-                        UploadFileType::Document,
-                    )
-                    .await?,
-                );
-            }
+        for file_upload_id in data.file_upload_ids.iter() {
+            let (file_name, file_bytes) = &self
+                .file_upload_store
+                .read_temp_upload_file(file_upload_id)
+                .await
+                .map_err(|_| Error::Validation(ValidationError::NoFileForFileUploadId))?;
+            bill_files.push(
+                self.encrypt_and_save_uploaded_file(
+                    file_name,
+                    file_bytes,
+                    &bill_id,
+                    &public_key,
+                    UploadFileType::Document,
+                )
+                .await?,
+            );
         }
 
         let bill = BitcreditBill {

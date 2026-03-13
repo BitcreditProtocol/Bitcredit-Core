@@ -136,6 +136,7 @@ pub fn init_test_cfg() {
                 nostr_config: bcr_ebill_api::NostrConfig {
                     only_known_contacts: false,
                     relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+                    blossom_servers: vec![],
                     max_relays: Some(50),
                 },
                 mint_config: bcr_ebill_api::MintConfig {
@@ -415,6 +416,7 @@ pub async fn get_mock_nostr_client() -> NostrClient {
     let config = NostrConfig::new(
         keys.clone(),
         vec![url],
+        vec![],
         true,
         NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
     );
@@ -576,6 +578,7 @@ mockall::mock! {
         async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
         async fn publish_metadata(&self, node_id: &NodeId, data: &nostr::nips::nip01::Metadata) -> Result<()>;
         async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
+        async fn publish_blossom_server_list(&self, node_id: &NodeId, blossom_servers: Vec<url::Url>) -> Result<()>;
         async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
         fn has_local_signer(&self, node_id: &NodeId) -> bool;
         async fn sync_relays(&self) -> Result<()>;

@@ -640,6 +640,105 @@ async fn open_decrypt_propagates_download_error() {
 }
 
 #[tokio::test]
+async fn open_decrypt_uses_bill_private_key_for_new_attachments() {
+    let mut ctx = get_ctx();
+    let bill_keys = BcrKeys::from_private_key(&private_key_test_another());
+    let plaintext = b"bill-key-encrypted-file".to_vec();
+    let encrypted =
+        bcr_ebill_core::protocol::crypto::encrypt_ecies(&plaintext, &bill_keys.pub_key()).unwrap();
+
+    let encrypted_clone = encrypted.clone();
+    ctx.file_upload_client
+        .expect_download()
+        .returning(move |_, _| Ok(encrypted_clone.clone()));
+    let service = get_service(ctx);
+
+    let result = service
+        .open_and_decrypt_attached_file(
+            &bill_id_test(),
+            &File {
+                name: Name::new("some_file").unwrap(),
+                hash: Sha256Hash::from_bytes(&plaintext),
+                nostr_hash: Sha256HexHash::from_str(
+                    "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+                )
+                .unwrap(),
+            },
+            &private_key_test_another(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result, plaintext);
+}
+
+#[tokio::test]
+async fn upload_bill_files_for_node_id_reencrypts_for_receiver_key() {
+    let mut ctx = get_ctx();
+    let bill_keys = BcrKeys::from_private_key(&private_key_test());
+    let receiver_keys = BcrKeys::new();
+    let plaintext = b"shared-with-external-party".to_vec();
+    let stored_encrypted =
+        bcr_ebill_core::protocol::crypto::encrypt_ecies(&plaintext, &bill_keys.pub_key()).unwrap();
+    let expected_hash =
+        Sha256HexHash::from_str("d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa")
+            .unwrap();
+
+    ctx.identity_store
+        .expect_get_current_identity()
+        .returning(|| {
+            Ok(bcr_ebill_core::application::identity::ActiveIdentityState {
+                personal: node_id_test(),
+                company: None,
+            })
+        });
+    let stored_clone = stored_encrypted.clone();
+    ctx.file_upload_client
+        .expect_download()
+        .returning(move |_, _| Ok(stored_clone.clone()))
+        .once();
+    let plaintext_clone = plaintext.clone();
+    let receiver_keys_for_upload = receiver_keys.clone();
+    ctx.file_upload_client
+        .expect_upload()
+        .returning(move |_, bytes| {
+            let decrypted = bcr_ebill_core::protocol::crypto::decrypt_ecies(
+                &bytes,
+                &receiver_keys_for_upload.get_private_key(),
+            )
+            .unwrap();
+            assert_eq!(decrypted, plaintext_clone);
+            Ok(expected_hash)
+        })
+        .once();
+
+    let service = get_service(ctx);
+    let urls = service
+        .upload_bill_files_for_node_id(
+            &bill_id_test(),
+            &private_key_test(),
+            &receiver_keys.pub_key(),
+            &[File {
+                name: Name::new("some_file").unwrap(),
+                hash: Sha256Hash::from_bytes(&plaintext),
+                nostr_hash: Sha256HexHash::from_str(
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                )
+                .unwrap(),
+            }],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(urls.len(), 1);
+    assert!(
+        urls[0]
+            .as_str()
+            .ends_with(expected_hash.to_string().as_str())
+    );
+}
+
+#[tokio::test]
 async fn get_bill_keys_calls_storage() {
     let mut ctx = get_ctx();
     ctx.bill_store.expect_exists().returning(|_| Ok(true));

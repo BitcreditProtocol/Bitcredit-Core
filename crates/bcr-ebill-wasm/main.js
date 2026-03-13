@@ -2,6 +2,11 @@ import * as wasm from '../pkg/index.js';
 
 // file upload
 document.getElementById("fileInput").addEventListener("change", uploadFile);
+document.getElementById("attach_identity_profile_picture").addEventListener("click", attachIdentityProfilePicture);
+document.getElementById("attach_contact_avatar").addEventListener("click", attachContactAvatar);
+document.getElementById("attach_company_proof").addEventListener("click", attachCompanyProof);
+document.getElementById("build_blossom_url").addEventListener("click", buildBlossomUrl);
+document.getElementById("open_blossom_url").addEventListener("click", openBlossomUrl);
 
 // notifs
 document.getElementById("notif").addEventListener("click", triggerNotif);
@@ -113,6 +118,8 @@ let config = {
   esplora_base_url: "https://esplora.minibill.tech",
   // nostr_relays: ["ws://localhost:8080"],
   nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+  // this would be the default with current relay config
+  blossom_servers: ["https://bcr-relay-dev.minibill.tech"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 5,
@@ -126,6 +133,8 @@ let config = {
   // default_court_url: "http://localhost:8000",
   default_court_url: "https://bcr-court-dev.minibill.tech"
 };
+
+document.getElementById("blossom_base_url").value = config.blossom_servers?.[0] || config.nostr_relays?.[0] || "";
 
 
 async function start(create_identity) {
@@ -250,6 +259,101 @@ async function uploadFile(event) {
   } catch (err) {
     console.log("upload error: ", err);
   }
+}
+
+async function attachIdentityProfilePicture() {
+  const file_upload_id = document.getElementById("file_upload_id").value;
+  if (!file_upload_id) {
+    console.log("No file_upload_id set.");
+    return;
+  }
+
+  fail_on_error(await window.identityApi.change({
+    profile_picture_file_upload_id: file_upload_id,
+    postal_address: {}
+  }));
+
+  const identity = success_or_fail(await window.identityApi.detail());
+  document.getElementById("node_id_identity").value = identity.node_id;
+  if (identity.profile_picture_file) {
+    document.getElementById("blossom_nostr_hash").value = identity.profile_picture_file.nostr_hash;
+    buildBlossomUrl();
+  }
+  console.log("attached uploaded file as identity profile picture:", identity);
+}
+
+async function attachContactAvatar() {
+  const file_upload_id = document.getElementById("file_upload_id").value;
+  const node_id = document.getElementById("contact_id").value || document.getElementById("node_id_contact").value;
+  if (!file_upload_id || !node_id) {
+    console.log("Need both file_upload_id and contact node id.");
+    return;
+  }
+
+  fail_on_error(await window.contactApi.edit({
+    node_id,
+    avatar_file_upload_id: file_upload_id,
+    postal_address: {}
+  }));
+
+  const contact = success_or_fail(await window.contactApi.detail(node_id));
+  console.log("attached uploaded file as contact avatar:", contact);
+  document.getElementById("contact_id").value = contact.node_id;
+  document.getElementById("node_id_contact").value = contact.node_id;
+  if (contact.avatar_file) {
+    document.getElementById("contact_file_name").value = contact.avatar_file.name;
+    document.getElementById("blossom_nostr_hash").value = contact.avatar_file.nostr_hash;
+    buildBlossomUrl();
+  }
+}
+
+async function attachCompanyProof() {
+  const file_upload_id = document.getElementById("file_upload_id").value;
+  const id = document.getElementById("company_id").value;
+  if (!file_upload_id || !id) {
+    console.log("Need both file_upload_id and company id.");
+    return;
+  }
+
+  fail_on_error(await window.companyApi.edit({
+    id,
+    proof_of_registration_file_upload_id: file_upload_id,
+    postal_address: {}
+  }));
+
+  const company = success_or_fail(await window.companyApi.detail(id));
+  document.getElementById("company_id").value = company.id;
+  if (company.proof_of_registration_file) {
+    document.getElementById("blossom_nostr_hash").value = company.proof_of_registration_file.nostr_hash;
+    buildBlossomUrl();
+  }
+  console.log("attached uploaded file as company proof:", company);
+}
+
+function buildBlossomUrl() {
+  const baseUrl = document.getElementById("blossom_base_url").value?.trim();
+  const nostrHash = document.getElementById("blossom_nostr_hash").value?.trim();
+  const target = document.getElementById("blossom_direct_url");
+
+  if (!baseUrl || !nostrHash) {
+    target.href = "#";
+    target.textContent = "";
+    return null;
+  }
+
+  const url = new URL(nostrHash, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  target.href = url.toString();
+  target.textContent = url.toString();
+  return url.toString();
+}
+
+function openBlossomUrl() {
+  const url = buildBlossomUrl();
+  if (!url) {
+    console.log("Need both Blossom base URL and nostr hash.");
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 async function getSeedPhrase() {

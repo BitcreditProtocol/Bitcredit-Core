@@ -515,6 +515,7 @@ pub mod tests {
                     nostr_config: NostrConfig {
                         only_known_contacts: false,
                         relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+                        blossom_servers: vec![],
                         max_relays: Some(50),
                     },
                     mint_config: MintConfig {
@@ -733,6 +734,7 @@ pub mod tests {
             let config = NostrConfig {
                 only_known_contacts: true,
                 relays: vec![],
+                blossom_servers: vec![],
                 max_relays: Some(100),
             };
             assert_eq!(config.max_relays, Some(100));
@@ -743,6 +745,7 @@ pub mod tests {
             let config = NostrConfig {
                 only_known_contacts: false,
                 relays: vec![],
+                blossom_servers: vec![],
                 max_relays: None,
             };
             assert_eq!(config.max_relays, None);
