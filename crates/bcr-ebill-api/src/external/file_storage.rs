@@ -61,21 +61,29 @@ impl FileStorageClient {
     }
 }
 
-pub fn to_url(relay_url: &url::Url, to_join: &str) -> Result<Url> {
-    let mut url = relay_url
-        .join(to_join)
-        .map_err(|_| Error::InvalidRelayUrl)?;
-    match url.scheme() {
+pub fn normalize_storage_base_url(url: &url::Url) -> Result<Url> {
+    let mut normalized = url.clone();
+    match normalized.scheme() {
         "ws" => {
-            url.set_scheme("http").map_err(|_| Error::InvalidRelayUrl)?;
+            normalized
+                .set_scheme("http")
+                .map_err(|_| Error::InvalidRelayUrl)?;
         }
         "wss" => {
-            url.set_scheme("https")
+            normalized
+                .set_scheme("https")
                 .map_err(|_| Error::InvalidRelayUrl)?;
         }
         _ => (),
     };
-    Ok(url)
+    Ok(normalized)
+}
+
+pub fn to_url(relay_url: &url::Url, to_join: &str) -> Result<Url> {
+    let normalized = normalize_storage_base_url(relay_url)?;
+    Ok(normalized
+        .join(to_join)
+        .map_err(|_| Error::InvalidRelayUrl)?)
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -138,4 +146,31 @@ impl FileStorageClientApi for FileStorageClient {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlobDescriptorReply {
     sha256: Sha256HexHash,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_storage_base_url_converts_websocket_schemes() {
+        assert_eq!(
+            normalize_storage_base_url(&url::Url::parse("ws://relay.example.com").unwrap())
+                .unwrap()
+                .as_str(),
+            "http://relay.example.com/"
+        );
+        assert_eq!(
+            normalize_storage_base_url(&url::Url::parse("wss://relay.example.com").unwrap())
+                .unwrap()
+                .as_str(),
+            "https://relay.example.com/"
+        );
+        assert_eq!(
+            normalize_storage_base_url(&url::Url::parse("https://relay.example.com").unwrap())
+                .unwrap()
+                .as_str(),
+            "https://relay.example.com/"
+        );
+    }
 }

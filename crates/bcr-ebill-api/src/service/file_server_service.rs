@@ -1,7 +1,6 @@
 use crate::NostrConfig;
-use crate::external::file_storage::FileStorageClientApi;
+use crate::external::file_storage::{FileStorageClientApi, normalize_storage_base_url};
 use crate::service::{Error, Result};
-use bcr_ebill_core::protocol::ProtocolValidationError;
 use log::warn;
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 
@@ -13,17 +12,7 @@ fn push_unique(urls: &mut Vec<url::Url>, url: url::Url) {
 
 /// Converts a relay URL into its Blossom HTTP endpoint form.
 pub fn blossom_server_from_relay(relay_url: &url::Url) -> Result<url::Url> {
-    let mut blossom_url = relay_url.clone();
-    match blossom_url.scheme() {
-        "ws" => blossom_url
-            .set_scheme("http")
-            .map_err(|_| Error::Validation(ProtocolValidationError::InvalidRelayUrl.into()))?,
-        "wss" => blossom_url
-            .set_scheme("https")
-            .map_err(|_| Error::Validation(ProtocolValidationError::InvalidRelayUrl.into()))?,
-        _ => {}
-    }
-    Ok(blossom_url)
+    normalize_storage_base_url(relay_url).map_err(Error::from)
 }
 
 /// Returns the configured Blossom servers, or derives a single fallback server from the first relay.
