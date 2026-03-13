@@ -4,6 +4,9 @@
 * Add payment data to payment blocks (RequestToPay, OfferToSell, RequestRecourse) (breaking DB & breaking bill chain change)
     * These blocks now have `payment_data: BillPaymentBlockData`
     * Remove payment data from `Sell` and `Recourse` endorsement blocks
+* Add `Option<payment_data>` to `BillHistoryBlock` for payment request blocks
+* Remove `mempool_link_for_address_to_pay` and `link_to_pay` from data models
+* Add endpoints to get `mempool_link` and `link_to_pay` to general API
 
 # 0.5.4
 

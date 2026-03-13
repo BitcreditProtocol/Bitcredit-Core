@@ -279,6 +279,7 @@ pub struct BillHistoryBlock {
     pub block_id: BlockId,
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<BillParticipant>,
+    // pub payment_data: Option<BillHistoryBlockPaymentData>,
     pub request_deadline: Option<Timestamp>,
     pub signed: SignedBy,
     pub signing_timestamp: Timestamp,
@@ -289,6 +290,7 @@ impl BillHistoryBlock {
     pub fn new(
         block: &BillBlock,
         pay_to_the_order_of: Option<BillParticipant>,
+        // payment_data: Option<BillHistoryBlockPaymentData>,
         request_deadline: Option<Timestamp>,
         signed: SignedBy,
         signing_address: Option<PostalAddress>,
@@ -297,12 +299,20 @@ impl BillHistoryBlock {
             block_id: block.id(),
             block_type: block.op_code().to_owned(),
             pay_to_the_order_of,
+            // payment_data,
             request_deadline,
             signed,
             signing_timestamp: block.timestamp(),
             signing_address,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct BillHistoryBlockPaymentData {
+    pub sum: Sum,
+    pub payment_address: BitcoinAddress,
+    pub private_descriptor_to_spend: Option<String>,
 }
 
 /// Compact type to pass around basic bill data
