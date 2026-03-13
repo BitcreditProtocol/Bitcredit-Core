@@ -647,56 +647,6 @@ async fn open_decrypt_uses_bill_private_key_for_new_attachments() {
     let encrypted =
         bcr_ebill_core::protocol::crypto::encrypt_ecies(&plaintext, &bill_keys.pub_key()).unwrap();
 
-    ctx.identity_store
-        .expect_get_current_identity()
-        .returning(|| {
-            Ok(bcr_ebill_core::application::identity::ActiveIdentityState {
-                personal: node_id_test(),
-                company: None,
-            })
-        });
-    let encrypted_clone = encrypted.clone();
-    ctx.file_upload_client
-        .expect_download()
-        .returning(move |_, _| Ok(encrypted_clone.clone()));
-    let service = get_service(ctx);
-
-    let result = service
-        .open_and_decrypt_attached_file(
-            &bill_id_test(),
-            &File {
-                name: Name::new("some_file").unwrap(),
-                hash: Sha256Hash::from_bytes(&plaintext),
-                nostr_hash: Sha256HexHash::from_str(
-                    "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
-                )
-                .unwrap(),
-            },
-            &private_key_test_another(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(result, plaintext);
-}
-
-#[tokio::test]
-async fn open_decrypt_falls_back_to_identity_private_key_for_legacy_attachments() {
-    let mut ctx = get_ctx();
-    let identity = get_baseline_identity();
-    let plaintext = b"legacy-identity-encrypted-file".to_vec();
-    let encrypted =
-        bcr_ebill_core::protocol::crypto::encrypt_ecies(&plaintext, &identity.key_pair.pub_key())
-            .unwrap();
-
-    ctx.identity_store
-        .expect_get_current_identity()
-        .returning(|| {
-            Ok(bcr_ebill_core::application::identity::ActiveIdentityState {
-                personal: node_id_test(),
-                company: None,
-            })
-        });
     let encrypted_clone = encrypted.clone();
     ctx.file_upload_client
         .expect_download()

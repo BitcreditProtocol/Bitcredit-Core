@@ -752,21 +752,6 @@ impl BillService {
 
         Ok(file_urls)
     }
-
-    /// Collects the decryption keys we can use for bill attachments, including legacy participant keys.
-    async fn attachment_decryption_keys(&self, bill_private_key: &SecretKey) -> Vec<SecretKey> {
-        let mut keys = vec![*bill_private_key];
-        if let Ok(identity) = self.identity_store.get_full().await {
-            keys.push(identity.key_pair.get_private_key());
-        }
-        if let Ok(active_identity) = self.identity_store.get_current_identity().await
-            && let Some(company_id) = active_identity.company
-            && let Ok(company_keys) = self.company_store.get_key_pair(&company_id).await
-        {
-            keys.push(company_keys.get_private_key());
-        }
-        keys
-    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1073,13 +1058,10 @@ impl BillServiceApi for BillService {
         )
         .await
         .map_err(Error::from)?;
-        for key in self.attachment_decryption_keys(bill_private_key).await {
-            if let Ok(decrypted) = crypto::decrypt_ecies(&file_bytes, &key) {
-                let file_hash = Sha256Hash::from_bytes(&decrypted);
-                if file_hash == file.hash {
-                    return Ok(decrypted);
-                }
-            }
+        let decrypted = crypto::decrypt_ecies(&file_bytes, bill_private_key)?;
+        let file_hash = Sha256Hash::from_bytes(&decrypted);
+        if file_hash == file.hash {
+            return Ok(decrypted);
         }
         error!(
             "Hash for bill file {} did not match uploaded file",
