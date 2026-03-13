@@ -1456,7 +1456,6 @@ impl BillServiceApi for BillService {
         }
 
         // Upload existing files for the mint
-        // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_mint = self
             .upload_bill_files_for_node_id(
                 bill_id,
@@ -1818,7 +1817,6 @@ impl BillServiceApi for BillService {
             .await?;
 
         // Upload existing files for the court to our relay
-        // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_court = self
             .upload_bill_files_for_node_id(
                 bill_id,

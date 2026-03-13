@@ -216,14 +216,6 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .returning(|_, _| {
             Ok(BitcoinAddress::from_str("tb1qssh7nk78mm35h75dg4th77zqz4qk3eay68krf9").unwrap())
         });
-    bitcoin_client
-        .expect_get_mempool_link_for_address()
-        .returning(|_| {
-            String::from(
-                "https://esplora.minibill.tech/testnet/address/1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2",
-            )
-        });
-    bitcoin_client.expect_generate_link_to_pay().returning(|_,_,_| String::from("bitcoin:1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2?amount=0.01&message=Payment in relation to bill some bill"));
     ctx.nostr_contact_store
         .expect_by_node_id()
         .returning(|_| Ok(None));

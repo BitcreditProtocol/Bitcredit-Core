@@ -399,11 +399,9 @@ pub struct PastPaymentDataSellWeb {
     pub seller: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
-    pub link_to_pay: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatusWeb,
 }
 
@@ -415,10 +413,8 @@ impl From<PastPaymentDataSell> for PastPaymentDataSellWeb {
             seller: val.seller.into(),
             currency: val.sum.currency().code().to_owned(),
             sum: val.sum.as_sat_string(),
-            link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             private_descriptor_to_spend: val.private_descriptor_to_spend,
-            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             status: val.status.into(),
         }
     }
@@ -433,11 +429,9 @@ pub struct PastPaymentDataPaymentWeb {
     pub payee: BillParticipantWeb,
     pub currency: String,
     pub sum: String,
-    pub link_to_pay: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatusWeb,
 }
 impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
@@ -448,10 +442,8 @@ impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
             payee: val.payee.into(),
             currency: val.sum.currency().code().to_owned(),
             sum: val.sum.as_sat_string(),
-            link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             private_descriptor_to_spend: val.private_descriptor_to_spend,
-            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             status: val.status.into(),
         }
     }
@@ -466,11 +458,9 @@ pub struct PastPaymentDataRecourseWeb {
     pub recoursee: BillIdentParticipantWeb,
     pub currency: String,
     pub sum: String,
-    pub link_to_pay: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatusWeb,
 }
 
@@ -482,10 +472,8 @@ impl From<PastPaymentDataRecourse> for PastPaymentDataRecourseWeb {
             recoursee: val.recoursee.into(),
             currency: val.sum.currency().code().to_owned(),
             sum: val.sum.as_sat_string(),
-            link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
             private_descriptor_to_spend: val.private_descriptor_to_spend,
-            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             status: val.status.into(),
         }
     }
@@ -633,10 +621,8 @@ pub struct BillWaitingStatePaymentDataWeb {
     pub time_of_request: Timestamp,
     pub currency: String,
     pub sum: String,
-    pub link_to_pay: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
-    pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
@@ -650,9 +636,7 @@ impl From<BillWaitingStatePaymentData> for BillWaitingStatePaymentDataWeb {
             time_of_request: val.time_of_request,
             currency: val.sum.currency().code().to_owned(),
             sum: val.sum.as_sat_string(),
-            link_to_pay: val.link_to_pay,
             address_to_pay: val.address_to_pay,
-            mempool_link_for_address_to_pay: val.mempool_link_for_address_to_pay,
             tx_id: val.tx_id,
             in_mempool: val.in_mempool,
             confirmations: val.confirmations,
@@ -1090,10 +1074,8 @@ pub struct BillCallerPaymentStateWeb {
     pub time_of_request: Timestamp,
     pub currency: String,
     pub sum: String,
-    pub link_to_pay: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatusWeb,
     #[tsify(type = "number")]
     pub payment_deadline: Timestamp,
@@ -1110,9 +1092,7 @@ impl From<BillCallerPaymentState> for BillCallerPaymentStateWeb {
             time_of_request: value.time_of_request,
             currency: value.sum.currency().code().to_owned(),
             sum: value.sum.as_sat_string(),
-            link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
             status: value.status.into(),
             payment_deadline: value.payment_deadline,
             tx_id: value.tx_id,

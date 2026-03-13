@@ -457,9 +457,7 @@ impl From<&BillCurrentWaitingState> for BillCurrentWaitingStateDb {
 pub struct BillWaitingStatePaymentDataDb {
     pub time_of_request: Timestamp,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
-    pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
@@ -471,9 +469,7 @@ impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum,
-            link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
             tx_id: value.tx_id,
             in_mempool: value.in_mempool,
             confirmations: value.confirmations,
@@ -487,9 +483,7 @@ impl From<&BillWaitingStatePaymentData> for BillWaitingStatePaymentDataDb {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum.clone(),
-            link_to_pay: value.link_to_pay.clone(),
             address_to_pay: value.address_to_pay.clone(),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.clone(),
             tx_id: value.tx_id.clone(),
             in_mempool: value.in_mempool,
             confirmations: value.confirmations,
@@ -1177,10 +1171,8 @@ impl From<&BillCallerPayment> for BillCallerPaymentDb {
 pub struct BillCallerPaymentStateDb {
     pub time_of_request: Timestamp,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: Option<String>,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatusDb,
     pub payment_deadline: Timestamp,
     pub tx_id: Option<String>,
@@ -1193,10 +1185,8 @@ impl From<BillCallerPaymentStateDb> for BillCallerPaymentState {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum,
-            link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
             private_descriptor_to_spend: value.private_descriptor_to_spend,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
             status: value.status.into(),
             payment_deadline: value.payment_deadline,
             tx_id: value.tx_id,
@@ -1211,13 +1201,11 @@ impl From<&BillCallerPaymentState> for BillCallerPaymentStateDb {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum.to_owned(),
-            link_to_pay: value.link_to_pay.to_owned(),
             address_to_pay: value.address_to_pay.to_owned(),
             private_descriptor_to_spend: value
                 .private_descriptor_to_spend
                 .as_ref()
                 .map(|pd| pd.to_owned()),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.to_owned(),
             status: (&value.status).into(),
             payment_deadline: value.payment_deadline,
             tx_id: value.tx_id.as_ref().map(|tx| tx.to_owned()),
