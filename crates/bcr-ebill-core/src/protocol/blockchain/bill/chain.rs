@@ -413,10 +413,10 @@ impl BillBlockchain {
             let payment_info = SellPaymentInfo {
                 buyer: block_data_decrypted.buyer.into(),
                 seller: block_data_decrypted.seller.into(),
-                sum: block_data_decrypted.sum,
-                payment_address: block_data_decrypted.payment_address,
+                sum: block_data_decrypted.payment_data.sum,
+                payment_address: block_data_decrypted.payment_data.payment_address,
                 block_id: offer_to_sell_block.id(),
-                buying_deadline_timestamp: block_data_decrypted.buying_deadline_timestamp,
+                buying_deadline_timestamp: block_data_decrypted.payment_data.payment_deadline,
             };
 
             match sell_pair.1 {
@@ -440,11 +440,13 @@ impl BillBlockchain {
                 None => {
                     // check if deadline expired, if not, ignore, otherwise add as expired
                     if timestamp
-                        .has_deadline_passed(&block_data_decrypted.buying_deadline_timestamp)
+                        .has_deadline_passed(&block_data_decrypted.payment_data.payment_deadline)
                     {
                         result.push((
                             payment_info,
-                            PaymentStatus::Expired(block_data_decrypted.buying_deadline_timestamp),
+                            PaymentStatus::Expired(
+                                block_data_decrypted.payment_data.payment_deadline,
+                            ),
                             offer_to_sell_block.timestamp,
                         ));
                     }
@@ -521,10 +523,10 @@ impl BillBlockchain {
             let payment_info = RecoursePaymentInfo {
                 recoursee: block_data_decrypted.recoursee,
                 recourser: block_data_decrypted.recourser,
-                sum: block_data_decrypted.sum,
+                sum: block_data_decrypted.payment_data.sum,
                 reason: block_data_decrypted.recourse_reason,
                 block_id: request_to_recourse_block.id(),
-                recourse_deadline_timestamp: block_data_decrypted.recourse_deadline_timestamp,
+                recourse_deadline_timestamp: block_data_decrypted.payment_data.payment_deadline,
             };
 
             match recourse_pair.1 {
@@ -548,12 +550,12 @@ impl BillBlockchain {
                 None => {
                     // check if deadline expired, if not, ignore, otherwise add as expired
                     if timestamp
-                        .has_deadline_passed(&block_data_decrypted.recourse_deadline_timestamp)
+                        .has_deadline_passed(&block_data_decrypted.payment_data.payment_deadline)
                     {
                         result.push((
                             payment_info,
                             PaymentStatus::Expired(
-                                block_data_decrypted.recourse_deadline_timestamp,
+                                block_data_decrypted.payment_data.payment_deadline,
                             ),
                             request_to_recourse_block.timestamp,
                         ));
@@ -616,7 +618,7 @@ impl BillBlockchain {
         let block_data_decrypted: BillRequestToPayBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
 
-        let deadline = block_data_decrypted.payment_deadline_timestamp;
+        let deadline = block_data_decrypted.payment_data.payment_deadline;
         if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
@@ -650,7 +652,7 @@ impl BillBlockchain {
     ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillOfferToSellBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
-        let deadline = block_data_decrypted.buying_deadline_timestamp;
+        let deadline = block_data_decrypted.payment_data.payment_deadline;
         if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
@@ -667,7 +669,7 @@ impl BillBlockchain {
     ) -> Result<(bool, Timestamp)> {
         let block_data_decrypted: BillRequestRecourseBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
-        let deadline = block_data_decrypted.recourse_deadline_timestamp;
+        let deadline = block_data_decrypted.payment_data.payment_deadline;
         if current_timestamp.has_deadline_passed(&deadline) {
             return Ok((true, deadline));
         }
@@ -692,7 +694,7 @@ impl BillBlockchain {
 
                 // if the deadline is up, we're not waiting for payment anymore
                 if current_timestamp
-                    .has_deadline_passed(&block_data_decrypted.recourse_deadline_timestamp)
+                    .has_deadline_passed(&block_data_decrypted.payment_data.payment_deadline)
                 {
                     return Ok(RecourseWaitingForPayment::No);
                 }
@@ -701,11 +703,12 @@ impl BillBlockchain {
                     RecoursePaymentInfo {
                         recoursee: block_data_decrypted.recoursee,
                         recourser: block_data_decrypted.recourser,
-                        sum: block_data_decrypted.sum,
+                        sum: block_data_decrypted.payment_data.sum,
                         reason: block_data_decrypted.recourse_reason,
                         block_id: last_version_block.id(),
                         recourse_deadline_timestamp: block_data_decrypted
-                            .recourse_deadline_timestamp,
+                            .payment_data
+                            .payment_deadline,
                     },
                 )));
             }
@@ -730,7 +733,7 @@ impl BillBlockchain {
                     last_version_block_offer_to_sell.get_decrypted_block(bill_keys)?;
                 // if the deadline is up, we're not waiting for payment anymore
                 if current_timestamp
-                    .has_deadline_passed(&block_data_decrypted.buying_deadline_timestamp)
+                    .has_deadline_passed(&block_data_decrypted.payment_data.payment_deadline)
                 {
                     return Ok(OfferToSellWaitingForPayment::No);
                 }
@@ -739,10 +742,12 @@ impl BillBlockchain {
                     SellPaymentInfo {
                         buyer: block_data_decrypted.buyer.into(),
                         seller: block_data_decrypted.seller.into(),
-                        sum: block_data_decrypted.sum,
-                        payment_address: block_data_decrypted.payment_address,
+                        sum: block_data_decrypted.payment_data.sum,
+                        payment_address: block_data_decrypted.payment_data.payment_address,
                         block_id: last_version_block_offer_to_sell.id(),
-                        buying_deadline_timestamp: block_data_decrypted.buying_deadline_timestamp,
+                        buying_deadline_timestamp: block_data_decrypted
+                            .payment_data
+                            .payment_deadline,
                     },
                 )));
             }
@@ -1041,7 +1046,7 @@ mod tests {
     use crate::protocol::{
         Sum,
         blockchain::bill::{
-            block::{BillOfferToSellBlockData, BillRecourseReasonBlockData},
+            block::{BillOfferToSellBlockData, BillPaymentBlockData},
             tests::get_baseline_identity,
         },
         constants::DAY_IN_SECS,
@@ -1066,13 +1071,15 @@ mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
+                payment_data: BillPaymentBlockData {
+                    sum: Sum::new_sat(5000).expect("sat works"),
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: test_ts() + 2 * DAY_IN_SECS,
+                },
                 signatory: None,
                 signing_timestamp: test_ts(),
                 signing_address: Some(valid_address()),
                 signer_identity_proof: Some(signed_identity_proof_test().into()),
-                buying_deadline_timestamp: test_ts() + 2 * DAY_IN_SECS,
             },
             &get_baseline_identity().1,
             None,
@@ -1333,8 +1340,6 @@ mod tests {
             &BillSellBlockData {
                 seller: BillParticipant::Ident(signer.clone()).into(),
                 buyer: BillParticipant::Ident(other_party.clone()).into(),
-                sum: Sum::new_sat(5000).expect("sat works"),
-                payment_address: valid_payment_address_testnet(),
                 signatory: None,
                 signing_timestamp: test_ts() + 1,
                 signing_address: Some(signer.postal_address.clone()),
@@ -1436,8 +1441,6 @@ mod tests {
             &BillRecourseBlockData {
                 recourser: BillParticipant::Ident(other_party.clone()).into(),
                 recoursee: signer.clone().into(),
-                sum: Sum::new_sat(15000).expect("sat works"),
-                recourse_reason: BillRecourseReasonBlockData::Pay,
                 signatory: None,
                 signing_timestamp: test_ts() + 4,
                 signing_address: Some(signer.postal_address.clone()),

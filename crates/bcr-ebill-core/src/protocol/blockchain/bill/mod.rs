@@ -169,14 +169,14 @@ pub enum BillAction {
     RequestToPay(Currency, Timestamp),
     // buyer, sum, deadline_ts
     OfferToSell(BillParticipant, Sum, Timestamp),
-    // buyer, sum, currency, payment_address
-    Sell(BillParticipant, Sum, BitcoinAddress),
+    // buyer
+    Sell(BillParticipant),
     // endorsee
     Endorse(BillParticipant),
     // recoursee, recourse reason, deadline_ts
     RequestRecourse(BillIdentParticipant, RecourseReason, Timestamp),
-    // recoursee, sum, currency reason/
-    Recourse(BillIdentParticipant, Sum, RecourseReason),
+    // recoursee
+    Recourse(BillIdentParticipant),
     // mint, sum, currency
     Mint(BillParticipant, Sum),
     RejectAcceptance,
@@ -192,10 +192,10 @@ impl BillAction {
             BillAction::Accept => BillOpCode::Accept,
             BillAction::RequestToPay(_, _) => BillOpCode::RequestToPay,
             BillAction::OfferToSell(_, _, _) => BillOpCode::OfferToSell,
-            BillAction::Sell(_, _, _) => BillOpCode::Sell,
+            BillAction::Sell(_) => BillOpCode::Sell,
             BillAction::Endorse(_) => BillOpCode::Endorse,
             BillAction::RequestRecourse(_, _, _) => BillOpCode::RequestRecourse,
-            BillAction::Recourse(_, _, _) => BillOpCode::Recourse,
+            BillAction::Recourse(_) => BillOpCode::Recourse,
             BillAction::Mint(_, _) => BillOpCode::Mint,
             BillAction::RejectAcceptance => BillOpCode::RejectToAccept,
             BillAction::RejectPayment => BillOpCode::RejectToPay,

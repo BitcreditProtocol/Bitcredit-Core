@@ -14,7 +14,7 @@ pub mod tests {
             identity::Identity,
         },
         protocol::{
-            Address, City, Country, Date, Email, EmailIdentityProofData, Name,
+            Address, BitcoinAddress, City, Country, Date, Email, EmailIdentityProofData, Name,
             OptionalPostalAddress, PostalAddress, PublicKey, SecretKey, SignedIdentityProof, Sum,
             Timestamp,
             blockchain::{
@@ -209,6 +209,10 @@ pub mod tests {
     pub fn node_id_test_other2() -> NodeId {
         NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
             .unwrap()
+    }
+
+    pub fn valid_payment_address_testnet() -> BitcoinAddress {
+        BitcoinAddress::from_str("tb1qteyk7pfvvql2r2zrsu4h4xpvju0nz7ykvguyk0").unwrap()
     }
 
     pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
