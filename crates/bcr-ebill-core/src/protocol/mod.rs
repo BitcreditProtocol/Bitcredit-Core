@@ -393,6 +393,10 @@ pub enum ProtocolValidationError {
     /// error returned if an identity proof is not valid
     #[error("Identity proof is invalid")]
     InvalidIdentityProof,
+
+    /// error returned if a bitcoin address is invalid
+    #[error("Bitcoin Address is invalid")]
+    InvalidBitcoinAddress,
 }
 
 impl From<bcr_common::core::Error> for ProtocolValidationError {

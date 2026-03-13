@@ -4,7 +4,9 @@ use super::Result;
 use bcr_ebill_api::service::{Error, file_upload_service::detect_content_type_for_bytes};
 use bcr_ebill_core::{
     application::GeneralSearchFilterItemType,
-    protocol::{Currency, ProtocolValidationError, constants::VALID_CURRENCIES},
+    protocol::{
+        BitcoinAddress, Currency, ProtocolValidationError, Sum, constants::VALID_CURRENCIES,
+    },
 };
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -14,9 +16,10 @@ use crate::{
     api::bill::get_signer_public_data_and_keys,
     context::get_ctx,
     data::{
-        BalanceResponse, BinaryFileResponse, CurrenciesResponse, CurrencyResponse,
-        GeneralSearchFilterPayload, GeneralSearchResponse, OverviewBalanceResponse,
-        OverviewResponse, StatusResponse,
+        BalanceResponse, BinaryFileResponse, BtcAddressAndSumPayload, BtcAddressPayload,
+        CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload, GeneralSearchResponse,
+        LinkToPayResponse, MempoolLinkResponse, OverviewBalanceResponse, OverviewResponse,
+        StatusResponse,
     },
     is_transport_connected,
 };
@@ -161,6 +164,45 @@ impl General {
                 .await?;
 
             Ok(result.into())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<LinkToPayResponse>")]
+    pub async fn link_to_pay(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "BtcAddressAndSumPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<LinkToPayResponse> = async {
+            let pl: BtcAddressAndSumPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_addr = BitcoinAddress::from_str(&pl.address)
+                .map_err(|_| ProtocolValidationError::InvalidBitcoinAddress)?;
+            let parsed_sum = Sum::new_sat_from_str(&pl.sum)?;
+            Ok(LinkToPayResponse {
+                link_to_pay: get_ctx().bill_service.link_to_pay(
+                    &parsed_addr,
+                    &parsed_sum,
+                    &pl.bill_id,
+                ),
+            })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<MempoolLinkResponse>")]
+    pub async fn mempool_link(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "BtcAddressPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<MempoolLinkResponse> = async {
+            let pl: BtcAddressPayload = serde_wasm_bindgen::from_value(payload)?;
+            let parsed_addr = BitcoinAddress::from_str(&pl.address)
+                .map_err(|_| ProtocolValidationError::InvalidBitcoinAddress)?;
+            Ok(MempoolLinkResponse {
+                mempool_link: get_ctx().bill_service.mempool_link(&parsed_addr),
+            })
         }
         .await;
         TSResult::res_to_js(res)
