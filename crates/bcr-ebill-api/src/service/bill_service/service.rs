@@ -21,7 +21,6 @@ use bcr_ebill_core::application::bill::{
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
-use bcr_ebill_core::protocol::Email;
 use bcr_ebill_core::protocol::PublicKey;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
@@ -39,6 +38,7 @@ use bcr_ebill_core::protocol::blockchain::{Blockchain, identity::IdentityType};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
 use bcr_ebill_core::protocol::event::ActionType;
 use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
+use bcr_ebill_core::protocol::{BitcoinAddress, Email};
 use bcr_ebill_core::protocol::{Currency, Sum};
 use bcr_ebill_core::{
     application::ServiceTraitBounds, application::ValidationError, protocol::File,
@@ -784,6 +784,15 @@ impl BillServiceApi for BillService {
                                 break;
                             }
                         }
+
+                        // If we're contingent, but not in endorsements, we could be payee
+                        if !in_guarantee_chain_as_non_anon
+                            && bill.participants.payee.node_id() == current_identity_node_id
+                            && matches!(bill.participants.payee, BillParticipant::Ident(_))
+                        {
+                            in_guarantee_chain_as_non_anon = true;
+                        }
+
                         if in_guarantee_chain_as_non_anon
                             || bill.participants.drawer.node_id == current_identity_node_id
                         {
@@ -1456,7 +1465,6 @@ impl BillServiceApi for BillService {
         }
 
         // Upload existing files for the mint
-        // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_mint = self
             .upload_bill_files_for_node_id(
                 bill_id,
@@ -1818,7 +1826,6 @@ impl BillServiceApi for BillService {
             .await?;
 
         // Upload existing files for the court to our relay
-        // TODO(multi-relay): don't default to first, but to file upload relay of receiver
         let file_urls_for_court = self
             .upload_bill_files_for_node_id(
                 bill_id,
@@ -1868,5 +1875,17 @@ impl BillServiceApi for BillService {
             )
             .await?;
         Ok(detail.history)
+    }
+
+    fn mempool_link(&self, address: &BitcoinAddress) -> String {
+        self.bitcoin_client.get_mempool_link_for_address(address)
+    }
+
+    fn link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, bill_id: &BillId) -> String {
+        self.bitcoin_client.generate_link_to_pay(
+            address,
+            sum,
+            &format!("Payment in relation to a bill {}", &bill_id),
+        )
     }
 }

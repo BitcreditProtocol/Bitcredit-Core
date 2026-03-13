@@ -23,6 +23,7 @@ use crate::protocol::Date;
 use crate::protocol::File;
 use crate::protocol::PostalAddress;
 use crate::protocol::blockchain::Block;
+use crate::protocol::blockchain::bill::block::BillPaymentBlockData;
 use crate::protocol::blockchain::bill::participant::BillIdentParticipant;
 use crate::protocol::blockchain::bill::participant::BillParticipant;
 use crate::protocol::blockchain::bill::participant::PastEndorsee;
@@ -279,6 +280,7 @@ pub struct BillHistoryBlock {
     pub block_id: BlockId,
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<BillParticipant>,
+    pub payment_data: Option<BillHistoryBlockPaymentData>,
     pub request_deadline: Option<Timestamp>,
     pub signed: SignedBy,
     pub signing_timestamp: Timestamp,
@@ -289,6 +291,7 @@ impl BillHistoryBlock {
     pub fn new(
         block: &BillBlock,
         pay_to_the_order_of: Option<BillParticipant>,
+        payment_data: Option<BillHistoryBlockPaymentData>,
         request_deadline: Option<Timestamp>,
         signed: SignedBy,
         signing_address: Option<PostalAddress>,
@@ -297,10 +300,26 @@ impl BillHistoryBlock {
             block_id: block.id(),
             block_type: block.op_code().to_owned(),
             pay_to_the_order_of,
+            payment_data,
             request_deadline,
             signed,
             signing_timestamp: block.timestamp(),
             signing_address,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BillHistoryBlockPaymentData {
+    pub sum: Sum,
+    pub payment_address: BitcoinAddress,
+}
+
+impl From<BillPaymentBlockData> for BillHistoryBlockPaymentData {
+    fn from(value: BillPaymentBlockData) -> Self {
+        Self {
+            sum: value.sum,
+            payment_address: value.payment_address,
         }
     }
 }

@@ -6538,9 +6538,7 @@ fn check_req_for_expiration_baseline() {
             payment_data: BillWaitingStatePaymentData {
                 time_of_request: Timestamp::new(1531593928).unwrap(),
                 sum: Sum::new_sat(10).expect("sat works"),
-                link_to_pay: String::default(),
                 address_to_pay: valid_payment_address_testnet(),
-                mempool_link_for_address_to_pay: String::default(),
                 tx_id: None,
                 confirmations: 0,
                 in_mempool: false,

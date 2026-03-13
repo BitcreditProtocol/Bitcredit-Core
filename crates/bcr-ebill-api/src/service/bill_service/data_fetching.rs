@@ -472,16 +472,6 @@ impl BillService {
 
                     let address_to_pay = payment_info.payment_address.clone();
 
-                    let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                        &address_to_pay,
-                        &payment_info.sum,
-                        &format!("Payment in relation to a bill {}", &bill.id),
-                    );
-
-                    let mempool_link_for_address_to_pay = self
-                        .bitcoin_client
-                        .get_mempool_link_for_address(&address_to_pay);
-
                     // if we're payer, create pay action, if we're payee, create check payment action
                     if current_identity_node_id == buyer.node_id() {
                         payment_actions.push(BillCallerPaymentAction::Pay(
@@ -491,10 +481,7 @@ impl BillService {
                                 state: BillCallerPaymentState {
                                     time_of_request: last_block.timestamp,
                                     sum: payment_info.sum.clone(),
-                                    link_to_pay: link_to_pay.clone(),
                                     address_to_pay: address_to_pay.clone(),
-                                    mempool_link_for_address_to_pay:
-                                        mempool_link_for_address_to_pay.clone(),
                                     status: PaymentStatus::Requested(last_block.timestamp),
                                     payment_deadline: payment_info.buying_deadline_timestamp,
                                     tx_id: tx_id.clone(),
@@ -512,10 +499,7 @@ impl BillService {
                                 state: BillCallerPaymentState {
                                     time_of_request: last_block.timestamp,
                                     sum: payment_info.sum.clone(),
-                                    link_to_pay: link_to_pay.clone(),
                                     address_to_pay: address_to_pay.clone(),
-                                    mempool_link_for_address_to_pay:
-                                        mempool_link_for_address_to_pay.clone(),
                                     status: PaymentStatus::Requested(last_block.timestamp),
                                     payment_deadline: payment_info.buying_deadline_timestamp,
                                     tx_id: tx_id.clone(),
@@ -533,9 +517,7 @@ impl BillService {
                         payment_data: BillWaitingStatePaymentData {
                             time_of_request: last_block.timestamp,
                             sum: payment_info.sum.clone(),
-                            link_to_pay,
                             address_to_pay,
-                            mempool_link_for_address_to_pay,
                             tx_id,
                             in_mempool,
                             confirmations,
@@ -580,16 +562,6 @@ impl BillService {
                         .bitcoin_client
                         .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
 
-                    let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                        &address_to_pay,
-                        &bill.sum,
-                        &format!("Payment in relation to a bill {}", bill.id.clone()),
-                    );
-
-                    let mempool_link_for_address_to_pay = self
-                        .bitcoin_client
-                        .get_mempool_link_for_address(&address_to_pay);
-
                     if let Some(payment_deadline) = payment_deadline_timestamp {
                         // if we're payer, create pay action, if we're payee, create check payment action
                         if current_identity_node_id == bill.drawee.node_id {
@@ -600,10 +572,7 @@ impl BillService {
                                     state: BillCallerPaymentState {
                                         time_of_request: last_block.timestamp,
                                         sum: bill.sum.clone(),
-                                        link_to_pay: link_to_pay.clone(),
                                         address_to_pay: address_to_pay.clone(),
-                                        mempool_link_for_address_to_pay:
-                                            mempool_link_for_address_to_pay.clone(),
                                         status: PaymentStatus::Requested(last_block.timestamp),
                                         payment_deadline,
                                         tx_id: tx_id.clone(),
@@ -621,10 +590,7 @@ impl BillService {
                                     state: BillCallerPaymentState {
                                         time_of_request: last_block.timestamp,
                                         sum: bill.sum.clone(),
-                                        link_to_pay: link_to_pay.clone(),
                                         address_to_pay: address_to_pay.clone(),
-                                        mempool_link_for_address_to_pay:
-                                            mempool_link_for_address_to_pay.clone(),
                                         status: PaymentStatus::Requested(last_block.timestamp),
                                         payment_deadline,
                                         tx_id: tx_id.clone(),
@@ -644,9 +610,7 @@ impl BillService {
                             payment_data: BillWaitingStatePaymentData {
                                 time_of_request: last_block.timestamp,
                                 sum: bill.sum.clone(),
-                                link_to_pay,
                                 address_to_pay,
-                                mempool_link_for_address_to_pay,
                                 tx_id,
                                 in_mempool,
                                 confirmations,
@@ -711,16 +675,6 @@ impl BillService {
                         &payment_info.recourser.node_id().pub_key(),
                     )?;
 
-                    let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                        &address_to_pay,
-                        &payment_info.sum,
-                        &format!("Payment in relation to a bill {}", &bill.id),
-                    );
-
-                    let mempool_link_for_address_to_pay = self
-                        .bitcoin_client
-                        .get_mempool_link_for_address(&address_to_pay);
-
                     // if we're payer, create pay action, if we're payee, create check payment action
                     if current_identity_node_id == recoursee.node_id {
                         payment_actions.push(BillCallerPaymentAction::Pay(
@@ -730,10 +684,7 @@ impl BillService {
                                 state: BillCallerPaymentState {
                                     time_of_request: last_block.timestamp,
                                     sum: payment_info.sum.clone(),
-                                    link_to_pay: link_to_pay.clone(),
                                     address_to_pay: address_to_pay.clone(),
-                                    mempool_link_for_address_to_pay:
-                                        mempool_link_for_address_to_pay.clone(),
                                     status: PaymentStatus::Requested(last_block.timestamp),
                                     payment_deadline: payment_info.recourse_deadline_timestamp,
                                     tx_id: tx_id.clone(),
@@ -751,10 +702,7 @@ impl BillService {
                                 state: BillCallerPaymentState {
                                     time_of_request: last_block.timestamp,
                                     sum: payment_info.sum.clone(),
-                                    link_to_pay: link_to_pay.clone(),
                                     address_to_pay: address_to_pay.clone(),
-                                    mempool_link_for_address_to_pay:
-                                        mempool_link_for_address_to_pay.clone(),
                                     status: PaymentStatus::Requested(last_block.timestamp),
                                     payment_deadline: payment_info.recourse_deadline_timestamp,
                                     tx_id: tx_id.clone(),
@@ -773,9 +721,7 @@ impl BillService {
                             payment_data: BillWaitingStatePaymentData {
                                 time_of_request: last_block.timestamp,
                                 sum: payment_info.sum.clone(),
-                                link_to_pay,
                                 address_to_pay,
-                                mempool_link_for_address_to_pay,
                                 tx_id,
                                 in_mempool,
                                 confirmations,
@@ -815,9 +761,7 @@ impl BillService {
                         state: BillCallerPaymentState {
                             time_of_request: data.time_of_request,
                             sum: data.sum,
-                            link_to_pay: data.link_to_pay,
                             address_to_pay: data.address_to_pay,
-                            mempool_link_for_address_to_pay: data.mempool_link_for_address_to_pay,
                             status: data.status,
                             payment_deadline: data.payment_deadline,
                             tx_id: None,
@@ -834,9 +778,7 @@ impl BillService {
                         state: BillCallerPaymentState {
                             time_of_request: data.time_of_request,
                             sum: data.sum,
-                            link_to_pay: data.link_to_pay,
                             address_to_pay: data.address_to_pay,
-                            mempool_link_for_address_to_pay: data.mempool_link_for_address_to_pay,
                             status: data.status,
                             payment_deadline: data.payment_deadline,
                             tx_id: None,
@@ -853,9 +795,7 @@ impl BillService {
                         state: BillCallerPaymentState {
                             time_of_request: data.time_of_request,
                             sum: data.sum,
-                            link_to_pay: data.link_to_pay,
                             address_to_pay: data.address_to_pay,
-                            mempool_link_for_address_to_pay: data.mempool_link_for_address_to_pay,
                             status: data.status,
                             payment_deadline: data.payment_deadline,
                             tx_id: None,
@@ -1011,14 +951,6 @@ impl BillService {
             let address_to_pay = self
                 .bitcoin_client
                 .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
-            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                &address_to_pay,
-                &bill.sum,
-                &format!("Payment in relation to a bill {}", bill.id.clone()),
-            );
-            let mempool_link_for_address_to_pay = self
-                .bitcoin_client
-                .get_mempool_link_for_address(&address_to_pay);
 
             // we check for the payment expiration, not the request expiration
             // if the request expired, but the payment deadline hasn't, it's not a past payment
@@ -1034,10 +966,8 @@ impl BillService {
                     payer: bill_parties.drawee.clone().into(),
                     payee: holder.clone().into(),
                     sum: bill.sum.clone(),
-                    link_to_pay,
                     address_to_pay,
                     private_descriptor_to_spend: descriptor_to_spend.clone(),
-                    mempool_link_for_address_to_pay,
                     status: if is_paid {
                         if let Ok(Some(PaymentState::PaidConfirmed(paid_date))) =
                             self.store.get_payment_state(bill_id).await
@@ -1070,24 +1000,14 @@ impl BillService {
             .map_err(|e| Error::Protocol(e.into()))?;
         for past_sell_payment in past_sell_payments {
             let address_to_pay = past_sell_payment.0.payment_address;
-            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                &address_to_pay,
-                &past_sell_payment.0.sum,
-                &format!("Payment in relation to a bill {}", &bill.id),
-            );
-            let mempool_link_for_address_to_pay = self
-                .bitcoin_client
-                .get_mempool_link_for_address(&address_to_pay);
 
             result.push(PastPaymentResult::Sell(PastPaymentDataSell {
                 time_of_request: past_sell_payment.2,
                 buyer: past_sell_payment.0.buyer,
                 seller: past_sell_payment.0.seller,
                 sum: past_sell_payment.0.sum,
-                link_to_pay,
                 address_to_pay,
                 private_descriptor_to_spend: descriptor_to_spend.clone(),
-                mempool_link_for_address_to_pay,
                 status: past_sell_payment.1,
                 payment_deadline: past_sell_payment.0.buying_deadline_timestamp,
             }));
@@ -1106,24 +1026,14 @@ impl BillService {
                 &bill_keys.pub_key(),
                 &past_sell_payment.0.recourser.node_id().pub_key(),
             )?;
-            let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-                &address_to_pay,
-                &past_sell_payment.0.sum,
-                &format!("Payment in relation to a bill {}", &bill.id),
-            );
-            let mempool_link_for_address_to_pay = self
-                .bitcoin_client
-                .get_mempool_link_for_address(&address_to_pay);
 
             result.push(PastPaymentResult::Recourse(PastPaymentDataRecourse {
                 time_of_request: past_sell_payment.2,
                 recoursee: past_sell_payment.0.recoursee.into(),
                 recourser: past_sell_payment.0.recourser.into(),
                 sum: past_sell_payment.0.sum,
-                link_to_pay,
                 address_to_pay,
                 private_descriptor_to_spend: descriptor_to_spend.clone(),
-                mempool_link_for_address_to_pay,
                 status: past_sell_payment.1,
                 payment_deadline: past_sell_payment.0.recourse_deadline_timestamp,
             }));
