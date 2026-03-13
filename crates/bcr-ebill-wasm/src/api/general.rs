@@ -179,12 +179,11 @@ impl General {
             let parsed_addr = BitcoinAddress::from_str(&pl.address)
                 .map_err(|_| ProtocolValidationError::InvalidBitcoinAddress)?;
             let parsed_sum = Sum::new_sat_from_str(&pl.sum)?;
+            let result = get_ctx()
+                .bill_service
+                .link_to_pay(&parsed_addr, &parsed_sum, &pl.bill_id);
             Ok(LinkToPayResponse {
-                link_to_pay: get_ctx().bill_service.link_to_pay(
-                    &parsed_addr,
-                    &parsed_sum,
-                    &pl.bill_id,
-                ),
+                link_to_pay: result,
             })
         }
         .await;

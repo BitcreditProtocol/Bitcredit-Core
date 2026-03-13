@@ -82,6 +82,8 @@ document.getElementById("clear_bill_cache").addEventListener("click", clearBillC
 document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
 document.getElementById("dev_mode_get_bill_chain").addEventListener("click", devModeGetBillChain);
 document.getElementById("share_bill_with_court").addEventListener("click", shareBillWithCourt);
+document.getElementById("mempool_link").addEventListener("click", mempoolLink);
+document.getElementById("link_to_pay").addEventListener("click", linkToPay);
 
 // companies
 document.getElementById("company_create").addEventListener("click", createCompany);
@@ -1036,6 +1038,24 @@ async function shareBillWithCourt() {
   let court_node_id = document.getElementById("court_node_id").value;
   let measured = measure(async () => {
     return success_or_fail(await window.billApi.share_bill_with_court({ bill_id: bill_id, court_node_id: court_node_id }));
+  });
+  await measured();
+}
+
+async function mempoolLink() {
+  let btc_address = document.getElementById("btc_address").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.generalApi.mempool_link({ address: btc_address }));
+  });
+  await measured();
+}
+
+async function linkToPay() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let btc_address = document.getElementById("btc_address").value;
+  let sum = document.getElementById("payment_sum").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.generalApi.link_to_pay({ bill_id: bill_id, address: btc_address, sum: sum }));
   });
   await measured();
 }
