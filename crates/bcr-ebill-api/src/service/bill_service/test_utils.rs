@@ -208,7 +208,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_combined_private_descriptor()
         .returning(|_, _| {
             Ok(String::from(
-                "wpkh(cNjLH9K88VEhLeinPJkgPCZJZ9vNdi2L2UiTBuEfy4gSbTsMvvJg)",
+                "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4",
             ))
         });
     bitcoin_client

@@ -8,6 +8,7 @@
 * Remove `mempool_link_for_address_to_pay` and `link_to_pay` from data models (breaking DB and API change)
 * Add endpoints to get `mempool_link` and `link_to_pay` to general API
 * Fix a bug where contingent balance was calculated wrongly, for a `payee` that was not endorsee anymore
+* Use taproot Addresses
 
 # 0.5.4
 
