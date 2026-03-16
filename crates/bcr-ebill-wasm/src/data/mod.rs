@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bcr_common::core::NodeId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::file_upload_service::{
     UploadFileHandler, detect_content_type_for_bytes,
 };
@@ -379,6 +379,33 @@ impl From<UploadFileResult> for UploadFileResponse {
             file_upload_id: val.file_upload_id,
         }
     }
+}
+
+#[derive(Tsify, Debug, Deserialize, Clone)]
+#[tsify(from_wasm_abi)]
+pub struct BtcAddressPayload {
+    pub address: String,
+}
+
+#[derive(Tsify, Debug, Deserialize, Clone)]
+#[tsify(from_wasm_abi)]
+pub struct BtcAddressAndSumPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    pub address: String,
+    pub sum: String,
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct MempoolLinkResponse {
+    pub mempool_link: String,
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+#[tsify(into_wasm_abi)]
+pub struct LinkToPayResponse {
+    pub link_to_pay: String,
 }
 
 // Checks if the given JS Value has the given field - also works with nested fields like postal_address.zip

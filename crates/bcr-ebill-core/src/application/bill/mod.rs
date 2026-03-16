@@ -84,9 +84,7 @@ pub enum BillCallerPayment {
 pub struct BillCallerPaymentState {
     pub time_of_request: Timestamp,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
     pub tx_id: Option<String>,
@@ -156,9 +154,7 @@ pub struct BillWaitingForRecourseState {
 pub struct BillWaitingStatePaymentData {
     pub time_of_request: Timestamp,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
-    pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
@@ -532,10 +528,8 @@ pub struct PastPaymentDataSell {
     pub buyer: BillParticipant,
     pub seller: BillParticipant,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
@@ -546,10 +540,8 @@ pub struct PastPaymentDataPayment {
     pub payer: BillIdentParticipant,
     pub payee: BillParticipant,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
@@ -560,10 +552,8 @@ pub struct PastPaymentDataRecourse {
     pub recourser: BillParticipant,
     pub recoursee: BillIdentParticipant,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: String,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }

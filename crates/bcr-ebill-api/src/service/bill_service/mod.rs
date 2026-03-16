@@ -6,8 +6,10 @@ use bcr_ebill_core::application::bill::{
     Endorsement, LightBitcreditBillResult, PastPaymentResult,
 };
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+use bcr_ebill_core::protocol::BitcoinAddress;
 use bcr_ebill_core::protocol::Currency;
 use bcr_ebill_core::protocol::SecretKey;
+use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::chain::BillBlockPlaintextWrapper;
 use bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant;
@@ -256,4 +258,8 @@ pub trait BillServiceApi: ServiceTraitBounds {
         caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BillHistory>;
+
+    fn mempool_link(&self, address: &BitcoinAddress) -> String;
+
+    fn link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, bill_id: &BillId) -> String;
 }

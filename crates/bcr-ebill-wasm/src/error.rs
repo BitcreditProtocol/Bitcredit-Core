@@ -47,6 +47,7 @@ enum JsErrorType {
     FieldInvalid,
     InvalidSum,
     InvalidCurrency,
+    InvalidBitcoinAddress,
     InvalidContentType,
     IdentityCantBeAnon,
     InvalidContactType,
@@ -266,6 +267,9 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         ProtocolValidationError::FieldEmpty(_) => err_400(e, JsErrorType::FieldEmpty),
         ProtocolValidationError::FieldInvalid(_) => err_400(e, JsErrorType::FieldInvalid),
         ProtocolValidationError::InvalidSum => err_400(e, JsErrorType::InvalidSum),
+        ProtocolValidationError::InvalidBitcoinAddress => {
+            err_400(e, JsErrorType::InvalidBitcoinAddress)
+        }
         ProtocolValidationError::InvalidCurrency => err_400(e, JsErrorType::InvalidCurrency),
         ProtocolValidationError::InvalidContactType => err_400(e, JsErrorType::InvalidContactType),
         ProtocolValidationError::InvalidIdentityType => {

@@ -29,7 +29,9 @@ use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::participant::{
     BillAnonParticipant, BillIdentParticipant, BillParticipant, BillSignatory, SignedBy,
 };
-use bcr_ebill_core::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PaymentStatus};
+use bcr_ebill_core::protocol::blockchain::bill::{
+    BillHistory, BillHistoryBlock, BillHistoryBlockPaymentData, PaymentStatus,
+};
 use bcr_ebill_core::protocol::blockchain::bill::{BillOpCode, ContactType};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{BitcoinAddress, SecretKey};
@@ -457,9 +459,7 @@ impl From<&BillCurrentWaitingState> for BillCurrentWaitingStateDb {
 pub struct BillWaitingStatePaymentDataDb {
     pub time_of_request: Timestamp,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
-    pub mempool_link_for_address_to_pay: String,
     pub tx_id: Option<String>,
     pub in_mempool: bool,
     pub confirmations: u64,
@@ -471,9 +471,7 @@ impl From<BillWaitingStatePaymentDataDb> for BillWaitingStatePaymentData {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum,
-            link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
             tx_id: value.tx_id,
             in_mempool: value.in_mempool,
             confirmations: value.confirmations,
@@ -487,9 +485,7 @@ impl From<&BillWaitingStatePaymentData> for BillWaitingStatePaymentDataDb {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum.clone(),
-            link_to_pay: value.link_to_pay.clone(),
             address_to_pay: value.address_to_pay.clone(),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.clone(),
             tx_id: value.tx_id.clone(),
             in_mempool: value.in_mempool,
             confirmations: value.confirmations,
@@ -1177,10 +1173,8 @@ impl From<&BillCallerPayment> for BillCallerPaymentDb {
 pub struct BillCallerPaymentStateDb {
     pub time_of_request: Timestamp,
     pub sum: Sum,
-    pub link_to_pay: String,
     pub address_to_pay: BitcoinAddress,
     pub private_descriptor_to_spend: Option<String>,
-    pub mempool_link_for_address_to_pay: String,
     pub status: PaymentStatusDb,
     pub payment_deadline: Timestamp,
     pub tx_id: Option<String>,
@@ -1193,10 +1187,8 @@ impl From<BillCallerPaymentStateDb> for BillCallerPaymentState {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum,
-            link_to_pay: value.link_to_pay,
             address_to_pay: value.address_to_pay,
             private_descriptor_to_spend: value.private_descriptor_to_spend,
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay,
             status: value.status.into(),
             payment_deadline: value.payment_deadline,
             tx_id: value.tx_id,
@@ -1211,13 +1203,11 @@ impl From<&BillCallerPaymentState> for BillCallerPaymentStateDb {
         Self {
             time_of_request: value.time_of_request,
             sum: value.sum.to_owned(),
-            link_to_pay: value.link_to_pay.to_owned(),
             address_to_pay: value.address_to_pay.to_owned(),
             private_descriptor_to_spend: value
                 .private_descriptor_to_spend
                 .as_ref()
                 .map(|pd| pd.to_owned()),
-            mempool_link_for_address_to_pay: value.mempool_link_for_address_to_pay.to_owned(),
             status: (&value.status).into(),
             payment_deadline: value.payment_deadline,
             tx_id: value.tx_id.as_ref().map(|tx| tx.to_owned()),
@@ -1262,6 +1252,7 @@ pub struct BillHistoryBlockDb {
     pub block_id: BlockId,
     pub block_type: BillOpCode,
     pub pay_to_the_order_of: Option<BillParticipantDb>,
+    pub payment_data: Option<BillHistoryBlockPaymentDataDb>,
     pub request_deadline: Option<Timestamp>,
     pub signed: LightSignedByDb,
     pub signing_timestamp: Timestamp,
@@ -1274,6 +1265,7 @@ impl From<BillHistoryBlockDb> for BillHistoryBlock {
             block_id: value.block_id,
             block_type: value.block_type,
             pay_to_the_order_of: value.pay_to_the_order_of.map(|pttoo| pttoo.into()),
+            payment_data: value.payment_data.map(|pd| pd.into()),
             request_deadline: value.request_deadline,
             signed: value.signed.into(),
             signing_timestamp: value.signing_timestamp,
@@ -1288,10 +1280,35 @@ impl From<BillHistoryBlock> for BillHistoryBlockDb {
             block_id: value.block_id,
             block_type: value.block_type,
             pay_to_the_order_of: value.pay_to_the_order_of.as_ref().map(|pttoo| pttoo.into()),
+            payment_data: value.payment_data.map(|pd| pd.into()),
             request_deadline: value.request_deadline,
             signed: (&value.signed).into(),
             signing_timestamp: value.signing_timestamp,
             signing_address: value.signing_address.map(|sa| sa.into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BillHistoryBlockPaymentDataDb {
+    pub sum: Sum,
+    pub payment_address: BitcoinAddress,
+}
+
+impl From<BillHistoryBlockPaymentDataDb> for BillHistoryBlockPaymentData {
+    fn from(value: BillHistoryBlockPaymentDataDb) -> Self {
+        Self {
+            sum: value.sum,
+            payment_address: value.payment_address,
+        }
+    }
+}
+
+impl From<BillHistoryBlockPaymentData> for BillHistoryBlockPaymentDataDb {
+    fn from(value: BillHistoryBlockPaymentData) -> Self {
+        Self {
+            sum: value.sum,
+            payment_address: value.payment_address,
         }
     }
 }

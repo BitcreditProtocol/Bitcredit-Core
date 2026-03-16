@@ -1178,6 +1178,7 @@ impl BillBlock {
                     self,
                     None,
                     None,
+                    None,
                     SignedBy::from((
                         BillParticipantBlockData::Ident(block_data_decrypted.drawer),
                         block_data_decrypted.signatory,
@@ -1191,6 +1192,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     Some(block_data_decrypted.endorsee.into()),
+                    None,
                     None,
                     SignedBy::from((
                         block_data_decrypted.endorser,
@@ -1206,6 +1208,7 @@ impl BillBlock {
                     self,
                     Some(block_data_decrypted.endorsee.into()),
                     None,
+                    None,
                     SignedBy::from((
                         block_data_decrypted.endorser,
                         block_data_decrypted.signatory,
@@ -1218,6 +1221,7 @@ impl BillBlock {
                     self.get_decrypted_block(bill_keys)?;
                 BillHistoryBlock::new(
                     self,
+                    None,
                     None,
                     Some(block_data_decrypted.acceptance_deadline_timestamp),
                     SignedBy::from((
@@ -1234,6 +1238,7 @@ impl BillBlock {
                     self,
                     None,
                     None,
+                    None,
                     SignedBy::from((
                         BillParticipantBlockData::Ident(block_data_decrypted.accepter),
                         block_data_decrypted.signatory,
@@ -1247,6 +1252,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     None,
+                    Some(block_data_decrypted.payment_data.clone().into()),
                     Some(block_data_decrypted.payment_data.payment_deadline),
                     SignedBy::from((
                         block_data_decrypted.requester,
@@ -1261,6 +1267,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     Some(block_data_decrypted.buyer.into()),
+                    Some(block_data_decrypted.payment_data.clone().into()),
                     Some(block_data_decrypted.payment_data.payment_deadline),
                     SignedBy::from((block_data_decrypted.seller, block_data_decrypted.signatory)),
                     block_data_decrypted.signing_address,
@@ -1273,6 +1280,7 @@ impl BillBlock {
                     self,
                     Some(block_data_decrypted.buyer.into()),
                     None,
+                    None,
                     SignedBy::from((block_data_decrypted.seller, block_data_decrypted.signatory)),
                     block_data_decrypted.signing_address,
                 )
@@ -1282,6 +1290,7 @@ impl BillBlock {
                     self.get_decrypted_block(bill_keys)?;
                 BillHistoryBlock::new(
                     self,
+                    None,
                     None,
                     None,
                     SignedBy::from((
@@ -1298,6 +1307,7 @@ impl BillBlock {
                     self,
                     None,
                     None,
+                    None,
                     SignedBy::from((
                         BillParticipantBlockData::Ident(block_data_decrypted.rejecter),
                         block_data_decrypted.signatory,
@@ -1310,6 +1320,7 @@ impl BillBlock {
                     self.get_decrypted_block(bill_keys)?;
                 BillHistoryBlock::new(
                     self,
+                    None,
                     None,
                     None,
                     SignedBy::from((
@@ -1326,6 +1337,7 @@ impl BillBlock {
                     self,
                     None,
                     None,
+                    None,
                     SignedBy::from((
                         block_data_decrypted.rejecter,
                         block_data_decrypted.signatory,
@@ -1339,6 +1351,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     Some(BillParticipantBlockData::Ident(block_data_decrypted.recoursee).into()),
+                    Some(block_data_decrypted.payment_data.clone().into()),
                     Some(block_data_decrypted.payment_data.payment_deadline),
                     SignedBy::from((
                         block_data_decrypted.recourser,
@@ -1353,6 +1366,7 @@ impl BillBlock {
                 BillHistoryBlock::new(
                     self,
                     Some(BillParticipantBlockData::Ident(block_data_decrypted.recoursee).into()),
+                    None,
                     None,
                     SignedBy::from((
                         block_data_decrypted.recourser,
