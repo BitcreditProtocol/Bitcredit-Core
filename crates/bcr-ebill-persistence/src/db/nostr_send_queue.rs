@@ -2,7 +2,7 @@ use super::{
     Result,
     surreal::{Bindings, SurrealWrapper},
 };
-use crate::constants::{DB_IDS, DB_LIMIT, DB_TABLE};
+use crate::constants::{DB_IDS, DB_LIMIT, DB_TABLE, NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::Timestamp};
@@ -23,13 +23,18 @@ impl SurrealNostrEventQueueStore {
         Self { db }
     }
 
-    async fn set_processing(&self, ids: Vec<Thing>) -> Result<()> {
+    async fn set_processing_started_at(
+        &self,
+        ids: Vec<Thing>,
+        started_at: DateTimeUtc,
+    ) -> Result<()> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_IDS, ids)?;
+        bindings.add("started_at", started_at)?;
         self.db
             .query_check(
-                "UPDATE type::table($table) SET processing = true WHERE id IN $ids",
+                "UPDATE type::table($table) SET processing_started_at = $started_at WHERE id IN $ids",
                 bindings,
             )
             .await?;
@@ -54,16 +59,25 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
     }
     /// Selects all messages that are ready to be retried
     async fn get_retry_messages(&self, limit: u64) -> Result<Vec<NostrQueuedMessage>> {
+        let now = Timestamp::now();
+        let retry_before = now
+            .inner()
+            .saturating_sub(NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS);
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
         bindings.add(DB_LIMIT, limit)?;
+        bindings.add(
+            "retry_before",
+            Timestamp::new(retry_before).expect("safe").to_datetime(),
+        )?;
         let items: Vec<QueuedMessageDb> = self
             .db
-            .query("SELECT * FROM type::table($table) WHERE completed = false AND processing = false ORDER BY last_try ASC LIMIT $limit", bindings)
+            .query("SELECT * FROM type::table($table) WHERE completed = false AND processing_started_at < $retry_before ORDER BY last_try ASC LIMIT $limit", bindings)
             .await?;
         let ids = items.iter().map(|i| i.id.to_owned()).collect();
         let results: Vec<NostrQueuedMessage> = items.into_iter().map(|i| i.into()).collect();
-        self.set_processing(ids).await?;
+        self.set_processing_started_at(ids, now.to_datetime())
+            .await?;
         Ok(results)
     }
 
@@ -76,7 +90,7 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
             msg.num_retries += 1;
             msg.last_try = Timestamp::now().to_datetime();
             msg.completed = msg.num_retries >= msg.max_retries;
-            msg.processing = false;
+            msg.processing_started_at = Timestamp::zero().to_datetime();
             let _: Option<QueuedMessageDb> =
                 self.db.update(Self::TABLE, id.to_owned(), msg).await?;
         }
@@ -89,7 +103,7 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
         if let Some(mut msg) = current {
             msg.completed = true;
             msg.last_try = Timestamp::now().to_datetime();
-            msg.processing = false;
+            msg.processing_started_at = Timestamp::zero().to_datetime();
             let _: Option<QueuedMessageDb> =
                 self.db.update(Self::TABLE, id.to_owned(), msg).await?;
         }
@@ -109,7 +123,7 @@ struct QueuedMessageDb {
     pub num_retries: i32,
     pub max_retries: i32,
     pub completed: bool,
-    pub processing: bool,
+    pub processing_started_at: DateTimeUtc,
 }
 
 impl QueuedMessageDb {
@@ -127,7 +141,7 @@ impl QueuedMessageDb {
             num_retries: 0,
             max_retries,
             completed: false,
-            processing: false,
+            processing_started_at: Timestamp::zero().to_datetime(),
         }
     }
 }
@@ -242,6 +256,61 @@ mod tests {
             messages_failed_again.is_empty(),
             "should have exceeded retry limit"
         );
+    }
+
+    #[tokio::test]
+    async fn test_stale_processing_started_at_is_retryable_again() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message"), 3)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+        assert_eq!(messages.len(), 1, "should have gotten a queued message");
+
+        let messages_empty = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+        assert!(
+            messages_empty.is_empty(),
+            "lease should block immediate retry"
+        );
+
+        let mut bindings = Bindings::default();
+        bindings
+            .add(DB_TABLE, SurrealNostrEventQueueStore::TABLE)
+            .expect("could not bind table");
+        bindings
+            .add(
+                DB_IDS,
+                vec![Thing::from((
+                    SurrealNostrEventQueueStore::TABLE,
+                    messages[0].id.as_str(),
+                ))],
+            )
+            .expect("could not bind ids");
+        bindings
+            .add("started_at", Timestamp::zero().to_datetime())
+            .expect("could not bind started_at");
+        store
+            .db
+            .query_check(
+                "UPDATE type::table($table) SET processing_started_at = $started_at WHERE id IN $ids",
+                bindings,
+            )
+            .await
+            .expect("could not reset stale lease");
+
+        let messages_retried = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get retried messages");
+        assert_eq!(messages_retried.len(), 1, "stale lease should be retried");
     }
 
     async fn get_store() -> SurrealNostrEventQueueStore {

@@ -26,6 +26,7 @@ use bcr_ebill_persistence::nostr::{
 };
 use bitcoin::base58;
 use log::{debug, error, warn};
+use tokio_with_wasm::alias as tokio;
 
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::protocol::PostalAddress;
@@ -38,6 +39,7 @@ struct LegacyBillEventMessage {
 }
 
 /// Transport implementation for Nostr
+#[derive(Clone)]
 pub struct NostrTransportService {
     nostr_client: Arc<dyn TransportClientApi>,
     contact_store: Arc<dyn ContactStoreApi>,
@@ -160,7 +162,7 @@ impl NostrTransportService {
                     .await
                 {
                     error!("Failed to send block notification, will add it to retry queue: {e}");
-                    self.queue_retry_message(
+                    self.queue_retry_message_and_trigger(
                         sender,
                         Some(node_id),
                         base58::encode(&borsh::to_vec(&message)?),
@@ -204,13 +206,40 @@ impl NostrTransportService {
             recipient: recipient.map(|n| n.to_owned()),
             payload,
         };
-        if let Err(e) = self
-            .queued_message_store
+        self.queued_message_store
             .add_message(queue_message, Self::NOSTR_MAX_RETRIES)
             .await
-        {
-            error!("Failed to add send nostr event to retry queue: {e}");
-        }
+            .map_err(|e| {
+                error!("Failed to add send nostr event to retry queue: {e}");
+                Error::Persistence(format!(
+                    "Failed to add send nostr event to retry queue: {e}"
+                ))
+            })?;
+        Ok(())
+    }
+
+    pub(crate) async fn queue_retry_message_and_trigger(
+        &self,
+        sender: &NodeId,
+        recipient: Option<&NodeId>,
+        payload: String,
+    ) -> Result<()> {
+        self.queue_retry_message(sender, recipient, payload).await?;
+
+        let retry_target = recipient
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "public broadcast".to_string());
+        debug!(
+            "Queued Nostr retry message for sender {sender}; triggering immediate retry for {retry_target}"
+        );
+
+        let retry_service = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = retry_service.send_retry_messages().await {
+                error!("Failed to process Nostr retry queue after enqueue: {e}");
+            }
+        });
+
         Ok(())
     }
 
