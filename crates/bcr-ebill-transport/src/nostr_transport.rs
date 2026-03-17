@@ -25,6 +25,7 @@ use bcr_ebill_persistence::nostr::{
     NostrQueuedMessageStoreApi,
 };
 use bitcoin::base58;
+use log::info;
 use log::{debug, error, warn};
 use tokio_with_wasm::alias as tokio;
 
@@ -372,6 +373,7 @@ impl NostrTransportService {
 
             match result {
                 Ok(()) => {
+                    info!("Successfully sent retry message {}", queued_message.id);
                     if let Err(e) = self
                         .queued_message_store
                         .succeed_retry(&queued_message.id)
