@@ -34,6 +34,6 @@ It contains the following options:
         nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         job_runner_initial_delay_seconds: 1,
-        job_runner_check_interval_seconds: 600,
+        job_runner_check_interval_seconds: 60,
     };
 ```
