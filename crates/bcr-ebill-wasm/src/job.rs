@@ -108,24 +108,8 @@ fn spawn_job_if_due(
     now: Duration,
     run: impl FnOnce() -> JobFuture + 'static,
 ) {
-    let should_run = state.with(|state| {
-        let mut state = state.borrow_mut();
-
-        if state.is_running {
-            warn!("Skipping {job_name} because the previous run is still active");
-            return false;
-        }
-
-        if let Some(last_started_at) = state.last_started_at
-            && now.saturating_sub(last_started_at) < Duration::from_secs(interval_secs)
-        {
-            return false;
-        }
-
-        state.last_started_at = Some(now);
-        state.is_running = true;
-        true
-    });
+    let should_run =
+        state.with(|state| should_run_job(&mut state.borrow_mut(), job_name, interval_secs, now));
 
     if !should_run {
         return;
@@ -142,6 +126,28 @@ fn spawn_job_if_due(
             state.borrow_mut().is_running = false;
         });
     });
+}
+
+fn should_run_job(
+    state: &mut JobState,
+    job_name: &'static str,
+    interval_secs: u64,
+    now: Duration,
+) -> bool {
+    if state.is_running {
+        warn!("Skipping {job_name} because the previous run is still active");
+        return false;
+    }
+
+    if let Some(last_started_at) = state.last_started_at
+        && now.saturating_sub(last_started_at) < Duration::from_secs(interval_secs)
+    {
+        return false;
+    }
+
+    state.last_started_at = Some(now);
+    state.is_running = true;
+    true
 }
 
 async fn run_check_mint_state_job() -> bool {
@@ -215,4 +221,48 @@ async fn run_relay_retry_sync_job() -> bool {
         error!("Error while running Relay Retry Sync Job: {e}");
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_run_job_skips_when_interval_not_elapsed() {
+        let mut state = JobState {
+            last_started_at: Some(Duration::from_secs(50)),
+            is_running: false,
+        };
+
+        let should_run = should_run_job(&mut state, "Test Job", 60, Duration::from_secs(100));
+
+        assert!(!should_run);
+        assert_eq!(state.last_started_at, Some(Duration::from_secs(50)));
+        assert!(!state.is_running);
+    }
+
+    #[test]
+    fn should_run_job_skips_when_already_running() {
+        let mut state = JobState {
+            last_started_at: Some(Duration::from_secs(0)),
+            is_running: true,
+        };
+
+        let should_run = should_run_job(&mut state, "Test Job", 60, Duration::from_secs(100));
+
+        assert!(!should_run);
+        assert_eq!(state.last_started_at, Some(Duration::from_secs(0)));
+        assert!(state.is_running);
+    }
+
+    #[test]
+    fn should_run_job_runs_when_interval_elapsed() {
+        let mut state = JobState::new();
+
+        let should_run = should_run_job(&mut state, "Test Job", 120, Duration::from_secs(120));
+
+        assert!(should_run);
+        assert_eq!(state.last_started_at, Some(Duration::from_secs(120)));
+        assert!(state.is_running);
+    }
 }

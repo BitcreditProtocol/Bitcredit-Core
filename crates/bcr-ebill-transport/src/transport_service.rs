@@ -2248,6 +2248,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_failed_to_send_returns_error_when_retry_enqueue_fails() {
+        init_test_cfg();
+        let payer = get_identity_public_data(
+            &node_id_test(),
+            &Email::new("drawee@example.com").unwrap(),
+            vec![],
+        );
+        let payee = get_identity_public_data(
+            &node_id_test_other(),
+            &Email::new("payee@example.com").unwrap(),
+            vec![],
+        );
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let chain = get_genesis_chain(Some(bill.clone()));
+
+        let (service, _) = expect_service(
+            |mock,
+             mock_contact_store,
+             _,
+             queue_mock,
+             _,
+             notification_transport,
+             _,
+             block_transport| {
+                let payer = payer.clone();
+                let payee = payee.clone();
+
+                block_transport
+                    .expect_send_bill_chain_events()
+                    .returning(|_| Ok(()))
+                    .once();
+
+                mock_contact_store
+                    .expect_get()
+                    .returning(move |_| Ok(Some(as_contact(&payer))));
+
+                mock_contact_store
+                    .expect_get()
+                    .returning(move |_| Ok(Some(as_contact(&payee))));
+
+                mock.expect_send_private_event()
+                    .returning(|_, _, _| Ok(()))
+                    .once();
+
+                mock.expect_send_private_event()
+                    .withf(move |_, _, e| {
+                        let r: bcr_ebill_core::protocol::Result<Event<ChainInvite>> =
+                            e.clone().try_into();
+                        r.is_err()
+                    })
+                    .returning(|_, _, _| Err(Error::Network("Failed to send".to_string())));
+
+                queue_mock
+                    .expect_add_message()
+                    .returning(|_, _| {
+                        Err(bcr_ebill_persistence::Error::Persistence(
+                            "queue down".to_string(),
+                        ))
+                    })
+                    .once();
+
+                notification_transport
+                    .expect_send_email_notification()
+                    .never();
+            },
+        );
+
+        let event = BillChainEvent::new(
+            &bill,
+            &chain,
+            &BcrKeys::from_private_key(&private_key_test()),
+            true,
+            &node_id_test(),
+        )
+        .unwrap();
+
+        let result = service.send_bill_is_signed_event(&event).await;
+        assert!(
+            matches!(result, Err(Error::Persistence(msg)) if msg.contains("Failed to add send nostr event to retry queue"))
+        );
+    }
+
+    #[tokio::test]
     async fn test_send_retry_public_message_success() {
         init_test_cfg();
 

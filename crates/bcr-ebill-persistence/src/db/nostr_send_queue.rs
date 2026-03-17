@@ -313,6 +313,69 @@ mod tests {
         assert_eq!(messages_retried.len(), 1, "stale lease should be retried");
     }
 
+    #[tokio::test]
+    async fn test_fail_retry_resets_processing_started_at() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message"), 3)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+
+        store
+            .fail_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as failed");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert_eq!(
+            record.processing_started_at,
+            Timestamp::zero().to_datetime()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_succeed_retry_resets_processing_started_at() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message"), 3)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+
+        store
+            .succeed_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as successful");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert!(record.completed);
+        assert_eq!(
+            record.processing_started_at,
+            Timestamp::zero().to_datetime()
+        );
+    }
+
     async fn get_store() -> SurrealNostrEventQueueStore {
         let mem_db = get_memory_db("test", "nostr_event_queue")
             .await
