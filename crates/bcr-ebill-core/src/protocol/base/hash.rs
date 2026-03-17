@@ -31,6 +31,10 @@ impl Sha256Hash {
         // safe, because we only create and deserialize from base58 encoded sha256 hashes
         base58::decode(&self.0).expect("is base58 encoded")
     }
+
+    pub fn decode_to_array(&self) -> [u8; 32] {
+        self.decode().try_into().expect("decoded hash is 32 bytes")
+    }
 }
 
 impl Display for Sha256Hash {

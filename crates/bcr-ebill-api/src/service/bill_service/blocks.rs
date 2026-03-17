@@ -2,11 +2,11 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::identity::IdentityWithAll,
     protocol::{
-        ProtocolValidationError, Timestamp, Validate,
+        BlockId, ProtocolValidationError, Timestamp, Validate,
         blockchain::{
-            self, Blockchain,
+            self, Block, Blockchain,
             bill::{
-                BillBlock, BillBlockchain, BitcreditBill, RecourseReason,
+                BillBlock, BillBlockchain, BillOpCode, BitcreditBill, RecourseReason,
                 block::{
                     BillAcceptBlockData, BillEndorseBlockData, BillMintBlockData,
                     BillOfferToSellBlockData, BillPaymentBlockData, BillRecourseBlockData,
@@ -26,7 +26,10 @@ use bcr_ebill_core::{
                 IdentitySignPersonBillBlockData,
             },
         },
-        crypto::BcrKeys,
+        crypto::{
+            BcrKeys,
+            btc::{calculate_tweak_hash_for_payment_request, get_address_to_pay},
+        },
         event::{CompanyChainEvent, IdentityChainEvent},
     },
 };
@@ -141,9 +144,17 @@ impl BillService {
             }
             // can req to pay as anon
             BillAction::RequestToPay(_currency, payment_deadline_timestamp) => {
-                let address_to_pay = self.bitcoin_client.get_address_to_pay(
+                // calculate payment address with unique tweak
+                let address_to_pay = get_address_to_pay(
                     &bill_keys.pub_key(),
                     &signer_public_data.node_id().pub_key(),
+                    &calculate_tweak_hash_for_payment_request(
+                        BillOpCode::RequestToPay,
+                        &BlockId::next_from_previous_block_id(&previous_block.id()),
+                        previous_block.hash(),
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?,
+                    get_config().bitcoin_network(),
                 )?;
                 let block_data = BillRequestToPayBlockData {
                     requester: if holder_is_anon {
@@ -200,10 +211,19 @@ impl BillService {
                         (sum.to_owned(), BillRecourseReasonBlockData::Pay)
                     }
                 };
-                let address_to_pay = self.bitcoin_client.get_address_to_pay(
+                // calculate payment address with unique tweak
+                let address_to_pay = get_address_to_pay(
                     &bill_keys.pub_key(),
                     &signer_public_data.node_id().pub_key(),
+                    &calculate_tweak_hash_for_payment_request(
+                        BillOpCode::RequestRecourse,
+                        &BlockId::next_from_previous_block_id(&previous_block.id()),
+                        previous_block.hash(),
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?,
+                    get_config().bitcoin_network(),
                 )?;
+
                 let block_data = BillRequestRecourseBlockData {
                     recourser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -328,9 +348,17 @@ impl BillService {
             // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, buying_deadline_timestamp) => {
                 validate_node_id_network(&buyer.node_id())?;
-                let address_to_pay = self.bitcoin_client.get_address_to_pay(
+                // calculate payment address with unique tweak
+                let address_to_pay = get_address_to_pay(
                     &bill_keys.pub_key(),
                     &signer_public_data.node_id().pub_key(),
+                    &calculate_tweak_hash_for_payment_request(
+                        BillOpCode::OfferToSell,
+                        &BlockId::next_from_previous_block_id(&previous_block.id()),
+                        previous_block.hash(),
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?,
+                    get_config().bitcoin_network(),
                 )?;
                 let block_data = BillOfferToSellBlockData {
                     seller: if holder_is_anon {

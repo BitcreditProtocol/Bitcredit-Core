@@ -4,11 +4,10 @@ use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::bill::{InMempoolData, PaidData, PaymentState},
     protocol::BitcoinAddress,
-    protocol::PublicKey,
     protocol::Sum,
     protocol::Timestamp,
 };
-use bitcoin::{Network, secp256k1::Scalar};
+use bitcoin::Network;
 use log::debug;
 use log::warn;
 use serde::Deserialize;
@@ -27,22 +26,6 @@ pub enum Error {
     #[error("External Bitcoin Web API error: {0}")]
     Api(#[from] reqwest::Error),
 
-    /// all errors originating from dealing with secp256k1 keys
-    #[error("External Bitcoin Key error: {0}")]
-    Key(#[from] bitcoin::secp256k1::Error),
-
-    /// all errors originating from dealing with public secp256k1 keys
-    #[error("External Bitcoin Public Key error: {0}")]
-    PublicKey(String),
-
-    /// all errors originating from dealing with private secp256k1 keys
-    #[error("External Bitcoin Private Key error: {0}")]
-    PrivateKey(String),
-
-    /// all errors originating from dealing with bitcoin descriptors
-    #[error("External Bitcoin Descriptor error: {0}")]
-    Descriptor(String),
-
     /// all errors originating from dealing with invalid data from the API
     #[error("Got invalid data from the API")]
     InvalidData(String),
@@ -55,12 +38,6 @@ use mockall::automock;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BitcoinClientApi: ServiceTraitBounds {
-    async fn get_address_info(&self, address: &BitcoinAddress) -> Result<AddressInfo>;
-
-    async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions>;
-
-    async fn get_last_block_height(&self) -> Result<u64>;
-
     /// Checks payment by iterating over the transactions on the address in chronological order, until
     /// the target amount is filled, returning the respective payment status
     async fn check_payment_for_address(
@@ -69,21 +46,10 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
         target_amount: u64,
     ) -> Result<PaymentState>;
 
-    /// Get p2tr address for the given keys
-    fn get_address_to_pay(
-        &self,
-        bill_public_key: &PublicKey,
-        holder_public_key: &PublicKey,
-    ) -> Result<BitcoinAddress>;
-
+    /// Generates a payment link
     fn generate_link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, message: &str) -> String;
 
-    fn get_combined_private_descriptor(
-        &self,
-        pkey: &bitcoin::PrivateKey,
-        pkey_to_combine: &bitcoin::PrivateKey,
-    ) -> Result<String>;
-
+    /// Generates a link to check the address on the configured mempool browser
     fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String;
 }
 
@@ -212,24 +178,6 @@ impl BitcoinClient {
             .expect("esplora_base_urls must not be empty")
             .into())
     }
-}
-
-impl Default for BitcoinClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl BitcoinClientApi for BitcoinClient {
-    async fn get_address_info(&self, address: &BitcoinAddress) -> Result<AddressInfo> {
-        let addr_str = address.assume_checked_ref().to_string();
-        self.request_with_fallback(|base_url| {
-            self.build_api_url(base_url, &format!("/address/{addr_str}"))
-        })
-        .await
-    }
 
     async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions> {
         let addr_str = address.assume_checked_ref().to_string();
@@ -243,7 +191,17 @@ impl BitcoinClientApi for BitcoinClient {
         self.request_with_fallback(|base_url| self.build_api_url(base_url, "/blocks/tip/height"))
             .await
     }
+}
 
+impl Default for BitcoinClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl BitcoinClientApi for BitcoinClient {
     async fn check_payment_for_address(
         &self,
         address: &BitcoinAddress,
@@ -253,32 +211,11 @@ impl BitcoinClientApi for BitcoinClient {
             "checking if btc address {} is paid {target_amount}",
             address.assume_checked_ref()
         );
-        // in parallel, get current chain height, transactions and address info for the given address
+        // in parallel, get current chain height and transactions
         let (chain_block_height, txs) =
-            try_join!(self.get_last_block_height(), self.get_transactions(address),)?;
+            try_join!(self.get_last_block_height(), self.get_transactions(address))?;
 
         payment_state_from_transactions(chain_block_height, txs, address, target_amount)
-    }
-
-    fn get_address_to_pay(
-        &self,
-        bill_public_key: &PublicKey,
-        holder_public_key: &PublicKey,
-    ) -> Result<BitcoinAddress> {
-        let combined_key = bill_public_key
-            .combine(holder_public_key)
-            .map_err(Error::from)?;
-
-        let (x_only_pub_key, _parity) = combined_key.x_only_public_key();
-
-        Ok(bitcoin::Address::p2tr(
-            secp256k1::global::SECP256K1,
-            x_only_pub_key,
-            None,
-            get_config().bitcoin_network(),
-        )
-        .as_unchecked()
-        .to_owned())
     }
 
     fn generate_link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, message: &str) -> String {
@@ -288,33 +225,6 @@ impl BitcoinClientApi for BitcoinClient {
             address.assume_checked_ref()
         );
         link
-    }
-
-    fn get_combined_private_descriptor(
-        &self,
-        pkey: &bitcoin::PrivateKey,
-        pkey_to_combine: &bitcoin::PrivateKey,
-    ) -> Result<String> {
-        let combined_key = pkey
-            .inner
-            .add_tweak(&Scalar::from(pkey_to_combine.inner))
-            .map_err(|e| Error::PrivateKey(e.to_string()))?;
-        let priv_key = bitcoin::PrivateKey::new(combined_key, get_config().bitcoin_network());
-        let single = miniscript::descriptor::SinglePriv {
-            key: priv_key,
-            origin: None,
-        };
-        let desc_seckey = miniscript::descriptor::DescriptorSecretKey::Single(single);
-        let desc_pubkey = desc_seckey
-            .to_public(secp256k1::global::SECP256K1)
-            .map_err(|e| Error::Descriptor(e.to_string()))?;
-        let kmap = miniscript::descriptor::KeyMap::from_iter(std::iter::once((
-            desc_pubkey.clone(),
-            desc_seckey,
-        )));
-        let desc = miniscript::Descriptor::new_tr(desc_pubkey, None)
-            .map_err(|e| Error::Descriptor(e.to_string()))?;
-        Ok(desc.to_string_with_secret(&kmap))
     }
 
     fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String {

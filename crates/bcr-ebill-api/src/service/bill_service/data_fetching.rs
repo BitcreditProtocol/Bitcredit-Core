@@ -15,6 +15,9 @@ use bcr_ebill_core::protocol::Validate;
 use bcr_ebill_core::protocol::blockchain::Block;
 use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
 use bcr_ebill_core::protocol::blockchain::bill::{BillValidateActionData, PaymentStatus};
+use bcr_ebill_core::protocol::crypto::btc::{
+    calculate_tweak_hash_for_payment_request, get_combined_private_descriptor,
+};
 use bcr_ebill_core::protocol::{Date, ProtocolValidationError};
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof, Sum};
 use bcr_ebill_core::{
@@ -262,6 +265,7 @@ impl BillService {
         let mut request_to_pay_timed_out = false;
         let mut time_of_request_to_pay = None;
         let mut payment_deadline_timestamp = None;
+        let mut req_to_pay_address = None;
         let mut is_waiting_for_req_to_pay = false;
         if let Some(req_to_pay_block) =
             chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
@@ -277,10 +281,11 @@ impl BillService {
                 bill_payment_state = BillPaymentState::Rejected(reject_to_pay_block.timestamp);
             }
 
-            let (is_expired, payment_deadline) = chain
+            let (is_expired, payment_deadline, payment_address) = chain
                 .is_req_to_pay_block_payment_expired(req_to_pay_block, bill_keys, current_timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
             payment_deadline_timestamp = Some(payment_deadline);
+            req_to_pay_address = Some(payment_address);
             if !paid && !rejected_to_pay && is_expired {
                 request_to_pay_timed_out = true;
                 bill_payment_state = BillPaymentState::Expired(payment_deadline);
@@ -536,88 +541,89 @@ impl BillService {
                     // payment expired, we're not waiting anymore
                     None
                 } else {
-                    // we're waiting, collect data
-                    is_waiting_for_req_to_pay = true;
-                    let payment_state = self.store.get_payment_state(&bill.id).await?;
+                    if let Some(address_to_pay) = req_to_pay_address {
+                        // we're waiting, collect data
+                        is_waiting_for_req_to_pay = true;
+                        let payment_state = self.store.get_payment_state(&bill.id).await?;
 
-                    let mut tx_id = None;
-                    let mut in_mempool = false;
-                    let mut confirmations = 0;
+                        let mut tx_id = None;
+                        let mut in_mempool = false;
+                        let mut confirmations = 0;
 
-                    if let Some(ps) = payment_state {
-                        match ps {
-                            PaymentState::PaidConfirmed(paid_data)
-                            | PaymentState::PaidUnconfirmed(paid_data) => {
-                                tx_id = Some(paid_data.tx_id);
-                                confirmations = paid_data.confirmations;
+                        if let Some(ps) = payment_state {
+                            match ps {
+                                PaymentState::PaidConfirmed(paid_data)
+                                | PaymentState::PaidUnconfirmed(paid_data) => {
+                                    tx_id = Some(paid_data.tx_id);
+                                    confirmations = paid_data.confirmations;
+                                }
+                                PaymentState::InMempool(in_mempool_data) => {
+                                    tx_id = Some(in_mempool_data.tx_id);
+                                    in_mempool = true;
+                                }
+                                PaymentState::NotFound => (),
                             }
-                            PaymentState::InMempool(in_mempool_data) => {
-                                tx_id = Some(in_mempool_data.tx_id);
-                                in_mempool = true;
+                        }
+
+                        if let Some(payment_deadline) = payment_deadline_timestamp {
+                            // if we're payer, create pay action, if we're payee, create check payment action
+                            if current_identity_node_id == bill.drawee.node_id {
+                                payment_actions.push(BillCallerPaymentAction::Pay(
+                                    BillCallerPayment::Payment {
+                                        payer: bill.drawee.clone(),
+                                        payee: holder.clone(),
+                                        state: BillCallerPaymentState {
+                                            time_of_request: last_block.timestamp,
+                                            sum: bill.sum.clone(),
+                                            address_to_pay: address_to_pay.clone(),
+                                            status: PaymentStatus::Requested(last_block.timestamp),
+                                            payment_deadline,
+                                            tx_id: tx_id.clone(),
+                                            in_mempool,
+                                            confirmations,
+                                            private_descriptor_to_spend: None,
+                                        },
+                                    },
+                                ));
+                            } else if current_identity_node_id == holder.node_id() {
+                                payment_actions.push(BillCallerPaymentAction::CheckPayment(
+                                    BillCallerPayment::Payment {
+                                        payer: bill.drawee.clone(),
+                                        payee: holder.clone(),
+                                        state: BillCallerPaymentState {
+                                            time_of_request: last_block.timestamp,
+                                            sum: bill.sum.clone(),
+                                            address_to_pay: address_to_pay.clone(),
+                                            status: PaymentStatus::Requested(last_block.timestamp),
+                                            payment_deadline,
+                                            tx_id: tx_id.clone(),
+                                            in_mempool,
+                                            confirmations,
+                                            private_descriptor_to_spend: None,
+                                        },
+                                    },
+                                ));
                             }
-                            PaymentState::NotFound => (),
                         }
-                    }
-                    let address_to_pay = self
-                        .bitcoin_client
-                        .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
 
-                    if let Some(payment_deadline) = payment_deadline_timestamp {
-                        // if we're payer, create pay action, if we're payee, create check payment action
-                        if current_identity_node_id == bill.drawee.node_id {
-                            payment_actions.push(BillCallerPaymentAction::Pay(
-                                BillCallerPayment::Payment {
-                                    payer: bill.drawee.clone(),
-                                    payee: holder.clone(),
-                                    state: BillCallerPaymentState {
-                                        time_of_request: last_block.timestamp,
-                                        sum: bill.sum.clone(),
-                                        address_to_pay: address_to_pay.clone(),
-                                        status: PaymentStatus::Requested(last_block.timestamp),
-                                        payment_deadline,
-                                        tx_id: tx_id.clone(),
-                                        in_mempool,
-                                        confirmations,
-                                        private_descriptor_to_spend: None,
-                                    },
+                        Some(BillCurrentWaitingState::Payment(
+                            BillWaitingForPaymentState {
+                                payer: bill.drawee.clone(),
+                                payee: holder.clone(),
+                                payment_data: BillWaitingStatePaymentData {
+                                    time_of_request: last_block.timestamp,
+                                    sum: bill.sum.clone(),
+                                    address_to_pay,
+                                    tx_id,
+                                    in_mempool,
+                                    confirmations,
+                                    payment_deadline: payment_deadline_timestamp,
                                 },
-                            ));
-                        } else if current_identity_node_id == holder.node_id() {
-                            payment_actions.push(BillCallerPaymentAction::CheckPayment(
-                                BillCallerPayment::Payment {
-                                    payer: bill.drawee.clone(),
-                                    payee: holder.clone(),
-                                    state: BillCallerPaymentState {
-                                        time_of_request: last_block.timestamp,
-                                        sum: bill.sum.clone(),
-                                        address_to_pay: address_to_pay.clone(),
-                                        status: PaymentStatus::Requested(last_block.timestamp),
-                                        payment_deadline,
-                                        tx_id: tx_id.clone(),
-                                        in_mempool,
-                                        confirmations,
-                                        private_descriptor_to_spend: None,
-                                    },
-                                },
-                            ));
-                        }
-                    }
-
-                    Some(BillCurrentWaitingState::Payment(
-                        BillWaitingForPaymentState {
-                            payer: bill.drawee.clone(),
-                            payee: holder.clone(),
-                            payment_data: BillWaitingStatePaymentData {
-                                time_of_request: last_block.timestamp,
-                                sum: bill.sum.clone(),
-                                address_to_pay,
-                                tx_id,
-                                in_mempool,
-                                confirmations,
-                                payment_deadline: payment_deadline_timestamp,
                             },
-                        },
-                    ))
+                        ))
+                    } else {
+                        None
+                    }
                 }
             }
             BillOpCode::RequestRecourse => {
@@ -670,11 +676,6 @@ impl BillService {
                         )
                         .await;
 
-                    let address_to_pay = self.bitcoin_client.get_address_to_pay(
-                        &bill_keys.pub_key(),
-                        &payment_info.recourser.node_id().pub_key(),
-                    )?;
-
                     // if we're payer, create pay action, if we're payee, create check payment action
                     if current_identity_node_id == recoursee.node_id {
                         payment_actions.push(BillCallerPaymentAction::Pay(
@@ -684,7 +685,7 @@ impl BillService {
                                 state: BillCallerPaymentState {
                                     time_of_request: last_block.timestamp,
                                     sum: payment_info.sum.clone(),
-                                    address_to_pay: address_to_pay.clone(),
+                                    address_to_pay: payment_info.payment_address.to_owned(),
                                     status: PaymentStatus::Requested(last_block.timestamp),
                                     payment_deadline: payment_info.recourse_deadline_timestamp,
                                     tx_id: tx_id.clone(),
@@ -702,7 +703,7 @@ impl BillService {
                                 state: BillCallerPaymentState {
                                     time_of_request: last_block.timestamp,
                                     sum: payment_info.sum.clone(),
-                                    address_to_pay: address_to_pay.clone(),
+                                    address_to_pay: payment_info.payment_address.to_owned(),
                                     status: PaymentStatus::Requested(last_block.timestamp),
                                     payment_deadline: payment_info.recourse_deadline_timestamp,
                                     tx_id: tx_id.clone(),
@@ -721,7 +722,7 @@ impl BillService {
                             payment_data: BillWaitingStatePaymentData {
                                 time_of_request: last_block.timestamp,
                                 sum: payment_info.sum.clone(),
-                                address_to_pay,
+                                address_to_pay: payment_info.payment_address.to_owned(),
                                 tx_id,
                                 in_mempool,
                                 confirmations,
@@ -937,30 +938,37 @@ impl BillService {
             Some(ref endorsee) => endorsee,
         };
 
-        let descriptor_to_spend = self.bitcoin_client.get_combined_private_descriptor(
-            &BcrKeys::from_private_key(&bill_keys.get_private_key())
-                .get_bitcoin_private_key(get_config().bitcoin_network()),
-            &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
-        )?;
+        let btc_network = get_config().bitcoin_network();
 
         // Request to Pay
         if holder.node_id() == caller_public_data.node_id()
             && let Some(req_to_pay) =
                 chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
         {
-            let address_to_pay = self
-                .bitcoin_client
-                .get_address_to_pay(&bill_keys.pub_key(), &holder.node_id().pub_key())?;
-
             // we check for the payment expiration, not the request expiration
             // if the request expired, but the payment deadline hasn't, it's not a past payment
-            let (is_expired, payment_deadline) = chain
+            let (is_expired, payment_deadline, address_to_pay) = chain
                 .is_req_to_pay_block_payment_expired(req_to_pay, bill_keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
 
             let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
 
             if is_paid || is_rejected || is_expired {
+                // calculate tweak
+                let tweak = calculate_tweak_hash_for_payment_request(
+                    req_to_pay.op_code().to_owned(),
+                    &req_to_pay.id(),
+                    req_to_pay.previous_hash(),
+                )
+                .map_err(|e| Error::Protocol(e.into()))?;
+                let descriptor_to_spend = get_combined_private_descriptor(
+                    &BcrKeys::from_private_key(&bill_keys.get_private_key())
+                        .get_bitcoin_private_key(btc_network),
+                    &caller_keys.get_bitcoin_private_key(btc_network),
+                    &tweak,
+                    btc_network,
+                )?;
+
                 result.push(PastPaymentResult::Payment(PastPaymentDataPayment {
                     time_of_request: req_to_pay.timestamp,
                     payer: bill_parties.drawee.clone().into(),
@@ -996,7 +1004,13 @@ impl BillService {
 
         // OfferToSell
         let past_sell_payments = chain
-            .get_past_sell_payments_for_node_id(bill_keys, &caller_public_data.node_id(), timestamp)
+            .get_past_sell_payments_for_node_id(
+                bill_keys,
+                caller_keys,
+                btc_network,
+                &caller_public_data.node_id(),
+                timestamp,
+            )
             .map_err(|e| Error::Protocol(e.into()))?;
         for past_sell_payment in past_sell_payments {
             let address_to_pay = past_sell_payment.0.payment_address;
@@ -1007,7 +1021,7 @@ impl BillService {
                 seller: past_sell_payment.0.seller,
                 sum: past_sell_payment.0.sum,
                 address_to_pay,
-                private_descriptor_to_spend: descriptor_to_spend.clone(),
+                private_descriptor_to_spend: past_sell_payment.3,
                 status: past_sell_payment.1,
                 payment_deadline: past_sell_payment.0.buying_deadline_timestamp,
             }));
@@ -1017,25 +1031,22 @@ impl BillService {
         let past_recourse_payments = chain
             .get_past_recourse_payments_for_node_id(
                 bill_keys,
+                caller_keys,
+                btc_network,
                 &caller_public_data.node_id(),
                 timestamp,
             )
             .map_err(|e| Error::Protocol(e.into()))?;
-        for past_sell_payment in past_recourse_payments {
-            let address_to_pay = self.bitcoin_client.get_address_to_pay(
-                &bill_keys.pub_key(),
-                &past_sell_payment.0.recourser.node_id().pub_key(),
-            )?;
-
+        for past_recourse_payment in past_recourse_payments {
             result.push(PastPaymentResult::Recourse(PastPaymentDataRecourse {
-                time_of_request: past_sell_payment.2,
-                recoursee: past_sell_payment.0.recoursee.into(),
-                recourser: past_sell_payment.0.recourser.into(),
-                sum: past_sell_payment.0.sum,
-                address_to_pay,
-                private_descriptor_to_spend: descriptor_to_spend.clone(),
-                status: past_sell_payment.1,
-                payment_deadline: past_sell_payment.0.recourse_deadline_timestamp,
+                time_of_request: past_recourse_payment.2,
+                recoursee: past_recourse_payment.0.recoursee.into(),
+                recourser: past_recourse_payment.0.recourser.into(),
+                sum: past_recourse_payment.0.sum,
+                address_to_pay: past_recourse_payment.0.payment_address,
+                private_descriptor_to_spend: past_recourse_payment.3,
+                status: past_recourse_payment.1,
+                payment_deadline: past_recourse_payment.0.recourse_deadline_timestamp,
             }));
         }
 

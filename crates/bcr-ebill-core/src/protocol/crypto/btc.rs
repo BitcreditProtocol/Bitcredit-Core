@@ -1,0 +1,425 @@
+use super::{Error, Result};
+use crate::protocol::{
+    BitcoinAddress, BlockId, PublicKey, Sha256Hash, blockchain::bill::BillOpCode,
+};
+use bitcoin::secp256k1::Scalar;
+
+/// Get p2tr address for the given keys
+pub fn get_address_to_pay(
+    bill_public_key: &PublicKey,
+    holder_public_key: &PublicKey,
+    tweak_hash: &Sha256Hash,
+    network: bitcoin::Network,
+) -> Result<BitcoinAddress> {
+    let combined_key = bill_public_key
+        .combine(holder_public_key)
+        .map_err(Error::from)?;
+
+    // tweak key with the given tweak hash
+    let tweak = Scalar::from_be_bytes(tweak_hash.decode_to_array())
+        .map_err(|e| Error::Tweak(e.to_string()))?;
+    let tweaked_key = combined_key.add_exp_tweak(secp256k1::global::SECP256K1, &tweak)?;
+
+    let (x_only_pub_key, _parity) = tweaked_key.x_only_public_key();
+
+    Ok(
+        bitcoin::Address::p2tr(secp256k1::global::SECP256K1, x_only_pub_key, None, network)
+            .as_unchecked()
+            .to_owned(),
+    )
+}
+
+/// Get tr descriptor with wif for the given keys
+pub fn get_combined_private_descriptor(
+    pkey: &bitcoin::PrivateKey,
+    pkey_to_combine: &bitcoin::PrivateKey,
+    tweak_hash: &Sha256Hash,
+    network: bitcoin::Network,
+) -> Result<String> {
+    let combined_key = pkey.inner.add_tweak(&Scalar::from(pkey_to_combine.inner))?;
+
+    // tweak key with the given tweak hash
+    let tweak = Scalar::from_be_bytes(tweak_hash.decode_to_array())
+        .map_err(|e| Error::Tweak(e.to_string()))?;
+    let tweaked_key = combined_key.add_tweak(&tweak)?;
+
+    let priv_key = bitcoin::PrivateKey::new(tweaked_key, network);
+    let single = miniscript::descriptor::SinglePriv {
+        key: priv_key,
+        origin: None,
+    };
+    let desc_seckey = miniscript::descriptor::DescriptorSecretKey::Single(single);
+    let desc_pubkey = desc_seckey
+        .to_public(secp256k1::global::SECP256K1)
+        .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
+    let kmap = miniscript::descriptor::KeyMap::from_iter(std::iter::once((
+        desc_pubkey.clone(),
+        desc_seckey,
+    )));
+    let desc = miniscript::Descriptor::new_tr(desc_pubkey, None)
+        .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
+    Ok(desc.to_string_with_secret(&kmap))
+}
+
+/// Calculates the tweak for the payment address with the previous hash, the block id and a tag based on the
+/// type of payment
+pub fn calculate_tweak_hash_for_payment_request(
+    payment_op: BillOpCode,
+    block_id: &BlockId,
+    previous_hash: &Sha256Hash,
+) -> Result<Sha256Hash> {
+    let mut input = Vec::new();
+    let tag = match payment_op {
+        BillOpCode::RequestToPay => "bcr/request-to-pay/v1",
+        BillOpCode::OfferToSell => "bcr/offer-to-sell/v1",
+        BillOpCode::RequestRecourse => "bcr/request-recourse/v1",
+        _ => return Err(Error::Tweak("Invalid operation".to_owned())),
+    };
+    input.extend_from_slice(tag.as_bytes());
+    input.extend_from_slice(&block_id.inner().to_be_bytes());
+    input.extend_from_slice(&previous_hash.decode());
+
+    let tweak_hash = Sha256Hash::from_bytes(&input);
+    Ok(tweak_hash)
+}
+
+/// Calculates the payment address with the given values and validates it against the given address
+pub fn validate_payment_address_for_payment_request(
+    payment_op: BillOpCode,
+    block_id: &BlockId,
+    previous_hash: &Sha256Hash,
+    bill_pub_key: &PublicKey,
+    caller_pub_key: &PublicKey,
+    btc_network: bitcoin::Network,
+    address_to_check: &BitcoinAddress,
+) -> Result<()> {
+    let addr = get_address_to_pay(
+        bill_pub_key,
+        caller_pub_key,
+        &calculate_tweak_hash_for_payment_request(payment_op, block_id, previous_hash)?,
+        btc_network,
+    )?;
+    if &addr != address_to_check {
+        Err(super::Error::BtcAddress("Addresses don't match".to_owned()))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use std::str::FromStr;
+
+    use bitcoin::{AddressType, Network, PrivateKey};
+    use miniscript::{Descriptor, DescriptorPublicKey};
+    use secp256k1::{SecretKey, global::SECP256K1};
+
+    use super::*;
+
+    fn test_privkeys(network: Network) -> (PrivateKey, PrivateKey) {
+        let sk1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let sk2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
+
+        (PrivateKey::new(sk1, network), PrivateKey::new(sk2, network))
+    }
+
+    fn test_pubkeys(network: Network) -> (PublicKey, PublicKey) {
+        let (pk1, pk2) = test_privkeys(network);
+        (
+            pk1.public_key(SECP256K1).inner,
+            pk2.public_key(SECP256K1).inner,
+        )
+    }
+
+    #[test]
+    fn address_is_taproot_on_expected_network() {
+        let network = Network::Testnet;
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let tweak_hash =
+            Sha256Hash::new("1111111111111111111111111111111111111111111111111111111111111111");
+
+        let addr = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        assert_eq!(
+            addr.assume_checked_ref().address_type(),
+            Some(AddressType::P2tr)
+        );
+        assert!(addr.is_valid_for_network(network));
+        assert!(addr.assume_checked_ref().to_string().starts_with("tb1p"));
+    }
+
+    #[test]
+    fn same_keys_and_same_tweak_give_same_address_and_descriptor() {
+        let network = Network::Testnet;
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+        let (bill_priv, holder_priv) = test_privkeys(network);
+
+        let tweak_hash =
+            Sha256Hash::new("1111111111111111111111111111111111111111111111111111111111111111");
+
+        let addr1 = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+        let addr2 = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let desc1 = get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash, network)
+            .unwrap();
+        let desc2 = get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash, network)
+            .unwrap();
+
+        assert_eq!(addr1, addr2);
+        assert_eq!(desc1, desc2);
+    }
+
+    #[test]
+    fn different_tweaks_give_different_addresses_and_descriptors() {
+        let network = Network::Testnet;
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+        let (bill_priv, holder_priv) = test_privkeys(network);
+
+        let tweak_hash_1 =
+            Sha256Hash::new("1111111111111111111111111111111111111111111111111111111111111111");
+        let tweak_hash_2 =
+            Sha256Hash::new("2222222222222222222222222222222222222222222222222222222222222222");
+
+        let addr1 = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash_1, network).unwrap();
+        let addr2 = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash_2, network).unwrap();
+
+        let desc1 =
+            get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash_1, network)
+                .unwrap();
+        let desc2 =
+            get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash_2, network)
+                .unwrap();
+
+        assert_ne!(addr1, addr2);
+        assert_ne!(desc1, desc2);
+    }
+
+    #[test]
+    fn private_descriptor_gives_access_to_same_address() {
+        let network = Network::Testnet;
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+        let (bill_priv, holder_priv) = test_privkeys(network);
+
+        let tweak_hash =
+            Sha256Hash::new("1111111111111111111111111111111111111111111111111111111111111111");
+
+        let address = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let descriptor =
+            get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash, network)
+                .unwrap();
+
+        let (parsed_desc, _kmap) =
+            Descriptor::<DescriptorPublicKey>::parse_descriptor(SECP256K1, &descriptor).unwrap();
+        let address_from_descriptor = parsed_desc
+            .at_derivation_index(0)
+            .unwrap()
+            .address(network)
+            .unwrap();
+
+        assert_eq!(address.assume_checked(), address_from_descriptor);
+    }
+
+    #[test]
+    fn calculates_tweak_hash_for_request_to_pay() {
+        let block_id = BlockId::first().add(1);
+        let previous_hash = Sha256Hash::from_bytes(b"previous-hash");
+
+        let result1 = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+        )
+        .expect("works");
+        let result2 = calculate_tweak_hash_for_payment_request(
+            BillOpCode::OfferToSell,
+            &block_id,
+            &previous_hash,
+        )
+        .expect("works");
+        let result3 = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestRecourse,
+            &block_id,
+            &previous_hash,
+        )
+        .expect("works");
+        assert_ne!(result1, result2);
+        assert_ne!(result2, result3);
+
+        let result_invalid =
+            calculate_tweak_hash_for_payment_request(BillOpCode::Issue, &block_id, &previous_hash);
+
+        assert!(matches!(result_invalid, Err(Error::Tweak(_))));
+    }
+
+    #[test]
+    fn hash_depends_on_block_id_and_previous_hash() {
+        let previous_hash_1 = Sha256Hash::from_bytes(b"previous-hash-1");
+        let previous_hash_2 = Sha256Hash::from_bytes(b"previous-hash-2");
+        let block_id_1 = BlockId::first();
+        let block_id_2 = BlockId::first().add(2);
+
+        let hash_a = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id_1,
+            &previous_hash_1,
+        )
+        .unwrap();
+
+        let hash_b = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id_2,
+            &previous_hash_1,
+        )
+        .unwrap();
+
+        let hash_c = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id_1,
+            &previous_hash_2,
+        )
+        .unwrap();
+
+        assert_ne!(hash_a, hash_b);
+        assert_ne!(hash_a, hash_c);
+    }
+
+    #[test]
+    fn validate_payment_address_accepts_matching_address() {
+        let network = Network::Testnet;
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let tweak_hash = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+        )
+        .unwrap();
+
+        let address = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let result = validate_payment_address_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+            &bill_pub,
+            &holder_pub,
+            network,
+            &address,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_payment_address_rejects_non_matching_address() {
+        let network = Network::Testnet;
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let wrong_address = BitcoinAddress::from_str(
+            "tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k",
+        )
+        .unwrap();
+
+        let err = validate_payment_address_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+            &bill_pub,
+            &holder_pub,
+            network,
+            &wrong_address,
+        )
+        .expect_err("wrong address should fail");
+
+        match err {
+            super::Error::BtcAddress(msg) => assert!(msg.contains("don't match")),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_payment_address_rejects_when_op_changes() {
+        let network = Network::Testnet;
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let tweak_hash = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+        )
+        .unwrap();
+
+        let address = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let err = validate_payment_address_for_payment_request(
+            BillOpCode::OfferToSell,
+            &block_id,
+            &previous_hash,
+            &bill_pub,
+            &holder_pub,
+            network,
+            &address,
+        )
+        .expect_err("different op should fail");
+
+        match err {
+            super::Error::BtcAddress(msg) => assert!(msg.contains("don't match")),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn full_flow_tweak_address_descriptor_validation_all_match() {
+        let network = Network::Testnet;
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+        let (bill_priv, holder_priv) = test_privkeys(network);
+
+        let tweak_hash = calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestRecourse,
+            &block_id,
+            &previous_hash,
+        )
+        .unwrap();
+
+        let address = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let descriptor =
+            get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash, network)
+                .unwrap();
+
+        let (parsed_desc, _kmap) =
+            Descriptor::<DescriptorPublicKey>::parse_descriptor(SECP256K1, &descriptor).unwrap();
+        let address_from_descriptor = parsed_desc
+            .at_derivation_index(0)
+            .unwrap()
+            .address(network)
+            .unwrap();
+
+        assert_eq!(address.clone().assume_checked(), address_from_descriptor);
+
+        validate_payment_address_for_payment_request(
+            BillOpCode::RequestRecourse,
+            &block_id,
+            &previous_hash,
+            &bill_pub,
+            &holder_pub,
+            network,
+            &address,
+        )
+        .unwrap();
+    }
+}

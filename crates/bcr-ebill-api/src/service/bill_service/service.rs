@@ -24,9 +24,10 @@ use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
 use bcr_ebill_core::protocol::PublicKey;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
+use bcr_ebill_core::protocol::blockchain::Block;
 use bcr_ebill_core::protocol::blockchain::bill::block::{
-    BillIdentParticipantBlockData, BillParticipantBlockData, BillRequestRecourseBlockData,
-    ContactType,
+    BillIdentParticipantBlockData, BillOfferToSellBlockData, BillParticipantBlockData,
+    BillRequestRecourseBlockData, BillRequestToPayBlockData, ContactType,
 };
 use bcr_ebill_core::protocol::blockchain::bill::chain::BillBlockPlaintextWrapper;
 use bcr_ebill_core::protocol::blockchain::bill::{
@@ -970,12 +971,12 @@ impl BillServiceApi for BillService {
             .collect())
     }
 
-    async fn get_combined_bitcoin_key_for_bill(
+    async fn get_combined_bitcoin_keys_for_bill(
         &self,
         bill_id: &BillId,
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
-    ) -> Result<BillCombinedBitcoinKey> {
+    ) -> Result<Vec<BillCombinedBitcoinKey>> {
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(&caller_public_data.node_id())?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
@@ -992,13 +993,67 @@ impl BillServiceApi for BillService {
             return Err(Error::NotFound);
         }
 
-        // The first key is always the bill key
-        let private_descriptor = self.bitcoin_client.get_combined_private_descriptor(
-            &BcrKeys::from_private_key(&bill_keys.get_private_key())
-                .get_bitcoin_private_key(get_config().bitcoin_network()),
-            &caller_keys.get_bitcoin_private_key(get_config().bitcoin_network()),
-        )?;
-        return Ok(BillCombinedBitcoinKey { private_descriptor });
+        let btc_network = get_config().bitcoin_network();
+        let mut res: Vec<BillCombinedBitcoinKey> = Vec::new();
+        // Iterate the chain and for each payment request block by the caller, create the descriptor and collect metadata
+        for block in chain.blocks().iter() {
+            match block.op_code() {
+                BillOpCode::RequestToPay => {
+                    let block_data: BillRequestToPayBlockData = block
+                        .get_decrypted_block(&bill_keys)
+                        .map_err(|e| Error::Protocol(e.into()))?;
+                    // we are requester
+                    if block_data.requester.node_id() == caller_public_data.node_id() {
+                        res.push(
+                            BillCombinedBitcoinKey::from_block_and_keys(
+                                block,
+                                &bill_keys,
+                                caller_keys,
+                                btc_network,
+                            )
+                            .map_err(Error::Protocol)?,
+                        );
+                    }
+                }
+                BillOpCode::OfferToSell => {
+                    let block_data: BillOfferToSellBlockData = block
+                        .get_decrypted_block(&bill_keys)
+                        .map_err(|e| Error::Protocol(e.into()))?;
+                    // we are requester
+                    if block_data.seller.node_id() == caller_public_data.node_id() {
+                        res.push(
+                            BillCombinedBitcoinKey::from_block_and_keys(
+                                block,
+                                &bill_keys,
+                                caller_keys,
+                                btc_network,
+                            )
+                            .map_err(Error::Protocol)?,
+                        );
+                    }
+                }
+                BillOpCode::RequestRecourse => {
+                    let block_data: BillRequestRecourseBlockData = block
+                        .get_decrypted_block(&bill_keys)
+                        .map_err(|e| Error::Protocol(e.into()))?;
+                    // we are requester
+                    if block_data.recourser.node_id() == caller_public_data.node_id() {
+                        res.push(
+                            BillCombinedBitcoinKey::from_block_and_keys(
+                                block,
+                                &bill_keys,
+                                caller_keys,
+                                btc_network,
+                            )
+                            .map_err(Error::Protocol)?,
+                        );
+                    }
+                }
+                _ => {} // nothing to do
+            };
+        }
+
+        return Ok(res);
     }
 
     async fn get_detail(

@@ -190,7 +190,7 @@ impl Validate for BillValidateActionData {
                             // only if the bill is not paid already - checked above
                             let is_expired = match self.mode {
                                 BillValidationActionMode::Deep(_) => {
-                                    let (is_expired, _) = self
+                                    let (is_expired, _, _) = self
                                         .blockchain
                                         .is_req_to_pay_block_payment_expired(
                                             req_to_pay,
@@ -436,7 +436,7 @@ impl BillValidateActionData {
                 {
                     let is_expired = match self.mode {
                         BillValidationActionMode::Deep(_) => {
-                            let (is_expired, _) = self
+                            let (is_expired, _, _) = self
                                 .blockchain
                                 .is_req_to_pay_block_payment_expired(
                                     req_to_pay_block,
@@ -570,7 +570,7 @@ impl BillValidateActionData {
                         .blockchain
                         .get_last_version_block_with_op_code(BillOpCode::RequestToPay)
                 {
-                    let (is_expired, _) = self
+                    let (is_expired, _, _) = self
                         .blockchain
                         .is_req_to_pay_block_payment_expired(
                             req_to_pay,

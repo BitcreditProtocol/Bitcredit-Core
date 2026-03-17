@@ -3787,7 +3787,7 @@ async fn endorse_bitcredit_bill_fails_if_payee_not_caller() {
 }
 
 #[tokio::test]
-async fn get_combined_bitcoin_key_for_bill_baseline() {
+async fn get_combined_bitcoin_keys_for_bill_baseline() {
     init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
@@ -3801,7 +3801,7 @@ async fn get_combined_bitcoin_key_for_bill_baseline() {
     let service = get_service(ctx);
 
     let res = service
-        .get_combined_bitcoin_key_for_bill(
+        .get_combined_bitcoin_keys_for_bill(
             &bill_id_test(),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
@@ -3811,7 +3811,7 @@ async fn get_combined_bitcoin_key_for_bill_baseline() {
 }
 
 #[tokio::test]
-async fn get_combined_bitcoin_key_for_bill_err() {
+async fn get_combined_bitcoin_keys_for_bill_err() {
     let mut ctx = get_ctx();
     let mut bill = get_baseline_bill(&bill_id_test());
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(NodeId::new(
@@ -3825,7 +3825,7 @@ async fn get_combined_bitcoin_key_for_bill_err() {
 
     let non_participant_keys = BcrKeys::new();
     let res = service
-        .get_combined_bitcoin_key_for_bill(
+        .get_combined_bitcoin_keys_for_bill(
             &bill_id_test(),
             &BillParticipant::Ident(bill_identified_participant_only_node_id(NodeId::new(
                 non_participant_keys.pub_key(),
@@ -7323,7 +7323,7 @@ async fn wrong_network_failures() {
 
     assert!(matches!(
         service
-            .get_combined_bitcoin_key_for_bill(&mainnet_bill_id, &participant, &BcrKeys::new())
+            .get_combined_bitcoin_keys_for_bill(&mainnet_bill_id, &participant, &BcrKeys::new())
             .await,
         Err(Error::Validation(ValidationError::Protocol(
             ProtocolValidationError::InvalidBillId
@@ -7331,7 +7331,7 @@ async fn wrong_network_failures() {
     ));
     assert!(matches!(
         service
-            .get_combined_bitcoin_key_for_bill(
+            .get_combined_bitcoin_keys_for_bill(
                 &bill_id_test(),
                 &mainnet_participant,
                 &BcrKeys::new()

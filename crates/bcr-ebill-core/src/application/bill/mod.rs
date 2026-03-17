@@ -2,14 +2,21 @@ use super::{
     contact::{LightBillIdentParticipant, LightBillParticipant},
     notification::Notification,
 };
-use crate::application::contact::LightBillSignatory;
 use crate::protocol::{
-    BitcoinAddress, City, Country, Date, File, PostalAddress, Sum, Timestamp,
-    blockchain::bill::{
-        BillHistory, BillOpCode, PaymentStatus,
-        participant::{BillIdentParticipant, BillParticipant, SignedBy},
+    BitcoinAddress, City, Country, Date, File, PostalAddress, ProtocolError, Sum, Timestamp,
+    blockchain::{
+        Block,
+        bill::{
+            BillBlock, BillHistory, BillOpCode, PaymentStatus,
+            participant::{BillIdentParticipant, BillParticipant, SignedBy},
+        },
+    },
+    crypto::{
+        BcrKeys,
+        btc::{calculate_tweak_hash_for_payment_request, get_combined_private_descriptor},
     },
 };
+use crate::{application::contact::LightBillSignatory, protocol::BlockId};
 use bcr_common::core::{BillId, NodeId};
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter};
@@ -476,9 +483,42 @@ pub enum BillRole {
     Contingent,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BillCombinedBitcoinKey {
+    pub block_id: BlockId,
+    pub signing_timestamp: Timestamp,
+    pub payment_op: BillOpCode,
     pub private_descriptor: String,
+}
+
+impl BillCombinedBitcoinKey {
+    pub fn from_block_and_keys(
+        block: &BillBlock,
+        bill_keys: &BcrKeys,
+        caller_keys: &BcrKeys,
+        btc_network: bitcoin::Network,
+    ) -> Result<Self, ProtocolError> {
+        // calculate tweak
+        let tweak = calculate_tweak_hash_for_payment_request(
+            block.op_code().to_owned(),
+            &block.id(),
+            block.previous_hash(),
+        )?;
+        // create private descriptor
+        let private_descriptor = get_combined_private_descriptor(
+            &BcrKeys::from_private_key(&bill_keys.get_private_key())
+                .get_bitcoin_private_key(btc_network),
+            &caller_keys.get_bitcoin_private_key(btc_network),
+            &tweak,
+            btc_network,
+        )?;
+        Ok(Self {
+            block_id: block.id(),
+            signing_timestamp: block.timestamp,
+            payment_op: block.op_code().to_owned(),
+            private_descriptor,
+        })
+    }
 }
 
 #[derive(Debug)]

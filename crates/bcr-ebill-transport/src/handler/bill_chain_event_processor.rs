@@ -4,18 +4,23 @@ use crate::handler::public_chain_helpers::{
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
+use bcr_ebill_api::get_config;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::BlockId;
 use bcr_ebill_core::protocol::Validate;
 use bcr_ebill_core::protocol::blockchain::bill::BillOpCode;
-use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::protocol::blockchain::bill::block::{
+    BillIssueBlockData, BillOfferToSellBlockData, BillRequestRecourseBlockData,
+    BillRequestToPayBlockData,
+};
 use bcr_ebill_core::protocol::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::protocol::blockchain::bill::{
     BillValidateActionData, BillValidationActionMode,
 };
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::crypto::btc::validate_payment_address_for_payment_request;
 use bcr_ebill_persistence::bill::BillChainStoreApi;
 use bcr_ebill_persistence::bill::BillStoreApi;
 use log::{debug, error, info, warn};
@@ -379,6 +384,7 @@ impl BillChainEventProcessor {
         // create a clone of the chain for validating the bill action later, since the chain
         // will be mutated with the integrity checks
         let chain_clone_for_validation = chain.clone();
+        let latest_block_before_add = chain_clone_for_validation.get_latest_block();
 
         // first, do cheap integrity checks (mutates chain in-memory)
         if !chain.try_add_block(block.clone()) {
@@ -398,6 +404,56 @@ impl BillChainEventProcessor {
                 );
                 return Err(Error::Blockchain(e.to_string()));
             }
+        };
+
+        // validate payment address for payment requests
+        match block.op_code() {
+            BillOpCode::RequestToPay => {
+                let data: BillRequestToPayBlockData = block
+                    .get_decrypted_block(bill_keys)
+                    .map_err(|e| Error::Blockchain(e.to_string()))?;
+                validate_payment_address_for_payment_request(
+                    block.op_code().to_owned(),
+                    &block.id(),
+                    latest_block_before_add.hash(),
+                    &bill_keys.pub_key(),
+                    &signer.pub_key(),
+                    get_config().bitcoin_network(),
+                    &data.payment_data.payment_address,
+                )
+                .map_err(|e| Error::Blockchain(e.to_string()))?;
+            }
+            BillOpCode::OfferToSell => {
+                let data: BillOfferToSellBlockData = block
+                    .get_decrypted_block(bill_keys)
+                    .map_err(|e| Error::Blockchain(e.to_string()))?;
+                validate_payment_address_for_payment_request(
+                    block.op_code().to_owned(),
+                    &block.id(),
+                    latest_block_before_add.hash(),
+                    &bill_keys.pub_key(),
+                    &signer.pub_key(),
+                    get_config().bitcoin_network(),
+                    &data.payment_data.payment_address,
+                )
+                .map_err(|e| Error::Blockchain(e.to_string()))?;
+            }
+            BillOpCode::RequestRecourse => {
+                let data: BillRequestRecourseBlockData = block
+                    .get_decrypted_block(bill_keys)
+                    .map_err(|e| Error::Blockchain(e.to_string()))?;
+                validate_payment_address_for_payment_request(
+                    block.op_code().to_owned(),
+                    &block.id(),
+                    latest_block_before_add.hash(),
+                    &bill_keys.pub_key(),
+                    &signer.pub_key(),
+                    get_config().bitcoin_network(),
+                    &data.payment_data.payment_address,
+                )
+                .map_err(|e| Error::Blockchain(e.to_string()))?;
+            }
+            _ => {} // nothing to do for non-payment-requests
         };
 
         // then, validate the bill action

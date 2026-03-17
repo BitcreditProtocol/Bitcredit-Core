@@ -21,6 +21,7 @@ bitcoin.workspace = true
 bip39.workspace = true
 ecies.workspace = true
 nostr.workspace = true
+miniscript.workspace = true
 secp256k1 = { workspace = true, features = ["global-context"] }
 bcr-common.workspace = true
 url.workspace = true
