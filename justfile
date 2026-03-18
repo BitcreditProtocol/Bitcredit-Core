@@ -30,3 +30,75 @@ wasm:
 
 serve:
   http-server -g -c-1 -p 8081 ./crates/bcr-ebill-wasm/
+
+# bdk-cli
+# to install:
+# cargo install bdk-cli --features esplora
+network := "testnet"
+db_type := "sqlite"
+client := "esplora"
+url := "https://esplora.minibill.tech/testnet/api"
+
+# Get Balance
+# just balance <descriptor>
+# Example:
+# just balance "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4"
+balance descriptor:
+    bdk-cli \
+        --network {{network}} \
+        wallet \
+        --database-type {{db_type}} \
+        --client-type {{client}} \
+        --url "{{url}}" \
+        --ext-descriptor "{{descriptor}}" balance
+
+# Sync
+# You might have to call sync before sending a transaction to sync with the network, so your local wallet knows you have funds
+# just sync <descriptor>
+# Example:
+# just sync "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4"
+sync descriptor:
+    bdk-cli \
+        --network {{network}} \
+        wallet \
+        --database-type {{db_type}} \
+        --client-type {{client}} \
+        --url "{{url}}" \
+        --ext-descriptor "{{descriptor}}" sync
+
+# Send transaction - Usage:
+# just create-tx <descriptor> <address> <amount>
+# You will get back a psbt, then:
+# just sign <descriptor> <psbt>
+# You will get back a signed psbt, then
+# just broadcast <descriptor> <psbt>
+# Example:
+# just create-tx "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4" "tb1qlzxh9zqzc0cfurkwjnua0ar0schh35f3836ngm" "1000"
+create-tx descriptor address amount:
+    bdk-cli \
+        --network {{network}} \
+        wallet \
+        --database-type {{db_type}} \
+        --client-type {{client}} \
+        --url "{{url}}" \
+        --ext-descriptor "{{descriptor}}" create_tx --to {{address}}:{{amount}}
+
+# Sign PSBT
+sign descriptor psbt:
+    bdk-cli \
+        --network {{network}} \
+        wallet \
+        --database-type {{db_type}} \
+        --client-type {{client}} \
+        --url "{{url}}" \
+        --ext-descriptor "{{descriptor}}" sign {{psbt}}
+
+# Broadcast PSBT
+broadcast descriptor psbt:
+    bdk-cli \
+        --network {{network}} \
+        wallet \
+        --database-type {{db_type}} \
+        --client-type {{client}} \
+        --url "{{url}}" \
+        --ext-descriptor "{{descriptor}}" broadcast --psbt {{psbt}}

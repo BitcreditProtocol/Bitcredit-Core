@@ -39,6 +39,10 @@ pub enum Error {
     #[error("External Bitcoin Private Key error: {0}")]
     PrivateKey(String),
 
+    /// all errors originating from dealing with bitcoin descriptors
+    #[error("External Bitcoin Descriptor error: {0}")]
+    Descriptor(String),
+
     /// all errors originating from dealing with invalid data from the API
     #[error("Got invalid data from the API")]
     InvalidData(String),
@@ -65,6 +69,7 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
         target_amount: u64,
     ) -> Result<PaymentState>;
 
+    /// Get p2tr address for the given keys
     fn get_address_to_pay(
         &self,
         bill_public_key: &PublicKey,
@@ -260,20 +265,20 @@ impl BitcoinClientApi for BitcoinClient {
         bill_public_key: &PublicKey,
         holder_public_key: &PublicKey,
     ) -> Result<BitcoinAddress> {
-        let public_key_bill = bitcoin::CompressedPublicKey(*bill_public_key);
-        let public_key_bill_holder = bitcoin::CompressedPublicKey(*holder_public_key);
-
-        let public_key_bill = public_key_bill
-            .0
-            .combine(&public_key_bill_holder.0)
+        let combined_key = bill_public_key
+            .combine(holder_public_key)
             .map_err(Error::from)?;
-        let pub_key_bill = bitcoin::CompressedPublicKey(public_key_bill);
 
-        Ok(
-            bitcoin::Address::p2wpkh(&pub_key_bill, get_config().bitcoin_network())
-                .as_unchecked()
-                .to_owned(),
+        let (x_only_pub_key, _parity) = combined_key.x_only_public_key();
+
+        Ok(bitcoin::Address::p2tr(
+            secp256k1::global::SECP256K1,
+            x_only_pub_key,
+            None,
+            get_config().bitcoin_network(),
         )
+        .as_unchecked()
+        .to_owned())
     }
 
     fn generate_link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, message: &str) -> String {
@@ -290,11 +295,11 @@ impl BitcoinClientApi for BitcoinClient {
         pkey: &bitcoin::PrivateKey,
         pkey_to_combine: &bitcoin::PrivateKey,
     ) -> Result<String> {
-        let private_key_bill = pkey
+        let combined_key = pkey
             .inner
             .add_tweak(&Scalar::from(pkey_to_combine.inner))
             .map_err(|e| Error::PrivateKey(e.to_string()))?;
-        let priv_key = bitcoin::PrivateKey::new(private_key_bill, get_config().bitcoin_network());
+        let priv_key = bitcoin::PrivateKey::new(combined_key, get_config().bitcoin_network());
         let single = miniscript::descriptor::SinglePriv {
             key: priv_key,
             origin: None,
@@ -302,12 +307,13 @@ impl BitcoinClientApi for BitcoinClient {
         let desc_seckey = miniscript::descriptor::DescriptorSecretKey::Single(single);
         let desc_pubkey = desc_seckey
             .to_public(secp256k1::global::SECP256K1)
-            .expect("is a valid key");
+            .map_err(|e| Error::Descriptor(e.to_string()))?;
         let kmap = miniscript::descriptor::KeyMap::from_iter(std::iter::once((
             desc_pubkey.clone(),
             desc_seckey,
         )));
-        let desc = miniscript::Descriptor::new_wpkh(desc_pubkey).expect("is a valid descriptor");
+        let desc = miniscript::Descriptor::new_tr(desc_pubkey, None)
+            .map_err(|e| Error::Descriptor(e.to_string()))?;
         Ok(desc.to_string_with_secret(&kmap))
     }
 
