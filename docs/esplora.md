@@ -8,6 +8,7 @@ Esplora instance using Docker.
 ## Configuration
 
 The `esplora_base_urls` config option accepts either:
+
 - An array of URLs (recommended): First URL is primary, subsequent URLs are fallbacks on 5xx server errors
 - A single URL string (legacy, for backward compatibility)
 
@@ -22,7 +23,7 @@ For local regtest, set the config to use `regtest` as a bitcoin network:
     esplora_base_urls: ["http://localhost:8094"],
     nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
     job_runner_initial_delay_seconds: 1,
-    job_runner_check_interval_seconds: 600,
+    job_runner_check_interval_seconds: 60,
   };
 ```
 
@@ -66,4 +67,3 @@ just pay mtsCkPiHCE5gdvhV9aGD4AbpArMQADc3Ju 1.0
 ```
 
 This will send the payment and mine a block and then you can check it here: [http://localhost:8094/regtest/address/mtsCkPiHCE5gdvhV9aGD4AbpArMQADc3Ju](http://localhost:8094/regtest/address/mtsCkPiHCE5gdvhV9aGD4AbpArMQADc3Ju)
-

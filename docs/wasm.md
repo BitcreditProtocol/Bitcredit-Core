@@ -58,7 +58,7 @@ async function start() {
         nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         job_runner_initial_delay_seconds: 1,
-        job_runner_check_interval_seconds: 600,
+        job_runner_check_interval_seconds: 60,
     };
 
     await wasm.default();
@@ -101,7 +101,7 @@ await start();
 
 ### TypeScript Bindings
 
-We use [Tsify](https://github.com/madonoharu/tsify) for creating TypeScript bindings from Rust types. 
+We use [Tsify](https://github.com/madonoharu/tsify) for creating TypeScript bindings from Rust types.
 This is useful, as API consumers can just use those types to work with the library.
 
 #### API functions
@@ -111,7 +111,6 @@ and `#[wasm_bindgen(unchecked_return_type = "TypeName")]` to document which type
 
 The reason is, that we need to use serialized/deserialized `wasm_bindgen::JsValue` values to communicate with JS,
 so we need to annotate which types are actually behind these generic serialization types.
-
 
 Example:
 
@@ -186,7 +185,6 @@ export interface JsErrorData {
 
 On the JS side, it's enough to `await` the API functions and use `try/catch` for error-handling, or any other
 promise-based error-handling strategy.
-
 
 #### Enums
 
@@ -271,7 +269,7 @@ async function start() {
         nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         job_runner_initial_delay_seconds: 1,
-        job_runner_check_interval_seconds: 600,
+  job_runner_check_interval_seconds: 60,
     };
     await wasm.default();
     await wasm.initialize_api(config);

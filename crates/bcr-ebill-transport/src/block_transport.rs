@@ -83,7 +83,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
                 self.nostr_transport
-                    .queue_retry_message(&events.sender(), None, payload)
+                    .queue_retry_message_and_trigger(&events.sender(), None, payload)
                     .await?;
             }
 
@@ -138,7 +138,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
                 self.nostr_transport
-                    .queue_retry_message(&events.sender(), None, payload)
+                    .queue_retry_message_and_trigger(&events.sender(), None, payload)
                     .await?;
             }
 
@@ -166,7 +166,7 @@ impl BlockTransportServiceApi for BlockTransportService {
             {
                 error!("Failed to send company invite, queuing for retry: {e}");
                 self.nostr_transport
-                    .queue_retry_message(
+                    .queue_retry_message_and_trigger(
                         &events.sender(),
                         Some(&recipient),
                         base58::encode(&borsh::to_vec(&message)?),
@@ -210,7 +210,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
                 self.nostr_transport
-                    .queue_retry_message(&events.sender(), None, payload)
+                    .queue_retry_message_and_trigger(&events.sender(), None, payload)
                     .await?;
             }
 
@@ -238,7 +238,7 @@ impl BlockTransportServiceApi for BlockTransportService {
                     {
                         error!("Failed to send bill invite, queuing for retry: {e}");
                         self.nostr_transport
-                            .queue_retry_message(
+                            .queue_retry_message_and_trigger(
                                 &events.sender(),
                                 Some(&recipient),
                                 base58::encode(&borsh::to_vec(&message)?),

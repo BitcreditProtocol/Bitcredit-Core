@@ -125,7 +125,7 @@ let config = {
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 5,
-  job_runner_check_interval_seconds: 600,
+  job_runner_check_interval_seconds: 60,
   transport_initial_subscription_delay_seconds: 1,
   default_mint_url: "https://mint.wildcat0.clowder-dev.minibill.tech",
   default_mint_node_id: "bitcrt020e50d48b6b2897743ca257c82684e984509c05c9bf812176c717005698e57023", //wildcat0 clowder-dev
