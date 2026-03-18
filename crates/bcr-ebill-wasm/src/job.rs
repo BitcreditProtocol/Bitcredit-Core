@@ -108,8 +108,8 @@ fn spawn_job_if_due(
     now: Duration,
     run: impl FnOnce() -> JobFuture + 'static,
 ) {
-    let should_run =
-        state.with(|state| should_run_job(&mut state.borrow_mut(), job_name, interval_secs, now));
+    let should_run = state
+        .with(|state| try_claim_job_run(&mut state.borrow_mut(), job_name, interval_secs, now));
 
     if !should_run {
         return;
@@ -128,7 +128,7 @@ fn spawn_job_if_due(
     });
 }
 
-fn should_run_job(
+fn try_claim_job_run(
     state: &mut JobState,
     job_name: &'static str,
     interval_secs: u64,
@@ -228,13 +228,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_run_job_skips_when_interval_not_elapsed() {
+    fn try_claim_job_run_skips_when_interval_not_elapsed() {
         let mut state = JobState {
             last_started_at: Some(Duration::from_secs(50)),
             is_running: false,
         };
 
-        let should_run = should_run_job(&mut state, "Test Job", 60, Duration::from_secs(100));
+        let should_run = try_claim_job_run(&mut state, "Test Job", 60, Duration::from_secs(100));
 
         assert!(!should_run);
         assert_eq!(state.last_started_at, Some(Duration::from_secs(50)));
@@ -242,13 +242,13 @@ mod tests {
     }
 
     #[test]
-    fn should_run_job_skips_when_already_running() {
+    fn try_claim_job_run_skips_when_already_running() {
         let mut state = JobState {
             last_started_at: Some(Duration::from_secs(0)),
             is_running: true,
         };
 
-        let should_run = should_run_job(&mut state, "Test Job", 60, Duration::from_secs(100));
+        let should_run = try_claim_job_run(&mut state, "Test Job", 60, Duration::from_secs(100));
 
         assert!(!should_run);
         assert_eq!(state.last_started_at, Some(Duration::from_secs(0)));
@@ -256,10 +256,10 @@ mod tests {
     }
 
     #[test]
-    fn should_run_job_runs_when_interval_elapsed() {
+    fn try_claim_job_run_runs_when_interval_elapsed() {
         let mut state = JobState::new();
 
-        let should_run = should_run_job(&mut state, "Test Job", 120, Duration::from_secs(120));
+        let should_run = try_claim_job_run(&mut state, "Test Job", 120, Duration::from_secs(120));
 
         assert!(should_run);
         assert_eq!(state.last_started_at, Some(Duration::from_secs(120)));
