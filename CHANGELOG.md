@@ -12,6 +12,9 @@
 * Use and validate unique payment addresses per payment request (breaking Bills on a protocol level)
 * Changed `get_combined_bitcoin_key_for_bill` to `get_combined_bitcoin_keys_for_bill`, returning all bitcoin keys for payments within this bill for the caller
 * Update local dev defaults for relay
+* Implement endpoints to withdraw funds from a payment address
+    * `check_and_estimate_btc_sweep` to get an estimate of fees with economic and fast options
+    * `sweep_btc_funds` to actually sweep the funds with the given fee
 
 # 0.5.4
 

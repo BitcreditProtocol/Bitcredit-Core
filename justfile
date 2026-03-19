@@ -13,8 +13,8 @@ pay address amount:
     @echo "Sending {{amount}} BTC to {{address}}..."
     docker exec -it esplora-esplora-1 /srv/explorer/bitcoin/bin/bitcoin-cli -regtest -rpcwallet=default -rpccookiefile=/data/bitcoin/regtest/.cookie sendtoaddress {{address}} {{amount}}
 
-    @echo "Mining block to {{address}}..."
-    docker exec -it esplora-esplora-1 /srv/explorer/bitcoin/bin/bitcoin-cli -regtest -rpcwallet=default -rpccookiefile=/data/bitcoin/regtest/.cookie generatetoaddress 1 {{address}}
+    @echo "Mining blocks..."
+    docker exec -it esplora-esplora-1 /srv/explorer/bitcoin/bin/bitcoin-cli -regtest -rpcwallet=default -rpccookiefile=/data/bitcoin/regtest/.cookie -generate 101 || true
 
     @echo "Done."
 

@@ -36,14 +36,15 @@ use crate::{
     data::{
         Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
-            AcceptBitcreditBillPayload, BillCombinedBitcoinKeyWeb, BillHistoryResponse,
-            BillIdResponse, BillsResponse, BillsSearchFilterPayload, BitcreditBillPayload,
-            BitcreditBillWeb, EndorseBitcreditBillPayload, EndorsementsResponse,
-            LightBillsResponse, OfferToSellBitcreditBillPayload, PastEndorseesResponse,
-            PastPaymentsResponse, RejectActionBillPayload, RequestRecourseForAcceptancePayload,
-            RequestRecourseForPaymentPayload, RequestToAcceptBitcreditBillPayload,
-            RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, ResyncBillPayload,
-            ShareBillWithCourtPayload,
+            AcceptBitcreditBillPayload, BillCheckSweepBTCFundsPayload, BillCombinedBitcoinKeyWeb,
+            BillHistoryResponse, BillIdResponse, BillSweepBTCEstimateWeb, BillSweepBTCFundsPayload,
+            BillSweepBTCFundsResultWeb, BillsResponse, BillsSearchFilterPayload,
+            BitcreditBillPayload, BitcreditBillWeb, EndorseBitcreditBillPayload,
+            EndorsementsResponse, LightBillsResponse, OfferToSellBitcreditBillPayload,
+            PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
+            RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
+            RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
+            RequestToPayBitcreditBillPayload, ResyncBillPayload, ShareBillWithCourtPayload,
         },
         mint::MintRequestStateResponse,
         parse_deadline_string,
@@ -1117,6 +1118,55 @@ impl Bill {
                 .await?
                 .into();
             Ok(res)
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillSweepBTCEstimateWeb>")]
+    pub async fn check_and_estimate_btc_sweep(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "BillCheckSweepBTCFundsPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<BillSweepBTCEstimateWeb> = async {
+            let payload: BillCheckSweepBTCFundsPayload = serde_wasm_bindgen::from_value(payload)?;
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+            let estimate = get_ctx()
+                .bill_service
+                .check_and_estimate_btc_sweep(
+                    &payload.bill_id,
+                    &caller_public_data,
+                    &caller_keys,
+                    &payload.source_address,
+                    &payload.destination_address,
+                )
+                .await?;
+            Ok(estimate.into())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillSweepBTCFundsResultWeb>")]
+    pub async fn sweep_btc_funds(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "BillSweepBTCFundsPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<BillSweepBTCFundsResultWeb> = async {
+            let payload: BillSweepBTCFundsPayload = serde_wasm_bindgen::from_value(payload)?;
+            let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
+            let res = get_ctx()
+                .bill_service
+                .btc_sweep(
+                    &payload.bill_id,
+                    &caller_public_data,
+                    &caller_keys,
+                    &payload.source_address,
+                    &payload.destination_address,
+                    payload.fee,
+                )
+                .await?;
+            Ok(res.into())
         }
         .await;
         TSResult::res_to_js(res)

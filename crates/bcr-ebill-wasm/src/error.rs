@@ -79,6 +79,7 @@ enum JsErrorType {
     BuyerNotInContacts,
     EndorseeNotInContacts,
     RecourseeNotInContacts,
+    NoPaymentForSweep,
     CancelMintRequestNotPending,
     RejectMintRequestNotOffered,
     AcceptMintRequestNotOffered,
@@ -246,6 +247,7 @@ fn validation_error_data(e: ValidationError) -> JsErrorData {
         ValidationError::EndorseeNotInContacts => err_400(e, JsErrorType::EndorseeNotInContacts),
         ValidationError::MintNotInContacts => err_400(e, JsErrorType::MintNotInContacts),
         ValidationError::RecourseeNotInContacts => err_400(e, JsErrorType::RecourseeNotInContacts),
+        ValidationError::NoPaymentForSweep => err_400(e, JsErrorType::NoPaymentForSweep),
         ValidationError::CancelMintRequestNotPending => {
             err_400(e, JsErrorType::CancelMintRequestNotPending)
         }
