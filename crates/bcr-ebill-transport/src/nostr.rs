@@ -1059,15 +1059,7 @@ pub async fn determine_recipient(
 ) -> Result<(NodeId, Arc<dyn NostrSigner>)> {
     match event.kind {
         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
-            // Try to decrypt with each identity's signer
-            // Clone the keys to avoid holding the lock during async operations
-            let keys_to_try: Vec<(NodeId, Arc<Keys>)> = client
-                .signers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .iter()
-                .map(|(id, keys)| (id.clone(), keys.clone()))
-                .collect();
+            let keys_to_try = prioritized_signers_for_event(event, &client.signers);
 
             for (node_id, nostr_keys) in keys_to_try {
                 // Try to unwrap the message with one of our signers
@@ -1111,6 +1103,32 @@ pub async fn determine_recipient(
             event.kind
         ))),
     }
+}
+
+fn prioritized_signers_for_event(
+    event: &Event,
+    signers: &Arc<Mutex<HashMap<NodeId, Arc<Keys>>>>,
+) -> Vec<(NodeId, Arc<Keys>)> {
+    // Clone the keys to avoid holding the lock during async operations
+    let mut keys_to_try: Vec<(NodeId, Arc<Keys>)> = signers
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(id, keys)| (id.clone(), keys.clone()))
+        .collect();
+
+    if event.kind == Kind::GiftWrap
+        && let Some(recipient_pubkey) = event.tags.public_keys().next().copied()
+        && let Some(index) = keys_to_try
+            .iter()
+            .position(|(_, nostr_keys)| nostr_keys.public_key() == recipient_pubkey)
+        && index != 0
+    {
+        let matching_signer = keys_to_try.swap_remove(index);
+        keys_to_try.insert(0, matching_signer);
+    }
+
+    keys_to_try
 }
 
 /// Detects event types and routes them to the correct handler.
@@ -1322,7 +1340,8 @@ async fn handle_event(
 #[cfg(test)]
 mod tests {
     use std::{
-        sync::Arc,
+        collections::HashMap,
+        sync::{Arc, Mutex},
         time::{Duration, Instant},
     };
 
@@ -1336,6 +1355,7 @@ mod tests {
     use bcr_ebill_core::protocol::event::{Event, EventType};
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
+    use nostr::EventBuilder;
     use tokio::time;
 
     use crate::handler::MockNotificationHandlerApi;
@@ -1345,7 +1365,7 @@ mod tests {
     };
 
     use super::super::test_utils::get_mock_relay;
-    use super::{NostrClient, NostrConfig, NostrConsumer};
+    use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
 
     #[tokio::test]
     async fn test_connect() {
@@ -1622,6 +1642,97 @@ mod tests {
             "NIP-17 should work for multi-identity clients: {:?}",
             result.err()
         );
+    }
+
+    #[tokio::test]
+    async fn test_prioritized_signers_for_gift_wrap_uses_tagged_recipient_first() {
+        let sender_keys = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let other_keys = BcrKeys::new();
+
+        let recipient_node_id = NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet);
+        let other_node_id = NodeId::new(other_keys.pub_key(), bitcoin::Network::Testnet);
+
+        let signers = Arc::new(Mutex::new(HashMap::from([
+            (other_node_id.clone(), Arc::new(other_keys.get_nostr_keys())),
+            (
+                recipient_node_id.clone(),
+                Arc::new(recipient_keys.get_nostr_keys()),
+            ),
+        ])));
+
+        let rumor =
+            EventBuilder::private_msg_rumor(recipient_keys.get_nostr_keys().public_key(), "test")
+                .build(sender_keys.get_nostr_keys().public_key());
+        let event = EventBuilder::gift_wrap(
+            &sender_keys.get_nostr_keys(),
+            &recipient_keys.get_nostr_keys().public_key(),
+            rumor,
+            Vec::new(),
+        )
+        .await
+        .expect("failed to build gift wrap event");
+
+        let prioritized = prioritized_signers_for_event(&event, &signers);
+
+        assert_eq!(prioritized.len(), 2);
+        assert_eq!(prioritized[0].0, recipient_node_id);
+        assert_eq!(prioritized[1].0, other_node_id);
+    }
+
+    #[tokio::test]
+    async fn test_prioritized_signers_for_gift_wrap_keeps_fallback_when_tagged_recipient_missing() {
+        let sender_keys = BcrKeys::new();
+        let remote_recipient_keys = BcrKeys::new();
+        let first_local_keys = BcrKeys::new();
+        let second_local_keys = BcrKeys::new();
+
+        let first_local_node_id =
+            NodeId::new(first_local_keys.pub_key(), bitcoin::Network::Testnet);
+        let second_local_node_id =
+            NodeId::new(second_local_keys.pub_key(), bitcoin::Network::Testnet);
+
+        let signers = Arc::new(Mutex::new(HashMap::from([
+            (
+                first_local_node_id.clone(),
+                Arc::new(first_local_keys.get_nostr_keys()),
+            ),
+            (
+                second_local_node_id.clone(),
+                Arc::new(second_local_keys.get_nostr_keys()),
+            ),
+        ])));
+
+        let rumor = EventBuilder::private_msg_rumor(
+            remote_recipient_keys.get_nostr_keys().public_key(),
+            "test",
+        )
+        .build(sender_keys.get_nostr_keys().public_key());
+        let event = EventBuilder::gift_wrap(
+            &sender_keys.get_nostr_keys(),
+            &remote_recipient_keys.get_nostr_keys().public_key(),
+            rumor,
+            Vec::new(),
+        )
+        .await
+        .expect("failed to build gift wrap event");
+
+        let prioritized = prioritized_signers_for_event(&event, &signers);
+
+        assert_eq!(prioritized.len(), 2);
+        assert!(
+            prioritized
+                .iter()
+                .any(|(node_id, _)| *node_id == first_local_node_id)
+        );
+        assert!(
+            prioritized
+                .iter()
+                .any(|(node_id, _)| *node_id == second_local_node_id)
+        );
+        assert!(prioritized.iter().all(|(_, keys)| {
+            keys.public_key() != remote_recipient_keys.get_nostr_keys().public_key()
+        }));
     }
 
     #[tokio::test]
