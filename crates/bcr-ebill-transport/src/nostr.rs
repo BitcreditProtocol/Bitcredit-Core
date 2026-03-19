@@ -1068,10 +1068,6 @@ pub async fn determine_recipient(
                     return Ok((node_id, signer as Arc<dyn NostrSigner>));
                 }
             }
-            error!(
-                "Failed to determine recipient for private event {} (kind {}): no local identity could decrypt it",
-                event.id, event.kind
-            );
             Err(Error::Message(
                 "No local identity could decrypt this message".to_string(),
             ))
@@ -1127,8 +1123,10 @@ fn prioritized_signers_for_event(
             .iter()
             .position(|(_, nostr_keys)| nostr_keys.public_key() == recipient_pubkey)
     {
-        let matching_signer = keys_to_try.swap_remove(index);
-        keys_to_try.insert(0, matching_signer);
+        if index != 0 {
+            let matching_signer = keys_to_try.swap_remove(index);
+            keys_to_try.insert(0, matching_signer);
+        }
     }
 
     keys_to_try
