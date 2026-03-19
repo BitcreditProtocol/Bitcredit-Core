@@ -77,10 +77,7 @@ async fn unwrap_nip17_envelope<T: NostrSigner>(
             Ok(UnwrappedGift { rumor, sender }) => {
                 extract_event_envelope(rumor).map(|e| (e, sender, event.id, event.created_at))
             }
-            Err(e) => {
-                error!("Unwrapping gift wrap failed: {e}");
-                None
-            }
+            Err(_) => None,
         }
     }
     result
