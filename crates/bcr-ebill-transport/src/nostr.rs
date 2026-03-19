@@ -1122,11 +1122,10 @@ fn prioritized_signers_for_event(
         && let Some(index) = keys_to_try
             .iter()
             .position(|(_, nostr_keys)| nostr_keys.public_key() == recipient_pubkey)
+        && index != 0
     {
-        if index != 0 {
-            let matching_signer = keys_to_try.swap_remove(index);
-            keys_to_try.insert(0, matching_signer);
-        }
+        let matching_signer = keys_to_try.swap_remove(index);
+        keys_to_try.insert(0, matching_signer);
     }
 
     keys_to_try
