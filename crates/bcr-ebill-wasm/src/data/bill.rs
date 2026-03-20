@@ -146,6 +146,11 @@ pub struct RejectActionBillPayload {
 #[derive(Tsify, Debug, Clone, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct BillCombinedBitcoinKeyWeb {
+    #[tsify(type = "number")]
+    pub block_id: BlockId,
+    #[tsify(type = "number")]
+    pub signing_timestamp: Timestamp,
+    pub payment_op: BillOpCodeWeb,
     pub private_descriptor: String,
 }
 
@@ -159,6 +164,9 @@ pub struct ResyncBillPayload {
 impl From<BillCombinedBitcoinKey> for BillCombinedBitcoinKeyWeb {
     fn from(val: BillCombinedBitcoinKey) -> Self {
         BillCombinedBitcoinKeyWeb {
+            block_id: val.block_id,
+            signing_timestamp: val.signing_timestamp,
+            payment_op: val.payment_op.into(),
             private_descriptor: val.private_descriptor,
         }
     }

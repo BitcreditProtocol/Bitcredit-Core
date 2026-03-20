@@ -167,16 +167,16 @@ impl Bill {
         TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "TSResult<BillCombinedBitcoinKeyWeb>")]
-    pub async fn bitcoin_key(&self, id: &str) -> JsValue {
-        let res: Result<BillCombinedBitcoinKeyWeb> = async {
+    #[wasm_bindgen(unchecked_return_type = "TSResult<BillCombinedBitcoinKeyWeb[]>")]
+    pub async fn bitcoin_keys(&self, id: &str) -> JsValue {
+        let res: Result<Vec<BillCombinedBitcoinKeyWeb>> = async {
             let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
             let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-            let combined_key = get_ctx()
+            let combined_keys = get_ctx()
                 .bill_service
-                .get_combined_bitcoin_key_for_bill(&bill_id, &caller_public_data, &caller_keys)
+                .get_combined_bitcoin_keys_for_bill(&bill_id, &caller_public_data, &caller_keys)
                 .await?;
-            Ok(combined_key.into())
+            Ok(combined_keys.into_iter().map(|ck| ck.into()).collect())
         }
         .await;
         TSResult::res_to_js(res)

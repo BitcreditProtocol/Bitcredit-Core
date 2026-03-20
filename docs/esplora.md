@@ -21,7 +21,7 @@ For local regtest, set the config to use `regtest` as a bitcoin network:
     log_level: "debug",
     bitcoin_network: "regtest",
     esplora_base_urls: ["http://localhost:8094"],
-    nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+    nostr_relays: ["wss://relay.wildcat0.clowder-dev.minibill.tech"],
     job_runner_initial_delay_seconds: 1,
     job_runner_check_interval_seconds: 60,
   };

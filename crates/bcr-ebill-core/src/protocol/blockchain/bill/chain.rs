@@ -8,7 +8,6 @@ use super::block::{
 };
 use super::{BillOpCode, RecourseWaitingForPayment};
 use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
-use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
 use crate::protocol::blockchain::bill::block::BillRejectToBuyBlockData;
 use crate::protocol::blockchain::bill::participant::{
@@ -17,6 +16,10 @@ use crate::protocol::blockchain::bill::participant::{
 use crate::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PaymentStatus};
 use crate::protocol::blockchain::{Block, Blockchain, Error, borsh_to_json_value};
 use crate::protocol::crypto::BcrKeys;
+use crate::protocol::crypto::btc::{
+    calculate_tweak_hash_for_payment_request, get_combined_private_descriptor,
+};
+use crate::protocol::{BitcoinAddress, Sha256Hash};
 use bcr_common::core::NodeId;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
@@ -351,9 +354,11 @@ impl BillBlockchain {
     pub fn get_past_sell_payments_for_node_id(
         &self,
         bill_keys: &BcrKeys,
+        caller_keys: &BcrKeys,
+        btc_network: bitcoin::Network,
         node_id: &NodeId,
         timestamp: Timestamp,
-    ) -> Result<Vec<(SellPaymentInfo, PaymentStatus, Timestamp)>> {
+    ) -> Result<Vec<(SellPaymentInfo, PaymentStatus, Timestamp, String)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut sell_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -419,6 +424,20 @@ impl BillBlockchain {
                 buying_deadline_timestamp: block_data_decrypted.payment_data.payment_deadline,
             };
 
+            // calculate tweak
+            let tweak = calculate_tweak_hash_for_payment_request(
+                offer_to_sell_block.op_code().to_owned(),
+                &offer_to_sell_block.id(),
+                offer_to_sell_block.previous_hash(),
+            )?;
+            let descriptor_to_spend = get_combined_private_descriptor(
+                &BcrKeys::from_private_key(&bill_keys.get_private_key())
+                    .get_bitcoin_private_key(btc_network),
+                &caller_keys.get_bitcoin_private_key(btc_network),
+                &tweak,
+                btc_network,
+            )?;
+
             match sell_pair.1 {
                 Some(reject_or_sell_block) => match reject_or_sell_block.op_code() {
                     BillOpCode::RejectToBuy => {
@@ -426,6 +445,7 @@ impl BillBlockchain {
                             payment_info,
                             PaymentStatus::Rejected(reject_or_sell_block.timestamp),
                             offer_to_sell_block.timestamp,
+                            descriptor_to_spend,
                         ));
                     }
                     BillOpCode::Sell => {
@@ -433,6 +453,7 @@ impl BillBlockchain {
                             payment_info,
                             PaymentStatus::Paid(reject_or_sell_block.timestamp),
                             offer_to_sell_block.timestamp,
+                            descriptor_to_spend,
                         ));
                     }
                     _ => (),
@@ -448,6 +469,7 @@ impl BillBlockchain {
                                 block_data_decrypted.payment_data.payment_deadline,
                             ),
                             offer_to_sell_block.timestamp,
+                            descriptor_to_spend,
                         ));
                     }
                 }
@@ -461,9 +483,11 @@ impl BillBlockchain {
     pub fn get_past_recourse_payments_for_node_id(
         &self,
         bill_keys: &BcrKeys,
+        caller_keys: &BcrKeys,
+        btc_network: bitcoin::Network,
         node_id: &NodeId,
         timestamp: Timestamp,
-    ) -> Result<Vec<(RecoursePaymentInfo, PaymentStatus, Timestamp)>> {
+    ) -> Result<Vec<(RecoursePaymentInfo, PaymentStatus, Timestamp, String)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut recourse_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -524,10 +548,25 @@ impl BillBlockchain {
                 recoursee: block_data_decrypted.recoursee,
                 recourser: block_data_decrypted.recourser,
                 sum: block_data_decrypted.payment_data.sum,
+                payment_address: block_data_decrypted.payment_data.payment_address,
                 reason: block_data_decrypted.recourse_reason,
                 block_id: request_to_recourse_block.id(),
                 recourse_deadline_timestamp: block_data_decrypted.payment_data.payment_deadline,
             };
+
+            // calculate tweak
+            let tweak = calculate_tweak_hash_for_payment_request(
+                request_to_recourse_block.op_code().to_owned(),
+                &request_to_recourse_block.id(),
+                request_to_recourse_block.previous_hash(),
+            )?;
+            let descriptor_to_spend = get_combined_private_descriptor(
+                &BcrKeys::from_private_key(&bill_keys.get_private_key())
+                    .get_bitcoin_private_key(btc_network),
+                &caller_keys.get_bitcoin_private_key(btc_network),
+                &tweak,
+                btc_network,
+            )?;
 
             match recourse_pair.1 {
                 Some(reject_or_recourse_block) => match reject_or_recourse_block.op_code() {
@@ -536,6 +575,7 @@ impl BillBlockchain {
                             payment_info,
                             PaymentStatus::Rejected(reject_or_recourse_block.timestamp),
                             request_to_recourse_block.timestamp,
+                            descriptor_to_spend,
                         ));
                     }
                     BillOpCode::Recourse => {
@@ -543,6 +583,7 @@ impl BillBlockchain {
                             payment_info,
                             PaymentStatus::Paid(reject_or_recourse_block.timestamp),
                             request_to_recourse_block.timestamp,
+                            descriptor_to_spend,
                         ));
                     }
                     _ => (),
@@ -558,6 +599,7 @@ impl BillBlockchain {
                                 block_data_decrypted.payment_data.payment_deadline,
                             ),
                             request_to_recourse_block.timestamp,
+                            descriptor_to_spend,
                         ));
                     }
                 }
@@ -614,15 +656,23 @@ impl BillBlockchain {
         req_to_pay: &BillBlock,
         bill_keys: &BcrKeys,
         current_timestamp: Timestamp,
-    ) -> Result<(bool, Timestamp)> {
+    ) -> Result<(bool, Timestamp, BitcoinAddress)> {
         let block_data_decrypted: BillRequestToPayBlockData =
             req_to_pay.get_decrypted_block(bill_keys)?;
 
         let deadline = block_data_decrypted.payment_data.payment_deadline;
         if current_timestamp.has_deadline_passed(&deadline) {
-            return Ok((true, deadline));
+            return Ok((
+                true,
+                deadline,
+                block_data_decrypted.payment_data.payment_address,
+            ));
         }
-        Ok((false, deadline))
+        Ok((
+            false,
+            deadline,
+            block_data_decrypted.payment_data.payment_address,
+        ))
     }
 
     /// Checks if the req to accept of the given block is expired, returning the result and
@@ -704,6 +754,7 @@ impl BillBlockchain {
                         recoursee: block_data_decrypted.recoursee,
                         recourser: block_data_decrypted.recourser,
                         sum: block_data_decrypted.payment_data.sum,
+                        payment_address: block_data_decrypted.payment_data.payment_address,
                         reason: block_data_decrypted.recourse_reason,
                         block_id: last_version_block.id(),
                         recourse_deadline_timestamp: block_data_decrypted

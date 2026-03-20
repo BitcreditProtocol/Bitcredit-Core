@@ -5,6 +5,7 @@ document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("attach_identity_profile_picture").addEventListener("click", attachIdentityProfilePicture);
 document.getElementById("attach_contact_avatar").addEventListener("click", attachContactAvatar);
 document.getElementById("attach_company_proof").addEventListener("click", attachCompanyProof);
+document.getElementById("remove_company_proof").addEventListener("click", removeCompanyProof);
 document.getElementById("build_blossom_url").addEventListener("click", buildBlossomUrl);
 document.getElementById("open_blossom_url").addEventListener("click", openBlossomUrl);
 
@@ -79,6 +80,7 @@ document.getElementById("bill_test_self_drafted").addEventListener("click", trig
 document.getElementById("bill_test_promissory").addEventListener("click", triggerBill.bind(null, 0, false));
 document.getElementById("bill_test_promissory_blank").addEventListener("click", triggerBill.bind(null, 0, true));
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
+document.getElementById("bitcoin_keys").addEventListener("click", getBitcoinKeys);
 document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
 document.getElementById("dev_mode_get_bill_chain").addEventListener("click", devModeGetBillChain);
 document.getElementById("share_bill_with_court").addEventListener("click", shareBillWithCourt);
@@ -119,9 +121,9 @@ let config = {
   bitcoin_network: "testnet",
   esplora_base_url: "https://esplora.minibill.tech",
   // nostr_relays: ["ws://localhost:8080"],
-  nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+  nostr_relays: ["wss://relay.wildcat0.clowder-dev.minibill.tech"],
   // this would be the default with current relay config
-  blossom_servers: ["https://bcr-relay-dev.minibill.tech"],
+  blossom_servers: ["https://relay.wildcat0.clowder-dev.minibill.tech"],
   // if set to true we will drop DMs from nostr that we don't have in contacts
   nostr_only_known_contacts: false,
   job_runner_initial_delay_seconds: 5,
@@ -330,6 +332,18 @@ async function attachCompanyProof() {
     buildBlossomUrl();
   }
   console.log("attached uploaded file as company proof:", company);
+}
+
+async function removeCompanyProof() {
+  const id = document.getElementById("company_id").value;
+  fail_on_error(await window.companyApi.edit({
+    id,
+    proof_of_registration_file_upload_id: undefined,
+    postal_address: {}
+  }));
+
+  const company = success_or_fail(await window.companyApi.detail(id));
+  console.log("removed uploaded file as company proof:", company);
 }
 
 function buildBlossomUrl() {
@@ -842,6 +856,15 @@ async function fetchBillHistory() {
 async function clearBillCache() {
   let measured = measure(async () => {
     return success_or_fail(await window.billApi.clear_bill_cache());
+  });
+  await measured();
+}
+
+async function getBitcoinKeys() {
+  let bill_id = document.getElementById("bill_id").value;
+  console.log("getBitcoinKeys", bill_id);
+  let measured = measure(async () => {
+    return success_or_fail(await window.billApi.bitcoin_keys(bill_id));
   });
   await measured();
 }

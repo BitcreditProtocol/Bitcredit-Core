@@ -76,13 +76,13 @@ pub trait BillServiceApi: ServiceTraitBounds {
         caller_keys: &BcrKeys,
     ) -> Result<Vec<BitcreditBillResult>>;
 
-    /// Gets the combined bitcoin private key for a given bill
-    async fn get_combined_bitcoin_key_for_bill(
+    /// Gets the combined bitcoin private keys for a given bill
+    async fn get_combined_bitcoin_keys_for_bill(
         &self,
         bill_id: &BillId,
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
-    ) -> Result<BillCombinedBitcoinKey>;
+    ) -> Result<Vec<BillCombinedBitcoinKey>>;
 
     /// Gets the detail for the given bill id
     async fn get_detail(

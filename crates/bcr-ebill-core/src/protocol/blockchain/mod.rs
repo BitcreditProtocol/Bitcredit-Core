@@ -42,6 +42,10 @@ pub enum Error {
     #[error("Block's signature does not match the signer")]
     BlockSignatureDoesNotMatchSigner,
 
+    /// If a block operation is not valid for an operation
+    #[error("Block operation not valid for this operation")]
+    InvalidBlockOp,
+
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Secp256k1Cryptography error: {0}")]
     Secp256k1Cryptography(#[from] crypto::Error),

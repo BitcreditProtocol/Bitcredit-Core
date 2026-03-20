@@ -3,21 +3,26 @@ use super::service::BillService;
 use crate::service::bill_service::{BillAction, BillServiceApi};
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    application::bill::PaymentState,
-    application::company::Company,
-    application::identity::{Identity, IdentityWithAll},
-    protocol::Timestamp,
-    protocol::blockchain::{
-        Blockchain,
-        bill::{
-            BillBlockchain, BillOpCode, BitcreditBill, OfferToSellWaitingForPayment,
-            RecourseWaitingForPayment,
-            participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
-        },
-        identity::IdentityType,
+    application::{
+        bill::PaymentState,
+        company::Company,
+        identity::{Identity, IdentityWithAll},
     },
-    protocol::crypto::BcrKeys,
-    protocol::event::BillChainEvent,
+    protocol::{
+        Timestamp,
+        blockchain::{
+            Blockchain,
+            bill::{
+                BillBlockchain, BillOpCode, BitcreditBill, OfferToSellWaitingForPayment,
+                RecourseWaitingForPayment,
+                block::BillRequestToPayBlockData,
+                participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
+            },
+            identity::IdentityType,
+        },
+        crypto::BcrKeys,
+        event::BillChainEvent,
+    },
 };
 use log::{debug, info};
 use std::collections::HashMap;
@@ -42,20 +47,27 @@ impl BillService {
             return Ok(());
         }
 
-        let holder_public_key = match bill.endorsee {
-            None => &bill.payee.node_id(),
-            Some(ref endorsee) => &endorsee.node_id(),
-        };
-        let address_to_pay = self
-            .bitcoin_client
-            .get_address_to_pay(&bill_keys.pub_key(), &holder_public_key.pub_key())?;
-        match self
-            .bitcoin_client
-            .check_payment_for_address(&address_to_pay, bill.sum.as_sat())
-            .await
+        if let Some(req_to_pay_block) =
+            chain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
         {
-            Ok(payment_state) => {
-                let should_update = match self
+            let Ok(block_data) =
+                req_to_pay_block.get_decrypted_block::<BillRequestToPayBlockData>(&bill_keys)
+            else {
+                log::error!(
+                    "Error checking bill payment for {bill_id} - could not decrypt req to pay block data"
+                );
+                return Ok(());
+            };
+            match self
+                .bitcoin_client
+                .check_payment_for_address(
+                    &block_data.payment_data.payment_address,
+                    bill.sum.as_sat(),
+                )
+                .await
+            {
+                Ok(payment_state) => {
+                    let should_update = match self
                     .store
                     .get_payment_state(bill_id)
                     .await {
@@ -66,29 +78,33 @@ impl BillService {
                         _ => true
                     };
 
-                if should_update {
-                    debug!(
-                        "Updating bill payment state for {bill_id} to {payment_state:?} and invalidating cache"
-                    );
-                    self.store
-                        .set_payment_state(bill_id, &payment_state)
-                        .await?;
-                    // invalidate bill cache, so payment state is updated on next fetch
-                    self.store.invalidate_bill_in_cache(bill_id).await?;
-                    // the bill is paid now - trigger notification
-                    if let PaymentState::PaidConfirmed(_) = payment_state
-                        && let Err(e) = self
-                            .trigger_is_paid_notification(identity, &chain, &bill_keys, &bill)
-                            .await
-                    {
-                        log::error!("Could not send is-paid notification for {bill_id}: {e}");
+                    if should_update {
+                        debug!(
+                            "Updating bill payment state for {bill_id} to {payment_state:?} and invalidating cache"
+                        );
+                        self.store
+                            .set_payment_state(bill_id, &payment_state)
+                            .await?;
+                        // invalidate bill cache, so payment state is updated on next fetch
+                        self.store.invalidate_bill_in_cache(bill_id).await?;
+                        // the bill is paid now - trigger notification
+                        if let PaymentState::PaidConfirmed(_) = payment_state
+                            && let Err(e) = self
+                                .trigger_is_paid_notification(identity, &chain, &bill_keys, &bill)
+                                .await
+                        {
+                            log::error!("Could not send is-paid notification for {bill_id}: {e}");
+                        }
                     }
                 }
-            }
-            Err(e) => {
-                log::error!("Error checking payment for {bill_id}: {e}");
-            }
-        };
+                Err(e) => {
+                    log::error!("Error checking payment for {bill_id}: {e}");
+                }
+            };
+        } else {
+            log::warn!("Checking payment for {bill_id}, but there was no request to pay block!");
+        }
+
         Ok(())
     }
 
@@ -125,15 +141,10 @@ impl BillService {
         if let Ok(RecourseWaitingForPayment::Yes(payment_info)) =
             chain.is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, now)
         {
-            // calculate payment address
-            let payment_address = self.bitcoin_client.get_address_to_pay(
-                &bill_keys.pub_key(),
-                &payment_info.recourser.node_id().pub_key(),
-            )?;
             // check if paid
             if let Ok(payment_state) = self
                 .bitcoin_client
-                .check_payment_for_address(&payment_address, payment_info.sum.as_sat())
+                .check_payment_for_address(&payment_info.payment_address, payment_info.sum.as_sat())
                 .await
             {
                 let should_update = match self

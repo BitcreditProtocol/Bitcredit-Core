@@ -31,7 +31,7 @@ It contains the following options:
             "https://esplora.minibill.tech",
             "https://blockstream.info"
         ],
-        nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+        nostr_relays: ["wss://relay.wildcat0.clowder-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         job_runner_initial_delay_seconds: 1,
         job_runner_check_interval_seconds: 60,

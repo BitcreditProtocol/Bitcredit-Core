@@ -24,7 +24,7 @@ use bcr_ebill_core::{
         BillSellStatus, BillState, BillStatus, PaidData, PaymentState,
     },
     protocol::{
-        Address, BitcoinAddress, City, Country, Date, Name, Sum, Timestamp,
+        Address, City, Country, Date, Name, Sum, Timestamp,
         blockchain::bill::{
             BillBlock,
             block::{
@@ -44,7 +44,6 @@ use bcr_ebill_core::{
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
 use service::BillService;
-use std::str::FromStr;
 use std::{collections::HashMap, sync::Arc};
 
 pub struct MockBillContext {
@@ -203,18 +202,6 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
                 confirmations: 7,
                 tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c".into(),
             }))
-        });
-    bitcoin_client
-        .expect_get_combined_private_descriptor()
-        .returning(|_, _| {
-            Ok(String::from(
-                "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4",
-            ))
-        });
-    bitcoin_client
-        .expect_get_address_to_pay()
-        .returning(|_, _| {
-            Ok(BitcoinAddress::from_str("tb1qssh7nk78mm35h75dg4th77zqz4qk3eay68krf9").unwrap())
         });
     ctx.nostr_contact_store
         .expect_by_node_id()

@@ -2,6 +2,7 @@ use secp256k1::{PublicKey, SecretKey};
 use thiserror::Error;
 
 mod bcrkeys;
+pub mod btc;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub use bcrkeys::BcrKeys;
@@ -25,6 +26,18 @@ pub enum Error {
     /// Errors stemming from parsing the recovery id
     #[error("Parse recovery id error: {0}")]
     ParseRecoveryId(#[from] std::num::ParseIntError),
+
+    /// all errors originating from dealing with bitcoin descriptors
+    #[error("Bitcoin Descriptor error: {0}")]
+    BtcDescriptor(String),
+
+    /// all errors originating from dealing with bitcoin addresses
+    #[error("Bitcoin Address error: {0}")]
+    BtcAddress(String),
+
+    /// all errors originating from dealing with tweaks
+    #[error("External Bitcoin Tweak error: {0}")]
+    Tweak(String),
 
     #[error("Mnemonic seed phrase error {0}")]
     Mnemonic(#[from] bip39::Error),

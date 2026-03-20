@@ -81,6 +81,7 @@ pub struct RecoursePaymentInfo {
     pub recourser: BillParticipantBlockData, // recourser can be anon
     pub recoursee: BillIdentParticipantBlockData, // recoursee has to be identified
     pub sum: Sum,
+    pub payment_address: BitcoinAddress,
     pub reason: BillRecourseReasonBlockData,
     pub block_id: BlockId,
     pub recourse_deadline_timestamp: Timestamp,

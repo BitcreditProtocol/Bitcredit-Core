@@ -9,6 +9,9 @@
 * Add endpoints to get `mempool_link` and `link_to_pay` to general API
 * Fix a bug where contingent balance was calculated wrongly, for a `payee` that was not endorsee anymore
 * Use taproot Addresses
+* Use and validate unique payment addresses per payment request (breaking Bills on a protocol level)
+* Changed `get_combined_bitcoin_key_for_bill` to `get_combined_bitcoin_keys_for_bill`, returning all bitcoin keys for payments within this bill for the caller
+* Update local dev defaults for relay
 
 # 0.5.4
 

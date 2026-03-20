@@ -55,7 +55,7 @@ import * as wasm from '../pkg/bcr_ebill_wasm.js';
 async function start() {
     let config = {
         bitcoin_network: "testnet",
-        nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+        nostr_relays: ["wss://relay.wildcat0.clowder-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         job_runner_initial_delay_seconds: 1,
         job_runner_check_interval_seconds: 60,
@@ -266,7 +266,7 @@ import * as wasm from '@bitcredit/bcr-ebill-wasm';
 async function start() {
     let config = {
         bitcoin_network: "testnet",
-        nostr_relays: ["wss://bcr-relay-dev.minibill.tech"],
+        nostr_relays: ["wss://relay.wildcat0.clowder-dev.minibill.tech"],
         surreal_db_connection: "indxdb://default",
         job_runner_initial_delay_seconds: 1,
   job_runner_check_interval_seconds: 60,
