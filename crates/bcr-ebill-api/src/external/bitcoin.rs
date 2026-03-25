@@ -1,20 +1,35 @@
+use std::{collections::HashMap, str::FromStr};
+
 use crate::get_config;
 use async_trait::async_trait;
 use bcr_ebill_core::{
-    application::ServiceTraitBounds,
-    application::bill::{InMempoolData, PaidData, PaymentState},
-    protocol::BitcoinAddress,
-    protocol::Sum,
-    protocol::Timestamp,
+    application::{
+        ServiceTraitBounds,
+        bill::{InMempoolData, PaidData, PaymentState, SweepEstimate, SweepOption, SweepResult},
+    },
+    protocol::{BitcoinAddress, Sum, Timestamp, crypto::btc::parse_private_descriptor},
 };
-use bitcoin::Network;
+use bitcoin::{
+    Amount, Network, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid,
+    Witness,
+    absolute::LockTime,
+    consensus::encode::serialize_hex,
+    key::TapTweak,
+    sighash::{Prevouts, SighashCache},
+    taproot, transaction,
+};
 use log::debug;
 use log::warn;
-use serde::Deserialize;
+use miniscript::ToPublicKey;
+use secp256k1::{Keypair, Message, SECP256K1, SecretKey};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::alias::try_join;
 use tokio_with_wasm as tokio;
+
+pub const DUST_THRESHOLD: u64 = 546;
+pub const FEE_ESTIMATE_DEFAULT: f64 = 1.0;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, super::Error>;
@@ -29,6 +44,22 @@ pub enum Error {
     /// all errors originating from dealing with invalid data from the API
     #[error("Got invalid data from the API")]
     InvalidData(String),
+
+    /// all errors originating from dealing with bitcoin descriptors
+    #[error("External Bitcoin Descriptor error: {0}")]
+    Descriptor(String),
+
+    /// all errors originating when there are insufficient funds to sweep
+    #[error("External Bitcoin InsufficientFunds error: available: {0}, needed: {1}")]
+    InsufficientFunds(u64, u64),
+
+    /// all errors originating when addresses are not valid
+    #[error("External Bitcoin InvalidAddress error: {0}")]
+    InvalidAddress(String),
+
+    /// all errors originating from sending transactions with an amount that's below the dust amount
+    #[error("Amount would be dust: {0} sat")]
+    Dust(u64),
 }
 
 #[cfg(test)]
@@ -51,6 +82,20 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
 
     /// Generates a link to check the address on the configured mempool browser
     fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String;
+
+    /// Checks and estimates fee for sweeping the funds to the destination address
+    async fn check_and_estimate_sweep(
+        &self,
+        private_descriptor: &str,
+        destination_address: &BitcoinAddress,
+    ) -> Result<SweepEstimate>;
+
+    async fn sweep_funds(
+        &self,
+        private_descriptor: &str,
+        destination_address: &BitcoinAddress,
+        fee_sat: u64,
+    ) -> Result<SweepResult>;
 }
 
 #[derive(Clone)]
@@ -122,10 +167,17 @@ impl BitcoinClient {
         true
     }
 
-    async fn request_with_fallback<T, F>(&self, path_builder: F) -> Result<T>
+    async fn request_with_fallback<T, F, P, Fut>(
+        &self,
+        path_builder: F,
+        ctx: ReqContext,
+        parse: P,
+    ) -> Result<T>
     where
         T: DeserializeOwned,
         F: Fn(&url::Url) -> String,
+        P: Fn(reqwest::Response) -> Fut,
+        Fut: Future<Output = std::result::Result<T, reqwest::Error>>,
     {
         let mut last_error: Option<Error> = None;
 
@@ -138,7 +190,12 @@ impl BitcoinClient {
                 url
             );
 
-            match self.cl.get(&url).send().await {
+            let call = match ctx {
+                ReqContext::Get => self.cl.get(&url).send(),
+                ReqContext::Post { ref payload } => self.cl.post(&url).body(payload.clone()).send(),
+            };
+
+            match call.await {
                 Ok(response) => {
                     let status = response.status();
 
@@ -158,7 +215,10 @@ impl BitcoinClient {
                         continue;
                     }
 
-                    return response.json::<T>().await.map_err(|e| Error::Api(e).into());
+                    match response.error_for_status() {
+                        Ok(res) => return parse(res).await.map_err(|e| Error::Api(e).into()),
+                        Err(e) => return Err(Error::Api(e).into()),
+                    };
                 }
                 Err(e) => {
                     if Self::is_retryable_error(&e) && i + 1 < self.esplora_base_urls.len() {
@@ -181,15 +241,109 @@ impl BitcoinClient {
 
     async fn get_transactions(&self, address: &BitcoinAddress) -> Result<Transactions> {
         let addr_str = address.assume_checked_ref().to_string();
-        self.request_with_fallback(|base_url| {
-            self.build_api_url(base_url, &format!("/address/{addr_str}/txs"))
-        })
+        self.request_with_fallback(
+            |base_url| self.build_api_url(base_url, &format!("/address/{addr_str}/txs")),
+            ReqContext::Get,
+            |response| async move { response.json::<Transactions>().await },
+        )
         .await
     }
 
     async fn get_last_block_height(&self) -> Result<u64> {
-        self.request_with_fallback(|base_url| self.build_api_url(base_url, "/blocks/tip/height"))
-            .await
+        self.request_with_fallback(
+            |base_url| self.build_api_url(base_url, "/blocks/tip/height"),
+            ReqContext::Get,
+            |response| async move { response.json::<u64>().await },
+        )
+        .await
+    }
+
+    async fn get_fee_estimates(&self) -> Result<HashMap<String, f64>> {
+        self.request_with_fallback(
+            |base_url| self.build_api_url(base_url, "/fee-estimates"),
+            ReqContext::Get,
+            |response| async move { response.json::<HashMap<String, f64>>().await },
+        )
+        .await
+    }
+
+    async fn get_utxos(&self, address: &BitcoinAddress) -> Result<Vec<Utxo>> {
+        let addr = address.assume_checked_ref().to_string();
+        self.request_with_fallback(
+            |base_url| self.build_api_url(base_url, &format!("/address/{addr}/utxo")),
+            ReqContext::Get,
+            |response| async move { response.json::<Vec<Utxo>>().await },
+        )
+        .await
+    }
+
+    async fn get_tx(&self, txid: &Txid) -> Result<TxFull> {
+        self.request_with_fallback(
+            |base_url| self.build_api_url(base_url, &format!("/tx/{txid}")),
+            ReqContext::Get,
+            |response| async move { response.json::<TxFull>().await },
+        )
+        .await
+    }
+
+    async fn broadcast_tx(&self, tx_hex: &str) -> Result<String> {
+        self.request_with_fallback(
+            |base_url| self.build_api_url(base_url, "/tx"),
+            ReqContext::Post {
+                payload: tx_hex.to_owned(),
+            },
+            |response| async move { response.text().await },
+        )
+        .await
+    }
+
+    async fn spendable_utxos_and_amount(
+        &self,
+        private_key: &bitcoin::PrivateKey,
+        utxos: &[Utxo],
+    ) -> Result<(Vec<SpendableUtxo>, u64)> {
+        let expected_script_pubkey = ScriptBuf::new_p2tr(
+            SECP256K1,
+            private_key.public_key(SECP256K1).to_x_only_pubkey(),
+            None,
+        );
+
+        let mut spendables = Vec::with_capacity(utxos.len());
+        let mut available_funds: u64 = 0;
+
+        for u in utxos {
+            // we only count confirmed utxos
+            if !u.status.confirmed {
+                continue;
+            }
+
+            let txid = Txid::from_str(&u.txid)
+                .map_err(|e| Error::InvalidData(format!("invalid txid {}: {}", u.txid, e)))?;
+            let tx = self.get_tx(&txid).await?;
+            let vout = tx.vout.get(u.vout as usize).ok_or_else(|| {
+                Error::InvalidData(format!("missing vout {} for {}", u.vout, txid))
+            })?;
+
+            let script_pubkey = ScriptBuf::from_hex(&vout.scriptpubkey)
+                .map_err(|e| Error::InvalidData(format!("invalid scriptpubkey: {}", e)))?;
+
+            // we only count p2tr outputs that belong to our key
+            if script_pubkey != expected_script_pubkey {
+                continue;
+            }
+
+            available_funds += vout.value;
+
+            spendables.push(SpendableUtxo {
+                outpoint: OutPoint { txid, vout: u.vout },
+                prevout: TxOut {
+                    value: Amount::from_sat(vout.value),
+                    script_pubkey,
+                },
+            });
+        }
+
+        Ok((spendables, available_funds))
     }
 }
 
@@ -230,6 +384,253 @@ impl BitcoinClientApi for BitcoinClient {
     fn get_mempool_link_for_address(&self, address: &BitcoinAddress) -> String {
         self.link_url(&format!("address/{}", address.assume_checked_ref()))
     }
+
+    async fn check_and_estimate_sweep(
+        &self,
+        private_descriptor: &str,
+        destination_address: &BitcoinAddress,
+    ) -> Result<SweepEstimate> {
+        let btc_network = self.network;
+        let (_desc, private_key, source_address) =
+            parse_private_descriptor(private_descriptor, btc_network)
+                .map_err(|e| Error::Descriptor(e.to_string()))?;
+
+        if &source_address == destination_address {
+            return Err(
+                Error::InvalidAddress("Can't sweep to the same address".to_string()).into(),
+            );
+        }
+
+        if !source_address.is_valid_for_network(btc_network) {
+            return Err(
+                Error::InvalidAddress("Wrong network for source address".to_string()).into(),
+            );
+        }
+
+        if !destination_address.is_valid_for_network(btc_network) {
+            return Err(
+                Error::InvalidAddress("Wrong network for destination address".to_string()).into(),
+            );
+        }
+
+        // sum up available funds
+        let utxos = self.get_utxos(source_address.as_unchecked()).await?;
+        let (spendable_utxos, available_funds) = self
+            .spendable_utxos_and_amount(&private_key, &utxos)
+            .await?;
+
+        // funds already sweeped, or were never there
+        if available_funds == 0 {
+            return Ok(SweepEstimate {
+                available_funds: 0,
+                economy: SweepOption {
+                    fee_rate_sat_vb: 0.0,
+                    fee_sat: 0,
+                    amount_to_sweep_sat: 0,
+                },
+                fast: SweepOption {
+                    fee_rate_sat_vb: 0.0,
+                    fee_sat: 0,
+                    amount_to_sweep_sat: 0,
+                },
+            });
+        }
+
+        let mut draft_tx_for_estimation = build_unsigned_sweep_tx(
+            &spendable_utxos,
+            destination_address.assume_checked_ref(),
+            available_funds,
+        );
+
+        // Add dummy witnesses for vsize estimation
+        let mut dummy_witness = Witness::new();
+        dummy_witness.push(vec![0u8; 64]);
+        for input in draft_tx_for_estimation.input.iter_mut() {
+            input.witness = dummy_witness.clone();
+        }
+        let vsize_estimate = draft_tx_for_estimation.vsize();
+
+        let fee_estimates = self.get_fee_estimates().await?;
+        // If we don't get a proper value for the fee, we use a default
+        let (economic_fee_estimate, fast_fee_estimate) = (
+            // for 6 blocks
+            fee_estimates.get("6").unwrap_or_else(|| {
+                log::warn!("Couldn't get fee estimate for 6 blocks - defaulting to 1.0");
+                &FEE_ESTIMATE_DEFAULT
+            }),
+            // for 1 block
+            fee_estimates.get("1").unwrap_or_else(|| {
+                log::warn!("Couldn't get fee estimate for 1 block - defaulting to 1.0");
+                &FEE_ESTIMATE_DEFAULT
+            }),
+        );
+
+        let economy = create_sweep_option(available_funds, *economic_fee_estimate, vsize_estimate)?;
+        let fast = create_sweep_option(available_funds, *fast_fee_estimate, vsize_estimate)?;
+
+        Ok(SweepEstimate {
+            available_funds,
+            economy,
+            fast,
+        })
+    }
+
+    async fn sweep_funds(
+        &self,
+        private_descriptor: &str,
+        destination_address: &BitcoinAddress,
+        fee_sat: u64,
+    ) -> Result<SweepResult> {
+        let btc_network = self.network;
+        let (_desc, private_key, source_address) =
+            parse_private_descriptor(private_descriptor, btc_network)
+                .map_err(|e| Error::Descriptor(e.to_string()))?;
+
+        if &source_address == destination_address {
+            return Err(
+                Error::InvalidAddress("Can't sweep to the same address".to_string()).into(),
+            );
+        }
+
+        if !source_address.is_valid_for_network(btc_network) {
+            return Err(
+                Error::InvalidAddress("Wrong network for source address".to_string()).into(),
+            );
+        }
+
+        if !destination_address.is_valid_for_network(btc_network) {
+            return Err(
+                Error::InvalidAddress("Wrong network for destination address".to_string()).into(),
+            );
+        }
+
+        let utxos = self.get_utxos(source_address.as_unchecked()).await?;
+        let (spendable_utxos, available_funds) = self
+            .spendable_utxos_and_amount(&private_key, &utxos)
+            .await?;
+
+        // do checks for amount
+        if available_funds == 0 {
+            return Err(Error::InsufficientFunds(available_funds, 0).into());
+        }
+
+        let sweep_amount = available_funds
+            .checked_sub(fee_sat)
+            .ok_or(Error::InsufficientFunds(available_funds, fee_sat))?;
+
+        if sweep_amount < DUST_THRESHOLD {
+            return Err(Error::Dust(sweep_amount).into());
+        }
+
+        // create tx, collect prevouts and sign inputs
+        let mut tx = build_unsigned_sweep_tx(
+            &spendable_utxos,
+            destination_address.assume_checked_ref(),
+            sweep_amount,
+        );
+
+        let prevouts_vec: Vec<TxOut> = spendable_utxos.iter().map(|u| u.prevout.clone()).collect();
+        let prevouts = Prevouts::All(&prevouts_vec);
+
+        for i in 0..tx.input.len() {
+            sign_p2tr_keypath_input(&mut tx, i, &prevouts, &private_key.inner)?;
+        }
+
+        // broadcast tx
+        let tx_id = self.broadcast_tx(&serialize_hex(&tx)).await?;
+        let link = self.link_url(&format!("tx/{}", &tx_id));
+
+        Ok(SweepResult {
+            tx_id,
+            link_to_tx: link,
+            fee_sat,
+            sweep_amount,
+        })
+    }
+}
+
+fn sign_p2tr_keypath_input(
+    tx: &mut Transaction,
+    input_idx: usize,
+    prevouts: &Prevouts<'_, TxOut>,
+    secret_key: &SecretKey,
+) -> Result<()> {
+    let keypair = Keypair::from_secret_key(SECP256K1, secret_key);
+    let tweaked_keypair = keypair.tap_tweak(SECP256K1, None);
+
+    let sighash = SighashCache::new(&mut *tx)
+        .taproot_key_spend_signature_hash(input_idx, prevouts, TapSighashType::Default)
+        .map_err(|e| Error::InvalidData(format!("taproot sighash computation failed: {e}")))?;
+
+    let msg = Message::from_digest_slice(sighash.as_ref()).map_err(|e| {
+        Error::InvalidData(format!(
+            "invalid sighash message for schnorr signature: {e}"
+        ))
+    })?;
+    let sig = SECP256K1.sign_schnorr(&msg, &tweaked_keypair.to_keypair());
+
+    let mut witness = Witness::new();
+    witness.push(
+        taproot::Signature {
+            signature: sig,
+            sighash_type: TapSighashType::Default,
+        }
+        .to_vec(),
+    );
+    tx.input[input_idx].witness = witness;
+
+    Ok(())
+}
+
+/// builds an unsigned tx for the given spendable utxos
+fn build_unsigned_sweep_tx(
+    utxos: &[SpendableUtxo],
+    destination: &bitcoin::Address,
+    output_sat: u64,
+) -> Transaction {
+    let input = utxos
+        .iter()
+        .map(|u| TxIn {
+            previous_output: u.outpoint,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        })
+        .collect();
+
+    let output = vec![TxOut {
+        value: Amount::from_sat(output_sat),
+        script_pubkey: destination.script_pubkey(),
+    }];
+
+    Transaction {
+        version: transaction::Version::TWO,
+        lock_time: LockTime::ZERO,
+        input,
+        output,
+    }
+}
+
+fn create_sweep_option(
+    available_funds_sat: u64,
+    fee_rate_sat_vb: f64,
+    estimated_vsize: usize,
+) -> Result<SweepOption> {
+    let fee_sat = (fee_rate_sat_vb * estimated_vsize as f64).ceil() as u64;
+
+    let amount_to_sweep_sat = available_funds_sat
+        .checked_sub(fee_sat)
+        .ok_or(Error::InsufficientFunds(available_funds_sat, fee_sat))?;
+
+    if amount_to_sweep_sat < DUST_THRESHOLD {
+        return Err(Error::Dust(amount_to_sweep_sat).into());
+    }
+
+    Ok(SweepOption {
+        fee_rate_sat_vb,
+        fee_sat,
+        amount_to_sweep_sat,
+    })
 }
 
 fn payment_state_from_transactions(
@@ -319,6 +720,12 @@ fn payment_state_from_transactions(
     }
 }
 
+#[derive(Serialize, Debug, Clone)]
+enum ReqContext {
+    Get,
+    Post { payload: String },
+}
+
 /// Fields documented at https://github.com/Blockstream/esplora/blob/master/API.md#addresses
 #[derive(Deserialize, Debug, Clone)]
 pub struct AddressInfo {
@@ -360,15 +767,48 @@ pub struct Status {
     pub confirmed: bool,
 }
 
+#[derive(Debug, Clone)]
+struct SpendableUtxo {
+    outpoint: OutPoint,
+    prevout: TxOut,
+}
+
+#[derive(Debug, Deserialize)]
+struct Utxo {
+    txid: String,
+    vout: u32,
+    status: UtxoStatus,
+}
+
+#[derive(Debug, Deserialize)]
+struct UtxoStatus {
+    confirmed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct TxFull {
+    vout: Vec<TxVout>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TxVout {
+    value: u64,
+    scriptpubkey: String,
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::{BitcoinClient, Error, Result, Status, Tx, Vout, payment_state_from_transactions};
-    use crate::tests::tests::init_test_cfg;
+    use crate::{
+        external::bitcoin::{BitcoinClientApi, ReqContext},
+        tests::tests::init_test_cfg,
+    };
     use std::str::FromStr;
 
     use bcr_ebill_core::{application::bill::PaymentState, protocol::BitcoinAddress};
     use bitcoin::Network;
     use mockito;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_fallback_on_server_error() {
@@ -399,7 +839,11 @@ pub mod tests {
         );
 
         let result: Result<u64> = client
-            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .request_with_fallback(
+                |base_url| client.build_api_url(base_url, "/blocks/tip/height"),
+                ReqContext::Get,
+                |response| async move { response.json::<u64>().await },
+            )
             .await;
 
         assert!(result.is_ok());
@@ -431,7 +875,11 @@ pub mod tests {
         );
 
         let result: Result<u64> = client
-            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .request_with_fallback(
+                |base_url| client.build_api_url(base_url, "/blocks/tip/height"),
+                ReqContext::Get,
+                |response| async move { response.json::<u64>().await },
+            )
             .await;
 
         assert!(result.is_ok());
@@ -468,7 +916,11 @@ pub mod tests {
         );
 
         let result: Result<u64> = client
-            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .request_with_fallback(
+                |base_url| client.build_api_url(base_url, "/blocks/tip/height"),
+                ReqContext::Get,
+                |response| async move { response.json::<u64>().await },
+            )
             .await;
 
         assert!(result.is_err());
@@ -507,7 +959,11 @@ pub mod tests {
         );
 
         let result: Result<u64> = client
-            .request_with_fallback(|base_url| client.build_api_url(base_url, "/blocks/tip/height"))
+            .request_with_fallback(
+                |base_url| client.build_api_url(base_url, "/blocks/tip/height"),
+                ReqContext::Get,
+                |response| async move { response.json::<u64>().await },
+            )
             .await;
 
         assert!(result.is_ok());
@@ -548,9 +1004,11 @@ pub mod tests {
             );
 
             let result: Result<u64> = client
-                .request_with_fallback(|base_url| {
-                    client.build_api_url(base_url, "/blocks/tip/height")
-                })
+                .request_with_fallback(
+                    |base_url| client.build_api_url(base_url, "/blocks/tip/height"),
+                    ReqContext::Get,
+                    |response| async move { response.json::<u64>().await },
+                )
                 .await;
 
             assert!(result.is_ok());
@@ -592,9 +1050,11 @@ pub mod tests {
             );
 
             let result: Result<u64> = client
-                .request_with_fallback(|base_url| {
-                    client.build_api_url(base_url, "/blocks/tip/height")
-                })
+                .request_with_fallback(
+                    |base_url| client.build_api_url(base_url, "/blocks/tip/height"),
+                    ReqContext::Get,
+                    |response| async move { response.json::<u64>().await },
+                )
                 .await;
 
             assert!(result.is_ok());
@@ -687,5 +1147,151 @@ pub mod tests {
             test_amount,
         );
         assert!(matches!(res_not_filled, Ok(PaymentState::NotFound)));
+    }
+
+    #[test]
+    fn test_check_and_estimate() {
+        let rt = ::tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut server1 = mockito::Server::new_async().await;
+            let utxo_json = json!([{
+                "txid": "fa45e99db4d139383a0d11687ae11c16e9b56633875b6f5d1f12dc80158d45d3",
+                "vout": 0,
+                "value": 1000,
+                "status": {
+                    "confirmed": true
+                }
+            }]);
+
+            let m1 = server1
+                .mock("GET", "/testnet/api/address/tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k/utxo")
+                .with_status(200)
+                .with_body(utxo_json.to_string())
+                .expect(1)
+                .create_async()
+                .await;
+
+            let tx_json = json!({
+                "txid": "fa45e99db4d139383a0d11687ae11c16e9b56633875b6f5d1f12dc80158d45d3",
+                "vout": [{
+                    "value": 1000,
+                    "scriptpubkey": "512029ee822ff9c61710093b694134be807c41f7c546605a82d82e4a57992965a2cf",
+                    "scriptpubkey_address": "tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k",
+                }],
+            });
+
+            let m2 = server1
+                .mock("GET", "/testnet/api/tx/fa45e99db4d139383a0d11687ae11c16e9b56633875b6f5d1f12dc80158d45d3")
+                .with_status(200)
+                .with_body(tx_json.to_string())
+                .expect(1)
+                .create_async()
+                .await;
+
+            let fee_json = json!({
+                "1": 2.0,
+                "6": 1.0,
+            });
+
+            let m3 = server1
+                .mock("GET", "/testnet/api/fee-estimates")
+                .with_status(200)
+                .with_body(fee_json.to_string())
+                .expect(1)
+                .create_async()
+                .await;
+
+            let client = BitcoinClient::with_urls(
+                vec![url::Url::parse(&server1.url()).unwrap()],
+                Network::Testnet,
+            );
+
+            let estimate = client
+                .check_and_estimate_sweep(
+                    "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4",
+                    &BitcoinAddress::from_str("tb1qlzxh9zqzc0cfurkwjnua0ar0schh35f3836ngm")
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(estimate.available_funds, 1000);
+            assert_eq!(estimate.economy.fee_sat, 99);
+            assert_eq!(estimate.fast.fee_sat, 198);
+
+            m1.assert_async().await;
+            m2.assert_async().await;
+            m3.assert_async().await;
+        });
+    }
+
+    #[test]
+    fn test_sweep_funds() {
+        let rt = ::tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut server1 = mockito::Server::new_async().await;
+            let utxo_json = json!([{
+                "txid": "fa45e99db4d139383a0d11687ae11c16e9b56633875b6f5d1f12dc80158d45d3",
+                "vout": 0,
+                "value": 1000,
+                "status": {
+                    "confirmed": true
+                }
+            }]);
+
+            let m1 = server1
+                .mock("GET", "/testnet/api/address/tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k/utxo")
+                .with_status(200)
+                .with_body(utxo_json.to_string())
+                .expect(1)
+                .create_async()
+                .await;
+
+            let tx_json = json!({
+                "txid": "fa45e99db4d139383a0d11687ae11c16e9b56633875b6f5d1f12dc80158d45d3",
+                "vout": [{
+                    "value": 1000,
+                    "scriptpubkey": "512029ee822ff9c61710093b694134be807c41f7c546605a82d82e4a57992965a2cf",
+                    "scriptpubkey_address": "tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k",
+                }],
+            });
+
+            let m2 = server1
+                .mock("GET", "/testnet/api/tx/fa45e99db4d139383a0d11687ae11c16e9b56633875b6f5d1f12dc80158d45d3")
+                .with_status(200)
+                .with_body(tx_json.to_string())
+                .expect(1)
+                .create_async()
+                .await;
+
+            let m3 = server1
+                .mock("POST", "/testnet/api/tx")
+                .with_status(200)
+                .with_body("e0f209093038991a03abb19d382f1ee89d21aae87ff1f24e0e71b1c1c0cabd4f")
+                .expect(1)
+                .create_async()
+                .await;
+
+            let client = BitcoinClient::with_urls(
+                vec![url::Url::parse(&server1.url()).unwrap()],
+                Network::Testnet,
+            );
+
+            let res = client
+                .sweep_funds(
+                    "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4",
+                    &BitcoinAddress::from_str("tb1qlzxh9zqzc0cfurkwjnua0ar0schh35f3836ngm")
+                        .unwrap(),
+                        50
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.tx_id, "e0f209093038991a03abb19d382f1ee89d21aae87ff1f24e0e71b1c1c0cabd4f");
+            assert_eq!(res.fee_sat, 50);
+            assert_eq!(res.sweep_amount, 950);
+
+            m1.assert_async().await;
+            m2.assert_async().await;
+            m3.assert_async().await;
+        });
     }
 }

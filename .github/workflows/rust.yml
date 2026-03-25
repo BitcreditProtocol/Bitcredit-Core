@@ -87,7 +87,8 @@ jobs:
 
       - name: Install wasm-pack
         run: |
-          curl https://drager.github.io/wasm-pack/installer/init.sh -sSf | bash
+          cd scripts
+          bash install-wasm-pack.sh
 
       - name: Build WASM version
         run: |

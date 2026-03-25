@@ -10,7 +10,7 @@ use bcr_ebill_core::{
             BillWaitingForRecourseState, BillWaitingForSellState, BillWaitingStatePaymentData,
             BillsFilterRole, BitcreditBillResult, Endorsement, LightBitcreditBillResult,
             LightSignedBy, PastPaymentDataPayment, PastPaymentDataRecourse, PastPaymentDataSell,
-            PastPaymentResult,
+            PastPaymentResult, SweepEstimate, SweepOption, SweepResult,
         },
         contact::{
             LightBillAnonParticipant, LightBillIdentParticipant,
@@ -152,6 +152,85 @@ pub struct BillCombinedBitcoinKeyWeb {
     pub signing_timestamp: Timestamp,
     pub payment_op: BillOpCodeWeb,
     pub private_descriptor: String,
+}
+
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct BillCheckSweepBTCFundsPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub source_address: BitcoinAddress,
+    #[tsify(type = "string")]
+    pub destination_address: BitcoinAddress,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillSweepBTCEstimateWeb {
+    pub available_funds: u64,
+    pub economy: BillSweepBTCOptionWeb,
+    pub fast: BillSweepBTCOptionWeb,
+}
+
+impl From<SweepEstimate> for BillSweepBTCEstimateWeb {
+    fn from(val: SweepEstimate) -> Self {
+        Self {
+            available_funds: val.available_funds,
+            economy: val.economy.into(),
+            fast: val.fast.into(),
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillSweepBTCOptionWeb {
+    pub fee_rate_sat_vb: f64,
+    pub fee_sat: u64,
+    pub amount_to_sweep_sat: u64,
+}
+
+impl From<SweepOption> for BillSweepBTCOptionWeb {
+    fn from(val: SweepOption) -> Self {
+        Self {
+            fee_rate_sat_vb: val.fee_rate_sat_vb,
+            fee_sat: val.fee_sat,
+            amount_to_sweep_sat: val.amount_to_sweep_sat,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct BillSweepBTCFundsPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub source_address: BitcoinAddress,
+    #[tsify(type = "string")]
+    pub destination_address: BitcoinAddress,
+    pub fee: u64,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct BillSweepBTCFundsResultWeb {
+    pub tx_id: String,
+    pub link_to_tx: String,
+    pub fee_sat: u64,
+    pub sweep_amount: u64,
+}
+
+impl From<SweepResult> for BillSweepBTCFundsResultWeb {
+    fn from(val: SweepResult) -> Self {
+        Self {
+            tx_id: val.tx_id,
+            link_to_tx: val.link_to_tx,
+            fee_sat: val.fee_sat,
+            sweep_amount: val.sweep_amount,
+        }
+    }
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]

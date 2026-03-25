@@ -618,3 +618,26 @@ pub struct PaidData {
 pub struct InMempoolData {
     pub tx_id: String,
 }
+
+// Sweeping of funds
+#[derive(Debug, Clone)]
+pub struct SweepOption {
+    pub fee_rate_sat_vb: f64,
+    pub fee_sat: u64,
+    pub amount_to_sweep_sat: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SweepResult {
+    pub tx_id: String,
+    pub link_to_tx: String,
+    pub fee_sat: u64,
+    pub sweep_amount: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SweepEstimate {
+    pub available_funds: u64,
+    pub economy: SweepOption,
+    pub fast: SweepOption,
+}

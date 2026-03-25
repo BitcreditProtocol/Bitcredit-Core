@@ -3,6 +3,7 @@ use crate::protocol::{
     BitcoinAddress, BlockId, PublicKey, Sha256Hash, blockchain::bill::BillOpCode,
 };
 use bitcoin::secp256k1::Scalar;
+use secp256k1::SECP256K1;
 
 /// Get p2tr address for the given keys
 pub fn get_address_to_pay(
@@ -59,6 +60,45 @@ pub fn get_combined_private_descriptor(
     let desc = miniscript::Descriptor::new_tr(desc_pubkey, None)
         .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
     Ok(desc.to_string_with_secret(&kmap))
+}
+
+/// Parses a given string combined private descriptor to a descriptor, pub key and bitcoin address
+pub fn parse_private_descriptor(
+    private_desc: &str,
+    network: bitcoin::Network,
+) -> Result<(
+    miniscript::Descriptor<miniscript::descriptor::DescriptorPublicKey>,
+    bitcoin::PrivateKey,
+    BitcoinAddress,
+)> {
+    let (desc, key_map) =
+        miniscript::Descriptor::<miniscript::descriptor::DescriptorPublicKey>::parse_descriptor(
+            SECP256K1,
+            private_desc,
+        )
+        .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
+
+    let internal_key = match &desc {
+        miniscript::Descriptor::Tr(tr) => tr.internal_key(),
+        _ => return Err(Error::BtcDescriptor("Not a Taproot descriptor".to_string())),
+    };
+
+    let secret_key = key_map
+        .get(internal_key)
+        .ok_or_else(|| Error::BtcDescriptor("No secret key".to_string()))?;
+
+    let privkey = match secret_key {
+        miniscript::descriptor::DescriptorSecretKey::Single(single) => single.key,
+        _ => return Err(Error::BtcDescriptor("Invalid Secret Key".to_string())),
+    };
+
+    let address = desc
+        .derived_descriptor(SECP256K1, 0)
+        .map_err(|e| Error::BtcDescriptor(e.to_string()))?
+        .address(network)
+        .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
+
+    Ok((desc, privkey, address.into_unchecked()))
 }
 
 /// Calculates the tweak for the payment address with the previous hash, the block id and a tag based on the
@@ -421,5 +461,79 @@ pub mod tests {
             &address,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn parse_private_descriptor_matches_created_descriptor_and_address() {
+        let network = Network::Testnet;
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+        let (bill_priv, holder_priv) = test_privkeys(network);
+
+        let tweak_hash =
+            Sha256Hash::new("1111111111111111111111111111111111111111111111111111111111111111");
+
+        let created_descriptor =
+            get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash, network)
+                .unwrap();
+
+        let expected_address =
+            get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let (parsed_desc, parsed_privkey, parsed_address) =
+            parse_private_descriptor(&created_descriptor, network).unwrap();
+
+        let expected_combined_key = bill_priv
+            .inner
+            .add_tweak(&Scalar::from(holder_priv.inner))
+            .unwrap();
+
+        let tweak = Scalar::from_be_bytes(tweak_hash.decode_to_array()).unwrap();
+        let expected_tweaked_key = expected_combined_key.add_tweak(&tweak).unwrap();
+        let expected_privkey = PrivateKey::new(expected_tweaked_key, network);
+
+        assert_eq!(parsed_privkey, expected_privkey);
+        assert_eq!(parsed_address, expected_address);
+
+        let reparsed_address = parsed_desc
+            .derived_descriptor(SECP256K1, 0)
+            .unwrap()
+            .address(network)
+            .unwrap();
+
+        assert_eq!(parsed_address.assume_checked(), reparsed_address);
+    }
+
+    #[test]
+    fn parse_private_descriptor_roundtrips_to_same_secret_descriptor_string() {
+        let network = Network::Testnet;
+        let (bill_priv, holder_priv) = test_privkeys(network);
+
+        let tweak_hash =
+            Sha256Hash::new("2222222222222222222222222222222222222222222222222222222222222222");
+
+        let created_descriptor =
+            get_combined_private_descriptor(&bill_priv, &holder_priv, &tweak_hash, network)
+                .unwrap();
+
+        let (parsed_desc, parsed_privkey, _) =
+            parse_private_descriptor(&created_descriptor, network).unwrap();
+
+        let single = miniscript::descriptor::SinglePriv {
+            key: parsed_privkey,
+            origin: None,
+        };
+        let desc_seckey = miniscript::descriptor::DescriptorSecretKey::Single(single);
+
+        let internal_key = match &parsed_desc {
+            miniscript::Descriptor::Tr(tr) => tr.internal_key().clone(),
+            _ => panic!("expected taproot descriptor"),
+        };
+
+        let kmap =
+            miniscript::descriptor::KeyMap::from_iter(std::iter::once((internal_key, desc_seckey)));
+
+        let roundtripped_descriptor = parsed_desc.to_string_with_secret(&kmap);
+
+        assert_eq!(roundtripped_descriptor, created_descriptor);
     }
 }

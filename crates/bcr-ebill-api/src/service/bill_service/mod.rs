@@ -3,7 +3,7 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::bill::{
     BillCombinedBitcoinKey, BillsBalanceOverview, BillsFilterRole, BitcreditBillResult,
-    Endorsement, LightBitcreditBillResult, PastPaymentResult,
+    Endorsement, LightBitcreditBillResult, PastPaymentResult, SweepEstimate, SweepResult,
 };
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
 use bcr_ebill_core::protocol::BitcoinAddress;
@@ -262,4 +262,23 @@ pub trait BillServiceApi: ServiceTraitBounds {
     fn mempool_link(&self, address: &BitcoinAddress) -> String;
 
     fn link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, bill_id: &BillId) -> String;
+
+    async fn check_and_estimate_btc_sweep(
+        &self,
+        bill_id: &BillId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
+        source_address: &BitcoinAddress,
+        destination_address: &BitcoinAddress,
+    ) -> Result<SweepEstimate>;
+
+    async fn btc_sweep(
+        &self,
+        bill_id: &BillId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
+        source_address: &BitcoinAddress,
+        destination_address: &BitcoinAddress,
+        fee: u64,
+    ) -> Result<SweepResult>;
 }

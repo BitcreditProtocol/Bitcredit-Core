@@ -16,7 +16,8 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::bill::{
     BillCombinedBitcoinKey, BillRole, BillsBalance, BillsBalanceOverview, BillsFilterRole,
-    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentResult,
+    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentResult, SweepEstimate,
+    SweepResult,
 };
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
@@ -1942,5 +1943,94 @@ impl BillServiceApi for BillService {
             sum,
             &format!("Payment in relation to a bill {}", &bill_id),
         )
+    }
+
+    async fn check_and_estimate_btc_sweep(
+        &self,
+        bill_id: &BillId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
+        source_address: &BitcoinAddress,
+        destination_address: &BitcoinAddress,
+    ) -> Result<SweepEstimate> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
+        // fetch past payments, to check if this is a valid payment
+        let past_payments = self
+            .get_past_payments(bill_id, caller_public_data, caller_keys, Timestamp::now())
+            .await?;
+        let mut descriptor = None;
+        for pp in past_payments.iter() {
+            match pp {
+                PastPaymentResult::Sell(data) => {
+                    if &data.address_to_pay == source_address {
+                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                    }
+                }
+                PastPaymentResult::Payment(data) => {
+                    if &data.address_to_pay == source_address {
+                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                    }
+                }
+                PastPaymentResult::Recourse(data) => {
+                    if &data.address_to_pay == source_address {
+                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                    }
+                }
+            };
+        }
+        let Some(desc) = descriptor else {
+            return Err(Error::Validation(ValidationError::NoPaymentForSweep));
+        };
+        let estimate = self
+            .bitcoin_client
+            .check_and_estimate_sweep(&desc, destination_address)
+            .await?;
+        Ok(estimate)
+    }
+
+    async fn btc_sweep(
+        &self,
+        bill_id: &BillId,
+        caller_public_data: &BillParticipant,
+        caller_keys: &BcrKeys,
+        source_address: &BitcoinAddress,
+        destination_address: &BitcoinAddress,
+        fee: u64,
+    ) -> Result<SweepResult> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
+        // fetch past payments, to check if this is a valid payment
+        let past_payments = self
+            .get_past_payments(bill_id, caller_public_data, caller_keys, Timestamp::now())
+            .await?;
+        let mut descriptor = None;
+        for pp in past_payments.iter() {
+            match pp {
+                PastPaymentResult::Sell(data) => {
+                    if &data.address_to_pay == source_address {
+                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                    }
+                }
+                PastPaymentResult::Payment(data) => {
+                    if &data.address_to_pay == source_address {
+                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                    }
+                }
+                PastPaymentResult::Recourse(data) => {
+                    if &data.address_to_pay == source_address {
+                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                    }
+                }
+            };
+        }
+        let Some(desc) = descriptor else {
+            return Err(Error::Validation(ValidationError::NoPaymentForSweep));
+        };
+        let res = self
+            .bitcoin_client
+            .sweep_funds(&desc, destination_address, fee)
+            .await?;
+        Ok(res)
     }
 }

@@ -137,4 +137,8 @@ pub enum ValidationError {
     /// errors that stem from trying to create, or deanonymize an identity without a confirmed email
     #[error("E-Mail has to be a confirmed email.")]
     NoConfirmedEmailForIdentIdentity,
+
+    /// errors that stem from trying to sweep to an address, but if there's no payment to sweep
+    #[error("No Payment to Sweep for address")]
+    NoPaymentForSweep,
 }
