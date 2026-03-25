@@ -46,7 +46,7 @@ impl BillService {
                     .send_request_to_accept_event(&chain_event)
                     .await?;
             }
-            BillAction::RequestToPay(_, _) => {
+            BillAction::RequestToPay(_, _, _) => {
                 self.transport_service
                     .send_request_to_pay_event(&chain_event)
                     .await?;

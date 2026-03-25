@@ -1,3 +1,11 @@
+# 0.5.7
+
+* Add Mint-specific `RequestToPay`
+    * Add endpoint `request_to_pay_as_mint`, which takes a `payment_address`
+    * Add logic for setting this custom payment address for mint-req to pays
+    * Add placeholders for validating this payment address for the mint payment
+    * Adapt past payment and check payment logic (`private_descriptor_to_spend` is now an `Option<T>`)
+
 # 0.5.6
 
 * Fix that request to pay can happen from maturity day 00:00:00 onwards

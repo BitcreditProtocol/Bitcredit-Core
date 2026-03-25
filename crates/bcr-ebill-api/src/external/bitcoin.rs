@@ -7,7 +7,10 @@ use bcr_ebill_core::{
         ServiceTraitBounds,
         bill::{InMempoolData, PaidData, PaymentState, SweepEstimate, SweepOption, SweepResult},
     },
-    protocol::{BitcoinAddress, Sum, Timestamp, crypto::btc::parse_private_descriptor},
+    protocol::{
+        BitcoinAddress, Sum, Timestamp,
+        crypto::btc::{BtcDescriptor, parse_private_descriptor},
+    },
 };
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid,
@@ -86,13 +89,13 @@ pub trait BitcoinClientApi: ServiceTraitBounds {
     /// Checks and estimates fee for sweeping the funds to the destination address
     async fn check_and_estimate_sweep(
         &self,
-        private_descriptor: &str,
+        private_descriptor: &BtcDescriptor,
         destination_address: &BitcoinAddress,
     ) -> Result<SweepEstimate>;
 
     async fn sweep_funds(
         &self,
-        private_descriptor: &str,
+        private_descriptor: &BtcDescriptor,
         destination_address: &BitcoinAddress,
         fee_sat: u64,
     ) -> Result<SweepResult>;
@@ -387,7 +390,7 @@ impl BitcoinClientApi for BitcoinClient {
 
     async fn check_and_estimate_sweep(
         &self,
-        private_descriptor: &str,
+        private_descriptor: &BtcDescriptor,
         destination_address: &BitcoinAddress,
     ) -> Result<SweepEstimate> {
         let btc_network = self.network;
@@ -477,7 +480,7 @@ impl BitcoinClientApi for BitcoinClient {
 
     async fn sweep_funds(
         &self,
-        private_descriptor: &str,
+        private_descriptor: &BtcDescriptor,
         destination_address: &BitcoinAddress,
         fee_sat: u64,
     ) -> Result<SweepResult> {
@@ -805,7 +808,10 @@ pub mod tests {
     };
     use std::str::FromStr;
 
-    use bcr_ebill_core::{application::bill::PaymentState, protocol::BitcoinAddress};
+    use bcr_ebill_core::{
+        application::bill::PaymentState,
+        protocol::{BitcoinAddress, crypto::btc::BtcDescriptor},
+    };
     use bitcoin::Network;
     use mockito;
     use serde_json::json;
@@ -1208,7 +1214,7 @@ pub mod tests {
 
             let estimate = client
                 .check_and_estimate_sweep(
-                    "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4",
+                    &BtcDescriptor::new("tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4").unwrap(),
                     &BitcoinAddress::from_str("tb1qlzxh9zqzc0cfurkwjnua0ar0schh35f3836ngm")
                         .unwrap(),
                 )
@@ -1278,7 +1284,7 @@ pub mod tests {
 
             let res = client
                 .sweep_funds(
-                    "tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4",
+                    &BtcDescriptor::new("tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4").unwrap(),
                     &BitcoinAddress::from_str("tb1qlzxh9zqzc0cfurkwjnua0ar0schh35f3836ngm")
                         .unwrap(),
                         50

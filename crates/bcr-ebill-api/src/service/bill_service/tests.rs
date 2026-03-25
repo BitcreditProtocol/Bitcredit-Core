@@ -2599,7 +2599,11 @@ async fn request_pay_baseline() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)),
+            BillAction::RequestToPay(
+                Currency::sat(),
+                safe_deadline_ts(PAYMENT_DEADLINE_SECONDS),
+                None,
+            ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),
@@ -2639,7 +2643,11 @@ async fn request_pay_anon_baseline() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)),
+            BillAction::RequestToPay(
+                Currency::sat(),
+                safe_deadline_ts(PAYMENT_DEADLINE_SECONDS),
+                None,
+            ),
             &BillParticipant::Anon(BillAnonParticipant::new(identity.identity.clone())),
             &identity.key_pair,
             test_ts(),
@@ -2667,7 +2675,11 @@ async fn request_pay_fails_if_payee_not_caller() {
     let res = service
         .execute_bill_action(
             &bill_id_test(),
-            BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS)),
+            BillAction::RequestToPay(
+                Currency::sat(),
+                safe_deadline_ts(PAYMENT_DEADLINE_SECONDS),
+                None,
+            ),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
             test_ts(),

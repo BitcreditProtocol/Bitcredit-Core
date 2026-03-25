@@ -1496,6 +1496,7 @@ impl BillBlock {
                     Some(BillAction::RequestToPay(
                         data.payment_data.sum.currency().to_owned(),
                         data.payment_data.payment_deadline,
+                        None,
                     )),
                     data.signer_identity_proof,
                 )
@@ -2340,7 +2341,7 @@ pub mod tests {
         );
         assert!(matches!(
             req_to_pay_result.as_ref().unwrap().1,
-            Some(BillAction::RequestToPay(_, _))
+            Some(BillAction::RequestToPay(_, _, _))
         ));
         assert!(req_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 
@@ -2790,7 +2791,7 @@ pub mod tests {
         );
         assert!(matches!(
             req_to_pay_result.as_ref().unwrap().1,
-            Some(BillAction::RequestToPay(_, _))
+            Some(BillAction::RequestToPay(_, _, _))
         ));
         assert!(req_to_pay_block.validate_plaintext_hash(&bill_keys.get_private_key()));
 

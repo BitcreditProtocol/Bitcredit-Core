@@ -13,7 +13,10 @@ use crate::protocol::{
     },
     crypto::{
         BcrKeys,
-        btc::{calculate_tweak_hash_for_payment_request, get_combined_private_descriptor},
+        btc::{
+            BtcDescriptor, calculate_tweak_hash_for_payment_request,
+            get_combined_private_descriptor,
+        },
     },
 };
 use crate::{application::contact::LightBillSignatory, protocol::BlockId};
@@ -98,7 +101,7 @@ pub struct BillCallerPaymentState {
     pub in_mempool: bool,
     pub confirmations: u64,
     // only set if we're receiver
-    pub private_descriptor_to_spend: Option<String>,
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
 }
 
 #[repr(u8)]
@@ -489,7 +492,7 @@ pub struct BillCombinedBitcoinKey {
     pub block_id: BlockId,
     pub signing_timestamp: Timestamp,
     pub payment_op: BillOpCode,
-    pub private_descriptor: String,
+    pub private_descriptor: BtcDescriptor,
 }
 
 impl BillCombinedBitcoinKey {
@@ -570,7 +573,7 @@ pub struct PastPaymentDataSell {
     pub seller: BillParticipant,
     pub sum: Sum,
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: String,
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
@@ -582,7 +585,7 @@ pub struct PastPaymentDataPayment {
     pub payee: BillParticipant,
     pub sum: Sum,
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: String,
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }
@@ -594,7 +597,7 @@ pub struct PastPaymentDataRecourse {
     pub recoursee: BillIdentParticipant,
     pub sum: Sum,
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: String,
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatus,
     pub payment_deadline: Timestamp,
 }

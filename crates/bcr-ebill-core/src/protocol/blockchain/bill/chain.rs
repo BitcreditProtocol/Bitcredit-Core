@@ -17,7 +17,7 @@ use crate::protocol::blockchain::bill::{BillHistory, BillHistoryBlock, PaymentSt
 use crate::protocol::blockchain::{Block, Blockchain, Error, borsh_to_json_value};
 use crate::protocol::crypto::BcrKeys;
 use crate::protocol::crypto::btc::{
-    calculate_tweak_hash_for_payment_request, get_combined_private_descriptor,
+    BtcDescriptor, calculate_tweak_hash_for_payment_request, get_combined_private_descriptor,
 };
 use crate::protocol::{BitcoinAddress, Sha256Hash};
 use bcr_common::core::NodeId;
@@ -358,7 +358,7 @@ impl BillBlockchain {
         btc_network: bitcoin::Network,
         node_id: &NodeId,
         timestamp: Timestamp,
-    ) -> Result<Vec<(SellPaymentInfo, PaymentStatus, Timestamp, String)>> {
+    ) -> Result<Vec<(SellPaymentInfo, PaymentStatus, Timestamp, BtcDescriptor)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut sell_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -487,7 +487,7 @@ impl BillBlockchain {
         btc_network: bitcoin::Network,
         node_id: &NodeId,
         timestamp: Timestamp,
-    ) -> Result<Vec<(RecoursePaymentInfo, PaymentStatus, Timestamp, String)>> {
+    ) -> Result<Vec<(RecoursePaymentInfo, PaymentStatus, Timestamp, BtcDescriptor)>> {
         let mut result = vec![];
         let blocks = self.blocks();
         let mut recourse_pairs: Vec<(BillBlock, Option<BillBlock>)> = vec![];
@@ -1089,6 +1089,35 @@ impl BillBlockchain {
 
         Ok(result)
     }
+
+    /// Detects if the current holder got the bill via a Mint action and if so, returns this holder
+    /// Search for the last endorsement block and if it's mint, then the holder is a mint
+    pub fn holder_is_mint(&self, bill_keys: &BcrKeys) -> Result<Option<BillParticipant>> {
+        match self.get_last_version_block_with_op_code(BillOpCode::Mint) {
+            Some(mint_block) => {
+                let mint_block_id = mint_block.id();
+                // got a mint block - make sure there's no endorsement block afterwards
+                for block in self.blocks.iter().rev() {
+                    if block.id() <= mint_block_id {
+                        // we hit our block - eject
+                        break;
+                    } else {
+                        // if there's an endorse block after the mint block, the holder is not holder by mint
+                        if matches!(
+                            block.op_code(),
+                            BillOpCode::Endorse | BillOpCode::Sell | BillOpCode::Recourse
+                        ) {
+                            return Ok(None);
+                        }
+                    }
+                }
+                // mint block is the last endorsement block
+                let block_data: BillMintBlockData = mint_block.get_decrypted_block(bill_keys)?;
+                Ok(Some(block_data.endorsee.into()))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1551,5 +1580,77 @@ mod tests {
                     .unwrap()
             )
         )
+    }
+
+    #[test]
+    fn test_holder_is_mint() {
+        let bill = empty_bitcredit_bill();
+        let bill_id = bill.id.clone();
+        let bill_keys = get_bill_keys();
+        let identity = get_baseline_identity();
+        let mut chain = BillBlockchain::new(
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
+            identity.1.clone(),
+            None,
+            BcrKeys::from_private_key(&bill_keys.get_private_key()),
+            test_ts(),
+        )
+        .unwrap();
+        let signer = bill_identified_participant_only_node_id(NodeId::new(
+            identity.1.pub_key(),
+            bitcoin::Network::Testnet,
+        ));
+        let other_party = bill_identified_participant_only_node_id(NodeId::new(
+            BcrKeys::new().pub_key(),
+            bitcoin::Network::Testnet,
+        ));
+
+        let mint = BillBlock::create_block_for_mint(
+            bill_id.clone(),
+            chain.get_latest_block(),
+            &BillMintBlockData {
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipant::Ident(other_party.clone()).into(),
+                sum: Sum::new_sat(5000).expect("sat works"),
+                signatory: None,
+                signing_timestamp: test_ts() + 1,
+                signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+            },
+            &identity.1,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.get_private_key()),
+            test_ts() + 1,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(mint.clone()));
+
+        let him = chain.holder_is_mint(&bill_keys).expect("call works");
+        // mint last endorse block
+        assert_eq!(him.map(|h| h.node_id()), Some(other_party.node_id.clone()));
+
+        let endorse = BillBlock::create_block_for_endorse(
+            bill_id.clone(),
+            chain.get_latest_block(),
+            &BillEndorseBlockData {
+                endorser: BillParticipant::Ident(other_party.clone()).into(),
+                endorsee: BillParticipant::Ident(signer.clone()).into(),
+                signatory: None,
+
+                signing_timestamp: test_ts() + 2,
+                signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+            },
+            &identity.1,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.get_private_key()),
+            test_ts() + 2,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(endorse.clone()));
+
+        let him = chain.holder_is_mint(&bill_keys).expect("call works");
+        // endorse block after mint
+        assert!(him.is_none());
     }
 }

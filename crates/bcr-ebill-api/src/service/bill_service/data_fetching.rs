@@ -769,7 +769,7 @@ impl BillService {
                             tx_id: None,
                             in_mempool: false,
                             confirmations: 0,
-                            private_descriptor_to_spend: Some(data.private_descriptor_to_spend),
+                            private_descriptor_to_spend: data.private_descriptor_to_spend,
                         },
                     })
                 }
@@ -786,7 +786,7 @@ impl BillService {
                             tx_id: None,
                             in_mempool: false,
                             confirmations: 0,
-                            private_descriptor_to_spend: Some(data.private_descriptor_to_spend),
+                            private_descriptor_to_spend: data.private_descriptor_to_spend,
                         },
                     })
                 }
@@ -803,7 +803,7 @@ impl BillService {
                             tx_id: None,
                             in_mempool: false,
                             confirmations: 0,
-                            private_descriptor_to_spend: Some(data.private_descriptor_to_spend),
+                            private_descriptor_to_spend: data.private_descriptor_to_spend,
                         },
                     })
                 }
@@ -956,20 +956,27 @@ impl BillService {
             let is_rejected = chain.block_with_operation_code_exists(BillOpCode::RejectToPay);
 
             if is_paid || is_rejected || is_expired {
-                // calculate tweak
-                let tweak = calculate_tweak_hash_for_payment_request(
-                    req_to_pay.op_code().to_owned(),
-                    &req_to_pay.id(),
-                    req_to_pay.previous_hash(),
-                )
-                .map_err(|e| Error::Protocol(e.into()))?;
-                let descriptor_to_spend = get_combined_private_descriptor(
-                    &BcrKeys::from_private_key(&bill_keys.get_private_key())
-                        .get_bitcoin_private_key(btc_network),
-                    &caller_keys.get_bitcoin_private_key(btc_network),
-                    &tweak,
-                    btc_network,
-                )?;
+                let descriptor_to_spend = if let Some(_mint_holder) = chain
+                    .holder_is_mint(bill_keys)
+                    .map_err(|e| Error::Protocol(e.into()))?
+                {
+                    None
+                } else {
+                    // calculate tweak
+                    let tweak = calculate_tweak_hash_for_payment_request(
+                        req_to_pay.op_code().to_owned(),
+                        &req_to_pay.id(),
+                        req_to_pay.previous_hash(),
+                    )
+                    .map_err(|e| Error::Protocol(e.into()))?;
+                    Some(get_combined_private_descriptor(
+                        &BcrKeys::from_private_key(&bill_keys.get_private_key())
+                            .get_bitcoin_private_key(btc_network),
+                        &caller_keys.get_bitcoin_private_key(btc_network),
+                        &tweak,
+                        btc_network,
+                    )?)
+                };
 
                 result.push(PastPaymentResult::Payment(PastPaymentDataPayment {
                     time_of_request: req_to_pay.timestamp,
@@ -1023,7 +1030,7 @@ impl BillService {
                 seller: past_sell_payment.0.seller,
                 sum: past_sell_payment.0.sum,
                 address_to_pay,
-                private_descriptor_to_spend: past_sell_payment.3,
+                private_descriptor_to_spend: Some(past_sell_payment.3),
                 status: past_sell_payment.1,
                 payment_deadline: past_sell_payment.0.buying_deadline_timestamp,
             }));
@@ -1046,7 +1053,7 @@ impl BillService {
                 recourser: past_recourse_payment.0.recourser.into(),
                 sum: past_recourse_payment.0.sum,
                 address_to_pay: past_recourse_payment.0.payment_address,
-                private_descriptor_to_spend: past_recourse_payment.3,
+                private_descriptor_to_spend: Some(past_recourse_payment.3),
                 status: past_recourse_payment.1,
                 payment_deadline: past_recourse_payment.0.recourse_deadline_timestamp,
             }));
