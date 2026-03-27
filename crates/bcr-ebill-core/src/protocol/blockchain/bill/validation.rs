@@ -101,7 +101,7 @@ impl Validate for BillValidateActionData {
             }
             BillOpCode::RequestToPay => {
                 // request to pay not before maturity date
-                if self.timestamp < self.maturity_date.to_timestamp().end_of_day() {
+                if self.timestamp < self.maturity_date.to_timestamp().start_of_day() {
                     return Err(ProtocolValidationError::RequestToPayBeforeMaturityDate);
                 }
                 self.bill_is_blocked()?;
@@ -1106,6 +1106,7 @@ mod tests {
     #[case::req_to_pay(BillValidateActionData { signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
     #[case::req_to_pay_after_maturity(BillValidateActionData { maturity_date: Date::new("2022-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Ok(()))]
     #[case::req_to_pay_on_maturity_at_end_of_day(BillValidateActionData { timestamp: Timestamp::new(4098211199).unwrap(), maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
+    #[case::req_to_pay_on_maturity_before_end_of_day(BillValidateActionData { timestamp: Timestamp::new(4098211198).unwrap(), maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Ok(()))]
     fn test_validate_bill_req_to_pay_valid(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ProtocolValidationError>,
@@ -1125,7 +1126,6 @@ mod tests {
     #[case::req_to_pay_not_holder(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), signer_node_id: node_id_test(), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data(),)) }, Err(ProtocolValidationError::CallerIsNotHolder))]
     #[case::req_to_pay_already_req_to_payed(BillValidateActionData { mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(add_req_to_pay_block(valid_bill_blockchain_issue( valid_bill_issue_block_data(),))) }, Err(ProtocolValidationError::BillIsRequestedToPayAndWaitingForPayment))]
     #[case::req_to_pay_before_maturity(BillValidateActionData { maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Err(ProtocolValidationError::RequestToPayBeforeMaturityDate))]
-    #[case::req_to_pay_on_maturity_before_end_of_day(BillValidateActionData { timestamp: Timestamp::new(4098211198).unwrap(), maturity_date: Date::new("2099-11-12").unwrap(), signer_node_id: node_id_test_other(), mode: BillValidationActionMode::Deep(BillAction::RequestToPay(Currency::sat(), safe_deadline_ts(PAYMENT_DEADLINE_SECONDS))), ..valid_bill_validate_action_data(valid_bill_blockchain_issue( valid_bill_issue_block_data() ,)) }, Err(ProtocolValidationError::RequestToPayBeforeMaturityDate))]
     fn test_validate_bill_req_to_pay_errors(
         #[case] input: BillValidateActionData,
         #[case] expected: Result<(), ProtocolValidationError>,

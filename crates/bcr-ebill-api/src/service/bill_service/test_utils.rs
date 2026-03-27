@@ -148,6 +148,7 @@ pub fn get_baseline_cached_bill(id: BillId) -> BitcreditBillResult {
             redeemed_funds_available: false,
             has_requested_funds: false,
             last_block_time: test_ts(),
+            is_mature: false,
         },
         state: BillState {
             mint: BillMintState::None,

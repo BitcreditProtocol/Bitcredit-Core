@@ -259,6 +259,7 @@ impl BillService {
         if has_mint_requests {
             bill_mint_state = BillMintState::Requested;
         }
+        let is_mature = current_timestamp >= bill.maturity_date.to_timestamp().start_of_day();
         let mut paid = false;
         let mut requested_to_pay = false;
         let mut rejected_to_pay = false;
@@ -853,6 +854,7 @@ impl BillService {
             redeemed_funds_available,
             has_requested_funds,
             last_block_time,
+            is_mature,
         };
 
         let participants = BillParticipants {
@@ -1059,6 +1061,14 @@ impl BillService {
         current_timestamp: Timestamp,
     ) -> Result<bool> {
         let mut invalidate_and_recalculate = false;
+
+        // if bill was not mature before, but becomes mature now - recalculate
+        if !bill.status.is_mature
+            && current_timestamp >= bill.data.maturity_date.to_timestamp().start_of_day()
+        {
+            invalidate_and_recalculate = true;
+        }
+
         let acceptance = &bill.status.acceptance;
         // if it was requested, but not "finished" (accepted, rejected, or expired), we have to
         // check if the deadline expired and recalculate
