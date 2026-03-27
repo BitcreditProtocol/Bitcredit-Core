@@ -585,6 +585,8 @@ pub struct BillStatusDb {
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
     pub last_block_time: Timestamp,
+    #[serde(default)]
+    pub is_mature: bool,
 }
 
 impl From<BillStatusDb> for BillStatus {
@@ -598,6 +600,7 @@ impl From<BillStatusDb> for BillStatus {
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
             last_block_time: value.last_block_time,
+            is_mature: value.is_mature,
         }
     }
 }
@@ -613,6 +616,7 @@ impl From<&BillStatus> for BillStatusDb {
             redeemed_funds_available: value.redeemed_funds_available,
             has_requested_funds: value.has_requested_funds,
             last_block_time: value.last_block_time,
+            is_mature: value.is_mature,
         }
     }
 }

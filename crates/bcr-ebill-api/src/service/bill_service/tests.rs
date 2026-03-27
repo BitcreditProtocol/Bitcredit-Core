@@ -828,6 +828,7 @@ async fn get_bills_baseline_from_cache() {
     chain_bill.payee =
         BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
     let mut bill = get_baseline_cached_bill(bill_id_test());
+    bill.data.maturity_date = Date::new("2099-07-01").unwrap();
     // make sure the local identity is part of the bill
     bill.participants.payee =
         BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
@@ -1124,6 +1125,7 @@ async fn get_detail_bill_baseline_from_cache() {
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_cached_bill(bill_id_test());
+    bill.data.maturity_date = Date::new("2099-07-01").unwrap();
     // make sure the local identity is part of the bill
     bill.participants.drawee = BillIdentParticipant::new(identity.identity.clone()).unwrap();
     let drawee_node_id = bill.participants.drawee.node_id.clone();
@@ -6497,6 +6499,7 @@ fn check_req_for_expiration_baseline() {
             Timestamp::new(1531593928).unwrap() + PAYMENT_DEADLINE_SECONDS,
         ),
     };
+    bill_payment.status.is_mature = true;
 
     // true, because payment deadline was several days ago
     assert!(
@@ -6518,19 +6521,39 @@ fn check_req_for_expiration_baseline() {
             .check_requests_for_expiration(&bill_payment, Timestamp::new(1431593928).unwrap())
             .unwrap()
     );
-    bill_payment.data.maturity_date = Date::new("2018-07-15").unwrap(); // before ts
-    // false, because maturity date is before the deadline
+    bill_payment.data.maturity_date = Date::new("2018-07-15").unwrap();
+    bill_payment.status.is_mature = false;
+    // false, because not mature and before maturity date
     assert!(
         !service
             .check_requests_for_expiration(&bill_payment, Timestamp::new(1531593929).unwrap())
             .unwrap()
     );
-    // true, because after maturity date
+    // true, because on maturity date and bill was not mature before
+    assert!(
+        service
+            .check_requests_for_expiration(&bill_payment, Timestamp::new(1531653929).unwrap())
+            .unwrap()
+    );
+    // true, because exactly maturity date start of day (00:00:00)
+    assert!(
+        service
+            .check_requests_for_expiration(&bill_payment, Timestamp::new(1531612800).unwrap())
+            .unwrap()
+    );
+    // false, because exactly one second before maturity date start of day (23:59:59)
+    assert!(
+        !service
+            .check_requests_for_expiration(&bill_payment, Timestamp::new(1531612799).unwrap())
+            .unwrap()
+    );
+    // true, because after maturity date and bill was not mature before
     assert!(
         service
             .check_requests_for_expiration(&bill_payment, Timestamp::new(1531978728).unwrap())
             .unwrap()
     );
+    bill_payment.status.is_mature = true;
     bill_payment.current_waiting_state = Some(BillCurrentWaitingState::Payment(
         BillWaitingForPaymentState {
             payer: empty_bill_identified_participant(),
@@ -6599,6 +6622,7 @@ fn check_req_for_expiration_baseline() {
             Timestamp::new(1531593928).unwrap() + ACCEPT_DEADLINE_SECONDS,
         ),
     };
+    bill_acceptance.status.is_mature = true;
 
     assert!(
         service
@@ -6645,6 +6669,7 @@ fn check_req_for_expiration_baseline() {
         rejected_offer_to_sell: false,
         buying_deadline_timestamp: Some(Timestamp::new(1531593928).unwrap() + DAY_IN_SECS),
     };
+    bill_sell.status.is_mature = true;
 
     assert!(
         service
@@ -6688,6 +6713,7 @@ fn check_req_for_expiration_baseline() {
             Timestamp::new(1531593928).unwrap() + RECOURSE_DEADLINE_SECONDS,
         ),
     };
+    bill_recourse.status.is_mature = true;
 
     assert!(
         service

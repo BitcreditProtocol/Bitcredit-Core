@@ -178,6 +178,7 @@ pub struct BillStatus {
     pub redeemed_funds_available: bool,
     pub has_requested_funds: bool,
     pub last_block_time: Timestamp,
+    pub is_mature: bool,
     pub mint: BillMintStatus,
 }
 

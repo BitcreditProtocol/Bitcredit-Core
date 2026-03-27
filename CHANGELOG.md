@@ -1,3 +1,8 @@
+# 0.5.6
+
+* Fix that request to pay can happen from maturity day 00:00:00 onwards
+* Fix a bug where bill cache didn't update when ticking over to maturity date
+
 # 0.5.5
 
 * Request to pay can only be done after maturity date end-of-day

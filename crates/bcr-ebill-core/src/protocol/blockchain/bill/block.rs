@@ -169,6 +169,8 @@ pub struct BillRequestToPayBlockData {
 impl Validate for BillRequestToPayBlockData {
     fn validate(&self) -> std::result::Result<(), ProtocolValidationError> {
         // The deadline has to be at or after the end of the day of signing time plus 48h
+        // This means it's implicitly also at least 48h after end of day of maturity date
+        // Since request to pay can't happen before start of day of maturity date
         let signing_ts_plus_minimum_deadline = self.signing_timestamp + PAYMENT_DEADLINE_SECONDS;
         if !signing_ts_plus_minimum_deadline
             .deadline_is_at_or_after_end_of_day_of(&self.payment_data.payment_deadline)
