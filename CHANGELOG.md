@@ -5,6 +5,8 @@
     * Add logic for setting this custom payment address for mint-req to pays
     * Add placeholders for validating this payment address for the mint payment
     * Adapt past payment and check payment logic (`private_descriptor_to_spend` is now an `Option<T>`)
+* Add filter for participants to bill `search` endpoint
+    * Added a field `pub participants: Vec<NodeId>`, which defaults to empty and which, if set, filters for bills that contain all participants in the list
 
 # 0.5.6
 

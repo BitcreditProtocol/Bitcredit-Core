@@ -269,6 +269,7 @@ impl Bill {
                     from,
                     to,
                     &BillsFilterRole::from(filter.role),
+                    &filter.participants,
                     &caller_public_data,
                     &caller_keys,
                 )

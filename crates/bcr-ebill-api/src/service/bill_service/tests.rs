@@ -175,6 +175,7 @@ async fn get_search_bill() {
     let company_node_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
 
     let mut bill1 = get_baseline_bill(&bill_id_test());
+    let bill1_payee = bill1.payee.clone();
     bill1.issue_date = Date::new("2020-05-01").unwrap();
     bill1.sum = Sum::new_sat(1000).expect("sat works");
     bill1.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
@@ -184,7 +185,7 @@ async fn get_search_bill() {
     bill2.drawee = bill_identified_participant_only_node_id(company_node_id.clone());
     let mut payee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
     payee.name = Name::new("hayek").unwrap();
-    bill2.payee = BillParticipant::Ident(payee);
+    bill2.payee = BillParticipant::Ident(payee.clone());
     let mut bill3 = get_baseline_bill(&bill_id_test_other2());
     bill3.issue_date = Date::new("2030-05-01").unwrap();
     bill3.sum = Sum::new_sat(20000).expect("sat works");
@@ -231,6 +232,7 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::All,
+            &[],
             &BillParticipant::Ident(bill_identified_participant_only_node_id(
                 company_node_id.clone(),
             )),
@@ -246,6 +248,7 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::All,
+            &[],
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
         )
@@ -260,6 +263,7 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::All,
+            &[],
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
         )
@@ -276,6 +280,7 @@ async fn get_search_bill() {
             Some(from_ts),
             Some(to_ts),
             &BillsFilterRole::All,
+            &[],
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
         )
@@ -290,12 +295,58 @@ async fn get_search_bill() {
             None,
             None,
             &BillsFilterRole::Payer,
+            &[],
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
         )
         .await;
     assert!(res_role.is_ok());
     assert_eq!(res_role.as_ref().unwrap().len(), 1);
+
+    let res_part = service
+        .search_bills(
+            &Currency::sat(),
+            &None,
+            None,
+            None,
+            &BillsFilterRole::All,
+            std::slice::from_ref(&company_node_id),
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
+        .await;
+    assert!(res_part.is_ok());
+    assert_eq!(res_part.as_ref().unwrap().len(), 2); // company is drawee in bill 2, payee in bill 3
+
+    let res_parts = service
+        .search_bills(
+            &Currency::sat(),
+            &None,
+            None,
+            None,
+            &BillsFilterRole::All,
+            &[company_node_id.clone(), bill1_payee.node_id()],
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
+        .await;
+    assert!(res_parts.is_ok());
+    assert_eq!(res_parts.as_ref().unwrap().len(), 0); // bill 1 payer is only in bill 1, company is not in bill 1
+
+    let res_parts2 = service
+        .search_bills(
+            &Currency::sat(),
+            &None,
+            None,
+            None,
+            &BillsFilterRole::All,
+            &[company_node_id, payee.node_id],
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+        )
+        .await;
+    assert!(res_parts2.is_ok());
+    assert_eq!(res_parts2.as_ref().unwrap().len(), 2); // company and identity are in bill 2 and bill 3
 
     let res_comb = service
         .search_bills(
@@ -304,6 +355,7 @@ async fn get_search_bill() {
             Some(from_ts),
             Some(to_ts),
             &BillsFilterRole::Payee,
+            &[],
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
         )

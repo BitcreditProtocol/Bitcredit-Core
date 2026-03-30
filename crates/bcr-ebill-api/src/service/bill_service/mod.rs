@@ -65,6 +65,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         date_range_from: Option<Timestamp>,
         date_range_to: Option<Timestamp>,
         role: &BillsFilterRole,
+        participants: &[NodeId],
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<Vec<LightBitcreditBillResult>>;
