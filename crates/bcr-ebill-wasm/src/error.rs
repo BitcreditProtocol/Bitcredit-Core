@@ -48,6 +48,7 @@ enum JsErrorType {
     InvalidSum,
     InvalidCurrency,
     InvalidBitcoinAddress,
+    InvalidBitcoinDescriptor,
     InvalidContentType,
     IdentityCantBeAnon,
     InvalidContactType,
@@ -143,6 +144,7 @@ enum JsErrorType {
     CallerMustBeSignatory,
     InvalidIdentityProof,
     InvalidReferenceBlock,
+    MintRequestToPayWithoutCustomAddress,
     InvalidSignature,
     InvalidHash,
     InvalidUrl,
@@ -271,6 +273,9 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         ProtocolValidationError::InvalidSum => err_400(e, JsErrorType::InvalidSum),
         ProtocolValidationError::InvalidBitcoinAddress => {
             err_400(e, JsErrorType::InvalidBitcoinAddress)
+        }
+        ProtocolValidationError::InvalidBitcoinDescriptor => {
+            err_400(e, JsErrorType::InvalidBitcoinDescriptor)
         }
         ProtocolValidationError::InvalidCurrency => err_400(e, JsErrorType::InvalidCurrency),
         ProtocolValidationError::InvalidContactType => err_400(e, JsErrorType::InvalidContactType),
@@ -426,6 +431,9 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         }
         ProtocolValidationError::InvalidReferenceBlock => {
             err_400(e, JsErrorType::InvalidReferenceBlock)
+        }
+        ProtocolValidationError::MintRequestToPayWithoutCustomAddress => {
+            err_400(e, JsErrorType::MintRequestToPayWithoutCustomAddress)
         }
     }
 }

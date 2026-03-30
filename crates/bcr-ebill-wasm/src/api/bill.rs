@@ -44,7 +44,8 @@ use crate::{
             PastEndorseesResponse, PastPaymentsResponse, RejectActionBillPayload,
             RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
             RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
-            RequestToPayBitcreditBillPayload, ResyncBillPayload, ShareBillWithCourtPayload,
+            RequestToPayAsMintBitcreditBillPayload, RequestToPayBitcreditBillPayload,
+            ResyncBillPayload, ShareBillWithCourtPayload,
         },
         mint::MintRequestStateResponse,
         parse_deadline_string,
@@ -684,6 +685,41 @@ impl Bill {
                     BillAction::RequestToPay(
                         Currency::sat(), // TODO (currency): parse and use given currency
                         parse_deadline_string(&request_to_pay_bill_payload.payment_deadline)?,
+                        None,
+                    ),
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
+
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn request_to_pay_as_mint(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "RequestToPayAsMintBitcreditBillPayload")]
+        payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let request_to_pay_bill_payload: RequestToPayAsMintBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+
+            let timestamp = Timestamp::now();
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &request_to_pay_bill_payload.bill_id,
+                    BillAction::RequestToPay(
+                        Currency::sat(), // TODO (currency): parse and use given currency
+                        parse_deadline_string(&request_to_pay_bill_payload.payment_deadline)?,
+                        Some(request_to_pay_bill_payload.payment_address),
                     ),
                     &signer_public_data,
                     &signer_keys,

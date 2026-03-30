@@ -2,16 +2,19 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
+use bcr_common::client::clowder::Client as ClowderClient;
 use bcr_common::client::core::Client as CoreClient;
 use bcr_common::client::quote::Client as QuoteClient;
 use bcr_common::client::treasury::Client as TreasuryClient;
 use bcr_common::core::BillId;
+use bcr_common::wire::clowder::{ConnectedMintResponse, ConnectedMintsResponse};
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::{
     application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::SecretKey,
     protocol::blockchain::bill::BillToShareWithExternalParty, protocol::crypto::BcrKeys,
 };
+use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -69,6 +72,9 @@ pub enum Error {
     /// all errors originating from the swap client
     #[error("External Mint Swap Client Error")]
     SwapClient,
+    /// all errors originating from the clowder client
+    #[error("External Mint Clowder Client Error")]
+    ClowderClient,
 }
 
 #[cfg(test)]
@@ -121,6 +127,8 @@ pub trait MintClientApi: ServiceTraitBounds {
     ) -> Result<()>;
     /// Cancel request to mint
     async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &Uuid) -> Result<()>;
+    /// Get Betas for a given mint
+    async fn get_betas_for_mint(&self, mint_url: &url::Url) -> Result<ConnectedMintsReply>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -149,6 +157,11 @@ impl MintClient {
     pub fn treasury_client(&self, mint_url: &url::Url) -> Result<TreasuryClient> {
         let treasury_client = TreasuryClient::new(mint_url.to_owned());
         Ok(treasury_client)
+    }
+
+    pub fn clowder_client(&self, mint_url: &url::Url) -> Result<ClowderClient> {
+        let clowder_client = ClowderClient::new(mint_url.to_owned());
+        Ok(clowder_client)
     }
 }
 
@@ -354,6 +367,18 @@ impl MintClientApi for MintClient {
             })?;
         Ok(())
     }
+
+    async fn get_betas_for_mint(&self, mint_url: &url::Url) -> Result<ConnectedMintsReply> {
+        let resp = self
+            .clowder_client(mint_url)?
+            .get_betas()
+            .await
+            .map_err(|e| {
+                log::error!("Error getting betas on mint {mint_url}: {e}");
+                Error::ClowderClient
+            })?;
+        Ok(resp.into())
+    }
 }
 
 pub fn generate_blinds(
@@ -464,6 +489,34 @@ impl From<StatusReply> for QuoteStatusReply {
                 keyset_id,
                 minted_amount,
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectedMintReply {
+    pub mint: cashu::MintUrl,
+    pub pub_key: secp256k1::PublicKey,
+}
+
+impl From<ConnectedMintResponse> for ConnectedMintReply {
+    fn from(value: ConnectedMintResponse) -> Self {
+        Self {
+            mint: value.mint,
+            pub_key: value.node_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectedMintsReply {
+    pub mints: Vec<ConnectedMintReply>,
+}
+
+impl From<ConnectedMintsResponse> for ConnectedMintsReply {
+    fn from(value: ConnectedMintsResponse) -> Self {
+        Self {
+            mints: value.mints.into_iter().map(|m| m.into()).collect(),
         }
     }
 }

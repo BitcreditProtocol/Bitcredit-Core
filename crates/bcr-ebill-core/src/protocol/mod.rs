@@ -397,6 +397,14 @@ pub enum ProtocolValidationError {
     /// error returned if a bitcoin address is invalid
     #[error("Bitcoin Address is invalid")]
     InvalidBitcoinAddress,
+
+    /// error returned if a bitcoin descriptor is invalid
+    #[error("Bitcoin Descriptor is invalid")]
+    InvalidBitcoinDescriptor,
+
+    /// error returned if a mint does a request to pay without a custom bitcoin address
+    #[error("Mint requested to pay without custom Bitcoin Address")]
+    MintRequestToPayWithoutCustomAddress,
 }
 
 impl From<bcr_common::core::Error> for ProtocolValidationError {

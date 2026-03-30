@@ -167,8 +167,8 @@ pub enum BillAction {
     // deadline_ts
     RequestAcceptance(Timestamp),
     Accept,
-    // currency, deadline_ts
-    RequestToPay(Currency, Timestamp),
+    // currency, deadline_ts, custom payment address for mint request to pay
+    RequestToPay(Currency, Timestamp, Option<BitcoinAddress>),
     // buyer, sum, deadline_ts
     OfferToSell(BillParticipant, Sum, Timestamp),
     // buyer
@@ -192,7 +192,7 @@ impl BillAction {
         match self {
             BillAction::RequestAcceptance(_) => BillOpCode::RequestToAccept,
             BillAction::Accept => BillOpCode::Accept,
-            BillAction::RequestToPay(_, _) => BillOpCode::RequestToPay,
+            BillAction::RequestToPay(_, _, _) => BillOpCode::RequestToPay,
             BillAction::OfferToSell(_, _, _) => BillOpCode::OfferToSell,
             BillAction::Sell(_) => BillOpCode::Sell,
             BillAction::Endorse(_) => BillOpCode::Endorse,

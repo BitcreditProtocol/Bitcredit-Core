@@ -994,6 +994,16 @@ impl BillServiceApi for BillService {
             return Err(Error::NotFound);
         }
 
+        // If the caller is the mint holding the bill, there are no btc descriptors available
+        // since they use a custom descriptor
+        if let Some(mint_holder) = chain
+            .holder_is_mint(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?
+            && caller_public_data.node_id() == mint_holder.node_id()
+        {
+            return Ok(vec![]);
+        }
+
         let btc_network = get_config().bitcoin_network();
         let mut res: Vec<BillCombinedBitcoinKey> = Vec::new();
         // Iterate the chain and for each payment request block by the caller, create the descriptor and collect metadata
@@ -1964,17 +1974,17 @@ impl BillServiceApi for BillService {
             match pp {
                 PastPaymentResult::Sell(data) => {
                     if &data.address_to_pay == source_address {
-                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                        descriptor = data.private_descriptor_to_spend.to_owned()
                     }
                 }
                 PastPaymentResult::Payment(data) => {
                     if &data.address_to_pay == source_address {
-                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                        descriptor = data.private_descriptor_to_spend.to_owned()
                     }
                 }
                 PastPaymentResult::Recourse(data) => {
                     if &data.address_to_pay == source_address {
-                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                        descriptor = data.private_descriptor_to_spend.to_owned()
                     }
                 }
             };
@@ -2009,17 +2019,17 @@ impl BillServiceApi for BillService {
             match pp {
                 PastPaymentResult::Sell(data) => {
                     if &data.address_to_pay == source_address {
-                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                        descriptor = data.private_descriptor_to_spend.to_owned()
                     }
                 }
                 PastPaymentResult::Payment(data) => {
                     if &data.address_to_pay == source_address {
-                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                        descriptor = data.private_descriptor_to_spend.to_owned()
                     }
                 }
                 PastPaymentResult::Recourse(data) => {
                     if &data.address_to_pay == source_address {
-                        descriptor = Some(data.private_descriptor_to_spend.to_owned())
+                        descriptor = data.private_descriptor_to_spend.to_owned()
                     }
                 }
             };

@@ -143,19 +143,46 @@ impl BillService {
                 .map_err(|e| Error::Protocol(e.into()))?
             }
             // can req to pay as anon
-            BillAction::RequestToPay(_currency, payment_deadline_timestamp) => {
+            BillAction::RequestToPay(
+                _currency,
+                payment_deadline_timestamp,
+                optional_mint_payment_address,
+            ) => {
+                let address_to_pay = if let Some(_mint_holder) = blockchain
+                    .holder_is_mint(bill_keys)
+                    .map_err(|e| Error::Protocol(e.into()))?
+                {
+                    // Holder is Mint - use a custom payment address
+                    if let Some(mint_payment_address) = optional_mint_payment_address {
+                        if !mint_payment_address
+                            .is_valid_for_network(get_config().bitcoin_network())
+                        {
+                            return Err(Error::Protocol(
+                                ProtocolValidationError::InvalidBitcoinAddress.into(),
+                            ));
+                        }
+                        // TODO (mint-req-to-pay): properly validate address against alpha and betas
+                        mint_payment_address.to_owned()
+                    } else {
+                        return Err(Error::Protocol(
+                            ProtocolValidationError::MintRequestToPayWithoutCustomAddress.into(),
+                        ));
+                    }
+                } else {
+                    // Standard request to pay - derive payment address
+                    get_address_to_pay(
+                        &bill_keys.pub_key(),
+                        &signer_public_data.node_id().pub_key(),
+                        &calculate_tweak_hash_for_payment_request(
+                            BillOpCode::RequestToPay,
+                            &BlockId::next_from_previous_block_id(&previous_block.id()),
+                            previous_block.hash(),
+                        )
+                        .map_err(|e| Error::Protocol(e.into()))?,
+                        get_config().bitcoin_network(),
+                    )?
+                };
                 // calculate payment address with unique tweak
-                let address_to_pay = get_address_to_pay(
-                    &bill_keys.pub_key(),
-                    &signer_public_data.node_id().pub_key(),
-                    &calculate_tweak_hash_for_payment_request(
-                        BillOpCode::RequestToPay,
-                        &BlockId::next_from_previous_block_id(&previous_block.id()),
-                        previous_block.hash(),
-                    )
-                    .map_err(|e| Error::Protocol(e.into()))?,
-                    get_config().bitcoin_network(),
-                )?;
                 let block_data = BillRequestToPayBlockData {
                     requester: if holder_is_anon {
                         // if holder is anon, we need to continue as anon

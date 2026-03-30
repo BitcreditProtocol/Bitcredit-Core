@@ -25,6 +25,7 @@ use bcr_ebill_core::{
                 BillAnonParticipant, BillIdentParticipant, BillParticipant, PastEndorsee, SignedBy,
             },
         },
+        crypto::btc::BtcDescriptor,
     },
 };
 
@@ -100,6 +101,18 @@ pub struct RequestToPayBitcreditBillPayload {
 
 #[derive(Tsify, Debug, Deserialize)]
 #[tsify(from_wasm_abi)]
+pub struct RequestToPayAsMintBitcreditBillPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[allow(unused)]
+    pub currency: String,
+    pub payment_deadline: String,
+    #[tsify(type = "string")]
+    pub payment_address: BitcoinAddress,
+}
+
+#[derive(Tsify, Debug, Deserialize)]
+#[tsify(from_wasm_abi)]
 pub struct RequestRecourseForPaymentPayload {
     #[tsify(type = "string")]
     pub bill_id: BillId,
@@ -151,7 +164,8 @@ pub struct BillCombinedBitcoinKeyWeb {
     #[tsify(type = "number")]
     pub signing_timestamp: Timestamp,
     pub payment_op: BillOpCodeWeb,
-    pub private_descriptor: String,
+    #[tsify(type = "string")]
+    pub private_descriptor: BtcDescriptor,
 }
 
 #[derive(Tsify, Debug, Clone, Deserialize)]
@@ -509,7 +523,8 @@ pub struct PastPaymentDataSellWeb {
     pub sum: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: String,
+    #[tsify(type = "string | undefined")]
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatusWeb,
 }
 
@@ -539,7 +554,8 @@ pub struct PastPaymentDataPaymentWeb {
     pub sum: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: String,
+    #[tsify(type = "string | undefined")]
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatusWeb,
 }
 impl From<PastPaymentDataPayment> for PastPaymentDataPaymentWeb {
@@ -568,7 +584,8 @@ pub struct PastPaymentDataRecourseWeb {
     pub sum: String,
     #[tsify(type = "string")]
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: String,
+    #[tsify(type = "string | undefined")]
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatusWeb,
 }
 
@@ -1191,7 +1208,8 @@ pub struct BillCallerPaymentStateWeb {
     pub in_mempool: bool,
     pub confirmations: u64,
     // only set if we're receiver
-    pub private_descriptor_to_spend: Option<String>,
+    #[tsify(type = "string | undefined")]
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
 }
 
 impl From<BillCallerPaymentState> for BillCallerPaymentStateWeb {

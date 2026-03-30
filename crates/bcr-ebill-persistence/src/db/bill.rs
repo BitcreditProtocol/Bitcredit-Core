@@ -34,6 +34,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 };
 use bcr_ebill_core::protocol::blockchain::bill::{BillOpCode, ContactType};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::crypto::btc::BtcDescriptor;
 use bcr_ebill_core::protocol::{BitcoinAddress, SecretKey};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
@@ -1178,7 +1179,7 @@ pub struct BillCallerPaymentStateDb {
     pub time_of_request: Timestamp,
     pub sum: Sum,
     pub address_to_pay: BitcoinAddress,
-    pub private_descriptor_to_spend: Option<String>,
+    pub private_descriptor_to_spend: Option<BtcDescriptor>,
     pub status: PaymentStatusDb,
     pub payment_deadline: Timestamp,
     pub tx_id: Option<String>,

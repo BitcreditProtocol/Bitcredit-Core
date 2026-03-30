@@ -1,9 +1,74 @@
+use std::{fmt::Display, str::FromStr};
+
 use super::{Error, Result};
 use crate::protocol::{
-    BitcoinAddress, BlockId, PublicKey, Sha256Hash, blockchain::bill::BillOpCode,
+    BitcoinAddress, BlockId, ProtocolValidationError, PublicKey, Sha256Hash,
+    blockchain::bill::{BillOpCode, participant::BillParticipant},
 };
 use bitcoin::secp256k1::Scalar;
 use secp256k1::SECP256K1;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
+#[serde(try_from = "String", into = "String")]
+pub struct BtcDescriptor(String);
+
+impl BtcDescriptor {
+    pub fn new(desc: impl Into<String>) -> std::result::Result<Self, ProtocolValidationError> {
+        let s = desc.into();
+        miniscript::Descriptor::<miniscript::descriptor::DescriptorPublicKey>::parse_descriptor(
+            SECP256K1, &s,
+        )
+        .map_err(|_| ProtocolValidationError::InvalidBitcoinDescriptor)?;
+
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for BtcDescriptor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for BtcDescriptor {
+    type Err = ProtocolValidationError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        BtcDescriptor::new(s)
+    }
+}
+
+impl TryFrom<String> for BtcDescriptor {
+    type Error = ProtocolValidationError;
+
+    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<BtcDescriptor> for String {
+    fn from(value: BtcDescriptor) -> Self {
+        value.0
+    }
+}
+
+impl borsh::BorshSerialize for BtcDescriptor {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        borsh::BorshSerialize::serialize(&self.0, writer)
+    }
+}
+
+impl borsh::BorshDeserialize for BtcDescriptor {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let s: String = borsh::BorshDeserialize::deserialize_reader(reader)?;
+        BtcDescriptor::new(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    }
+}
 
 /// Get p2tr address for the given keys
 pub fn get_address_to_pay(
@@ -36,7 +101,7 @@ pub fn get_combined_private_descriptor(
     pkey_to_combine: &bitcoin::PrivateKey,
     tweak_hash: &Sha256Hash,
     network: bitcoin::Network,
-) -> Result<String> {
+) -> Result<BtcDescriptor> {
     let combined_key = pkey.inner.add_tweak(&Scalar::from(pkey_to_combine.inner))?;
 
     // tweak key with the given tweak hash
@@ -59,12 +124,15 @@ pub fn get_combined_private_descriptor(
     )));
     let desc = miniscript::Descriptor::new_tr(desc_pubkey, None)
         .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
-    Ok(desc.to_string_with_secret(&kmap))
+    let btc_desc = BtcDescriptor::new(desc.to_string_with_secret(&kmap))
+        .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
+
+    Ok(btc_desc)
 }
 
 /// Parses a given string combined private descriptor to a descriptor, pub key and bitcoin address
 pub fn parse_private_descriptor(
-    private_desc: &str,
+    private_desc: &BtcDescriptor,
     network: bitcoin::Network,
 ) -> Result<(
     miniscript::Descriptor<miniscript::descriptor::DescriptorPublicKey>,
@@ -74,7 +142,7 @@ pub fn parse_private_descriptor(
     let (desc, key_map) =
         miniscript::Descriptor::<miniscript::descriptor::DescriptorPublicKey>::parse_descriptor(
             SECP256K1,
-            private_desc,
+            private_desc.as_str(),
         )
         .map_err(|e| Error::BtcDescriptor(e.to_string()))?;
 
@@ -132,17 +200,28 @@ pub fn validate_payment_address_for_payment_request(
     caller_pub_key: &PublicKey,
     btc_network: bitcoin::Network,
     address_to_check: &BitcoinAddress,
+    holder_is_mint: &Option<BillParticipant>,
 ) -> Result<()> {
-    let addr = get_address_to_pay(
-        bill_pub_key,
-        caller_pub_key,
-        &calculate_tweak_hash_for_payment_request(payment_op, block_id, previous_hash)?,
-        btc_network,
-    )?;
-    if &addr != address_to_check {
-        Err(super::Error::BtcAddress("Addresses don't match".to_owned()))
-    } else {
+    if let Some(_mint_holder) = holder_is_mint
+        && matches!(payment_op, BillOpCode::RequestToPay)
+    {
+        if !address_to_check.is_valid_for_network(btc_network) {
+            return Err(super::Error::BtcAddress("Wrong Network".to_owned()));
+        }
+        // TODO (mint-req-to-pay): properly validate address against alpha and betas
         Ok(())
+    } else {
+        let addr = get_address_to_pay(
+            bill_pub_key,
+            caller_pub_key,
+            &calculate_tweak_hash_for_payment_request(payment_op, block_id, previous_hash)?,
+            btc_network,
+        )?;
+        if &addr != address_to_check {
+            Err(super::Error::BtcAddress("Addresses don't match".to_owned()))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -251,7 +330,8 @@ pub mod tests {
                 .unwrap();
 
         let (parsed_desc, _kmap) =
-            Descriptor::<DescriptorPublicKey>::parse_descriptor(SECP256K1, &descriptor).unwrap();
+            Descriptor::<DescriptorPublicKey>::parse_descriptor(SECP256K1, descriptor.as_str())
+                .unwrap();
         let address_from_descriptor = parsed_desc
             .at_derivation_index(0)
             .unwrap()
@@ -350,6 +430,7 @@ pub mod tests {
             &holder_pub,
             network,
             &address,
+            &None,
         );
 
         assert!(result.is_ok());
@@ -376,6 +457,7 @@ pub mod tests {
             &holder_pub,
             network,
             &wrong_address,
+            &None,
         )
         .expect_err("wrong address should fail");
 
@@ -410,6 +492,7 @@ pub mod tests {
             &holder_pub,
             network,
             &address,
+            &None,
         )
         .expect_err("different op should fail");
 
@@ -442,7 +525,8 @@ pub mod tests {
                 .unwrap();
 
         let (parsed_desc, _kmap) =
-            Descriptor::<DescriptorPublicKey>::parse_descriptor(SECP256K1, &descriptor).unwrap();
+            Descriptor::<DescriptorPublicKey>::parse_descriptor(SECP256K1, descriptor.as_str())
+                .unwrap();
         let address_from_descriptor = parsed_desc
             .at_derivation_index(0)
             .unwrap()
@@ -459,6 +543,7 @@ pub mod tests {
             &holder_pub,
             network,
             &address,
+            &None,
         )
         .unwrap();
     }
@@ -532,7 +617,8 @@ pub mod tests {
         let kmap =
             miniscript::descriptor::KeyMap::from_iter(std::iter::once((internal_key, desc_seckey)));
 
-        let roundtripped_descriptor = parsed_desc.to_string_with_secret(&kmap);
+        let roundtripped_descriptor =
+            BtcDescriptor::new(parsed_desc.to_string_with_secret(&kmap)).unwrap();
 
         assert_eq!(roundtripped_descriptor, created_descriptor);
     }

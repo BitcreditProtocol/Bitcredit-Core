@@ -384,6 +384,17 @@ impl BillChainEventProcessor {
         // create a clone of the chain for validating the bill action later, since the chain
         // will be mutated with the integrity checks
         let chain_clone_for_validation = chain.clone();
+        let holder_is_mint_for_validation = match chain_clone_for_validation
+            .holder_is_mint(bill_keys)
+        {
+            Ok(h) => h,
+            Err(e) => {
+                error!(
+                    "Received invalid block {block_id} for bill {bill_id} - could not check if holder is mint for bill {bill_id}"
+                );
+                return Err(Error::Blockchain(e.to_string()));
+            }
+        };
         let latest_block_before_add = chain_clone_for_validation.get_latest_block();
 
         // first, do cheap integrity checks (mutates chain in-memory)
@@ -420,6 +431,7 @@ impl BillChainEventProcessor {
                     &signer.pub_key(),
                     get_config().bitcoin_network(),
                     &data.payment_data.payment_address,
+                    &holder_is_mint_for_validation,
                 )
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             }
@@ -435,6 +447,7 @@ impl BillChainEventProcessor {
                     &signer.pub_key(),
                     get_config().bitcoin_network(),
                     &data.payment_data.payment_address,
+                    &None,
                 )
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             }
@@ -450,6 +463,7 @@ impl BillChainEventProcessor {
                     &signer.pub_key(),
                     get_config().bitcoin_network(),
                     &data.payment_data.payment_address,
+                    &None,
                 )
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             }
