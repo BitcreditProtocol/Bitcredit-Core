@@ -843,7 +843,7 @@ async function fetchBillBalances() {
 
 async function fetchBillSearch() {
   let measured = measure(async () => {
-    return success_or_fail(await window.billApi.search({ filter: { currency: "SAT", role: "All" } }));
+    return success_or_fail(await window.billApi.search({ filter: { currency: "SAT", role: "All", participants: [] } }));
   });
   await measured();
 }

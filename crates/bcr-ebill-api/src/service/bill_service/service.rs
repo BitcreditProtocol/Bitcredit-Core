@@ -825,6 +825,7 @@ impl BillServiceApi for BillService {
         date_range_from: Option<Timestamp>,
         date_range_to: Option<Timestamp>,
         role: &BillsFilterRole,
+        participants: &[NodeId],
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<Vec<LightBitcreditBillResult>> {
@@ -836,6 +837,7 @@ impl BillServiceApi for BillService {
         let bills = self.get_bills(caller_public_data, caller_keys).await?;
         let mut result = vec![];
 
+        let filter_set: HashSet<NodeId> = participants.iter().cloned().collect();
         // for now we do the search here - with the quick-fetch table, we can search in surrealDB
         // directly
         for bill in bills {
@@ -884,6 +886,20 @@ impl BillServiceApi for BillService {
                 && !bill.search_bill_for_search_term(st)
             {
                 continue;
+            }
+
+            // if we search for participants and not all of the given participants are part of the bill, continue
+            if !filter_set.is_empty() {
+                let bill_set: HashSet<NodeId> = bill
+                    .participants
+                    .all_participant_node_ids
+                    .iter()
+                    .cloned()
+                    .collect();
+                // every node id in filter is contained in the bill participants
+                if !filter_set.is_subset(&bill_set) {
+                    continue;
+                }
             }
 
             result.push(bill.into());

@@ -77,6 +77,7 @@ impl SearchServiceApi for SearchService {
                     None,
                     None,
                     &BillsFilterRole::All,
+                    &[],
                     caller_public_data,
                     caller_keys,
                 )

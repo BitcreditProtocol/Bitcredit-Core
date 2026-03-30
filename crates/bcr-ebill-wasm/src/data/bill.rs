@@ -374,6 +374,9 @@ pub struct BillsSearchFilter {
     pub search_term: Option<String>,
     pub date_range: Option<DateRange>,
     pub role: BillsFilterRoleWeb,
+    #[tsify(type = "string[]")]
+    #[serde(default)]
+    pub participants: Vec<NodeId>,
     #[allow(unused)]
     pub currency: String,
 }
