@@ -48,7 +48,7 @@ pub trait FileStorageClientApi: ServiceTraitBounds {
         &self,
         relay_url: &url::Url,
         source_url: &Url,
-        bytes: Vec<u8>,
+        blob_hash: &Sha256HexHash,
         signer: &BcrKeys,
     ) -> Result<Sha256HexHash>;
     /// Download the bytes with the given nostr_hash and compare if the hash matches the file
@@ -155,11 +155,10 @@ impl FileStorageClientApi for FileStorageClient {
         &self,
         relay_url: &url::Url,
         source_url: &Url,
-        bytes: Vec<u8>,
+        blob_hash: &Sha256HexHash,
         signer: &BcrKeys,
     ) -> Result<Sha256HexHash> {
-        let hash = sha256_hash(&bytes)?;
-        let auth_header = blossom_auth_header(signer, &hash)?;
+        let auth_header = blossom_auth_header(signer, blob_hash)?;
 
         let resp: BlobDescriptorReply = self
             .cl
@@ -174,7 +173,7 @@ impl FileStorageClientApi for FileStorageClient {
             .json()
             .await?;
 
-        if hash != resp.sha256 {
+        if *blob_hash != resp.sha256 {
             return Err(Error::InvalidHash.into());
         }
 

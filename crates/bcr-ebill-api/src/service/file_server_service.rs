@@ -110,7 +110,7 @@ pub async fn upload_to_blossom_servers_with_server(
 
     for server in remaining_servers {
         match client
-            .mirror(&server, &source_url, bytes.clone(), signer)
+            .mirror(&server, &source_url, &source_hash, signer)
             .await
         {
             Ok(_) => {}
@@ -262,7 +262,7 @@ mod tests {
             .with(
                 eq(first.clone()),
                 eq(source_url),
-                eq(bytes.clone()),
+                eq(expected),
                 eq(signer.clone()),
             )
             .returning(|_, _, _, _| Err(FileStorageError::InvalidRelayUrl.into()))
@@ -303,7 +303,7 @@ mod tests {
             .with(
                 eq(second.clone()),
                 eq(source_url),
-                eq(bytes.clone()),
+                eq(expected),
                 eq(signer.clone()),
             )
             .returning(move |_, _, _, _| Ok(expected))
