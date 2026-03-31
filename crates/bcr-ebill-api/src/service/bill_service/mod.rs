@@ -2,8 +2,9 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::bill::{
-    BillCombinedBitcoinKey, BillsBalanceOverview, BillsFilterRole, BitcreditBillResult,
-    Endorsement, LightBitcreditBillResult, PastPaymentResult, SweepEstimate, SweepResult,
+    AddressDerivationMetadataForPaymentRequest, BillCombinedBitcoinKey, BillsBalanceOverview,
+    BillsFilterRole, BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentResult,
+    SweepEstimate, SweepResult,
 };
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
 use bcr_ebill_core::protocol::BitcoinAddress;
@@ -282,4 +283,11 @@ pub trait BillServiceApi: ServiceTraitBounds {
         destination_address: &BitcoinAddress,
         fee: u64,
     ) -> Result<SweepResult>;
+
+    /// Calculates and returns the next block id and last block hash for
+    /// address derivation in payment requests for mint
+    async fn get_address_derivation_metadata_for_payment_request(
+        &self,
+        bill_id: &BillId,
+    ) -> Result<AddressDerivationMetadataForPaymentRequest>;
 }

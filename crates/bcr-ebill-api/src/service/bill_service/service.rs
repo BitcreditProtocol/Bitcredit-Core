@@ -15,14 +15,13 @@ use crate::util::{validate_bill_id_network, validate_node_id_network};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::bill::{
-    BillCombinedBitcoinKey, BillRole, BillsBalance, BillsBalanceOverview, BillsFilterRole,
-    BitcreditBillResult, Endorsement, LightBitcreditBillResult, PastPaymentResult, SweepEstimate,
-    SweepResult,
+    AddressDerivationMetadataForPaymentRequest, BillCombinedBitcoinKey, BillRole, BillsBalance,
+    BillsBalanceOverview, BillsFilterRole, BitcreditBillResult, Endorsement,
+    LightBitcreditBillResult, PastPaymentResult, SweepEstimate, SweepResult,
 };
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
-use bcr_ebill_core::protocol::PublicKey;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::Block;
@@ -41,6 +40,7 @@ use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
 use bcr_ebill_core::protocol::event::ActionType;
 use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::protocol::{BitcoinAddress, Email};
+use bcr_ebill_core::protocol::{BlockId, PublicKey};
 use bcr_ebill_core::protocol::{Currency, Sum};
 use bcr_ebill_core::{
     application::ServiceTraitBounds, application::ValidationError, protocol::File,
@@ -2062,5 +2062,18 @@ impl BillServiceApi for BillService {
             .sweep_funds(&desc, destination_address, fee)
             .await?;
         Ok(res)
+    }
+
+    async fn get_address_derivation_metadata_for_payment_request(
+        &self,
+        bill_id: &BillId,
+    ) -> Result<AddressDerivationMetadataForPaymentRequest> {
+        validate_bill_id_network(bill_id)?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let latest_block = chain.get_latest_block();
+        Ok(AddressDerivationMetadataForPaymentRequest {
+            block_id: BlockId::next_from_previous_block_id(&latest_block.id()),
+            previous_hash: latest_block.hash().to_owned(),
+        })
     }
 }
