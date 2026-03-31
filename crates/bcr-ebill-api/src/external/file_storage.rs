@@ -1,13 +1,16 @@
 use std::io::Write;
 
 use async_trait::async_trait;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use nostr::hashes::{
     Hash,
     sha256::{self, Hash as Sha256HexHash},
 };
+use nostr::{EventBuilder, JsonUtil, Kind, Tag, Timestamp};
 use reqwest::Url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Generic result type
@@ -28,6 +31,8 @@ pub enum Error {
     /// all errors originating from hashing
     #[error("External File Storage Hash Error")]
     Hash,
+    #[error("External File Storage Authorization Error: {0}")]
+    Auth(String),
 }
 
 #[cfg(test)]
@@ -39,6 +44,13 @@ use mockall::automock;
 pub trait FileStorageClientApi: ServiceTraitBounds {
     /// Upload the given bytes, checking and returning the nostr_hash
     async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256HexHash>;
+    async fn mirror(
+        &self,
+        relay_url: &url::Url,
+        source_url: &Url,
+        blob_hash: &Sha256HexHash,
+        signer: &BcrKeys,
+    ) -> Result<Sha256HexHash>;
     /// Download the bytes with the given nostr_hash and compare if the hash matches the file
     async fn download(&self, relay_url: &url::Url, nostr_hash: &Sha256HexHash) -> Result<Vec<u8>>;
 }
@@ -86,16 +98,38 @@ pub fn to_url(relay_url: &url::Url, to_join: &str) -> Result<Url> {
         .map_err(|_| Error::InvalidRelayUrl)?)
 }
 
+fn sha256_hash(bytes: &[u8]) -> Result<Sha256HexHash> {
+    let mut hash_engine = sha256::HashEngine::default();
+    hash_engine.write_all(bytes).map_err(|_| Error::Hash)?;
+    Ok(sha256::Hash::from_engine(hash_engine))
+}
+
+fn blossom_auth_header(signer: &BcrKeys, blob_hash: &Sha256HexHash) -> Result<String> {
+    let expiration = Timestamp::from_secs(Timestamp::now().as_u64() + 60);
+    let event = EventBuilder::new(Kind::Custom(24242), "")
+        .tags([
+            Tag::parse(["t", "upload"]).map_err(|err| Error::Auth(err.to_string()))?,
+            Tag::parse(["x", blob_hash.to_string().as_str()])
+                .map_err(|err| Error::Auth(err.to_string()))?,
+            Tag::parse(["expiration", expiration.as_u64().to_string().as_str()])
+                .map_err(|err| Error::Auth(err.to_string()))?,
+        ])
+        .sign_with_keys(&signer.get_nostr_keys())
+        .map_err(|err| Error::Auth(err.to_string()))?;
+
+    Ok(format!("Nostr {}", URL_SAFE_NO_PAD.encode(event.as_json())))
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MirrorRequest<'a> {
+    url: &'a str,
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FileStorageClientApi for FileStorageClient {
     async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256HexHash> {
-        // Calculate hash to compare with the hash we get back
-        let mut hash_engine = sha256::HashEngine::default();
-        if hash_engine.write_all(&bytes).is_err() {
-            return Err(Error::Hash.into());
-        }
-        let hash = sha256::Hash::from_engine(hash_engine);
+        let hash = sha256_hash(&bytes)?;
 
         // Make upload request
         let resp: BlobDescriptorReply = self
@@ -104,6 +138,7 @@ impl FileStorageClientApi for FileStorageClient {
             .body(bytes)
             .send()
             .await?
+            .error_for_status()?
             .json()
             .await?;
         let nostr_hash = resp.sha256;
@@ -114,6 +149,35 @@ impl FileStorageClientApi for FileStorageClient {
         }
 
         Ok(nostr_hash)
+    }
+
+    async fn mirror(
+        &self,
+        relay_url: &url::Url,
+        source_url: &Url,
+        blob_hash: &Sha256HexHash,
+        signer: &BcrKeys,
+    ) -> Result<Sha256HexHash> {
+        let auth_header = blossom_auth_header(signer, blob_hash)?;
+
+        let resp: BlobDescriptorReply = self
+            .cl
+            .put(to_url(relay_url, "mirror")?)
+            .header("Authorization", auth_header)
+            .json(&MirrorRequest {
+                url: source_url.as_str(),
+            })
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        if *blob_hash != resp.sha256 {
+            return Err(Error::InvalidHash.into());
+        }
+
+        Ok(resp.sha256)
     }
 
     async fn download(&self, relay_url: &url::Url, nostr_hash: &Sha256HexHash) -> Result<Vec<u8>> {
@@ -151,6 +215,8 @@ pub struct BlobDescriptorReply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostr::{Event, JsonUtil, TagKind};
+    use std::str::FromStr;
 
     #[test]
     fn normalize_storage_base_url_converts_websocket_schemes() {
@@ -171,6 +237,38 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "https://relay.example.com/"
+        );
+    }
+
+    #[test]
+    fn blossom_auth_header_uses_url_safe_base64() {
+        let signer = BcrKeys::new();
+        let hash = Sha256HexHash::from_str(
+            "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+        )
+        .unwrap();
+
+        let header = blossom_auth_header(&signer, &hash).unwrap();
+        let encoded = header.strip_prefix("Nostr ").unwrap();
+        let event_json = URL_SAFE_NO_PAD.decode(encoded).unwrap();
+        let event = Event::from_json(event_json).unwrap();
+
+        assert_eq!(event.kind, Kind::Custom(24242));
+        assert_eq!(
+            event.tags.find(TagKind::from("x")).unwrap().content(),
+            Some(hash.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn mirror_request_serializes_url_field() {
+        let request = MirrorRequest {
+            url: "https://example.com/blob",
+        };
+
+        assert_eq!(
+            serde_json::to_string(&request).unwrap(),
+            r#"{"url":"https://example.com/blob"}"#
         );
     }
 }

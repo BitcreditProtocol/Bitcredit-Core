@@ -36,6 +36,7 @@ impl BillService {
         file_bytes: &[u8],
         bill_id: &BillId,
         public_key: &PublicKey,
+        signer: &BcrKeys,
         upload_file_type: UploadFileType,
     ) -> Result<File> {
         // validate file size for upload file type
@@ -50,6 +51,7 @@ impl BillService {
             self.file_upload_client.as_ref(),
             &configured_blossom_servers(&get_config().nostr_config),
             encrypted,
+            signer,
         )
         .await
         .map_err(Error::from)?;
@@ -187,6 +189,7 @@ impl BillService {
                     file_bytes,
                     &bill_id,
                     &public_key,
+                    &identity.key_pair,
                     UploadFileType::Document,
                 )
                 .await?,

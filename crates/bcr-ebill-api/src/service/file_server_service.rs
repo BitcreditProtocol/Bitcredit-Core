@@ -1,6 +1,7 @@
 use crate::NostrConfig;
-use crate::external::file_storage::{FileStorageClientApi, normalize_storage_base_url};
+use crate::external::file_storage::{FileStorageClientApi, normalize_storage_base_url, to_url};
 use crate::service::{Error, Result};
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use log::warn;
 use nostr::hashes::sha256::Hash as Sha256HexHash;
 
@@ -61,8 +62,9 @@ pub async fn upload_to_blossom_servers(
     client: &dyn FileStorageClientApi,
     servers: &[url::Url],
     bytes: Vec<u8>,
+    signer: &BcrKeys,
 ) -> Result<Sha256HexHash> {
-    let (_, hash) = upload_to_blossom_servers_with_server(client, servers, bytes).await?;
+    let (_, hash) = upload_to_blossom_servers_with_server(client, servers, bytes, signer).await?;
     Ok(hash)
 }
 
@@ -70,36 +72,61 @@ pub async fn upload_to_blossom_servers_with_server(
     client: &dyn FileStorageClientApi,
     servers: &[url::Url],
     bytes: Vec<u8>,
+    signer: &BcrKeys,
 ) -> Result<(url::Url, Sha256HexHash)> {
     if servers.is_empty() {
         return Err(Error::NotFound);
     }
 
-    let mut first_success = None;
+    let mut source_success = None;
+    let mut remaining_servers = Vec::new();
     let mut last_error = None;
 
     for server in servers {
-        match client.upload(server, bytes.clone()).await {
-            Ok(hash) => {
-                if first_success.is_none() {
-                    first_success = Some((server.clone(), hash));
+        if source_success.is_none() {
+            match client.upload(server, bytes.clone()).await {
+                Ok(hash) => {
+                    source_success = Some((server.clone(), hash));
+                }
+                Err(err) => {
+                    warn!("Failed Blossom source upload to {server}: {err}");
+                    last_error = Some(err);
+                    remaining_servers.push(server.clone());
                 }
             }
-            Err(err) => {
-                warn!("Failed Blossom upload to {server}: {err}");
-                last_error = Some(err);
+        } else {
+            remaining_servers.push(server.clone());
+        }
+    }
+
+    let Some((source_server, source_hash)) = source_success else {
+        return match last_error {
+            Some(err) => Err(err.into()),
+            None => Err(Error::NotFound),
+        };
+    };
+
+    let source_url = to_url(&source_server, &source_hash.to_string())?;
+
+    for server in remaining_servers {
+        match client
+            .mirror(&server, &source_url, &source_hash, signer)
+            .await
+        {
+            Ok(_) => {}
+            Err(mirror_err) => {
+                warn!("Failed Blossom mirror to {server}: {mirror_err}");
+                match client.upload(&server, bytes.clone()).await {
+                    Ok(_) => {}
+                    Err(upload_err) => {
+                        warn!("Failed Blossom fallback upload to {server}: {upload_err}");
+                    }
+                }
             }
         }
     }
 
-    if let Some(success) = first_success {
-        return Ok(success);
-    }
-
-    match last_error {
-        Some(err) => Err(err.into()),
-        None => Err(Error::NotFound),
-    }
+    Ok((source_server, source_hash))
 }
 
 /// Downloads from the first Blossom server that returns the requested blob.
@@ -133,6 +160,7 @@ pub async fn download_from_blossom_servers(
 mod tests {
     use super::*;
     use crate::external::file_storage::{Error as FileStorageError, MockFileStorageClientApi};
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
     use mockall::predicate::eq;
     use std::str::FromStr;
 
@@ -207,15 +235,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upload_to_blossom_servers_succeeds_when_any_server_accepts_upload() {
+    async fn upload_to_blossom_servers_retries_failed_targets_with_mirror_then_direct_upload() {
         let mut client = MockFileStorageClientApi::new();
         let first = url::Url::parse("https://one.example.com").unwrap();
         let second = url::Url::parse("https://two.example.com").unwrap();
         let bytes = b"hello".to_vec();
+        let signer = BcrKeys::new();
         let expected = Sha256HexHash::from_str(
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
+        let source_url = to_url(&second, &expected.to_string()).unwrap();
 
         client
             .expect_upload()
@@ -227,8 +257,23 @@ mod tests {
             .with(eq(second.clone()), eq(bytes.clone()))
             .returning(move |_, _| Ok(expected))
             .once();
+        client
+            .expect_mirror()
+            .with(
+                eq(first.clone()),
+                eq(source_url),
+                eq(expected),
+                eq(signer.clone()),
+            )
+            .returning(|_, _, _, _| Err(FileStorageError::InvalidRelayUrl.into()))
+            .once();
+        client
+            .expect_upload()
+            .with(eq(first.clone()), eq(bytes.clone()))
+            .returning(move |_, _| Ok(expected))
+            .once();
 
-        let result = upload_to_blossom_servers(&client, &[first, second], bytes)
+        let result = upload_to_blossom_servers(&client, &[first, second], bytes, &signer)
             .await
             .unwrap();
 
@@ -236,33 +281,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upload_to_blossom_servers_with_server_returns_first_successful_server() {
+    async fn upload_to_blossom_servers_with_server_returns_source_server_after_mirroring() {
         let mut client = MockFileStorageClientApi::new();
         let first = url::Url::parse("https://one.example.com").unwrap();
         let second = url::Url::parse("https://two.example.com").unwrap();
         let bytes = b"hello".to_vec();
+        let signer = BcrKeys::new();
         let expected = Sha256HexHash::from_str(
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
+        let source_url = to_url(&first, &expected.to_string()).unwrap();
 
         client
             .expect_upload()
             .with(eq(first.clone()), eq(bytes.clone()))
-            .returning(|_, _| Err(FileStorageError::InvalidRelayUrl.into()))
-            .once();
-        client
-            .expect_upload()
-            .with(eq(second.clone()), eq(bytes.clone()))
             .returning(move |_, _| Ok(expected))
             .once();
+        client
+            .expect_mirror()
+            .with(
+                eq(second.clone()),
+                eq(source_url),
+                eq(expected),
+                eq(signer.clone()),
+            )
+            .returning(move |_, _, _, _| Ok(expected))
+            .once();
 
-        let result =
-            upload_to_blossom_servers_with_server(&client, &[first, second.clone()], bytes)
-                .await
-                .unwrap();
+        let result = upload_to_blossom_servers_with_server(
+            &client,
+            &[first.clone(), second.clone()],
+            bytes,
+            &signer,
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(result, (second, expected));
+        assert_eq!(result, (first, expected));
     }
 
     #[tokio::test]

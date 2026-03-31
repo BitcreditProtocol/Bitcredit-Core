@@ -207,6 +207,7 @@ impl ContactService {
         upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
+        signer: &BcrKeys,
         fallback_relays: &[url::Url],
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
@@ -231,6 +232,7 @@ impl ContactService {
                     file_bytes,
                     id,
                     public_key,
+                    signer,
                     fallback_relays,
                 )
                 .await?;
@@ -245,6 +247,7 @@ impl ContactService {
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
+        signer: &BcrKeys,
         fallback_relays: &[url::Url],
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
@@ -254,6 +257,7 @@ impl ContactService {
             self.file_upload_client.as_ref(),
             &blossom_servers,
             encrypted,
+            signer,
         )
         .await?;
         info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
@@ -464,6 +468,7 @@ impl ContactServiceApi for ContactService {
                             &Some(avatar_file_upload_id),
                             node_id,
                             &identity.key_pair.pub_key(),
+                            &identity.key_pair,
                             &nostr_relays,
                             UploadFileType::Picture,
                         )
@@ -494,6 +499,7 @@ impl ContactServiceApi for ContactService {
                             &Some(proof_document_file_upload_id),
                             node_id,
                             &identity.key_pair.pub_key(),
+                            &identity.key_pair,
                             &nostr_relays,
                             UploadFileType::Document,
                         )
@@ -563,6 +569,7 @@ impl ContactServiceApi for ContactService {
                         &avatar_file_upload_id,
                         node_id,
                         &identity.key_pair.pub_key(),
+                        &identity.key_pair,
                         &nostr_relays,
                         UploadFileType::Picture,
                     )
@@ -573,6 +580,7 @@ impl ContactServiceApi for ContactService {
                         &proof_document_file_upload_id,
                         node_id,
                         &identity.key_pair.pub_key(),
+                        &identity.key_pair,
                         &nostr_relays,
                         UploadFileType::Document,
                     )
@@ -668,13 +676,15 @@ impl ContactServiceApi for ContactService {
             )));
         }
 
-        let identity_public_key = self.identity_store.get_key_pair().await?.pub_key();
+        let identity_keys = self.identity_store.get_key_pair().await?;
+        let identity_public_key = identity_keys.pub_key();
 
         let avatar_file = self
             .process_upload_file(
                 &avatar_file_upload_id,
                 node_id,
                 &identity_public_key,
+                &identity_keys,
                 &nostr_relays,
                 UploadFileType::Picture,
             )
@@ -685,6 +695,7 @@ impl ContactServiceApi for ContactService {
                 &proof_document_file_upload_id,
                 node_id,
                 &identity_public_key,
+                &identity_keys,
                 &nostr_relays,
                 UploadFileType::Document,
             )

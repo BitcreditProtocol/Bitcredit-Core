@@ -181,6 +181,7 @@ impl IdentityService {
         upload_id: &Option<Uuid>,
         id: &NodeId,
         public_key: &PublicKey,
+        signer: &BcrKeys,
         upload_file_type: UploadFileType,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
@@ -199,7 +200,7 @@ impl IdentityService {
                 ));
             }
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key)
+                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, signer)
                 .await?;
             return Ok(Some(file));
         }
@@ -212,6 +213,7 @@ impl IdentityService {
         file_bytes: &[u8],
         node_id: &NodeId,
         public_key: &PublicKey,
+        signer: &BcrKeys,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
@@ -219,6 +221,7 @@ impl IdentityService {
             self.file_upload_client.as_ref(),
             &configured_blossom_servers(&get_config().nostr_config),
             encrypted,
+            signer,
         )
         .await?;
         info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
@@ -454,6 +457,7 @@ impl IdentityServiceApi for IdentityService {
                             &Some(profile_picture_file_upload_id),
                             &identity.node_id,
                             &keys.pub_key(),
+                            &keys,
                             UploadFileType::Picture,
                         )
                         .await?;
@@ -482,6 +486,7 @@ impl IdentityServiceApi for IdentityService {
                             &Some(identity_document_file_upload_id),
                             &identity.node_id,
                             &keys.pub_key(),
+                            &keys,
                             UploadFileType::Document,
                         )
                         .await?;
@@ -637,6 +642,7 @@ impl IdentityServiceApi for IdentityService {
                         &profile_picture_file_upload_id,
                         &node_id,
                         &keys.pub_key(),
+                        &keys,
                         UploadFileType::Picture,
                     )
                     .await?;
@@ -646,6 +652,7 @@ impl IdentityServiceApi for IdentityService {
                         &identity_document_file_upload_id,
                         &node_id,
                         &keys.pub_key(),
+                        &keys,
                         UploadFileType::Document,
                     )
                     .await?;
@@ -746,6 +753,7 @@ impl IdentityServiceApi for IdentityService {
                 &profile_picture_file_upload_id,
                 &existing_identity.node_id,
                 &keys.pub_key(),
+                &keys,
                 UploadFileType::Picture,
             )
             .await?;
@@ -755,6 +763,7 @@ impl IdentityServiceApi for IdentityService {
                 &identity_document_file_upload_id,
                 &existing_identity.node_id,
                 &keys.pub_key(),
+                &keys,
                 UploadFileType::Document,
             )
             .await?;

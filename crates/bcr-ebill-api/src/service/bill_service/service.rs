@@ -716,6 +716,7 @@ impl BillService {
         bill_id: &BillId,
         bill_private_key: &SecretKey,
         receiver_public_key: &PublicKey,
+        signer: &BcrKeys,
         files: &[File],
     ) -> Result<Vec<url::Url>> {
         if files.is_empty() {
@@ -734,6 +735,7 @@ impl BillService {
                 self.file_upload_client.as_ref(),
                 &blossom_servers,
                 encrypted_file,
+                signer,
             )
             .await
             .map_err(Error::from)?;
@@ -1552,6 +1554,7 @@ impl BillServiceApi for BillService {
                 bill_id,
                 &bill_keys.get_private_key(),
                 &mint_anon_participant.node_id().pub_key(),
+                &bill_keys,
                 &bill.files,
             )
             .await?;
@@ -1913,6 +1916,7 @@ impl BillServiceApi for BillService {
                 bill_id,
                 &bill_keys.get_private_key(),
                 &court_node_id.pub_key(),
+                &bill_keys,
                 &bill.files,
             )
             .await?;

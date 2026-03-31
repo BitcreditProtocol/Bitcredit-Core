@@ -752,6 +752,7 @@ async fn upload_bill_files_for_node_id_reencrypts_for_receiver_key() {
         .once();
     let plaintext_clone = plaintext.clone();
     let receiver_keys_for_upload = receiver_keys.clone();
+    let receiver_keys_for_signing = receiver_keys_for_upload.clone();
     ctx.file_upload_client
         .expect_upload()
         .returning(move |_, bytes| {
@@ -771,6 +772,7 @@ async fn upload_bill_files_for_node_id_reencrypts_for_receiver_key() {
             &bill_id_test(),
             &private_key_test(),
             &receiver_keys.pub_key(),
+            &receiver_keys_for_signing,
             &[File {
                 name: Name::new("some_file").unwrap(),
                 hash: Sha256Hash::from_bytes(&plaintext),
