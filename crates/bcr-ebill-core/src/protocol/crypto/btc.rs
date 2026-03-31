@@ -183,7 +183,10 @@ pub fn calculate_tweak_hash_for_payment_request(
         BillOpCode::RequestRecourse => "bcr/request-recourse/v1",
         _ => return Err(Error::Tweak("Invalid operation".to_owned())),
     };
-    input.extend_from_slice(tag.as_bytes());
+    let hashed_tag = Sha256Hash::from_bytes(tag.as_bytes());
+    // tag twice with hashed tag according to bip341
+    input.extend_from_slice(&hashed_tag.decode_to_array());
+    input.extend_from_slice(&hashed_tag.decode_to_array());
     input.extend_from_slice(&block_id.inner().to_be_bytes());
     input.extend_from_slice(&previous_hash.decode());
 
