@@ -7,6 +7,8 @@
     * Adapt past payment and check payment logic (`private_descriptor_to_spend` is now an `Option<T>`)
 * Add filter for participants to bill `search` endpoint
     * Added a field `pub participants: Vec<NodeId>`, which defaults to empty and which, if set, filters for bills that contain all participants in the list
+* Update to latest bcr-common
+* Add bill service function `get_address_derivation_metadata_for_payment_request` to get address derivation metadata for mint req to pay
 
 # 0.5.6
 

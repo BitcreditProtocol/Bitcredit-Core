@@ -221,7 +221,11 @@ pub fn validate_payment_address_for_payment_request(
             btc_network,
         )?;
         if &addr != address_to_check {
-            Err(super::Error::BtcAddress("Addresses don't match".to_owned()))
+            Err(super::Error::BtcAddress(format!(
+                "Addresses don't match - derived: {}, to check: {}",
+                addr.assume_checked(),
+                address_to_check.clone().assume_checked(),
+            )))
         } else {
             Ok(())
         }

@@ -3,7 +3,8 @@ use super::{
     notification::Notification,
 };
 use crate::protocol::{
-    BitcoinAddress, City, Country, Date, File, PostalAddress, ProtocolError, Sum, Timestamp,
+    BitcoinAddress, City, Country, Date, File, PostalAddress, ProtocolError, Sha256Hash, Sum,
+    Timestamp,
     blockchain::{
         Block,
         bill::{
@@ -644,4 +645,10 @@ pub struct SweepEstimate {
     pub available_funds: u64,
     pub economy: SweepOption,
     pub fast: SweepOption,
+}
+
+#[derive(Debug, Clone)]
+pub struct AddressDerivationMetadataForPaymentRequest {
+    pub block_id: BlockId,
+    pub previous_hash: Sha256Hash,
 }
