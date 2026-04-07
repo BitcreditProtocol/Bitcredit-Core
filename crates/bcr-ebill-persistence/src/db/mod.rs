@@ -22,6 +22,7 @@ pub mod company;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod file_reference;
 pub mod file_upload;
 pub mod identity;
 pub mod identity_chain;

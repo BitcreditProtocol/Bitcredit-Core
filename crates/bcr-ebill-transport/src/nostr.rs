@@ -1,6 +1,6 @@
 use crate::{
     chain_keys::ChainKeyServiceApi,
-    handler::NotificationHandlerApi,
+    handler::{FileMetadataProcessorApi, NotificationHandlerApi},
     transport::{
         chain_filter, create_nip04_event, create_public_chain_event, decrypt_public_chain_event,
         unwrap_direct_message, unwrap_public_chain_event,
@@ -53,6 +53,7 @@ pub enum SortOrder {
 }
 
 const BLOSSOM_SERVER_LIST_KIND: Kind = Kind::Custom(10063);
+const FILE_METADATA_KIND: Kind = Kind::Custom(1063);
 
 /// Check the output of sending an event to Nostr relays.
 /// Logs warnings for individual relay failures and returns an error if no relay
@@ -723,6 +724,79 @@ impl TransportClientApi for NostrClient {
         check_send_output(output, "publish_blossom_server_list")
     }
 
+    async fn publish_file_metadata(
+        &self,
+        node_id: &NodeId,
+        plaintext_hash: &str,
+        encrypted_hash: &str,
+        server_urls: Vec<url::Url>,
+        mime_type: Option<String>,
+    ) -> Result<()> {
+        if server_urls.is_empty() {
+            debug!("Skipping file metadata publish - no server URLs available");
+            return Ok(());
+        }
+
+        let signer = self.get_signer(node_id)?;
+
+        // Build tags according to NIP-94 adapted conventions:
+        // ox = plaintext local hash
+        // x = encrypted blob hash
+        // url = primary server URL
+        // fallback = additional mirror URLs
+        // m = MIME type when known
+        let mut tags: Vec<Tag> = vec![
+            Tag::parse(["ox", plaintext_hash]).map_err(|e| {
+                error!("Failed to build ox tag: {e}");
+                Error::Message("Failed to build ox tag".to_string())
+            })?,
+            Tag::parse(["x", encrypted_hash]).map_err(|e| {
+                error!("Failed to build x tag: {e}");
+                Error::Message("Failed to build x tag".to_string())
+            })?,
+        ];
+
+        // Add primary URL
+        if let Some(primary) = server_urls.first() {
+            tags.push(Tag::parse(["url", primary.as_str()]).map_err(|e| {
+                error!("Failed to build url tag: {e}");
+                Error::Message("Failed to build url tag".to_string())
+            })?);
+        }
+
+        // Add fallback URLs for additional mirrors
+        for url in server_urls.iter().skip(1) {
+            tags.push(Tag::parse(["fallback", url.as_str()]).map_err(|e| {
+                error!("Failed to build fallback tag: {e}");
+                Error::Message("Failed to build fallback tag".to_string())
+            })?);
+        }
+
+        // Add MIME type if provided
+        if let Some(ref mime) = mime_type {
+            tags.push(Tag::parse(["m", mime]).map_err(|e| {
+                error!("Failed to build m tag: {e}");
+                Error::Message("Failed to build m tag".to_string())
+            })?);
+        }
+
+        let event = EventBuilder::new(FILE_METADATA_KIND, "")
+            .tags(tags)
+            .build(signer.public_key())
+            .sign(&*signer)
+            .await
+            .map_err(|e| {
+                error!("Failed to sign file metadata event: {e}");
+                Error::Crypto("Failed to sign file metadata event".to_string())
+            })?;
+
+        let output = self.client().await?.send_event(&event).await.map_err(|e| {
+            error!("Failed to send file metadata with Nostr client: {e}");
+            Error::Network("Failed to send file metadata with Nostr client".to_string())
+        })?;
+        check_send_output(output, "publish_file_metadata")
+    }
+
     async fn connect(&self) -> Result<()> {
         if self
             .connected
@@ -877,6 +951,36 @@ impl TransportClientApi for NostrClient {
         }
         Ok(())
     }
+
+    async fn query_file_metadata_events(
+        &self,
+        file_hash: &str,
+        nostr_hash: &str,
+    ) -> Result<Vec<Event>> {
+        let filter = Filter::new()
+            .kind(FILE_METADATA_KIND)
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::O), file_hash)
+            .limit(50);
+
+        let mut events = self
+            .fetch_events(filter, Some(SortOrder::Desc), None)
+            .await?;
+
+        // Also try querying by nostr_hash (x tag) if we didn't find enough results
+        if events.len() < 5 {
+            let filter_by_nostr_hash = Filter::new()
+                .kind(FILE_METADATA_KIND)
+                .custom_tag(SingleLetterTag::lowercase(Alphabet::X), nostr_hash)
+                .limit(50);
+
+            let mut nostr_hash_events = self
+                .fetch_events(filter_by_nostr_hash, Some(SortOrder::Desc), None)
+                .await?;
+            events.append(&mut nostr_hash_events);
+        }
+
+        Ok(events)
+    }
 }
 
 #[derive(Clone)]
@@ -886,6 +990,7 @@ pub struct NostrConsumer {
     contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
+    file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
 }
 
 impl NostrConsumer {
@@ -895,6 +1000,7 @@ impl NostrConsumer {
         event_handlers: Vec<Arc<dyn NotificationHandlerApi>>,
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
+        file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
     ) -> Self {
         Self {
             client,
@@ -903,6 +1009,7 @@ impl NostrConsumer {
             contact_service,
             offset_store,
             chain_key_service,
+            file_metadata_processor,
         }
     }
 
@@ -913,6 +1020,7 @@ impl NostrConsumer {
         let contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
         let chain_key_store = self.chain_key_service.clone();
+        let file_metadata_processor = self.file_metadata_processor.clone();
 
         let mut tasks = JoinSet::new();
 
@@ -974,6 +1082,7 @@ impl NostrConsumer {
                         Kind::RelayList,
                         Kind::Metadata,
                         BLOSSOM_SERVER_LIST_KIND,
+                        FILE_METADATA_KIND,
                     ])
                     .since(earliest_offset.into()),
             )
@@ -993,6 +1102,7 @@ impl NostrConsumer {
                     let offset_store = offset_store.clone();
                     let chain_key_store = chain_key_store.clone();
                     let contact_service = contact_service.clone();
+                    let file_metadata_processor = file_metadata_processor.clone();
                     let local_node_ids = local_node_ids.clone();
                     let client = client.clone();
 
@@ -1016,6 +1126,7 @@ impl NostrConsumer {
                                         recipient_node_id.clone(),
                                         chain_key_store,
                                         &event_handlers,
+                                        file_metadata_processor,
                                     )
                                     .await?;
                                     // store the new event offset for the recipient identity
@@ -1098,6 +1209,18 @@ pub async fn determine_recipient(
             let signer = client.get_signer(&node_id)?;
             Ok((node_id, signer as Arc<dyn NostrSigner>))
         }
+        kind if kind == FILE_METADATA_KIND => {
+            let node_id = client
+                .signers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
+            let signer = client.get_signer(&node_id)?;
+            Ok((node_id, signer as Arc<dyn NostrSigner>))
+        }
         _ => Err(Error::Message(format!(
             "Unsupported event kind: {:?}",
             event.kind
@@ -1138,6 +1261,7 @@ pub async fn process_event(
     client_id: NodeId,
     chain_key_store: Arc<dyn ChainKeyServiceApi>,
     event_handlers: &[Arc<dyn NotificationHandlerApi>],
+    file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
 ) -> Result<(bool, Timestamp)> {
     let (success, time) = match event.kind {
         Kind::EncryptedDirectMessage | Kind::GiftWrap => {
@@ -1168,7 +1292,6 @@ pub async fn process_event(
             }
         }
         Kind::RelayList => {
-            // we have not subscribed to relaylist events yet
             debug!("Received relay list from: {}", event.pubkey);
             (true, Timestamp::zero())
         }
@@ -1176,8 +1299,17 @@ pub async fn process_event(
             debug!("Received blossom server list from: {}", event.pubkey);
             (true, Timestamp::zero())
         }
+        kind if kind == FILE_METADATA_KIND => {
+            let result = file_metadata_processor
+                .process_file_metadata(event.clone(), &client_id)
+                .await;
+            if let Err(e) = result {
+                debug!("File metadata processor failed: {}", e);
+                return Ok((false, Timestamp::zero()));
+            }
+            (true, event.created_at.into())
+        }
         Kind::Metadata => {
-            // we have not subscribed to metadata events yet
             debug!("Received metadata from: {}", event.pubkey);
             (true, Timestamp::zero())
         }
@@ -1360,8 +1492,8 @@ mod tests {
 
     use crate::handler::MockNotificationHandlerApi;
     use crate::test_utils::{
-        MockChainKeyService, MockContactService, MockNostrEventOffsetStore, TestEventPayload,
-        create_test_event, get_identity_public_data,
+        MockChainKeyService, MockContactService, MockFileMetadataProcessor,
+        MockNostrEventOffsetStore, TestEventPayload, create_test_event, get_identity_public_data,
     };
 
     use super::super::test_utils::get_mock_relay;
@@ -1528,6 +1660,7 @@ mod tests {
             vec![Arc::new(handler)],
             Arc::new(offset_store),
             Arc::new(chain_key_store),
+            Arc::new(MockFileMetadataProcessor::new()),
         );
 
         // run in a local set
@@ -1843,6 +1976,7 @@ mod tests {
             vec![],
             Arc::new(offset_store),
             Arc::new(MockChainKeyService::new()),
+            Arc::new(MockFileMetadataProcessor::new()),
         );
 
         let local = tokio::task::LocalSet::new();
@@ -1920,6 +2054,7 @@ mod tests {
             vec![],
             Arc::new(offset_store),
             chain_key_service,
+            Arc::new(MockFileMetadataProcessor::new()),
         );
 
         // Verify consumer can start and subscribe to events for all identities

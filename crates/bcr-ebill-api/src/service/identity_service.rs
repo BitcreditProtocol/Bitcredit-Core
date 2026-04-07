@@ -2,8 +2,12 @@ use super::Result;
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
+use crate::service::file_reference_helper::{
+    enforce_important_file_replication, identity_file_context,
+    record_confirmed_servers_and_publish, upsert_important_file_reference,
+};
 use crate::service::file_server_service::{
-    configured_blossom_servers, download_from_blossom_servers, upload_to_blossom_servers,
+    configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers,
 };
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
@@ -31,6 +35,7 @@ use bcr_ebill_core::protocol::{Country, EmailIdentityProofData, SignedIdentityPr
 use bcr_ebill_core::protocol::{Date, Field};
 use bcr_ebill_core::protocol::{Email, blockchain};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::IdentityChainEvent};
+use bcr_ebill_persistence::FileReferenceStoreApi;
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
@@ -149,6 +154,7 @@ pub struct IdentityService {
     store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     file_upload_client: Arc<dyn FileStorageClientApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
     block_transport: Arc<dyn TransportServiceApi>,
     email_client: Arc<dyn EmailClientApi>,
@@ -160,6 +166,7 @@ impl IdentityService {
         store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
         block_transport: Arc<dyn TransportServiceApi>,
         email_client: Arc<dyn EmailClientApi>,
@@ -169,6 +176,7 @@ impl IdentityService {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             blockchain_store,
             block_transport,
             email_client,
@@ -183,6 +191,7 @@ impl IdentityService {
         public_key: &PublicKey,
         signer: &BcrKeys,
         upload_file_type: UploadFileType,
+        field: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for identity {id}: {upload_id:?}");
@@ -193,14 +202,15 @@ impl IdentityService {
                 .map_err(|_| {
                     crate::service::Error::Validation(ValidationError::NoFileForFileUploadId)
                 })?;
-            // validate file size for upload file type
             if !upload_file_type.check_file_size(file_bytes.len()) {
                 return Err(crate::service::Error::Validation(
                     ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
                 ));
             }
             let file = self
-                .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key, signer)
+                .encrypt_and_save_uploaded_file(
+                    file_name, file_bytes, id, public_key, signer, field,
+                )
                 .await?;
             return Ok(Some(file));
         }
@@ -214,10 +224,11 @@ impl IdentityService {
         node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
+        field: &str,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = upload_to_blossom_servers(
+        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
             self.file_upload_client.as_ref(),
             &configured_blossom_servers(&get_config().nostr_config),
             encrypted,
@@ -225,11 +236,50 @@ impl IdentityService {
         )
         .await?;
         info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
-        Ok(File {
+        let file = File {
             name: file_name.to_owned(),
             hash: file_hash,
             nostr_hash,
-        })
+        };
+
+        // Upsert file reference for this important file with configured servers
+        let server_urls = get_config().nostr_config.blossom_servers.clone();
+        upsert_important_file_reference(
+            &self.file_reference_store,
+            &file,
+            identity_file_context(field),
+            server_urls,
+        )
+        .await?;
+
+        // Record confirmed servers and publish kind:1063 metadata event
+        if !confirmed_servers.is_empty() {
+            record_confirmed_servers_and_publish(
+                &self.file_reference_store,
+                &self.block_transport,
+                node_id,
+                &file,
+                confirmed_servers,
+                None,
+            )
+            .await?;
+        }
+
+        if let Err(e) = enforce_important_file_replication(
+            &self.file_reference_store,
+            &self.file_upload_client,
+            &self.block_transport,
+            &configured_blossom_servers(&get_config().nostr_config),
+            &file,
+            identity_file_context(field),
+            node_id,
+        )
+        .await
+        {
+            debug!("Replication enforcement failed after upload: {e}");
+        }
+
+        Ok(file)
     }
 
     async fn populate_block(
@@ -459,6 +509,7 @@ impl IdentityServiceApi for IdentityService {
                             &keys.pub_key(),
                             &keys,
                             UploadFileType::Picture,
+                            "profile_picture_file",
                         )
                         .await?;
                     if profile_picture_file.is_some() {
@@ -468,15 +519,11 @@ impl IdentityServiceApi for IdentityService {
                     profile_picture_file
                 }
                 EditOptionalFieldMode::Unset => {
-                    // remove the profile picture
                     identity.profile_picture_file = None;
                     changed = true;
                     None
                 }
-                EditOptionalFieldMode::Ignore => {
-                    // nothing to do
-                    None
-                }
+                EditOptionalFieldMode::Ignore => None,
             };
 
             identity_document_file = match identity_document_file_upload_id {
@@ -488,6 +535,7 @@ impl IdentityServiceApi for IdentityService {
                             &keys.pub_key(),
                             &keys,
                             UploadFileType::Document,
+                            "identity_document_file",
                         )
                         .await?;
                     if identity_document_file.is_some() {
@@ -496,15 +544,11 @@ impl IdentityServiceApi for IdentityService {
                     identity_document_file
                 }
                 EditOptionalFieldMode::Unset => {
-                    // remove the document
                     identity.identity_document_file = None;
                     changed = true;
                     None
                 }
-                EditOptionalFieldMode::Ignore => {
-                    // nothing to do
-                    None
-                }
+                EditOptionalFieldMode::Ignore => None,
             };
 
             if !changed {
@@ -644,6 +688,7 @@ impl IdentityServiceApi for IdentityService {
                         &keys.pub_key(),
                         &keys,
                         UploadFileType::Picture,
+                        "profile_picture_file",
                     )
                     .await?;
 
@@ -654,6 +699,7 @@ impl IdentityServiceApi for IdentityService {
                         &keys.pub_key(),
                         &keys,
                         UploadFileType::Document,
+                        "identity_document_file",
                     )
                     .await?;
 
@@ -755,6 +801,7 @@ impl IdentityServiceApi for IdentityService {
                 &keys.pub_key(),
                 &keys,
                 UploadFileType::Picture,
+                "profile_picture_file",
             )
             .await?;
 
@@ -765,6 +812,7 @@ impl IdentityServiceApi for IdentityService {
                 &keys.pub_key(),
                 &keys,
                 UploadFileType::Document,
+                "identity_document_file",
             )
             .await?;
 
@@ -860,9 +908,12 @@ impl IdentityServiceApi for IdentityService {
         }
 
         if let Some(file) = file {
-            let file_bytes = download_from_blossom_servers(
+            let file_bytes = download_file_with_fallback(
                 self.file_upload_client.as_ref(),
+                Some(&self.file_reference_store),
+                Some(&self.block_transport),
                 &configured_blossom_servers(&get_config().nostr_config),
+                &file.hash,
                 &file.nostr_hash,
             )
             .await?;
@@ -1032,9 +1083,9 @@ mod tests {
         external::{email::MockEmailClientApi, file_storage::MockFileStorageClientApi},
         service::transport_service::MockTransportServiceApi,
         tests::tests::{
-            MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
-            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
-            empty_optional_address, filled_optional_address, init_test_cfg,
+            MockEmailNotificationStoreApiMock, MockFileReferenceStoreApiMock,
+            MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
+            empty_identity, empty_optional_address, filled_optional_address, init_test_cfg,
             signed_identity_proof_test, test_ts,
         },
     };
@@ -1045,6 +1096,7 @@ mod tests {
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
+            Arc::new(MockFileReferenceStoreApiMock::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
             Arc::new(MockTransportServiceApi::new()),
             Arc::new(MockEmailClientApi::new()),
@@ -1061,6 +1113,7 @@ mod tests {
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
+            Arc::new(MockFileReferenceStoreApiMock::new()),
             Arc::new(mock_chain_storage),
             Arc::new(transport),
             Arc::new(MockEmailClientApi::new()),
@@ -1077,6 +1130,7 @@ mod tests {
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
+            Arc::new(MockFileReferenceStoreApiMock::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
             Arc::new(MockTransportServiceApi::new()),
             Arc::new(mock_email_client),

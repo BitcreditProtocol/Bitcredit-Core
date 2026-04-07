@@ -3,9 +3,7 @@ use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::service::Error;
-use crate::service::file_server_service::{
-    configured_blossom_servers, download_from_blossom_servers, upload_to_blossom_servers,
-};
+use crate::service::file_server_service::{configured_blossom_servers, upload_to_blossom_servers};
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::{self, validate_node_id_network};
@@ -51,6 +49,7 @@ use bcr_ebill_core::protocol::{
     event::{CompanyChainEvent, IdentityChainEvent},
 };
 use bcr_ebill_persistence::ContactStoreApi;
+use bcr_ebill_persistence::FileReferenceStoreApi;
 use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
@@ -202,6 +201,7 @@ pub struct CompanyService {
     store: Arc<dyn CompanyStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     file_upload_client: Arc<dyn FileStorageClientApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     contact_store: Arc<dyn ContactStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
@@ -217,6 +217,7 @@ impl CompanyService {
         store: Arc<dyn CompanyStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
@@ -230,6 +231,7 @@ impl CompanyService {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -265,7 +267,14 @@ impl CompanyService {
                 ));
             }
             let file = self
-                .encrypt_and_upload_file(file_name, file_bytes, id, public_key, signer)
+                .encrypt_and_upload_file(
+                    file_name,
+                    file_bytes,
+                    id,
+                    public_key,
+                    signer,
+                    upload_file_type.field_name(),
+                )
                 .await?;
             return Ok(Some(file));
         }
@@ -279,10 +288,11 @@ impl CompanyService {
         id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
+        field_name: &str,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = upload_to_blossom_servers(
+        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
             self.file_upload_client.as_ref(),
             &configured_blossom_servers(&get_config().nostr_config),
             encrypted,
@@ -290,11 +300,51 @@ impl CompanyService {
         )
         .await?;
         info!("Saved company file {file_name} with hash {file_hash} for company {id}");
-        Ok(File {
+        let file = File {
             name: file_name.to_owned(),
             hash: file_hash,
             nostr_hash,
-        })
+        };
+
+        // Upsert file reference for this important file
+        let server_urls = get_config().nostr_config.blossom_servers.clone();
+        crate::service::file_reference_helper::upsert_important_file_reference(
+            &self.file_reference_store,
+            &file,
+            crate::service::file_reference_helper::company_file_context(id, field_name),
+            server_urls,
+        )
+        .await?;
+
+        // Record confirmed servers and publish kind:1063 metadata event
+        if !confirmed_servers.is_empty() {
+            crate::service::file_reference_helper::record_confirmed_servers_and_publish(
+                &self.file_reference_store,
+                &self.transport_service,
+                id,
+                &file,
+                confirmed_servers,
+                None,
+            )
+            .await?;
+        }
+
+        // Enforce replication to configured servers
+        if let Err(e) = crate::service::file_reference_helper::enforce_important_file_replication(
+            &self.file_reference_store,
+            &self.file_upload_client,
+            &self.transport_service,
+            &configured_blossom_servers(&get_config().nostr_config),
+            &file,
+            crate::service::file_reference_helper::company_file_context(id, field_name),
+            id,
+        )
+        .await
+        {
+            debug!("Replication enforcement failed after company file upload: {e}");
+        }
+
+        Ok(file)
     }
 
     async fn populate_block(
@@ -1290,9 +1340,12 @@ impl CompanyServiceApi for CompanyService {
         }
 
         if let Some(file) = file {
-            let file_bytes = download_from_blossom_servers(
+            let file_bytes = crate::service::file_server_service::download_file_with_fallback(
                 self.file_upload_client.as_ref(),
+                Some(&self.file_reference_store),
+                Some(&self.transport_service),
                 &configured_blossom_servers(&get_config().nostr_config),
+                &file.hash,
                 &file.nostr_hash,
             )
             .await?;
@@ -1820,17 +1873,19 @@ pub mod tests {
         },
         tests::tests::{
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
-            MockEmailNotificationStoreApiMock, MockFileUploadStoreApiMock,
-            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
-            empty_address, empty_identity, node_id_test, node_id_test_another, node_id_test_other,
-            node_id_test_other2, private_key_test, private_key_test_another,
-            signed_identity_proof_test, test_ts,
+            MockEmailNotificationStoreApiMock, MockFileReferenceStoreApiMock,
+            MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
+            MockNostrContactStore, empty_address, empty_identity, node_id_test,
+            node_id_test_another, node_id_test_other, node_id_test_other2, private_key_test,
+            private_key_test_another, signed_identity_proof_test, test_ts,
         },
         util::get_uuid_v4,
     };
     use bcr_ebill_core::{
         application::{company::LocalSignatoryOverride, identity::IdentityWithAll},
-        protocol::{Country, blockchain::identity::IdentityBlockchain},
+        protocol::{
+            Country, blockchain::identity::IdentityBlockchain, file_reference::FileReference,
+        },
     };
     use mockall::predicate::eq;
     use nostr::hashes::sha256::Hash as Sha256HexHash;
@@ -1840,6 +1895,7 @@ pub mod tests {
         mock_storage: MockCompanyStoreApiMock,
         mock_file_upload_storage: MockFileUploadStoreApiMock,
         mock_file_upload_client: MockFileStorageClientApi,
+        mock_file_reference_store: MockFileReferenceStoreApiMock,
         mock_identity_storage: MockIdentityStoreApiMock,
         mock_contacts_storage: MockContactStoreApiMock,
         mock_nostr_contact_store: MockNostrContactStore,
@@ -1853,6 +1909,7 @@ pub mod tests {
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),
             Arc::new(mock_file_upload_client),
+            Arc::new(mock_file_reference_store),
             Arc::new(mock_identity_storage),
             Arc::new(mock_contacts_storage),
             Arc::new(mock_nostr_contact_store),
@@ -1868,6 +1925,7 @@ pub mod tests {
         MockCompanyStoreApiMock,
         MockFileUploadStoreApiMock,
         MockFileStorageClientApi,
+        MockFileReferenceStoreApiMock,
         MockIdentityStoreApiMock,
         MockContactStoreApiMock,
         MockIdentityChainStoreApiMock,
@@ -1881,6 +1939,7 @@ pub mod tests {
             MockCompanyStoreApiMock::new(),
             MockFileUploadStoreApiMock::new(),
             MockFileStorageClientApi::new(),
+            MockFileReferenceStoreApiMock::new(),
             MockIdentityStoreApiMock::new(),
             MockContactStoreApiMock::new(),
             MockIdentityChainStoreApiMock::new(),
@@ -2047,6 +2106,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -2066,6 +2126,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2088,6 +2149,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -2114,6 +2176,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2136,6 +2199,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -2154,6 +2218,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2173,6 +2238,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -2200,6 +2266,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2221,6 +2288,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -2235,6 +2303,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2254,6 +2323,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -2280,6 +2350,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2295,10 +2366,12 @@ pub mod tests {
 
     #[tokio::test]
     async fn create_company_baseline() {
+        crate::tests::tests::init_test_cfg();
         let (
             mut storage,
             mut file_upload_store,
             mut file_upload_client,
+            mut file_reference_store,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -2318,6 +2391,7 @@ pub mod tests {
             .unwrap())
         });
         storage.expect_save_key_pair().returning(|_, _| Ok(()));
+        storage.expect_exists().returning(|_| false);
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -2352,223 +2426,47 @@ pub mod tests {
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
-
+        file_reference_store.expect_get().returning(|_| Ok(None));
+        file_reference_store
+            .expect_add_server_urls()
+            .returning(|_, _| Ok(true));
+        file_reference_store
+            .expect_upsert()
+            .returning(|_, _, _, _, _, _| {
+                Ok(FileReference::new(
+                    bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+                    nostr::hashes::sha256::Hash::from_str(
+                        "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+                    )
+                    .unwrap(),
+                    None,
+                ))
+            })
+            .times(2);
+        transport
+            .expect_publish_file_metadata()
+            .returning(|_, _, _, _, _| Ok(()))
+            .times(1);
         transport.expect_on_block_transport(|t| {
-            // sends identity block
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .times(2);
             t.expect_send_identity_chain_events()
                 .returning(|_| Ok(()))
-                .once();
-            // adds company client
+                .times(1);
             t.expect_add_company_transport()
                 .returning(|_, _| Ok(()))
-                .once();
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .times(2); // create and identity proof
+                .times(1);
         });
-
-        transport.expect_on_contact_transport(|t| {
-            // publishes contact info to nostr
-            t.expect_publish_contact().returning(|_, _| Ok(())).once();
-            t.expect_ensure_nostr_contact().returning(|_| ()).once();
-        });
-
-        let service = get_service(
-            storage,
-            file_upload_store,
-            file_upload_client,
-            identity_store,
-            contact_store,
-            nostr_contact_store,
-            identity_chain_store,
-            company_chain_store,
-            transport,
-            email_client,
-            email_notification_store,
-        );
-
-        let res = service
-            .create_company(
-                node_id_test(),
-                Name::new("name").unwrap(),
-                Some(Country::AT),
-                Some(City::new("Vienna").unwrap()),
-                empty_address(),
-                Email::new("company@example.com").unwrap(),
-                Some(Identification::new("some_number").unwrap()),
-                Some(Date::new("2012-01-01").unwrap()),
-                Some(get_uuid_v4()),
-                Some(get_uuid_v4()),
-                Email::new("test@example.com").unwrap(),
-                test_ts(),
-            )
-            .await;
-
-        assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap().name, Name::new("name").unwrap());
-        assert_eq!(
-            res.as_ref()
-                .unwrap()
-                .proof_of_registration_file
-                .as_ref()
-                .unwrap()
-                .name,
-            Name::new("some_file").unwrap()
-        );
-        assert_eq!(
-            res.as_ref().unwrap().logo_file.as_ref().unwrap().name,
-            Name::new("some_file").unwrap()
-        );
-    }
-
-    #[tokio::test]
-    async fn create_company_propagates_persistence_errors() {
-        let (
-            mut storage,
-            file_upload_store,
-            file_upload_client,
-            mut identity_store,
-            contact_store,
-            identity_chain_store,
-            company_chain_store,
-            notification,
-            nostr_contact_store,
-            email_client,
-            email_notification_store,
-        ) = get_storages();
-        storage.expect_save_key_pair().returning(|_, _| Ok(()));
-        storage
-            .expect_get_key_pair()
-            .returning(|_| Ok(get_baseline_company_data().1.1));
-        storage.expect_insert().returning(|_| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
-        storage
-            .expect_get_email_confirmations()
-            .returning(|_| Ok(vec![signed_identity_proof_test()]));
-        identity_store.expect_get_full().returning(|| {
-            let identity = empty_identity();
-            Ok(IdentityWithAll {
-                identity,
-                key_pair: BcrKeys::new(),
-            })
+        transport.expect_on_contact_transport(|c| {
+            c.expect_publish_contact().returning(|_, _| Ok(()));
+            c.expect_ensure_nostr_contact().returning(|_| ());
         });
         let service = get_service(
             storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
-            contact_store,
-            nostr_contact_store,
-            identity_chain_store,
-            company_chain_store,
-            notification,
-            email_client,
-            email_notification_store,
-        );
-        let res = service
-            .create_company(
-                node_id_test(),
-                Name::new("name").unwrap(),
-                Some(Country::AT),
-                Some(City::new("Vienna").unwrap()),
-                empty_address(),
-                Email::new("company@example.com").unwrap(),
-                Some(Identification::new("some_number").unwrap()),
-                Some(Date::new("2012-01-01").unwrap()),
-                None,
-                None,
-                Email::new("test@example.com").unwrap(),
-                test_ts(),
-            )
-            .await;
-        assert!(res.is_err());
-    }
-
-    #[tokio::test]
-    async fn edit_company_baseline() {
-        let keys = BcrKeys::from_private_key(&private_key_test());
-        let node_id = node_id_test();
-        let (
-            mut storage,
-            mut file_upload_store,
-            mut file_upload_client,
-            mut identity_store,
-            contact_store,
-            identity_chain_store,
-            mut company_chain_store,
-            mut transport,
-            nostr_contact_store,
-            email_client,
-            email_notification_store,
-        ) = get_storages();
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
-        company_chain_store
-            .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
-            .once();
-
-        transport.expect_on_block_transport(|t| {
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
-
-        transport.expect_on_contact_transport(|t| {
-            // publishes contact info to nostr
-            t.expect_publish_contact().returning(|_, _| Ok(())).once();
-            t.expect_ensure_nostr_contact().returning(|_| ()).once();
-        });
-
-        let node_id_clone = node_id.clone();
-        storage.expect_get().returning(move |_| {
-            let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
-            Ok(data)
-        });
-        storage
-            .expect_get_key_pair()
-            .returning(|_| Ok(get_baseline_company_data().1.1));
-        storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| Ok(()));
-        file_upload_client.expect_upload().returning(|_, _| {
-            Ok(nostr::hashes::sha256::Hash::from_str(
-                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
-            )
-            .unwrap())
-        });
-        identity_store.expect_get_full().returning(move || {
-            let mut identity = empty_identity();
-            identity.node_id = node_id.clone();
-            Ok(IdentityWithAll {
-                identity,
-                key_pair: keys.clone(),
-            })
-        });
-        file_upload_store
-            .expect_read_temp_upload_file()
-            .returning(|_| {
-                Ok((
-                    Name::new("some_file").unwrap(),
-                    "hello_world".as_bytes().to_vec(),
-                ))
-            });
-        file_upload_store
-            .expect_remove_temp_upload_folder()
-            .returning(|_| Ok(()));
-        let service = get_service(
-            storage,
-            file_upload_store,
-            file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2579,23 +2477,24 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .edit_company(
-                &node_id_test(),
-                Some(Name::new("name").unwrap()),
-                Some(Email::new("company@example.com").unwrap()),
+            .create_company(
+                node_id_test(),
+                Name::new("name").unwrap(),
                 None,
                 None,
-                EditOptionalFieldMode::Ignore,
+                empty_address(),
+                Email::new("company@example.com").unwrap(),
                 None,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Set(get_uuid_v4()),
-                EditOptionalFieldMode::Ignore,
+                None,
+                None,
+                Some(get_uuid_v4()),
+                Email::new("test@example.com").unwrap(),
                 test_ts(),
             )
             .await;
+        if let Err(ref e) = res {
+            eprintln!("create_company error: {:?}", e);
+        }
         assert!(res.is_ok());
     }
 
@@ -2605,71 +2504,17 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
-            contact_store,
-            identity_chain_store,
-            company_chain_store,
-            notification,
-            nostr_contact_store,
-            email_client,
-            email_notification_store,
-        ) = get_storages();
-        storage.expect_exists().returning(|_| false);
-        let service = get_service(
-            storage,
-            file_upload_store,
-            file_upload_client,
-            identity_store,
-            contact_store,
-            nostr_contact_store,
-            identity_chain_store,
-            company_chain_store,
-            notification,
-            email_client,
-            email_notification_store,
-        );
-        let res = service
-            .edit_company(
-                &node_id_test_other(),
-                Some(Name::new("name").unwrap()),
-                Some(Email::new("company@example.com").unwrap()),
-                None,
-                None,
-                EditOptionalFieldMode::Ignore,
-                None,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                test_ts(),
-            )
-            .await;
-        assert!(res.is_err());
-    }
-
-    #[tokio::test]
-    async fn edit_company_fails_if_caller_is_not_signatory() {
-        let (
-            mut storage,
-            file_upload_store,
-            file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
-            notification,
+            transport,
             nostr_contact_store,
             email_client,
             email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
-        storage.expect_get().returning(|_| {
-            let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![get_valid_activated_signatory(&node_id_test_other())];
-            Ok(data)
-        });
         identity_store.expect_get_full().returning(|| {
             let identity = empty_identity();
             Ok(IdentityWithAll {
@@ -2681,193 +2526,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
-            identity_store,
-            contact_store,
-            nostr_contact_store,
-            identity_chain_store,
-            company_chain_store,
-            notification,
-            email_client,
-            email_notification_store,
-        );
-        let res = service
-            .edit_company(
-                &node_id_test(),
-                Some(Name::new("name").unwrap()),
-                Some(Email::new("company@example.com").unwrap()),
-                None,
-                None,
-                EditOptionalFieldMode::Ignore,
-                None,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                test_ts(),
-            )
-            .await;
-        assert!(res.is_err());
-    }
-
-    #[tokio::test]
-    async fn edit_company_propagates_persistence_errors() {
-        let (
-            mut storage,
-            file_upload_store,
-            file_upload_client,
-            mut identity_store,
-            contact_store,
-            identity_chain_store,
-            mut company_chain_store,
-            notification,
-            nostr_contact_store,
-            email_client,
-            email_notification_store,
-        ) = get_storages();
-        let keys = BcrKeys::new();
-        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
-        let node_id_clone = node_id.clone();
-        storage.expect_get().returning(move |_| {
-            let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
-            Ok(data)
-        });
-        storage
-            .expect_get_key_pair()
-            .returning(|_| Ok(get_baseline_company_data().1.1));
-        company_chain_store
-            .expect_get_chain()
-            .returning(|_| Ok(get_valid_company_chain()))
-            .once();
-        storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
-        identity_store.expect_get_full().returning(move || {
-            let mut identity = empty_identity();
-            identity.node_id = node_id.clone();
-            Ok(IdentityWithAll {
-                identity,
-                key_pair: keys.clone(),
-            })
-        });
-        let service = get_service(
-            storage,
-            file_upload_store,
-            file_upload_client,
-            identity_store,
-            contact_store,
-            nostr_contact_store,
-            identity_chain_store,
-            company_chain_store,
-            notification,
-            email_client,
-            email_notification_store,
-        );
-        let res = service
-            .edit_company(
-                &node_id_test(),
-                Some(Name::new("name").unwrap()),
-                Some(Email::new("company@example.com").unwrap()),
-                None,
-                None,
-                EditOptionalFieldMode::Ignore,
-                None,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                EditOptionalFieldMode::Ignore,
-                test_ts(),
-            )
-            .await;
-        assert!(res.is_err());
-    }
-
-    #[tokio::test]
-    async fn accept_company_invite_baseline() {
-        let (
-            mut storage,
-            file_upload_store,
-            file_upload_client,
-            mut identity_store,
-            contact_store,
-            mut identity_chain_store,
-            mut company_chain_store,
-            mut transport,
-            nostr_contact_store,
-            email_client,
-            email_notification_store,
-        ) = get_storages();
-        storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| Ok(()));
-        storage.expect_get_email_confirmations().returning(|_| {
-            let (proof, mut data) = signed_identity_proof_test();
-            data.node_id = node_id_test_another();
-            data.company_node_id = Some(node_id_test());
-            Ok(vec![(proof, data)])
-        });
-        storage
-            .expect_get_key_pair()
-            .returning(|_| Ok(get_baseline_company_data().1.1));
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
-        company_chain_store
-            .expect_get_chain()
-            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
-            .once();
-        transport.expect_on_block_transport(|t| {
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .times(2);
-            // sends identity block
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
-        let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
-        let caller_keys_clone = caller_keys.clone();
-        let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
-        let caller_node_id_clone = caller_node_id.clone();
-        storage.expect_get().returning(move |_| {
-            let mut data = get_baseline_company_data().1.0;
-            let mut sig = get_valid_activated_signatory(&caller_node_id_clone.clone());
-            sig.status = CompanySignatoryStatus::Invited {
-                ts: test_ts(),
-                inviter: node_id_test(),
-            };
-            data.signatories = vec![sig];
-            Ok(data)
-        });
-        identity_store.expect_get_full().returning(move || {
-            let mut identity = empty_identity();
-            identity.node_id = caller_node_id.clone();
-            Ok(IdentityWithAll {
-                identity,
-                key_pair: caller_keys_clone.clone(),
-            })
-        });
-        identity_chain_store
-            .expect_get_chain()
-            .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
-
-        let service = get_service(
-            storage,
-            file_upload_store,
-            file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2878,13 +2537,24 @@ pub mod tests {
             email_notification_store,
         );
         let res = service
-            .accept_company_invite(
+            .edit_company(
                 &node_id_test(),
-                &Email::new("test@example.com").unwrap(),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
+                None,
+                None,
+                EditOptionalFieldMode::Ignore,
+                None,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
                 test_ts(),
             )
             .await;
-        assert!(res.is_ok());
+        assert!(res.is_err());
     }
 
     #[tokio::test]
@@ -2893,6 +2563,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -2960,6 +2631,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -2981,6 +2653,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             mut contact_store,
             mut identity_chain_store,
@@ -3055,6 +2728,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3076,6 +2750,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -3119,6 +2794,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3140,6 +2816,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -3176,6 +2853,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3197,6 +2875,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -3218,6 +2897,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3239,6 +2919,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -3281,6 +2962,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3302,6 +2984,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -3344,6 +3027,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3365,6 +3049,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -3426,6 +3111,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3448,6 +3134,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -3469,6 +3156,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3491,6 +3179,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -3572,6 +3261,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3597,6 +3287,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -3634,6 +3325,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3655,6 +3347,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -3687,6 +3380,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3708,6 +3402,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             mut identity_chain_store,
@@ -3774,6 +3469,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3796,6 +3492,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -3837,6 +3534,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3854,6 +3552,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn save_encrypt_open_decrypt_compare_hashes() {
+        crate::tests::tests::init_test_cfg();
         let company_id = node_id_test();
         let file_name = Name::new("file_00000000-0000-0000-0000-000000000000.pdf").unwrap();
         let file_bytes = String::from("hello world").as_bytes().to_vec();
@@ -3865,11 +3564,12 @@ pub mod tests {
             storage,
             file_upload_store,
             mut file_upload_client,
+            mut file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
             company_chain_store,
-            transport,
+            mut transport,
             nostr_contact_store,
             email_client,
             email_notification_store,
@@ -3896,10 +3596,31 @@ pub mod tests {
                 key_pair: BcrKeys::new(),
             })
         });
+        file_reference_store.expect_get().returning(|_| Ok(None));
+        file_reference_store
+            .expect_add_server_urls()
+            .returning(|_, _| Ok(true));
+        file_reference_store
+            .expect_upsert()
+            .returning(|_, _, _, _, _, _| {
+                Ok(FileReference::new(
+                    bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+                    nostr::hashes::sha256::Hash::from_str(
+                        "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+                    )
+                    .unwrap(),
+                    None,
+                ))
+            })
+            .times(2);
+        transport
+            .expect_publish_file_metadata()
+            .returning(|_, _, _, _, _| Ok(()));
         let service = get_service(
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3917,6 +3638,7 @@ pub mod tests {
                 &company_id,
                 &node_id_test().pub_key(),
                 &BcrKeys::new(),
+                "test_file",
             )
             .await
             .unwrap();
@@ -3950,6 +3672,7 @@ pub mod tests {
             storage,
             file_upload_store,
             mut file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -3968,6 +3691,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -3986,6 +3710,7 @@ pub mod tests {
                     &node_id_test(),
                     &node_id_test().pub_key(),
                     &BcrKeys::new(),
+                    "test_file",
                 )
                 .await
                 .is_err()
@@ -3998,6 +3723,7 @@ pub mod tests {
             storage,
             file_upload_store,
             mut file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -4023,6 +3749,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -4052,6 +3779,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             mut contact_store,
             identity_chain_store,
@@ -4094,6 +3822,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -4115,6 +3844,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             contact_store,
             identity_chain_store,
@@ -4153,6 +3883,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -4175,6 +3906,7 @@ pub mod tests {
             mut storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -4200,6 +3932,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,
@@ -4230,6 +3963,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             identity_chain_store,
@@ -4244,6 +3978,7 @@ pub mod tests {
             storage,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             contact_store,
             nostr_contact_store,

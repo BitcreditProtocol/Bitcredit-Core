@@ -47,7 +47,9 @@ pub use transport::bcr_nostr_tag;
 
 use crate::block_transport::BlockTransportService;
 use crate::contact_transport::ContactTransportService;
-use crate::handler::{ContactShareEventHandler, DirectMessageEventProcessor};
+use crate::handler::{
+    ContactShareEventHandler, DirectMessageEventProcessor, FileMetadataProcessor,
+};
 use crate::notification_transport::NotificationTransportService;
 use crate::transport_service::TransportService;
 
@@ -303,17 +305,22 @@ pub async fn create_nostr_consumer(
             transport.clone(),
             db_context.contact_store.clone(),
             db_context.nostr_contact_store.clone(),
+            db_context.file_reference_store.clone(),
             db_context.notification_store.clone(),
             push_service.clone(),
         )),
     ];
     debug!("initializing nostr consumer with single multi-identity client");
+    let file_metadata_processor = Arc::new(FileMetadataProcessor::new(
+        db_context.file_reference_store.clone(),
+    ));
     let consumer = NostrConsumer::new(
         client,
         contact_service,
         handlers,
         db_context.nostr_event_offset_store.clone(),
         chain_key_service,
+        file_metadata_processor,
     );
     Ok(consumer)
 }
@@ -395,6 +402,9 @@ pub async fn create_restore_account_service(
             db_context.nostr_event_offset_store.clone(),
             chain_key_service.clone(),
             vec![company_invite_handler, bill_invite_handler],
+            Arc::new(FileMetadataProcessor::new(
+                db_context.file_reference_store.clone(),
+            )),
         )
         .await,
     );

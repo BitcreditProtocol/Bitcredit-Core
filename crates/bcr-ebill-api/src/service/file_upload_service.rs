@@ -166,6 +166,13 @@ impl UploadFileType {
             UploadFileType::Picture => MAX_PICTURE_FILE_SIZE_BYTES,
         }
     }
+
+    pub fn field_name(&self) -> &'static str {
+        match self {
+            UploadFileType::Document => "document_file",
+            UploadFileType::Picture => "picture_file",
+        }
+    }
 }
 
 /// Function to sanitize the filename by removing unwanted characters.

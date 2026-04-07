@@ -41,16 +41,16 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::nostr::{
     NostrContactStoreApi, NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
 };
-use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
+use bcr_ebill_persistence::notification::NotificationFilter;
 use bcr_ebill_persistence::{
-    ContactStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi, NotificationStoreApi,
-    PendingContactShare, ShareDirection, SurrealDbConfig,
+    ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi,
+    NotificationStoreApi, PendingContactShare, ShareDirection, SurrealDbConfig,
 };
 use nostr_relay_builder::MockRelay;
 
 use crate::NostrTransportService;
 use crate::chain_keys::ChainKeyServiceApi;
-use crate::handler::NotificationHandlerApi;
+use crate::handler::{FileMetadataProcessorApi, NotificationHandlerApi};
 
 use super::nostr::NostrClient;
 use serde::Serialize;
@@ -579,10 +579,16 @@ mockall::mock! {
         async fn publish_metadata(&self, node_id: &NodeId, data: &nostr::nips::nip01::Metadata) -> Result<()>;
         async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;
         async fn publish_blossom_server_list(&self, node_id: &NodeId, blossom_servers: Vec<url::Url>) -> Result<()>;
+        async fn publish_file_metadata(&self, node_id: &NodeId, plaintext_hash: &str, encrypted_hash: &str, server_urls: Vec<url::Url>, mime_type: Option<String>) -> Result<()>;
         async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
         fn has_local_signer(&self, node_id: &NodeId) -> bool;
         async fn sync_relays(&self) -> Result<()>;
         async fn retry_failed_syncs(&self) -> Result<()>;
+        async fn query_file_metadata_events(
+            &self,
+            file_hash: &str,
+            nostr_hash: &str,
+        ) -> Result<Vec<nostr::event::Event>>;
     }
 }
 
@@ -647,16 +653,58 @@ mockall::mock! {
 mockall::mock! {
     pub EmailNotificationStore {}
 
-    impl ServiceTraitBounds for EmailNotificationStore {}
+    impl bcr_ebill_core::application::ServiceTraitBounds for EmailNotificationStore {}
 
     #[async_trait]
-    impl EmailNotificationStoreApi for EmailNotificationStore {
+    impl bcr_ebill_persistence::notification::EmailNotificationStoreApi for EmailNotificationStore {
         async fn add_email_preferences_link_for_node_id(
             &self,
             email_preferences_link: &url::Url,
             node_id: &NodeId,
         ) -> bcr_ebill_persistence::Result<()>;
-        async fn get_email_preferences_link_for_node_id(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Option<url::Url>>;
+        async fn get_email_preferences_link_for_node_id(
+            &self,
+            node_id: &NodeId,
+        ) -> bcr_ebill_persistence::Result<Option<url::Url>>;
+    }
+}
+
+mockall::mock! {
+    pub FileMetadataProcessor {}
+
+    impl bcr_ebill_core::application::ServiceTraitBounds for FileMetadataProcessor {}
+
+    #[async_trait]
+    impl FileMetadataProcessorApi for FileMetadataProcessor {
+        async fn process_file_metadata(&self, event: Box<nostr::Event>, node_id: &NodeId) -> crate::Result<()>;
+    }
+}
+
+mockall::mock! {
+    pub FileReferenceStore {}
+
+    impl bcr_ebill_core::application::ServiceTraitBounds for FileReferenceStore {}
+
+    #[async_trait]
+    impl FileReferenceStoreApi for FileReferenceStore {
+        async fn upsert(
+            &self,
+            hash: &Sha256Hash,
+            nostr_hash: &nostr::hashes::sha256::Hash,
+            name: Option<Name>,
+            server_urls: Vec<url::Url>,
+            is_important: Option<bool>,
+            context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
+        ) -> bcr_ebill_persistence::Result<bcr_ebill_core::protocol::file_reference::FileReference>;
+        async fn get(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<Option<bcr_ebill_core::protocol::file_reference::FileReference>>;
+        async fn delete(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<()>;
+        async fn list(&self) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_core::protocol::file_reference::FileReference>>;
+        async fn list_important(&self) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_core::protocol::file_reference::FileReference>>;
+        async fn add_server_urls(&self, hash: &Sha256Hash, urls: Vec<url::Url>) -> bcr_ebill_persistence::Result<bool>;
+        async fn mark_important(&self, hash: &Sha256Hash, important: bool) -> bcr_ebill_persistence::Result<()>;
+        async fn update_nostr_hash(&self, hash: &Sha256Hash, nostr_hash: &nostr::hashes::sha256::Hash) -> bcr_ebill_persistence::Result<()>;
+        async fn add_context(&self, hash: &Sha256Hash, context: bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> bcr_ebill_persistence::Result<bool>;
+        async fn remove_context(&self, hash: &Sha256Hash, context: &bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> bcr_ebill_persistence::Result<bool>;
     }
 }
 

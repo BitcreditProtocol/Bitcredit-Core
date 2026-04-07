@@ -46,8 +46,8 @@ pub mod tests {
     };
     use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
-        ContactStoreApi, NostrEventOffset, NostrEventOffsetStoreApi, NotificationStoreApi,
-        PendingContactShare, Result, ShareDirection, SurrealDbConfig,
+        ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
+        NotificationStoreApi, PendingContactShare, Result, ShareDirection, SurrealDbConfig,
         bill::{BillChainStoreApi, BillStoreApi},
         company::{CompanyChainStoreApi, CompanyStoreApi},
         file_upload::FileUploadStoreApi,
@@ -473,6 +473,34 @@ pub mod tests {
         }
     }
 
+    mockall::mock! {
+        pub FileReferenceStoreApiMock {}
+
+        impl ServiceTraitBounds for FileReferenceStoreApiMock {}
+
+        #[async_trait]
+        impl FileReferenceStoreApi for FileReferenceStoreApiMock {
+            async fn upsert(
+                &self,
+                hash: &Sha256Hash,
+                nostr_hash: &nostr::hashes::sha256::Hash,
+                name: Option<Name>,
+                server_urls: Vec<url::Url>,
+                is_important: Option<bool>,
+                context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
+            ) -> bcr_ebill_persistence::Result<bcr_ebill_core::protocol::file_reference::FileReference>;
+            async fn get(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<Option<bcr_ebill_core::protocol::file_reference::FileReference>>;
+            async fn delete(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<()>;
+            async fn list(&self) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_core::protocol::file_reference::FileReference>>;
+            async fn list_important(&self) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_core::protocol::file_reference::FileReference>>;
+            async fn add_server_urls(&self, hash: &Sha256Hash, urls: Vec<url::Url>) -> bcr_ebill_persistence::Result<bool>;
+            async fn mark_important(&self, hash: &Sha256Hash, important: bool) -> bcr_ebill_persistence::Result<()>;
+            async fn update_nostr_hash(&self, hash: &Sha256Hash, nostr_hash: &nostr::hashes::sha256::Hash) -> bcr_ebill_persistence::Result<()>;
+            async fn add_context(&self, hash: &Sha256Hash, context: bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> bcr_ebill_persistence::Result<bool>;
+            async fn remove_context(&self, hash: &Sha256Hash, context: &bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> bcr_ebill_persistence::Result<bool>;
+        }
+    }
+
     #[allow(unused)]
     pub fn get_mock_db_ctx(nostr_contact_store: Option<MockNostrContactStore>) -> DbContext {
         DbContext {
@@ -484,6 +512,7 @@ pub mod tests {
             company_chain_store: Arc::new(MockCompanyChainStoreApiMock::new()),
             company_store: Arc::new(MockCompanyStoreApiMock::new()),
             file_upload_store: Arc::new(MockFileUploadStoreApiMock::new()),
+            file_reference_store: Arc::new(MockFileReferenceStoreApiMock::new()),
             nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApiMock::new()),
             notification_store: Arc::new(MockNotificationStoreApiMock::new()),
             email_notification_store: Arc::new(MockEmailNotificationStoreApiMock::new()),

@@ -4,6 +4,7 @@ pub mod company;
 pub mod constants;
 pub mod contact;
 pub mod db;
+pub mod file_reference;
 pub mod file_upload;
 pub mod identity;
 pub mod mint;
@@ -62,6 +63,7 @@ impl From<surrealdb::Error> for Error {
 }
 
 pub use contact::ContactStoreApi;
+pub use db::file_reference::SurrealFileReferenceStore;
 pub use db::file_upload::FileUploadStore;
 #[cfg(not(target_arch = "wasm32"))]
 pub use db::get_surreal_db;
@@ -73,6 +75,7 @@ pub use db::{
     nostr_contact_store::SurrealNostrStore, nostr_event_offset::SurrealNostrEventOffsetStore,
     notification::SurrealNotificationStore,
 };
+pub use file_reference::FileReferenceStoreApi;
 // Backwards compatibility alias
 pub use db::nostr_contact_store::SurrealNostrStore as SurrealNostrContactStore;
 pub use nostr::{

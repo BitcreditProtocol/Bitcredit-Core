@@ -15,8 +15,8 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, NotificationStoreApi, PendingContactShare, ShareDirection,
-    nostr::NostrContactStoreApi,
+    ContactStoreApi, FileReferenceStoreApi, NotificationStoreApi, PendingContactShare,
+    ShareDirection, nostr::NostrContactStoreApi,
 };
 use bitcoin::base58;
 use log::{debug, warn};
@@ -33,6 +33,7 @@ pub struct ContactShareEventHandler {
     transport: Arc<dyn TransportClientApi>,
     contact_store: Arc<dyn ContactStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     notification_store: Arc<dyn NotificationStoreApi>,
     push_service: Arc<dyn PushApi>,
 }
@@ -191,6 +192,7 @@ impl ContactShareEventHandler {
         transport: Arc<dyn TransportClientApi>,
         contact_store: Arc<dyn ContactStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         notification_store: Arc<dyn NotificationStoreApi>,
         push_service: Arc<dyn PushApi>,
     ) -> Self {
@@ -198,6 +200,7 @@ impl ContactShareEventHandler {
             transport,
             contact_store,
             nostr_contact_store,
+            file_reference_store,
             notification_store,
             push_service,
         }
@@ -246,8 +249,74 @@ impl ContactShareEventHandler {
                 .await
                 .map_err(|e| Error::Persistence(e.to_string()))?;
 
+            // Anchor file references for important files from shared contact (passive - no publish)
+            self.anchor_shared_contact_files(&contact).await?;
+
             debug!("successfully auto-accepted shared contact data for {node_id}");
         }
+        Ok(())
+    }
+
+    /// Anchors file references for files in a shared contact (avatar and proof document)
+    /// This is a passive operation - it only creates/updates local file references, no outbound publish
+    async fn anchor_shared_contact_files(&self, contact: &Contact) -> Result<()> {
+        use bcr_ebill_core::protocol::file_reference::FileReferenceContext;
+
+        // Anchor avatar file if present
+        if let Some(avatar) = &contact.avatar_file {
+            let context = FileReferenceContext::Contact {
+                node_id: contact.node_id.to_string(),
+                field: "avatar_file".to_string(),
+            };
+            // Use empty server URLs - will be populated when file is actually downloaded
+            if let Err(e) = self
+                .file_reference_store
+                .upsert(
+                    &avatar.hash,
+                    &avatar.nostr_hash,
+                    Some(avatar.name.clone()),
+                    vec![],     // No server URLs yet - passive anchor only
+                    Some(true), // Important file
+                    vec![context],
+                )
+                .await
+            {
+                debug!("Failed to anchor avatar file reference: {e}");
+            } else {
+                debug!(
+                    "Anchored avatar file reference for contact {}",
+                    contact.node_id
+                );
+            }
+        }
+
+        // Anchor proof document file if present
+        if let Some(proof) = &contact.proof_document_file {
+            let context = FileReferenceContext::Contact {
+                node_id: contact.node_id.to_string(),
+                field: "proof_document_file".to_string(),
+            };
+            if let Err(e) = self
+                .file_reference_store
+                .upsert(
+                    &proof.hash,
+                    &proof.nostr_hash,
+                    Some(proof.name.clone()),
+                    vec![],     // No server URLs yet - passive anchor only
+                    Some(true), // Important file
+                    vec![context],
+                )
+                .await
+            {
+                debug!("Failed to anchor proof document file reference: {e}");
+            } else {
+                debug!(
+                    "Anchored proof document file reference for contact {}",
+                    contact.node_id
+                );
+            }
+        }
+
         Ok(())
     }
 }
@@ -257,8 +326,8 @@ mod tests {
     use crate::{
         handler::test_utils::{MockPushService, node_id_test},
         test_utils::{
-            MockContactStore, MockNostrContactStore, MockNotificationJsonTransport,
-            MockNotificationStore,
+            MockContactStore, MockFileReferenceStore, MockNostrContactStore,
+            MockNotificationJsonTransport, MockNotificationStore,
         },
     };
 
@@ -274,8 +343,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_share_creates_pending_share() {
-        let (mut transport, mut contact, mut nostr_contact, mut notification, mut push_service) =
-            get_mocks();
+        let (
+            mut transport,
+            mut contact,
+            mut nostr_contact,
+            file_reference_store,
+            mut notification,
+            mut push_service,
+        ) = get_mocks();
         let keys = BcrKeys::new();
 
         let event = Event::new_contact_share(ContactShareEvent {
@@ -339,6 +414,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(contact),
             Arc::new(nostr_contact),
+            Arc::new(file_reference_store),
             Arc::new(notification),
             Arc::new(push_service),
         );
@@ -351,8 +427,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_share_with_share_back_pending_id_auto_accepts() {
-        let (mut transport, mut contact, mut nostr_contact, notification, push_service) =
-            get_mocks();
+        let (
+            mut transport,
+            mut contact,
+            mut nostr_contact,
+            file_reference_store,
+            notification,
+            push_service,
+        ) = get_mocks();
         let keys = BcrKeys::new();
         let pending_share_id = "test_pending_share_id".to_string();
 
@@ -426,6 +508,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(contact),
             Arc::new(nostr_contact),
+            Arc::new(file_reference_store),
             Arc::new(notification),
             Arc::new(push_service),
         );
@@ -438,8 +521,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_share_skips_duplicate_pending() {
-        let (mut transport, mut contact, mut nostr_contact, notification, push_service) =
-            get_mocks();
+        let (
+            mut transport,
+            mut contact,
+            mut nostr_contact,
+            file_reference_store,
+            notification,
+            push_service,
+        ) = get_mocks();
         let keys = BcrKeys::new();
 
         let event = Event::new_contact_share(ContactShareEvent {
@@ -484,6 +573,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(contact),
             Arc::new(nostr_contact),
+            Arc::new(file_reference_store),
             Arc::new(notification),
             Arc::new(push_service),
         );
@@ -498,8 +588,14 @@ mod tests {
     async fn test_bidirectional_share_allows_both_directions() {
         // Scenario 1: Alice shares with Bob (Incoming for Bob)
         // This should NOT be blocked even if Bob has already shared with Alice (Outgoing from Bob)
-        let (mut transport, mut contact, mut nostr_contact, mut notification, mut push_service) =
-            get_mocks();
+        let (
+            mut transport,
+            mut contact,
+            mut nostr_contact,
+            file_reference_store,
+            mut notification,
+            mut push_service,
+        ) = get_mocks();
         let keys = BcrKeys::new();
 
         let event = Event::new_contact_share(ContactShareEvent {
@@ -564,6 +660,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(contact),
             Arc::new(nostr_contact),
+            Arc::new(file_reference_store),
             Arc::new(notification),
             Arc::new(push_service),
         );
@@ -572,6 +669,189 @@ mod tests {
             .handle_event(event.try_into().unwrap(), &node_id_test(), None, None)
             .await
             .expect("Incoming share created successfully even if Outgoing share exists");
+    }
+
+    #[tokio::test]
+    async fn important_file_upsert_shared_contact_files() {
+        use bcr_ebill_core::protocol::File;
+
+        let (
+            mut transport,
+            mut contact,
+            mut nostr_contact,
+            mut file_reference_store,
+            _notification,
+            _push_service,
+        ) = get_mocks();
+        let keys = BcrKeys::new();
+        let pending_share_id = "test_pending_share_id".to_string();
+
+        let pending_share = PendingContactShare {
+            id: pending_share_id.clone(),
+            node_id: node_id_test(),
+            contact: get_contact(),
+            sender_node_id: node_id_test(),
+            contact_private_key: keys.get_private_key(),
+            receiver_node_id: node_id_test(),
+            received_at: bcr_ebill_core::protocol::Timestamp::now(),
+            direction: ShareDirection::Outgoing,
+            initial_share_id: None,
+        };
+
+        let event = Event::new_contact_share(ContactShareEvent {
+            node_id: node_id_test(),
+            private_key: keys.get_private_key(),
+            initial_share_id: "initial-share-back-123".to_string(),
+            share_back_pending_id: Some(pending_share_id.clone()),
+        });
+
+        nostr_contact
+            .expect_get_pending_share()
+            .with(eq(pending_share_id.clone()))
+            .returning(move |_| Ok(Some(pending_share.clone())))
+            .once();
+
+        transport
+            .expect_resolve_contact()
+            .with(eq(node_id_test()))
+            .returning(move |_| {
+                let contact_with_files = Contact {
+                    t: ContactType::Person,
+                    node_id: node_id_test(),
+                    name: Name::new("My Name").unwrap(),
+                    email: None,
+                    postal_address: None,
+                    date_of_birth_or_registration: None,
+                    country_of_birth_or_registration: None,
+                    city_of_birth_or_registration: None,
+                    identification_number: None,
+                    avatar_file: Some(File {
+                        hash: bcr_ebill_core::protocol::Sha256Hash::new("avatar_data"),
+                        nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[2u8; 32]),
+                        name: Name::new("avatar.png").unwrap(),
+                    }),
+                    proof_document_file: Some(File {
+                        hash: bcr_ebill_core::protocol::Sha256Hash::new("proof_data"),
+                        nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[4u8; 32]),
+                        name: Name::new("proof.pdf").unwrap(),
+                    }),
+                    nostr_relays: vec![],
+                    is_logical: false,
+                    mint_url: None,
+                };
+                let payload = serde_json::to_vec(&contact_with_files).unwrap();
+                let encrypted =
+                    base58::encode(&encrypt_ecies(payload.as_slice(), &keys.pub_key()).unwrap());
+                Ok(Some(NostrContactData::new(
+                    &Name::new("My Name").unwrap(),
+                    vec![],
+                    vec![],
+                    BcrMetadata {
+                        contact_data: encrypted,
+                    },
+                )))
+            })
+            .once();
+
+        contact
+            .expect_get()
+            .with(eq(node_id_test()))
+            .returning(|_| Ok(None))
+            .once();
+
+        contact
+            .expect_insert()
+            .with(eq(node_id_test()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        nostr_contact
+            .expect_by_node_id()
+            .with(eq(node_id_test()))
+            .returning(|_| Ok(None))
+            .once();
+
+        nostr_contact
+            .expect_upsert()
+            .withf(|c| c.contact_private_key.is_some())
+            .returning(|_| Ok(()))
+            .once();
+
+        nostr_contact
+            .expect_delete_pending_share()
+            .with(eq(pending_share_id))
+            .returning(|_| Ok(()))
+            .once();
+
+        file_reference_store
+            .expect_upsert()
+            .withf(
+                |_hash, _nostr_hash, name, server_urls, is_important, _context| {
+                    name.as_ref().map(|n| n.to_string()) == Some("avatar.png".to_string())
+                        && server_urls.is_empty()
+                        && *is_important == Some(true)
+                },
+            )
+            .returning(|_, _, _, _, _, _| {
+                Ok(bcr_ebill_core::protocol::file_reference::FileReference {
+                    hash: bcr_ebill_core::protocol::Sha256Hash::new("avatar_data"),
+                    nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[2u8; 32]),
+                    name: Some(bcr_ebill_core::protocol::Name::new("avatar.png").unwrap()),
+                    server_urls: vec![],
+                    is_important: true,
+                    context: vec![
+                        bcr_ebill_core::protocol::file_reference::FileReferenceContext::Contact {
+                            node_id: node_id_test().to_string(),
+                            field: "avatar_file".to_string(),
+                        },
+                    ],
+                    created_at: bcr_ebill_core::protocol::Timestamp::now(),
+                    updated_at: bcr_ebill_core::protocol::Timestamp::now(),
+                })
+            })
+            .once();
+
+        file_reference_store
+            .expect_upsert()
+            .withf(
+                |_hash, _nostr_hash, name, server_urls, is_important, _context| {
+                    name.as_ref().map(|n| n.to_string()) == Some("proof.pdf".to_string())
+                        && server_urls.is_empty()
+                        && *is_important == Some(true)
+                },
+            )
+            .returning(|_, _, _, _, _, _| {
+                Ok(bcr_ebill_core::protocol::file_reference::FileReference {
+                    hash: bcr_ebill_core::protocol::Sha256Hash::new("proof_data"),
+                    nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[4u8; 32]),
+                    name: Some(bcr_ebill_core::protocol::Name::new("proof.pdf").unwrap()),
+                    server_urls: vec![],
+                    is_important: true,
+                    context: vec![
+                        bcr_ebill_core::protocol::file_reference::FileReferenceContext::Contact {
+                            node_id: node_id_test().to_string(),
+                            field: "proof_document_file".to_string(),
+                        },
+                    ],
+                    created_at: bcr_ebill_core::protocol::Timestamp::now(),
+                    updated_at: bcr_ebill_core::protocol::Timestamp::now(),
+                })
+            })
+            .once();
+
+        let handler = ContactShareEventHandler::new(
+            Arc::new(transport),
+            Arc::new(contact),
+            Arc::new(nostr_contact),
+            Arc::new(file_reference_store),
+            Arc::new(_notification),
+            Arc::new(_push_service),
+        );
+
+        handler
+            .handle_event(event.try_into().unwrap(), &node_id_test(), None, None)
+            .await
+            .expect("Event successfully handled with file reference anchoring");
     }
 
     fn get_contact_data(keys: BcrKeys) -> NostrContactData {
@@ -612,6 +892,7 @@ mod tests {
         MockNotificationJsonTransport,
         MockContactStore,
         MockNostrContactStore,
+        MockFileReferenceStore,
         MockNotificationStore,
         MockPushService,
     ) {
@@ -619,6 +900,7 @@ mod tests {
             MockNotificationJsonTransport::new(),
             MockContactStore::new(),
             MockNostrContactStore::new(),
+            MockFileReferenceStore::new(),
             MockNotificationStore::new(),
             MockPushService::new(),
         )

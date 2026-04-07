@@ -1,4 +1,7 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
+use crate::service::file_reference_helper::{
+    bill_file_context, enforce_important_file_replication,
+};
 use crate::{
     constants::MAX_BILL_ATTACHMENTS,
     get_config,
@@ -8,7 +11,7 @@ use crate::{
     },
     util::validate_node_id_network,
 };
-use bcr_common::core::BillId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::{
     File, Name, PublicKey, Sha256Hash, Validate,
     blockchain::{
@@ -47,7 +50,7 @@ impl BillService {
         }
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = upload_to_blossom_servers(
+        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
             self.file_upload_client.as_ref(),
             &configured_blossom_servers(&get_config().nostr_config),
             encrypted,
@@ -56,11 +59,54 @@ impl BillService {
         .await
         .map_err(Error::from)?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
-        Ok(File {
+        let file = File {
             name: file_name.to_owned(),
             hash: file_hash,
             nostr_hash,
-        })
+        };
+
+        // Upsert file reference for this important file
+        let server_urls = get_config().nostr_config.blossom_servers.clone();
+        crate::service::file_reference_helper::upsert_important_file_reference(
+            &self.file_reference_store,
+            &file,
+            crate::service::file_reference_helper::bill_file_context(&bill_id.to_string(), "files"),
+            server_urls,
+        )
+        .await
+        .map_err(Error::from)?;
+
+        // Record confirmed servers and publish kind:1063 metadata event
+        if !confirmed_servers.is_empty() {
+            let node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
+            crate::service::file_reference_helper::record_confirmed_servers_and_publish(
+                &self.file_reference_store,
+                &self.transport_service,
+                &node_id,
+                &file,
+                confirmed_servers,
+                None,
+            )
+            .await
+            .map_err(Error::from)?;
+        }
+
+        let node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
+        if let Err(e) = enforce_important_file_replication(
+            &self.file_reference_store,
+            &self.file_upload_client,
+            &self.transport_service,
+            &configured_blossom_servers(&get_config().nostr_config),
+            &file,
+            bill_file_context(&bill_id.to_string(), "files"),
+            &node_id,
+        )
+        .await
+        {
+            debug!("Replication enforcement failed after upload: {e}");
+        }
+
+        Ok(file)
     }
 
     pub(super) async fn issue_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {

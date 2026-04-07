@@ -18,20 +18,25 @@ use bcr_ebill_core::{
     protocol::ProtocolValidationError,
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, company::CompanyStoreApi, file_upload::FileUploadStoreApi,
-    identity::IdentityStoreApi, nostr::NostrContactStoreApi,
+    ContactStoreApi, FileReferenceStoreApi, company::CompanyStoreApi,
+    file_upload::FileUploadStoreApi, identity::IdentityStoreApi, nostr::NostrContactStoreApi,
 };
 #[cfg(test)]
 use mockall::automock;
 use uuid::Uuid;
 
+use crate::service::file_reference_helper::{
+    contact_file_context, enforce_important_file_replication,
+};
 use crate::{
     Config,
     external::file_storage::FileStorageClientApi,
     get_config,
     service::{
+        Result,
         file_server_service::{
-            download_from_blossom_servers, resolve_blossom_servers, upload_to_blossom_servers,
+            configured_blossom_servers, download_file_with_fallback, resolve_blossom_servers,
+            upload_to_blossom_servers,
         },
         file_upload_service::UploadFileType,
         transport_service::TransportServiceApi,
@@ -39,7 +44,6 @@ use crate::{
     util::{self, validate_node_id_network},
 };
 
-use super::Result;
 use log::{debug, error, info};
 
 #[cfg(test)]
@@ -172,6 +176,7 @@ pub struct ContactService {
     store: Arc<dyn ContactStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     file_upload_client: Arc<dyn FileStorageClientApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
@@ -184,6 +189,7 @@ impl ContactService {
         store: Arc<dyn ContactStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
@@ -194,6 +200,7 @@ impl ContactService {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,
@@ -210,6 +217,7 @@ impl ContactService {
         signer: &BcrKeys,
         fallback_relays: &[url::Url],
         upload_file_type: UploadFileType,
+        field_name: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for contact {id}: {upload_id:?}");
@@ -234,6 +242,7 @@ impl ContactService {
                     public_key,
                     signer,
                     fallback_relays,
+                    field_name,
                 )
                 .await?;
             return Ok(Some(file));
@@ -248,24 +257,63 @@ impl ContactService {
         node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
-        fallback_relays: &[url::Url],
+        _fallback_relays: &[url::Url],
+        field_name: &str,
     ) -> Result<File> {
         let file_hash = Sha256Hash::from_bytes(file_bytes);
         let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let blossom_servers = self.get_blossom_servers(node_id, fallback_relays).await;
-        let nostr_hash = upload_to_blossom_servers(
+        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
             self.file_upload_client.as_ref(),
-            &blossom_servers,
+            &configured_blossom_servers(&get_config().nostr_config),
             encrypted,
             signer,
         )
         .await?;
         info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
-        Ok(File {
+        let file = File {
             name: file_name.to_owned(),
             hash: file_hash,
             nostr_hash,
-        })
+        };
+
+        // Upsert file reference for this important file
+        let server_urls = get_config().nostr_config.blossom_servers.clone();
+        crate::service::file_reference_helper::upsert_important_file_reference(
+            &self.file_reference_store,
+            &file,
+            crate::service::file_reference_helper::contact_file_context(node_id, field_name),
+            server_urls,
+        )
+        .await?;
+
+        // Record confirmed servers and publish kind:1063 metadata event
+        if !confirmed_servers.is_empty() {
+            crate::service::file_reference_helper::record_confirmed_servers_and_publish(
+                &self.file_reference_store,
+                &self.transport_service,
+                node_id,
+                &file,
+                confirmed_servers,
+                None,
+            )
+            .await?;
+        }
+
+        if let Err(e) = enforce_important_file_replication(
+            &self.file_reference_store,
+            &self.file_upload_client,
+            &self.transport_service,
+            &configured_blossom_servers(&get_config().nostr_config),
+            &file,
+            contact_file_context(node_id, field_name),
+            node_id,
+        )
+        .await
+        {
+            debug!("Replication enforcement failed after upload: {e}");
+        }
+
+        Ok(file)
     }
 
     async fn cascade_nostr_contact(&self, contact: &Contact) -> Result<()> {
@@ -471,6 +519,7 @@ impl ContactServiceApi for ContactService {
                             &identity.key_pair,
                             &nostr_relays,
                             UploadFileType::Picture,
+                            "avatar_file",
                         )
                         .await?;
 
@@ -502,6 +551,7 @@ impl ContactServiceApi for ContactService {
                             &identity.key_pair,
                             &nostr_relays,
                             UploadFileType::Document,
+                            "proof_document_file",
                         )
                         .await?;
 
@@ -572,6 +622,7 @@ impl ContactServiceApi for ContactService {
                         &identity.key_pair,
                         &nostr_relays,
                         UploadFileType::Picture,
+                        "avatar_file",
                     )
                     .await?;
 
@@ -583,6 +634,7 @@ impl ContactServiceApi for ContactService {
                         &identity.key_pair,
                         &nostr_relays,
                         UploadFileType::Document,
+                        "proof_document_file",
                     )
                     .await?;
 
@@ -687,6 +739,7 @@ impl ContactServiceApi for ContactService {
                 &identity_keys,
                 &nostr_relays,
                 UploadFileType::Picture,
+                "avatar_file",
             )
             .await?;
 
@@ -698,6 +751,7 @@ impl ContactServiceApi for ContactService {
                 &identity_keys,
                 &nostr_relays,
                 UploadFileType::Document,
+                "proof_document_file",
             )
             .await?;
 
@@ -778,9 +832,12 @@ impl ContactServiceApi for ContactService {
             let blossom_servers = self
                 .get_blossom_servers(node_id, &contact.nostr_relays)
                 .await;
-            let file_bytes = download_from_blossom_servers(
+            let file_bytes = download_file_with_fallback(
                 self.file_upload_client.as_ref(),
+                Some(&self.file_reference_store),
+                Some(&self.transport_service),
                 &blossom_servers,
+                &file.hash,
                 &file.nostr_hash,
             )
             .await?;
@@ -933,9 +990,9 @@ pub mod tests {
             transport_service::MockTransportServiceApi,
         },
         tests::tests::{
-            MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
-            MockIdentityStoreApiMock, MockNostrContactStore, NODE_ID_TEST_STR, empty_address,
-            init_test_cfg, node_id_test, node_id_test_other,
+            MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileReferenceStoreApiMock,
+            MockFileUploadStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
+            NODE_ID_TEST_STR, empty_address, init_test_cfg, node_id_test, node_id_test_other,
         },
     };
     use bcr_ebill_core::{application::nostr_contact::HandshakeStatus, protocol::crypto::BcrKeys};
@@ -979,6 +1036,7 @@ pub mod tests {
         mock_storage: MockContactStoreApiMock,
         mock_file_upload_storage: MockFileUploadStoreApiMock,
         mock_file_upload_client: MockFileStorageClientApi,
+        mock_file_reference_store: MockFileReferenceStoreApiMock,
         mock_identity_storage: MockIdentityStoreApiMock,
         mock_company_storage: MockCompanyStoreApiMock,
         mock_nostr_contact_store: MockNostrContactStore,
@@ -988,6 +1046,7 @@ pub mod tests {
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),
             Arc::new(mock_file_upload_client),
+            Arc::new(mock_file_reference_store),
             Arc::new(mock_identity_storage),
             Arc::new(mock_company_storage),
             Arc::new(mock_nostr_contact_store),
@@ -1000,6 +1059,7 @@ pub mod tests {
         MockContactStoreApiMock,
         MockFileUploadStoreApiMock,
         MockFileStorageClientApi,
+        MockFileReferenceStoreApiMock,
         MockIdentityStoreApiMock,
         MockCompanyStoreApiMock,
         MockNostrContactStore,
@@ -1009,6 +1069,7 @@ pub mod tests {
             MockContactStoreApiMock::new(),
             MockFileUploadStoreApiMock::new(),
             MockFileStorageClientApi::new(),
+            MockFileReferenceStoreApiMock::new(),
             MockIdentityStoreApiMock::new(),
             MockCompanyStoreApiMock::new(),
             MockNostrContactStore::new(),
@@ -1022,6 +1083,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1038,6 +1100,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1062,6 +1125,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1076,6 +1140,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1096,6 +1161,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1106,6 +1172,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1190,6 +1257,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             mut nostr_contact,
@@ -1201,6 +1269,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1217,6 +1286,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             mut nostr_contact,
@@ -1242,6 +1312,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1273,6 +1344,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             mut nostr_contact,
@@ -1294,6 +1366,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1323,6 +1396,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             mut nostr_contact_store,
@@ -1347,6 +1421,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,
@@ -1378,6 +1453,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             mut nostr_contact_store,
@@ -1400,6 +1476,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,
@@ -1429,6 +1506,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             nostr_contact_store,
@@ -1446,6 +1524,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,
@@ -1480,6 +1559,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             nostr_contact_store,
@@ -1498,6 +1578,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,
@@ -1534,6 +1615,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             mut nostr_contact,
@@ -1557,6 +1639,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1589,6 +1672,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             mut nostr_contact,
@@ -1630,6 +1714,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1650,6 +1735,7 @@ pub mod tests {
             mut store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             mut nostr_contact,
@@ -1714,6 +1800,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1734,6 +1821,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             mut identity_store,
             company_store,
             mut nostr_contact,
@@ -1782,6 +1870,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1802,6 +1891,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             mut nostr_contact,
@@ -1828,6 +1918,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact,
@@ -1847,6 +1938,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             mut nostr_contact_store,
@@ -1868,6 +1960,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,
@@ -1890,6 +1983,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             mut nostr_contact_store,
@@ -1905,6 +1999,7 @@ pub mod tests {
             store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             identity_store,
             company_store,
             nostr_contact_store,

@@ -473,6 +473,37 @@ impl TransportServiceApi for TransportService {
             .retry_failed_syncs()
             .await
     }
+
+    async fn publish_file_metadata(
+        &self,
+        node_id: &NodeId,
+        plaintext_hash: &str,
+        encrypted_hash: &str,
+        server_urls: Vec<url::Url>,
+        mime_type: Option<String>,
+    ) -> Result<()> {
+        self.nostr_transport
+            .get_first_transport()
+            .publish_file_metadata(
+                node_id,
+                plaintext_hash,
+                encrypted_hash,
+                server_urls,
+                mime_type,
+            )
+            .await
+    }
+
+    async fn query_file_metadata_events(
+        &self,
+        file_hash: &str,
+        nostr_hash: &str,
+    ) -> Result<Vec<nostr::Event>> {
+        self.nostr_transport
+            .get_first_transport()
+            .query_file_metadata_events(file_hash, nostr_hash)
+            .await
+    }
 }
 
 #[cfg(test)]
