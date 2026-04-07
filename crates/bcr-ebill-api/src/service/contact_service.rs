@@ -25,9 +25,7 @@ use bcr_ebill_persistence::{
 use mockall::automock;
 use uuid::Uuid;
 
-use crate::service::file_reference_helper::{
-    contact_file_context, enforce_important_file_replication,
-};
+use crate::service::file_reference_helper::{contact_file_context, encrypt_upload_and_track_file};
 use crate::{
     Config,
     external::file_storage::FileStorageClientApi,
@@ -36,7 +34,6 @@ use crate::{
         Result,
         file_server_service::{
             configured_blossom_servers, download_file_with_fallback, resolve_blossom_servers,
-            upload_to_blossom_servers,
         },
         file_upload_service::UploadFileType,
         transport_service::TransportServiceApi,
@@ -215,7 +212,6 @@ impl ContactService {
         id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
-        fallback_relays: &[url::Url],
         upload_file_type: UploadFileType,
         field_name: &str,
     ) -> Result<Option<File>> {
@@ -236,13 +232,7 @@ impl ContactService {
             }
             let file = self
                 .encrypt_and_save_uploaded_file(
-                    file_name,
-                    file_bytes,
-                    id,
-                    public_key,
-                    signer,
-                    fallback_relays,
-                    field_name,
+                    file_name, file_bytes, id, public_key, signer, field_name,
                 )
                 .await?;
             return Ok(Some(file));
@@ -257,63 +247,23 @@ impl ContactService {
         node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
-        _fallback_relays: &[url::Url],
         field_name: &str,
     ) -> Result<File> {
-        let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
-            self.file_upload_client.as_ref(),
-            &configured_blossom_servers(&get_config().nostr_config),
-            encrypted,
-            signer,
-        )
-        .await?;
-        info!("Saved contact file {file_name} with hash {file_hash} for contact {node_id}");
-        let file = File {
-            name: file_name.to_owned(),
-            hash: file_hash,
-            nostr_hash,
-        };
-
-        // Upsert file reference for this important file
-        let server_urls = get_config().nostr_config.blossom_servers.clone();
-        crate::service::file_reference_helper::upsert_important_file_reference(
-            &self.file_reference_store,
-            &file,
-            crate::service::file_reference_helper::contact_file_context(node_id, field_name),
-            server_urls,
-        )
-        .await?;
-
-        // Record confirmed servers and publish kind:1063 metadata event
-        if !confirmed_servers.is_empty() {
-            crate::service::file_reference_helper::record_confirmed_servers_and_publish(
-                &self.file_reference_store,
-                &self.transport_service,
-                node_id,
-                &file,
-                confirmed_servers,
-                None,
-            )
-            .await?;
-        }
-
-        if let Err(e) = enforce_important_file_replication(
+        encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
             &self.transport_service,
             &configured_blossom_servers(&get_config().nostr_config),
-            &file,
-            contact_file_context(node_id, field_name),
+            file_name,
+            file_bytes,
+            public_key,
+            signer,
             node_id,
+            contact_file_context(node_id, field_name),
+            None,
+            "contact",
         )
         .await
-        {
-            debug!("Replication enforcement failed after upload: {e}");
-        }
-
-        Ok(file)
     }
 
     async fn cascade_nostr_contact(&self, contact: &Contact) -> Result<()> {
@@ -444,8 +394,6 @@ impl ContactServiceApi for ContactService {
             }
         };
 
-        let nostr_relays = contact.nostr_relays.clone();
-
         let mut changed = false;
 
         if let Some(ref name_to_set) = name {
@@ -517,7 +465,6 @@ impl ContactServiceApi for ContactService {
                             node_id,
                             &identity.key_pair.pub_key(),
                             &identity.key_pair,
-                            &nostr_relays,
                             UploadFileType::Picture,
                             "avatar_file",
                         )
@@ -549,7 +496,6 @@ impl ContactServiceApi for ContactService {
                             node_id,
                             &identity.key_pair.pub_key(),
                             &identity.key_pair,
-                            &nostr_relays,
                             UploadFileType::Document,
                             "proof_document_file",
                         )
@@ -620,7 +566,6 @@ impl ContactServiceApi for ContactService {
                         node_id,
                         &identity.key_pair.pub_key(),
                         &identity.key_pair,
-                        &nostr_relays,
                         UploadFileType::Picture,
                         "avatar_file",
                     )
@@ -632,7 +577,6 @@ impl ContactServiceApi for ContactService {
                         node_id,
                         &identity.key_pair.pub_key(),
                         &identity.key_pair,
-                        &nostr_relays,
                         UploadFileType::Document,
                         "proof_document_file",
                     )
@@ -719,8 +663,6 @@ impl ContactServiceApi for ContactService {
             }
         };
 
-        let nostr_relays = existing_anon_contact.nostr_relays.clone();
-
         // if the existing contact is not anonymous, the action is not valid
         if existing_anon_contact.t != ContactType::Anon {
             return Err(super::Error::Validation(ValidationError::InvalidContact(
@@ -737,7 +679,6 @@ impl ContactServiceApi for ContactService {
                 node_id,
                 &identity_public_key,
                 &identity_keys,
-                &nostr_relays,
                 UploadFileType::Picture,
                 "avatar_file",
             )
@@ -749,7 +690,6 @@ impl ContactServiceApi for ContactService {
                 node_id,
                 &identity_public_key,
                 &identity_keys,
-                &nostr_relays,
                 UploadFileType::Document,
                 "proof_document_file",
             )

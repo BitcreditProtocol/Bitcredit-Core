@@ -2,12 +2,9 @@ use super::Result;
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
-use crate::service::file_reference_helper::{
-    enforce_important_file_replication, identity_file_context,
-    record_confirmed_servers_and_publish, upsert_important_file_reference,
-};
+use crate::service::file_reference_helper::{encrypt_upload_and_track_file, identity_file_context};
 use crate::service::file_server_service::{
-    configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers,
+    configured_blossom_servers, download_file_with_fallback,
 };
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
@@ -40,7 +37,7 @@ use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
 use bitcoin::base58;
-use log::{debug, error, info};
+use log::{debug, error};
 use secp256k1::{PublicKey, SecretKey};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -226,60 +223,21 @@ impl IdentityService {
         signer: &BcrKeys,
         field: &str,
     ) -> Result<File> {
-        let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
-            self.file_upload_client.as_ref(),
-            &configured_blossom_servers(&get_config().nostr_config),
-            encrypted,
-            signer,
-        )
-        .await?;
-        info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
-        let file = File {
-            name: file_name.to_owned(),
-            hash: file_hash,
-            nostr_hash,
-        };
-
-        // Upsert file reference for this important file with configured servers
-        let server_urls = get_config().nostr_config.blossom_servers.clone();
-        upsert_important_file_reference(
-            &self.file_reference_store,
-            &file,
-            identity_file_context(field),
-            server_urls,
-        )
-        .await?;
-
-        // Record confirmed servers and publish kind:1063 metadata event
-        if !confirmed_servers.is_empty() {
-            record_confirmed_servers_and_publish(
-                &self.file_reference_store,
-                &self.block_transport,
-                node_id,
-                &file,
-                confirmed_servers,
-                None,
-            )
-            .await?;
-        }
-
-        if let Err(e) = enforce_important_file_replication(
+        encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
             &self.block_transport,
             &configured_blossom_servers(&get_config().nostr_config),
-            &file,
-            identity_file_context(field),
+            file_name,
+            file_bytes,
+            public_key,
+            signer,
             node_id,
+            identity_file_context(field),
+            None,
+            "identity",
         )
         .await
-        {
-            debug!("Replication enforcement failed after upload: {e}");
-        }
-
-        Ok(file)
     }
 
     async fn populate_block(
@@ -923,7 +881,7 @@ impl IdentityServiceApi for IdentityService {
                 error!("Hash for identity file {file_name} did not match uploaded file");
                 return Err(super::Error::NotFound);
             }
-            Ok(decrypted)
+            Ok(decrypted.to_vec())
         } else {
             Err(super::Error::NotFound)
         }

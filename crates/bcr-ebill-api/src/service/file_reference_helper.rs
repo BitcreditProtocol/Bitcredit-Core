@@ -1,8 +1,78 @@
+use crate::external::file_storage::FileStorageClientApi;
+use crate::service::transport_service::TransportServiceApi;
+use crate::service::{Result, file_server_service::upload_to_blossom_servers};
 use bcr_common::core::NodeId;
-use bcr_ebill_core::protocol::{File, file_reference::FileReferenceContext};
+use bcr_ebill_core::protocol::{
+    File, Name, PublicKey, Sha256Hash,
+    crypto::{self, BcrKeys},
+    file_reference::FileReferenceContext,
+};
 use bcr_ebill_persistence::FileReferenceStoreApi;
-use log::debug;
+use log::{debug, info};
+use std::collections::HashSet;
 use std::sync::Arc;
+
+pub async fn encrypt_upload_and_track_file(
+    file_reference_store: &Arc<dyn FileReferenceStoreApi>,
+    file_storage_client: &Arc<dyn FileStorageClientApi>,
+    transport: &Arc<dyn TransportServiceApi>,
+    configured_servers: &[url::Url],
+    file_name: &Name,
+    file_bytes: &[u8],
+    public_key: &PublicKey,
+    signer: &BcrKeys,
+    node_id: &NodeId,
+    context: FileReferenceContext,
+    mime_type: Option<String>,
+    owner_label: &str,
+) -> Result<File> {
+    let file_hash = Sha256Hash::from_bytes(file_bytes);
+    let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
+    let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
+        file_storage_client.as_ref(),
+        configured_servers,
+        encrypted,
+        signer,
+    )
+    .await?;
+
+    info!("Saved {owner_label} file {file_name} with hash {file_hash} for {owner_label} {node_id}");
+
+    let file = File {
+        name: file_name.to_owned(),
+        hash: file_hash,
+        nostr_hash,
+    };
+
+    upsert_important_file_reference(file_reference_store, &file, context.clone(), vec![]).await?;
+
+    record_confirmed_servers_and_publish(
+        file_reference_store,
+        transport,
+        node_id,
+        &file,
+        confirmed_servers,
+        mime_type,
+        true,
+    )
+    .await?;
+
+    if let Err(e) = enforce_important_file_replication(
+        file_reference_store,
+        file_storage_client,
+        transport,
+        configured_servers,
+        &file,
+        context,
+        node_id,
+    )
+    .await
+    {
+        debug!("Replication enforcement failed after upload: {e}");
+    }
+
+    Ok(file)
+}
 
 pub async fn enforce_important_file_replication(
     file_reference_store: &Arc<dyn FileReferenceStoreApi>,
@@ -95,6 +165,7 @@ pub async fn enforce_important_file_replication(
         file,
         confirmed_servers,
         Some("application/octet-stream".to_string()),
+        false,
     )
     .await?;
 
@@ -143,12 +214,13 @@ fn normalize_url(url: &url::Url) -> String {
 
 pub async fn record_confirmed_servers_and_publish(
     file_reference_store: &Arc<dyn FileReferenceStoreApi>,
-    transport: &Arc<dyn crate::service::transport_service::TransportServiceApi>,
+    transport: &Arc<dyn TransportServiceApi>,
     node_id: &NodeId,
     file: &File,
     confirmed_servers: Vec<url::Url>,
     mime_type: Option<String>,
-) -> crate::service::Result<()> {
+    force_publish: bool,
+) -> Result<()> {
     if confirmed_servers.is_empty() {
         debug!(
             "Skipping server recording - no confirmed servers for file {}",
@@ -160,9 +232,8 @@ pub async fn record_confirmed_servers_and_publish(
     // Check if we already have this file reference with the same servers
     let should_publish = match file_reference_store.get(&file.hash).await? {
         Some(existing) => {
-            // Only publish if servers have changed
-            let existing_set: std::collections::HashSet<_> = existing.server_urls.iter().collect();
-            let new_set: std::collections::HashSet<_> = confirmed_servers.iter().collect();
+            let existing_set = normalized_url_set(&existing.server_urls);
+            let new_set = normalized_url_set(&confirmed_servers);
             existing_set != new_set
         }
         None => {
@@ -176,7 +247,7 @@ pub async fn record_confirmed_servers_and_publish(
         .add_server_urls(&file.hash, confirmed_servers.clone())
         .await?;
 
-    if should_publish || added {
+    if force_publish || should_publish || added {
         debug!(
             "Publishing kind:1063 metadata for file {} with {} confirmed servers",
             file.hash,
@@ -228,6 +299,10 @@ pub async fn upsert_important_file_reference(
     Ok(())
 }
 
+fn normalized_url_set(urls: &[url::Url]) -> HashSet<String> {
+    urls.iter().map(normalize_url).collect()
+}
+
 pub fn identity_file_context(field: &str) -> FileReferenceContext {
     FileReferenceContext::Identity {
         field: field.to_string(),
@@ -260,6 +335,7 @@ mod tests {
     use super::*;
     use bcr_ebill_core::protocol::{Name, file_reference::FileReference};
     use bitcoin::hashes::Hash;
+    use mockall::predicate;
     use std::str::FromStr;
 
     mockall::mock! {
@@ -316,6 +392,7 @@ mod tests {
             &file,
             vec![],
             None,
+            false,
         )
         .await;
 
@@ -362,6 +439,7 @@ mod tests {
             &file,
             confirmed_servers,
             Some("text/plain".to_string()),
+            false,
         )
         .await;
 
@@ -410,6 +488,7 @@ mod tests {
             &file,
             confirmed_servers,
             None,
+            false,
         )
         .await;
 
@@ -469,6 +548,198 @@ mod tests {
                 field: "attachment_0".to_string()
             }
         );
+    }
+
+    fn test_helper_file() -> File {
+        File {
+            name: Name::new("test_file.txt").unwrap(),
+            hash: bcr_ebill_core::protocol::Sha256Hash::new(
+                "test_hash_12345678901234567890123456789012",
+            ),
+            nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .parse()
+                .unwrap(),
+        }
+    }
+
+    fn test_helper_node_id() -> NodeId {
+        NodeId::from_str("bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0")
+            .unwrap()
+    }
+
+    fn create_upsert_mock_store() -> Arc<dyn bcr_ebill_persistence::FileReferenceStoreApi> {
+        let mut mock_store = crate::tests::tests::MockFileReferenceStoreApiMock::new();
+
+        mock_store
+            .expect_upsert()
+            .with(
+                predicate::always(),
+                predicate::always(),
+                predicate::always(),
+                predicate::always(),
+                predicate::eq(Some(true)),
+                predicate::always(),
+            )
+            .returning(|hash, nostr_hash, name, _, _, _| {
+                Ok(FileReference::new(hash.clone(), *nostr_hash, name))
+            });
+
+        Arc::new(mock_store)
+    }
+
+    fn test_helper_server_urls() -> Vec<url::Url> {
+        vec![url::Url::parse("https://blossom.example.com").unwrap()]
+    }
+
+    #[tokio::test]
+    async fn important_file_upsert_identity_file() {
+        let file = test_helper_file();
+        let mock_store = create_upsert_mock_store();
+
+        let result = upsert_important_file_reference(
+            &mock_store,
+            &file,
+            identity_file_context("profile_picture_file"),
+            test_helper_server_urls(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn important_file_upsert_company_file() {
+        let file = test_helper_file();
+        let company_id = test_helper_node_id();
+        let mock_store = create_upsert_mock_store();
+
+        let result = upsert_important_file_reference(
+            &mock_store,
+            &file,
+            company_file_context(&company_id, "logo_file"),
+            test_helper_server_urls(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn important_file_upsert_contact_file() {
+        let file = test_helper_file();
+        let node_id = test_helper_node_id();
+        let mock_store = create_upsert_mock_store();
+
+        let result = upsert_important_file_reference(
+            &mock_store,
+            &file,
+            contact_file_context(&node_id, "avatar_file"),
+            test_helper_server_urls(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn important_file_upsert_bill_file() {
+        let file = test_helper_file();
+        let mock_store = create_upsert_mock_store();
+
+        let result = upsert_important_file_reference(
+            &mock_store,
+            &file,
+            bill_file_context("bill123", "attachment_0"),
+            test_helper_server_urls(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn important_file_upsert_marks_as_important() {
+        let file = test_helper_file();
+        let mut mock_store = crate::tests::tests::MockFileReferenceStoreApiMock::new();
+
+        mock_store
+            .expect_upsert()
+            .with(
+                predicate::always(),
+                predicate::always(),
+                predicate::always(),
+                predicate::always(),
+                predicate::eq(Some(true)),
+                predicate::always(),
+            )
+            .returning(|hash, nostr_hash, name, _, _, _| {
+                Ok(FileReference::new(hash.clone(), *nostr_hash, name))
+            })
+            .once();
+
+        let mock_store: Arc<dyn bcr_ebill_persistence::FileReferenceStoreApi> =
+            Arc::new(mock_store);
+
+        let result = upsert_important_file_reference(
+            &mock_store,
+            &file,
+            identity_file_context("identity_document_file"),
+            test_helper_server_urls(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_file_metadata_publish_forced_on_seeded_servers() {
+        use crate::tests::tests::MockFileReferenceStoreApiMock;
+
+        let mut file_reference_store = MockFileReferenceStoreApiMock::new();
+        let mut transport = MockTransportService::new();
+        let node_id = NodeId::from_str(
+            "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
+        )
+        .unwrap();
+        let file = File {
+            name: Name::new("test.txt").unwrap(),
+            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
+        };
+
+        let confirmed_servers = vec![url::Url::parse("https://blossom1.example.com").unwrap()];
+        let mut existing_ref =
+            FileReference::new(file.hash.clone(), file.nostr_hash, Some(file.name.clone()));
+        existing_ref.server_urls = confirmed_servers.clone();
+        existing_ref.is_important = true;
+
+        file_reference_store
+            .expect_get()
+            .returning(move |_| Ok(Some(existing_ref.clone())));
+        file_reference_store
+            .expect_add_server_urls()
+            .returning(|_, _| Ok(false));
+        transport
+            .expect_publish_file_metadata()
+            .returning(|_, _, _, _, _| Ok(()))
+            .once();
+
+        let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
+        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
+            Arc::new(transport);
+
+        let result = record_confirmed_servers_and_publish(
+            &file_ref_store,
+            &transport_arc,
+            &node_id,
+            &file,
+            confirmed_servers,
+            None,
+            true,
+        )
+        .await;
+
+        assert!(result.is_ok());
     }
 
     #[tokio::test]

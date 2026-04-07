@@ -3,7 +3,8 @@ use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::service::Error;
-use crate::service::file_server_service::{configured_blossom_servers, upload_to_blossom_servers};
+use crate::service::file_reference_helper::{company_file_context, encrypt_upload_and_track_file};
+use crate::service::file_server_service::configured_blossom_servers;
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::{self, validate_node_id_network};
@@ -290,61 +291,21 @@ impl CompanyService {
         signer: &BcrKeys,
         field_name: &str,
     ) -> Result<File> {
-        let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let (nostr_hash, confirmed_servers) = upload_to_blossom_servers(
-            self.file_upload_client.as_ref(),
-            &configured_blossom_servers(&get_config().nostr_config),
-            encrypted,
-            signer,
-        )
-        .await?;
-        info!("Saved company file {file_name} with hash {file_hash} for company {id}");
-        let file = File {
-            name: file_name.to_owned(),
-            hash: file_hash,
-            nostr_hash,
-        };
-
-        // Upsert file reference for this important file
-        let server_urls = get_config().nostr_config.blossom_servers.clone();
-        crate::service::file_reference_helper::upsert_important_file_reference(
-            &self.file_reference_store,
-            &file,
-            crate::service::file_reference_helper::company_file_context(id, field_name),
-            server_urls,
-        )
-        .await?;
-
-        // Record confirmed servers and publish kind:1063 metadata event
-        if !confirmed_servers.is_empty() {
-            crate::service::file_reference_helper::record_confirmed_servers_and_publish(
-                &self.file_reference_store,
-                &self.transport_service,
-                id,
-                &file,
-                confirmed_servers,
-                None,
-            )
-            .await?;
-        }
-
-        // Enforce replication to configured servers
-        if let Err(e) = crate::service::file_reference_helper::enforce_important_file_replication(
+        encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
             &self.transport_service,
             &configured_blossom_servers(&get_config().nostr_config),
-            &file,
-            crate::service::file_reference_helper::company_file_context(id, field_name),
+            file_name,
+            file_bytes,
+            public_key,
+            signer,
             id,
+            company_file_context(id, field_name),
+            None,
+            "company",
         )
         .await
-        {
-            debug!("Replication enforcement failed after company file upload: {e}");
-        }
-
-        Ok(file)
     }
 
     async fn populate_block(
@@ -1355,7 +1316,7 @@ impl CompanyServiceApi for CompanyService {
                 error!("Hash for company file {file_name} did not match uploaded file");
                 return Err(super::Error::NotFound);
             }
-            Ok(decrypted)
+            Ok(decrypted.to_vec())
         } else {
             Err(super::Error::NotFound)
         }

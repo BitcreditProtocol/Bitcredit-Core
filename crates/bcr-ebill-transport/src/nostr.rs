@@ -1183,49 +1183,28 @@ pub async fn determine_recipient(
                 "No local identity could decrypt this message".to_string(),
             ))
         }
-        Kind::TextNote | Kind::RelayList | Kind::Metadata => {
-            // For public events, any local identity can process them
-            // Use any available identity (they all have access to chain keys)
-            let node_id = client
-                .signers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .keys()
-                .next()
-                .cloned()
-                .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
-            let signer = client.get_signer(&node_id)?;
-            Ok((node_id, signer as Arc<dyn NostrSigner>))
-        }
-        kind if kind == BLOSSOM_SERVER_LIST_KIND => {
-            let node_id = client
-                .signers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .keys()
-                .next()
-                .cloned()
-                .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
-            let signer = client.get_signer(&node_id)?;
-            Ok((node_id, signer as Arc<dyn NostrSigner>))
-        }
-        kind if kind == FILE_METADATA_KIND => {
-            let node_id = client
-                .signers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .keys()
-                .next()
-                .cloned()
-                .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
-            let signer = client.get_signer(&node_id)?;
-            Ok((node_id, signer as Arc<dyn NostrSigner>))
+        Kind::TextNote | Kind::RelayList | Kind::Metadata => any_local_signer(client),
+        kind if kind == BLOSSOM_SERVER_LIST_KIND || kind == FILE_METADATA_KIND => {
+            any_local_signer(client)
         }
         _ => Err(Error::Message(format!(
             "Unsupported event kind: {:?}",
             event.kind
         ))),
     }
+}
+
+fn any_local_signer(client: &NostrClient) -> Result<(NodeId, Arc<dyn NostrSigner>)> {
+    let node_id = client
+        .signers
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .next()
+        .cloned()
+        .ok_or_else(|| Error::Message("No local identities available".to_string()))?;
+    let signer = client.get_signer(&node_id)?;
+    Ok((node_id, signer as Arc<dyn NostrSigner>))
 }
 
 fn prioritized_signers_for_event(

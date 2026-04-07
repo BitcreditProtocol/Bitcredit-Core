@@ -106,6 +106,23 @@ impl FileReferenceStoreApi for SurrealFileReferenceStore {
         }
     }
 
+    async fn find_by_nostr_hash(
+        &self,
+        nostr_hash: &Sha256HexHash,
+    ) -> Result<Option<FileReference>> {
+        let mut bindings = Bindings::default();
+        bindings.add("table", Self::TABLE)?;
+        bindings.add("nostr_hash", nostr_hash.to_string())?;
+        let query =
+            "SELECT * FROM type::table($table) WHERE nostr_hash = $nostr_hash LIMIT 1".to_string();
+        let mut results: Vec<FileReferenceDb> = self.db.query(&query, bindings).await?;
+
+        match results.pop() {
+            Some(db) => Ok(Some(db.try_into()?)),
+            None => Ok(None),
+        }
+    }
+
     async fn delete(&self, hash: &Sha256Hash) -> Result<()> {
         let _: Option<FileReferenceDb> = self.db.delete(Self::TABLE, hash.to_string()).await?;
         Ok(())
@@ -390,6 +407,38 @@ mod tests {
         assert!(result.server_urls.contains(&url1));
         assert!(result.server_urls.contains(&url2));
         assert!(result.is_important);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_nostr_hash() {
+        let store = get_store().await;
+        let hash = test_hash();
+        let nostr_hash = test_nostr_hash();
+
+        store
+            .upsert(&hash, &nostr_hash, None, vec![], Some(false), vec![])
+            .await
+            .expect("upsert failed");
+
+        let result = store
+            .find_by_nostr_hash(&nostr_hash)
+            .await
+            .expect("find_by_nostr_hash failed");
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().hash, hash);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_nostr_hash_missing() {
+        let store = get_store().await;
+
+        let result = store
+            .find_by_nostr_hash(&test_nostr_hash())
+            .await
+            .expect("find_by_nostr_hash failed");
+
+        assert!(result.is_none());
     }
 
     #[tokio::test]

@@ -697,6 +697,7 @@ mockall::mock! {
             context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
         ) -> bcr_ebill_persistence::Result<bcr_ebill_core::protocol::file_reference::FileReference>;
         async fn get(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<Option<bcr_ebill_core::protocol::file_reference::FileReference>>;
+        async fn find_by_nostr_hash(&self, nostr_hash: &nostr::hashes::sha256::Hash) -> bcr_ebill_persistence::Result<Option<bcr_ebill_core::protocol::file_reference::FileReference>>;
         async fn delete(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<()>;
         async fn list(&self) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_core::protocol::file_reference::FileReference>>;
         async fn list_important(&self) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_core::protocol::file_reference::FileReference>>;

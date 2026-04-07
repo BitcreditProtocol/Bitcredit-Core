@@ -25,6 +25,9 @@ pub trait FileReferenceStoreApi: ServiceTraitBounds {
 
     async fn get(&self, hash: &Sha256Hash) -> Result<Option<FileReference>>;
 
+    async fn find_by_nostr_hash(&self, nostr_hash: &Sha256HexHash)
+    -> Result<Option<FileReference>>;
+
     async fn delete(&self, hash: &Sha256Hash) -> Result<()>;
 
     async fn list(&self) -> Result<Vec<FileReference>>;

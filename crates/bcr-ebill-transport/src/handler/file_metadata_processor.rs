@@ -33,17 +33,15 @@ impl FileMetadataProcessor {
     }
 
     async fn find_file_by_nostr_hash(&self, nostr_hash: &Sha256HexHash) -> Option<Sha256Hash> {
-        match self.file_reference_store.list().await {
-            Ok(files) => {
-                for file in files {
-                    if file.nostr_hash == *nostr_hash {
-                        return Some(file.hash);
-                    }
-                }
-                None
-            }
+        match self
+            .file_reference_store
+            .find_by_nostr_hash(nostr_hash)
+            .await
+        {
+            Ok(Some(file)) => Some(file.hash),
+            Ok(None) => None,
             Err(e) => {
-                warn!("Error listing file references for nostr_hash lookup: {}", e);
+                warn!("Error querying file reference by nostr_hash: {}", e);
                 None
             }
         }
@@ -227,6 +225,7 @@ mod tests {
         impl FileReferenceStoreApi for FileReferenceStore {
             async fn upsert(&self, hash: &Sha256Hash, nostr_hash: &Sha256HexHash, name: Option<Name>, server_urls: Vec<url::Url>, is_important: Option<bool>, context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>) -> std::result::Result<FileReference, bcr_ebill_persistence::Error>;
             async fn get(&self, hash: &Sha256Hash) -> std::result::Result<Option<FileReference>, bcr_ebill_persistence::Error>;
+            async fn find_by_nostr_hash(&self, nostr_hash: &Sha256HexHash) -> std::result::Result<Option<FileReference>, bcr_ebill_persistence::Error>;
             async fn delete(&self, hash: &Sha256Hash) -> std::result::Result<(), bcr_ebill_persistence::Error>;
             async fn list(&self) -> std::result::Result<Vec<FileReference>, bcr_ebill_persistence::Error>;
             async fn list_important(&self) -> std::result::Result<Vec<FileReference>, bcr_ebill_persistence::Error>;
@@ -408,8 +407,9 @@ mod tests {
 
         let mut mock_store = MockFileReferenceStore::new();
         mock_store
-            .expect_list()
-            .returning(move || Ok(vec![file.clone()]));
+            .expect_find_by_nostr_hash()
+            .with(mockall::predicate::eq(nostr_hash))
+            .returning(move |_| Ok(Some(file.clone())));
         mock_store
             .expect_add_server_urls()
             .with(
@@ -554,7 +554,6 @@ mod tests {
             .expect_get()
             .with(mockall::predicate::eq(hash.clone()))
             .returning(|_| Ok(None));
-        mock_store.expect_list().returning(|| Ok(vec![]));
         mock_store.expect_upsert().never();
         mock_store.expect_add_server_urls().never();
 
@@ -581,7 +580,10 @@ mod tests {
 
         let mut mock_store = MockFileReferenceStore::new();
         mock_store.expect_get().returning(|_| Ok(None));
-        mock_store.expect_list().returning(|| Ok(vec![]));
+        mock_store
+            .expect_find_by_nostr_hash()
+            .with(mockall::predicate::eq(unknown_nostr_hash))
+            .returning(|_| Ok(None));
         mock_store.expect_upsert().never();
         mock_store.expect_add_server_urls().never();
 
