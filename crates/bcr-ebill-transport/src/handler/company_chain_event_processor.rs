@@ -15,7 +15,7 @@ use bcr_ebill_core::{
         notification::{Notification, NotificationType},
     },
     protocol::{
-        Validate,
+        EditOptionalFieldMode, Validate,
         blockchain::{Block, company::CompanyValidateActionData},
         crypto::BcrKeys,
         event::{ChainInvite, Event},
@@ -535,13 +535,13 @@ impl CompanyChainEventProcessor {
                 let files_to_anchor = match &update {
                     CompanyBlockPayload::Update(payload) => vec![
                         match &payload.logo_file {
-                            bcr_ebill_core::protocol::EditOptionalFieldMode::Set(file) => {
+                            EditOptionalFieldMode::Set(file) => {
                                 Some((file.clone(), company_file_context(company_id, "logo_file")))
                             }
                             _ => None,
                         },
                         match &payload.proof_of_registration_file {
-                            bcr_ebill_core::protocol::EditOptionalFieldMode::Set(file) => Some((
+                            EditOptionalFieldMode::Set(file) => Some((
                                 file.clone(),
                                 company_file_context(company_id, "proof_of_registration_file"),
                             )),
@@ -865,10 +865,11 @@ pub mod tests {
         CompanySignatoryRejectInviteBlockData,
     };
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
+    use bcr_ebill_core::protocol::file_reference::{FileReference, FileReferenceContext};
+    use bcr_ebill_core::protocol::{EditOptionalFieldMode, File, Name};
     use bcr_ebill_core::{
         application::company::Company,
         application::identity::ActiveIdentityState,
-        protocol::Name,
         protocol::Sha256Hash,
         protocol::Timestamp,
         protocol::blockchain::{
@@ -2322,7 +2323,7 @@ pub mod tests {
         chain_store.expect_add_block().times(0);
         store.expect_update().times(1).returning(|_, _| Ok(()));
 
-        let logo_file = bcr_ebill_core::protocol::File {
+        let logo_file = File {
             name: Name::new("logo.png").unwrap(),
             hash: Sha256Hash::new("company_logo_file_hash_123456789012"),
             nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -2334,41 +2335,37 @@ pub mod tests {
 
         file_reference_store
             .expect_upsert()
-            .withf(move |
-                hash: &Sha256Hash,
-                _nostr_hash: &nostr::hashes::sha256::Hash,
-                name: &Option<bcr_ebill_core::protocol::Name>,
-                server_urls: &Vec<url::Url>,
-                is_important: &Option<bool>,
-                context: &Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
-            | {
-                *hash == expected_hash
-                    && *name == Some(expected_name.clone())
-                    && server_urls.is_empty()
-                    && *is_important == Some(true)
-                    && context
-                        == &vec![bcr_ebill_core::protocol::file_reference::FileReferenceContext::Company {
-                            company_id: company_id.to_string(),
-                            field: "logo_file".to_string(),
-                        }]
-            })
-            .returning(|
-                hash: &Sha256Hash,
-                nostr_hash: &nostr::hashes::sha256::Hash,
-                name: Option<bcr_ebill_core::protocol::Name>,
-                _: Vec<url::Url>,
-                is_important: Option<bool>,
-                context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
-            | {
-                let mut file_ref = bcr_ebill_core::protocol::file_reference::FileReference::new(
-                    hash.clone(),
-                    *nostr_hash,
-                    name,
-                );
-                file_ref.is_important = is_important.unwrap_or(false);
-                file_ref.context = context;
-                Ok(file_ref)
-            })
+            .withf(
+                move |hash: &Sha256Hash,
+                      _nostr_hash: &nostr::hashes::sha256::Hash,
+                      name: &Option<Name>,
+                      server_urls: &Vec<url::Url>,
+                      is_important: &Option<bool>,
+                      context: &Vec<FileReferenceContext>| {
+                    *hash == expected_hash
+                        && *name == Some(expected_name.clone())
+                        && server_urls.is_empty()
+                        && *is_important == Some(true)
+                        && context
+                            == &vec![FileReferenceContext::Company {
+                                company_id: company_id.to_string(),
+                                field: "logo_file".to_string(),
+                            }]
+                },
+            )
+            .returning(
+                |hash: &Sha256Hash,
+                 nostr_hash: &nostr::hashes::sha256::Hash,
+                 name: Option<Name>,
+                 _: Vec<url::Url>,
+                 is_important: Option<bool>,
+                 context: Vec<FileReferenceContext>| {
+                    let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
+                    file_ref.is_important = is_important.unwrap_or(false);
+                    file_ref.context = context;
+                    Ok(file_ref)
+                },
+            )
             .once();
 
         let handler = CompanyChainEventProcessor::new(
@@ -2385,22 +2382,20 @@ pub mod tests {
         );
 
         let mut test_company = company.clone();
-        let update_data = CompanyBlockPayload::Update(
-            bcr_ebill_core::protocol::blockchain::company::block::CompanyUpdateBlockData {
-                name: None,
-                email: None,
-                country: None,
-                city: None,
-                zip: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-                address: None,
-                country_of_registration: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-                city_of_registration: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-                registration_number: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-                registration_date: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-                logo_file: bcr_ebill_core::protocol::EditOptionalFieldMode::Set(logo_file),
-                proof_of_registration_file: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-            },
-        );
+        let update_data = CompanyBlockPayload::Update(CompanyUpdateBlockData {
+            name: None,
+            email: None,
+            country: None,
+            city: None,
+            zip: EditOptionalFieldMode::Ignore,
+            address: None,
+            country_of_registration: EditOptionalFieldMode::Ignore,
+            city_of_registration: EditOptionalFieldMode::Ignore,
+            registration_number: EditOptionalFieldMode::Ignore,
+            registration_date: EditOptionalFieldMode::Ignore,
+            logo_file: EditOptionalFieldMode::Set(logo_file),
+            proof_of_registration_file: EditOptionalFieldMode::Ignore,
+        });
 
         let result = handler
             .process_company_block_effects(

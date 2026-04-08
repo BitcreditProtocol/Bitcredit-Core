@@ -15,12 +15,12 @@ use std::sync::Arc;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::identity::{Identity, IdentityWithAll},
-    protocol::BlockId,
     protocol::blockchain::{
         Blockchain, BlockchainType,
         bill::BillOpCode,
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
+    protocol::{BlockId, EditOptionalFieldMode},
 };
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
@@ -397,13 +397,13 @@ impl IdentityChainEventProcessor {
                 let files_to_anchor = match &update {
                     IdentityBlockPayload::Update(payload) => vec![
                         match &payload.profile_picture_file {
-                            bcr_ebill_core::protocol::EditOptionalFieldMode::Set(file) => {
+                            EditOptionalFieldMode::Set(file) => {
                                 Some((file.clone(), identity_file_context("profile_picture_file")))
                             }
                             _ => None,
                         },
                         match &payload.identity_document_file {
-                            bcr_ebill_core::protocol::EditOptionalFieldMode::Set(file) => Some((
+                            EditOptionalFieldMode::Set(file) => Some((
                                 file.clone(),
                                 identity_file_context("identity_document_file"),
                             )),
@@ -540,9 +540,6 @@ pub mod tests {
     use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
     use bcr_ebill_core::{
         application::identity::Identity,
-        protocol::Name,
-        protocol::Sha256Hash,
-        protocol::Timestamp,
         protocol::blockchain::{
             Blockchain, BlockchainType,
             identity::{
@@ -551,6 +548,8 @@ pub mod tests {
             },
         },
         protocol::crypto::BcrKeys,
+        protocol::file_reference::{FileReference, FileReferenceContext},
+        protocol::{EditOptionalFieldMode, File, Name, Sha256Hash, Timestamp},
     };
     use mockall::predicate::{always, eq};
 
@@ -1028,7 +1027,7 @@ pub mod tests {
         chain_store.expect_add_block().times(0);
         store.expect_save().times(1).returning(|_| Ok(()));
 
-        let profile_picture_file = bcr_ebill_core::protocol::File {
+        let profile_picture_file = File {
             name: Name::new("profile.png").unwrap(),
             hash: Sha256Hash::new("identity_profile_file_hash_123456789"),
             nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -1040,40 +1039,36 @@ pub mod tests {
 
         file_reference_store
             .expect_upsert()
-            .withf(move |
-                hash: &Sha256Hash,
-                _nostr_hash: &nostr::hashes::sha256::Hash,
-                name: &Option<bcr_ebill_core::protocol::Name>,
-                server_urls: &Vec<url::Url>,
-                is_important: &Option<bool>,
-                context: &Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
-            | {
-                *hash == expected_hash
-                    && *name == Some(expected_name.clone())
-                    && server_urls.is_empty()
-                    && *is_important == Some(true)
-                    && context
-                        == &vec![bcr_ebill_core::protocol::file_reference::FileReferenceContext::Identity {
-                            field: "profile_picture_file".to_string(),
-                        }]
-            })
-            .returning(|
-                hash: &Sha256Hash,
-                nostr_hash: &nostr::hashes::sha256::Hash,
-                name: Option<bcr_ebill_core::protocol::Name>,
-                _: Vec<url::Url>,
-                is_important: Option<bool>,
-                context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
-            | {
-                let mut file_ref = bcr_ebill_core::protocol::file_reference::FileReference::new(
-                    hash.clone(),
-                    *nostr_hash,
-                    name,
-                );
-                file_ref.is_important = is_important.unwrap_or(false);
-                file_ref.context = context;
-                Ok(file_ref)
-            })
+            .withf(
+                move |hash: &Sha256Hash,
+                      _nostr_hash: &nostr::hashes::sha256::Hash,
+                      name: &Option<Name>,
+                      server_urls: &Vec<url::Url>,
+                      is_important: &Option<bool>,
+                      context: &Vec<FileReferenceContext>| {
+                    *hash == expected_hash
+                        && *name == Some(expected_name.clone())
+                        && server_urls.is_empty()
+                        && *is_important == Some(true)
+                        && context
+                            == &vec![FileReferenceContext::Identity {
+                                field: "profile_picture_file".to_string(),
+                            }]
+                },
+            )
+            .returning(
+                |hash: &Sha256Hash,
+                 nostr_hash: &nostr::hashes::sha256::Hash,
+                 name: Option<Name>,
+                 _: Vec<url::Url>,
+                 is_important: Option<bool>,
+                 context: Vec<FileReferenceContext>| {
+                    let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
+                    file_ref.is_important = is_important.unwrap_or(false);
+                    file_ref.context = context;
+                    Ok(file_ref)
+                },
+            )
             .once();
 
         let handler = IdentityChainEventProcessor::new(
@@ -1094,16 +1089,14 @@ pub mod tests {
             email: None,
             country: None,
             city: None,
-            zip: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+            zip: EditOptionalFieldMode::Ignore,
             address: None,
-            date_of_birth: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-            country_of_birth: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-            city_of_birth: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-            identification_number: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
-            profile_picture_file: bcr_ebill_core::protocol::EditOptionalFieldMode::Set(
-                profile_picture_file,
-            ),
-            identity_document_file: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+            date_of_birth: EditOptionalFieldMode::Ignore,
+            country_of_birth: EditOptionalFieldMode::Ignore,
+            city_of_birth: EditOptionalFieldMode::Ignore,
+            identification_number: EditOptionalFieldMode::Ignore,
+            profile_picture_file: EditOptionalFieldMode::Set(profile_picture_file),
+            identity_document_file: EditOptionalFieldMode::Ignore,
         });
 
         let result = handler

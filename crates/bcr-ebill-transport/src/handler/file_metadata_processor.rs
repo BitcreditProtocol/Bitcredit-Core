@@ -215,7 +215,10 @@ fn is_valid_file_url(url: &url::Url) -> bool {
 mod tests {
     use super::*;
     use bcr_common::core::NodeId;
-    use bcr_ebill_core::protocol::{Name, file_reference::FileReference};
+    use bcr_ebill_core::protocol::{
+        Name,
+        file_reference::{FileReference, FileReferenceContext},
+    };
     use std::str::FromStr;
 
     mockall::mock! {
@@ -223,7 +226,7 @@ mod tests {
 
         #[async_trait::async_trait]
         impl FileReferenceStoreApi for FileReferenceStore {
-            async fn upsert(&self, hash: &Sha256Hash, nostr_hash: &Sha256HexHash, name: Option<Name>, server_urls: Vec<url::Url>, is_important: Option<bool>, context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>) -> std::result::Result<FileReference, bcr_ebill_persistence::Error>;
+            async fn upsert(&self, hash: &Sha256Hash, nostr_hash: &Sha256HexHash, name: Option<Name>, server_urls: Vec<url::Url>, is_important: Option<bool>, context: Vec<FileReferenceContext>) -> std::result::Result<FileReference, bcr_ebill_persistence::Error>;
             async fn get(&self, hash: &Sha256Hash) -> std::result::Result<Option<FileReference>, bcr_ebill_persistence::Error>;
             async fn find_by_nostr_hash(&self, nostr_hash: &Sha256HexHash) -> std::result::Result<Option<FileReference>, bcr_ebill_persistence::Error>;
             async fn delete(&self, hash: &Sha256Hash) -> std::result::Result<(), bcr_ebill_persistence::Error>;
@@ -232,8 +235,8 @@ mod tests {
             async fn add_server_urls(&self, hash: &Sha256Hash, urls: Vec<url::Url>) -> std::result::Result<bool, bcr_ebill_persistence::Error>;
             async fn mark_important(&self, hash: &Sha256Hash, important: bool) -> std::result::Result<(), bcr_ebill_persistence::Error>;
             async fn update_nostr_hash(&self, hash: &Sha256Hash, nostr_hash: &Sha256HexHash) -> std::result::Result<(), bcr_ebill_persistence::Error>;
-            async fn add_context(&self, hash: &Sha256Hash, context: bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> std::result::Result<bool, bcr_ebill_persistence::Error>;
-            async fn remove_context(&self, hash: &Sha256Hash, context: &bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> std::result::Result<bool, bcr_ebill_persistence::Error>;
+            async fn add_context(&self, hash: &Sha256Hash, context: FileReferenceContext) -> std::result::Result<bool, bcr_ebill_persistence::Error>;
+            async fn remove_context(&self, hash: &Sha256Hash, context: &FileReferenceContext) -> std::result::Result<bool, bcr_ebill_persistence::Error>;
         }
     }
 

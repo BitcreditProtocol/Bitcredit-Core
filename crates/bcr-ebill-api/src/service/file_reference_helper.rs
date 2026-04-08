@@ -1,13 +1,13 @@
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::transport_service::TransportServiceApi;
-use crate::service::{Result, file_server_service::upload_to_blossom_servers};
+use crate::service::{Error, Result, file_server_service::upload_to_blossom_servers};
 use bcr_common::core::NodeId;
 use bcr_ebill_core::protocol::{
     File, Name, PublicKey, Sha256Hash,
     crypto::{self, BcrKeys},
     file_reference::FileReferenceContext,
 };
-use bcr_ebill_persistence::FileReferenceStoreApi;
+use bcr_ebill_persistence::{Error as PersistenceError, FileReferenceStoreApi};
 use log::{debug, info};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -76,13 +76,13 @@ pub async fn encrypt_upload_and_track_file(
 
 pub async fn enforce_important_file_replication(
     file_reference_store: &Arc<dyn FileReferenceStoreApi>,
-    file_storage_client: &Arc<dyn crate::external::file_storage::FileStorageClientApi>,
-    transport: &Arc<dyn crate::service::transport_service::TransportServiceApi>,
+    file_storage_client: &Arc<dyn FileStorageClientApi>,
+    transport: &Arc<dyn TransportServiceApi>,
     configured_servers: &[url::Url],
     file: &File,
     context: FileReferenceContext,
     node_id: &NodeId,
-) -> crate::service::Result<bool> {
+) -> Result<bool> {
     let file_ref = match file_reference_store.get(&file.hash).await? {
         Some(ref_file) => {
             if !ref_file.is_important {
@@ -102,7 +102,7 @@ pub async fn enforce_important_file_replication(
                 )
                 .await?;
             file_reference_store.get(&file.hash).await?.ok_or_else(|| {
-                crate::service::Error::Persistence(bcr_ebill_persistence::Error::NoSuchEntity(
+                Error::Persistence(PersistenceError::NoSuchEntity(
                     "file reference".to_string(),
                     file.hash.to_string(),
                 ))
@@ -140,7 +140,7 @@ pub async fn enforce_important_file_replication(
     {
         Ok(bytes) => bytes,
         Err(_) => {
-            return Err(crate::service::Error::NotFound);
+            return Err(Error::NotFound);
         }
     };
 
@@ -174,23 +174,23 @@ pub async fn enforce_important_file_replication(
 
 /// Downloads encrypted file bytes from available servers.
 async fn download_file_bytes(
-    client: &dyn crate::external::file_storage::FileStorageClientApi,
+    client: &dyn FileStorageClientApi,
     servers: &[url::Url],
     nostr_hash: &nostr::hashes::sha256::Hash,
-) -> crate::service::Result<Vec<u8>> {
+) -> Result<Vec<u8>> {
     for server in servers {
         if let Ok(bytes) = client.download(server, nostr_hash).await {
             return Ok(bytes);
         }
     }
-    Err(crate::service::Error::NotFound)
+    Err(Error::NotFound)
 }
 
 async fn replicate_file_to_server(
-    client: &dyn crate::external::file_storage::FileStorageClientApi,
+    client: &dyn FileStorageClientApi,
     server: &url::Url,
     encrypted_bytes: &[u8],
-) -> crate::service::Result<()> {
+) -> Result<()> {
     client
         .upload(server, encrypted_bytes.to_vec())
         .await
@@ -333,6 +333,7 @@ pub fn bill_file_context(bill_id: &str, field: &str) -> FileReferenceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::tests::MockFileReferenceStoreApiMock;
     use bcr_ebill_core::protocol::{Name, file_reference::FileReference};
     use bitcoin::hashes::Hash;
     use mockall::predicate;
@@ -342,7 +343,7 @@ mod tests {
         TransportService {}
 
         #[async_trait::async_trait]
-        impl crate::service::transport_service::TransportServiceApi for TransportService {
+        impl TransportServiceApi for TransportService {
             fn block_transport(&self) -> &std::sync::Arc<dyn crate::service::transport_service::BlockTransportServiceApi>;
             fn contact_transport(&self) -> &std::sync::Arc<dyn crate::service::transport_service::ContactTransportServiceApi>;
             fn notification_transport(&self) -> &std::sync::Arc<dyn crate::service::transport_service::NotificationTransportServiceApi>;
@@ -372,16 +373,15 @@ mod tests {
     #[tokio::test]
     async fn test_file_metadata_publish_skipped_when_no_confirmed_servers() {
         let file_reference_store: Arc<dyn FileReferenceStoreApi> =
-            Arc::new(crate::tests::tests::MockFileReferenceStoreApiMock::new());
-        let transport: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(MockTransportService::new());
+            Arc::new(MockFileReferenceStoreApiMock::new());
+        let transport: Arc<dyn TransportServiceApi> = Arc::new(MockTransportService::new());
         let node_id = NodeId::from_str(
             "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
         )
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -401,8 +401,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_metadata_publish_with_confirmed_servers() {
-        use crate::tests::tests::MockFileReferenceStoreApiMock;
-
         let mut file_reference_store = MockFileReferenceStoreApiMock::new();
         let mut transport = MockTransportService::new();
         let node_id = NodeId::from_str(
@@ -411,7 +409,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -429,8 +427,7 @@ mod tests {
             .times(1);
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let result = record_confirmed_servers_and_publish(
             &file_ref_store,
@@ -448,8 +445,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_metadata_publish_idempotent_same_servers() {
-        use crate::tests::tests::MockFileReferenceStoreApiMock;
-
         let mut file_reference_store = MockFileReferenceStoreApiMock::new();
         let transport = MockTransportService::new();
         let node_id = NodeId::from_str(
@@ -458,7 +453,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -478,8 +473,7 @@ mod tests {
             .returning(|_, _| Ok(false));
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let result = record_confirmed_servers_and_publish(
             &file_ref_store,
@@ -553,9 +547,7 @@ mod tests {
     fn test_helper_file() -> File {
         File {
             name: Name::new("test_file.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::new(
-                "test_hash_12345678901234567890123456789012",
-            ),
+            hash: Sha256Hash::new("test_hash_12345678901234567890123456789012"),
             nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                 .parse()
                 .unwrap(),
@@ -567,8 +559,8 @@ mod tests {
             .unwrap()
     }
 
-    fn create_upsert_mock_store() -> Arc<dyn bcr_ebill_persistence::FileReferenceStoreApi> {
-        let mut mock_store = crate::tests::tests::MockFileReferenceStoreApiMock::new();
+    fn create_upsert_mock_store() -> Arc<dyn FileReferenceStoreApi> {
+        let mut mock_store = MockFileReferenceStoreApiMock::new();
 
         mock_store
             .expect_upsert()
@@ -660,7 +652,7 @@ mod tests {
     #[tokio::test]
     async fn important_file_upsert_marks_as_important() {
         let file = test_helper_file();
-        let mut mock_store = crate::tests::tests::MockFileReferenceStoreApiMock::new();
+        let mut mock_store = MockFileReferenceStoreApiMock::new();
 
         mock_store
             .expect_upsert()
@@ -677,8 +669,7 @@ mod tests {
             })
             .once();
 
-        let mock_store: Arc<dyn bcr_ebill_persistence::FileReferenceStoreApi> =
-            Arc::new(mock_store);
+        let mock_store: Arc<dyn FileReferenceStoreApi> = Arc::new(mock_store);
 
         let result = upsert_important_file_reference(
             &mock_store,
@@ -693,8 +684,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_metadata_publish_forced_on_seeded_servers() {
-        use crate::tests::tests::MockFileReferenceStoreApiMock;
-
         let mut file_reference_store = MockFileReferenceStoreApiMock::new();
         let mut transport = MockTransportService::new();
         let node_id = NodeId::from_str(
@@ -703,7 +692,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -725,8 +714,7 @@ mod tests {
             .once();
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let result = record_confirmed_servers_and_publish(
             &file_ref_store,
@@ -756,7 +744,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -769,10 +757,8 @@ mod tests {
             .returning(move |_| Ok(Some(file_ref.clone())));
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let file_storage_arc: Arc<dyn crate::external::file_storage::FileStorageClientApi> =
-            Arc::new(file_storage_client);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let file_storage_arc: Arc<dyn FileStorageClientApi> = Arc::new(file_storage_client);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let configured_servers = vec![url::Url::parse("https://blossom1.example.com").unwrap()];
 
@@ -806,7 +792,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -841,10 +827,8 @@ mod tests {
             .returning(|_, _, _, _, _| Ok(()));
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let file_storage_arc: Arc<dyn crate::external::file_storage::FileStorageClientApi> =
-            Arc::new(file_storage_client);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let file_storage_arc: Arc<dyn FileStorageClientApi> = Arc::new(file_storage_client);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let configured_servers = vec![existing_server.clone(), missing_server.clone()];
 
@@ -877,7 +861,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -894,10 +878,8 @@ mod tests {
             .returning(move |_| Ok(Some(file_ref.clone())));
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let file_storage_arc: Arc<dyn crate::external::file_storage::FileStorageClientApi> =
-            Arc::new(file_storage_client);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let file_storage_arc: Arc<dyn FileStorageClientApi> = Arc::new(file_storage_client);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let configured_servers = vec![server1.clone(), server2.clone()];
 
@@ -931,7 +913,7 @@ mod tests {
         .unwrap();
         let file = File {
             name: Name::new("test.txt").unwrap(),
-            hash: bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+            hash: Sha256Hash::from_bytes(b"test"),
             nostr_hash: nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
         };
 
@@ -943,7 +925,7 @@ mod tests {
             .expect_upsert()
             .returning(|_, _, _, _, _, _| {
                 Ok(FileReference::new(
-                    bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+                    Sha256Hash::from_bytes(b"test"),
                     nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
                     None,
                 ))
@@ -960,10 +942,8 @@ mod tests {
         });
 
         let file_ref_store: Arc<dyn FileReferenceStoreApi> = Arc::new(file_reference_store);
-        let file_storage_arc: Arc<dyn crate::external::file_storage::FileStorageClientApi> =
-            Arc::new(file_storage_client);
-        let transport_arc: Arc<dyn crate::service::transport_service::TransportServiceApi> =
-            Arc::new(transport);
+        let file_storage_arc: Arc<dyn FileStorageClientApi> = Arc::new(file_storage_client);
+        let transport_arc: Arc<dyn TransportServiceApi> = Arc::new(transport);
 
         let configured_servers = vec![configured_server];
 

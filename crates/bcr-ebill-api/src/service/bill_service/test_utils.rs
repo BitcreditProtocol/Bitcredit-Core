@@ -40,6 +40,7 @@ use bcr_ebill_core::{
             ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
         },
+        file_reference::FileReference,
     },
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
@@ -276,24 +277,12 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.file_reference_store
         .expect_upsert()
         .returning(|hash, nostr_hash, name, _, _, _| {
-            Ok(
-                bcr_ebill_core::protocol::file_reference::FileReference::new(
-                    hash.clone(),
-                    *nostr_hash,
-                    name,
-                ),
-            )
+            Ok(FileReference::new(hash.clone(), *nostr_hash, name))
         });
     ctx.file_reference_store
         .expect_upsert()
         .returning(|hash, nostr_hash, name, _, _, _| {
-            Ok(
-                bcr_ebill_core::protocol::file_reference::FileReference::new(
-                    hash.clone(),
-                    *nostr_hash,
-                    name,
-                ),
-            )
+            Ok(FileReference::new(hash.clone(), *nostr_hash, name))
         });
     ctx.file_reference_store
         .expect_get()

@@ -10,6 +10,7 @@ use bcr_ebill_core::{
     application::nostr_contact::NostrContact,
     application::notification::Notification,
     protocol::{
+        Timestamp,
         crypto::decrypt_ecies,
         event::{Event, EventEnvelope},
     },
@@ -135,7 +136,7 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                         sender_node_id,
                         contact_private_key: decoded.data.private_key,
                         receiver_node_id: node_id.clone(),
-                        received_at: bcr_ebill_core::protocol::Timestamp::now(),
+                        received_at: Timestamp::now(),
                         direction: ShareDirection::Incoming,
                         initial_share_id: Some(decoded.data.initial_share_id.clone()),
                     };
@@ -408,7 +409,7 @@ mod tests {
             sender_node_id: node_id_test(),
             contact_private_key: keys.get_private_key(),
             receiver_node_id: node_id_test(),
-            received_at: bcr_ebill_core::protocol::Timestamp::now(),
+            received_at: Timestamp::now(),
             direction: ShareDirection::Outgoing,
             initial_share_id: None,
         };
@@ -635,7 +636,8 @@ mod tests {
 
     #[tokio::test]
     async fn important_file_upsert_shared_contact_files() {
-        use bcr_ebill_core::protocol::File;
+        use bcr_ebill_core::protocol::file_reference::{FileReference, FileReferenceContext};
+        use bcr_ebill_core::protocol::{File, Name, Sha256Hash, Timestamp};
 
         let (
             mut transport,
@@ -655,7 +657,7 @@ mod tests {
             sender_node_id: node_id_test(),
             contact_private_key: keys.get_private_key(),
             receiver_node_id: node_id_test(),
-            received_at: bcr_ebill_core::protocol::Timestamp::now(),
+            received_at: Timestamp::now(),
             direction: ShareDirection::Outgoing,
             initial_share_id: None,
         };
@@ -688,12 +690,12 @@ mod tests {
                     city_of_birth_or_registration: None,
                     identification_number: None,
                     avatar_file: Some(File {
-                        hash: bcr_ebill_core::protocol::Sha256Hash::new("avatar_data"),
+                        hash: Sha256Hash::new("avatar_data"),
                         nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[2u8; 32]),
                         name: Name::new("avatar.png").unwrap(),
                     }),
                     proof_document_file: Some(File {
-                        hash: bcr_ebill_core::protocol::Sha256Hash::new("proof_data"),
+                        hash: Sha256Hash::new("proof_data"),
                         nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[4u8; 32]),
                         name: Name::new("proof.pdf").unwrap(),
                     }),
@@ -755,20 +757,18 @@ mod tests {
                 },
             )
             .returning(|_, _, _, _, _, _| {
-                Ok(bcr_ebill_core::protocol::file_reference::FileReference {
-                    hash: bcr_ebill_core::protocol::Sha256Hash::new("avatar_data"),
+                Ok(FileReference {
+                    hash: Sha256Hash::new("avatar_data"),
                     nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[2u8; 32]),
-                    name: Some(bcr_ebill_core::protocol::Name::new("avatar.png").unwrap()),
+                    name: Some(Name::new("avatar.png").unwrap()),
                     server_urls: vec![],
                     is_important: true,
-                    context: vec![
-                        bcr_ebill_core::protocol::file_reference::FileReferenceContext::Contact {
-                            node_id: node_id_test().to_string(),
-                            field: "avatar_file".to_string(),
-                        },
-                    ],
-                    created_at: bcr_ebill_core::protocol::Timestamp::now(),
-                    updated_at: bcr_ebill_core::protocol::Timestamp::now(),
+                    context: vec![FileReferenceContext::Contact {
+                        node_id: node_id_test().to_string(),
+                        field: "avatar_file".to_string(),
+                    }],
+                    created_at: Timestamp::now(),
+                    updated_at: Timestamp::now(),
                 })
             })
             .once();
@@ -783,20 +783,18 @@ mod tests {
                 },
             )
             .returning(|_, _, _, _, _, _| {
-                Ok(bcr_ebill_core::protocol::file_reference::FileReference {
-                    hash: bcr_ebill_core::protocol::Sha256Hash::new("proof_data"),
+                Ok(FileReference {
+                    hash: Sha256Hash::new("proof_data"),
                     nostr_hash: nostr::hashes::sha256::Hash::const_hash(&[4u8; 32]),
-                    name: Some(bcr_ebill_core::protocol::Name::new("proof.pdf").unwrap()),
+                    name: Some(Name::new("proof.pdf").unwrap()),
                     server_urls: vec![],
                     is_important: true,
-                    context: vec![
-                        bcr_ebill_core::protocol::file_reference::FileReferenceContext::Contact {
-                            node_id: node_id_test().to_string(),
-                            field: "proof_document_file".to_string(),
-                        },
-                    ],
-                    created_at: bcr_ebill_core::protocol::Timestamp::now(),
-                    updated_at: bcr_ebill_core::protocol::Timestamp::now(),
+                    context: vec![FileReferenceContext::Contact {
+                        node_id: node_id_test().to_string(),
+                        field: "proof_document_file".to_string(),
+                    }],
+                    created_at: Timestamp::now(),
+                    updated_at: Timestamp::now(),
                 })
             })
             .once();

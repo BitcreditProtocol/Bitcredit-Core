@@ -4,7 +4,9 @@ use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
 use crate::service::Error;
 use crate::service::file_reference_helper::{company_file_context, encrypt_upload_and_track_file};
-use crate::service::file_server_service::configured_blossom_servers;
+use crate::service::file_server_service::{
+    configured_blossom_servers, download_file_with_fallback,
+};
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::{self, validate_node_id_network};
@@ -1301,7 +1303,7 @@ impl CompanyServiceApi for CompanyService {
         }
 
         if let Some(file) = file {
-            let file_bytes = crate::service::file_server_service::download_file_with_fallback(
+            let file_bytes = download_file_with_fallback(
                 self.file_upload_client.as_ref(),
                 Some(&self.file_reference_store),
                 Some(&self.transport_service),
@@ -2395,7 +2397,7 @@ pub mod tests {
             .expect_upsert()
             .returning(|_, _, _, _, _, _| {
                 Ok(FileReference::new(
-                    bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+                    Sha256Hash::from_bytes(b"test"),
                     nostr::hashes::sha256::Hash::from_str(
                         "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
                     )
@@ -3565,7 +3567,7 @@ pub mod tests {
             .expect_upsert()
             .returning(|_, _, _, _, _, _| {
                 Ok(FileReference::new(
-                    bcr_ebill_core::protocol::Sha256Hash::from_bytes(b"test"),
+                    Sha256Hash::from_bytes(b"test"),
                     nostr::hashes::sha256::Hash::from_str(
                         "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
                     )

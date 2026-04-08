@@ -723,6 +723,8 @@ impl BillChainEventProcessor {
 mod tests {
     use bcr_common::core::NodeId;
     use bcr_ebill_core::{
+        protocol::File,
+        protocol::Name,
         protocol::Sha256Hash,
         protocol::Timestamp,
         protocol::blockchain::bill::block::{
@@ -733,6 +735,7 @@ mod tests {
         protocol::constants::ACCEPT_DEADLINE_SECONDS,
         protocol::crypto::BcrKeys,
         protocol::event::{BillBlockEvent, Event, EventEnvelope},
+        protocol::file_reference::{FileReference, FileReferenceContext},
     };
     use mockall::predicate::{always, eq};
 
@@ -2076,8 +2079,8 @@ mod tests {
     #[tokio::test]
     async fn test_add_new_chain_anchors_inbound_bill_files() {
         let mut bill = get_baseline_bill(&bill_id_test());
-        let attachment = bcr_ebill_core::protocol::File {
-            name: bcr_ebill_core::protocol::Name::new("attachment.pdf").unwrap(),
+        let attachment = File {
+            name: Name::new("attachment.pdf").unwrap(),
             hash: Sha256Hash::new("bill_attachment_file_hash_1234567890"),
             nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                 .parse()
@@ -2110,41 +2113,37 @@ mod tests {
 
         file_reference_store
             .expect_upsert()
-            .withf(move |
-                hash: &Sha256Hash,
-                _nostr_hash: &nostr::hashes::sha256::Hash,
-                name: &Option<bcr_ebill_core::protocol::Name>,
-                server_urls: &Vec<url::Url>,
-                is_important: &Option<bool>,
-                context: &Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
-            | {
-                *hash == attachment.hash
-                    && *name == Some(attachment.name.clone())
-                    && server_urls.is_empty()
-                    && *is_important == Some(true)
-                    && context
-                        == &vec![bcr_ebill_core::protocol::file_reference::FileReferenceContext::Bill {
-                            bill_id: bill_id_test().to_string(),
-                            field: "files".to_string(),
-                        }]
-            })
-            .returning(|
-                hash: &Sha256Hash,
-                nostr_hash: &nostr::hashes::sha256::Hash,
-                name: Option<bcr_ebill_core::protocol::Name>,
-                _: Vec<url::Url>,
-                is_important: Option<bool>,
-                context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
-            | {
-                let mut file_ref = bcr_ebill_core::protocol::file_reference::FileReference::new(
-                    hash.clone(),
-                    *nostr_hash,
-                    name,
-                );
-                file_ref.is_important = is_important.unwrap_or(false);
-                file_ref.context = context;
-                Ok(file_ref)
-            })
+            .withf(
+                move |hash: &Sha256Hash,
+                      _nostr_hash: &nostr::hashes::sha256::Hash,
+                      name: &Option<Name>,
+                      server_urls: &Vec<url::Url>,
+                      is_important: &Option<bool>,
+                      context: &Vec<FileReferenceContext>| {
+                    *hash == attachment.hash
+                        && *name == Some(attachment.name.clone())
+                        && server_urls.is_empty()
+                        && *is_important == Some(true)
+                        && context
+                            == &vec![FileReferenceContext::Bill {
+                                bill_id: bill_id_test().to_string(),
+                                field: "files".to_string(),
+                            }]
+                },
+            )
+            .returning(
+                |hash: &Sha256Hash,
+                 nostr_hash: &nostr::hashes::sha256::Hash,
+                 name: Option<Name>,
+                 _: Vec<url::Url>,
+                 is_important: Option<bool>,
+                 context: Vec<FileReferenceContext>| {
+                    let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
+                    file_ref.is_important = is_important.unwrap_or(false);
+                    file_ref.context = context;
+                    Ok(file_ref)
+                },
+            )
             .once();
 
         let handler = BillChainEventProcessor::new(
