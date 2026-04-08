@@ -27,6 +27,7 @@ use crate::PushApi;
 use bcr_ebill_api::service::transport_service::{Error, Result};
 
 use super::NotificationHandlerApi;
+use super::inbound_file_anchor::{anchor_important_file, contact_file_context};
 
 #[derive(Clone)]
 pub struct ContactShareEventHandler {
@@ -260,61 +261,22 @@ impl ContactShareEventHandler {
     /// Anchors file references for files in a shared contact (avatar and proof document)
     /// This is a passive operation - it only creates/updates local file references, no outbound publish
     async fn anchor_shared_contact_files(&self, contact: &Contact) -> Result<()> {
-        use bcr_ebill_core::protocol::file_reference::FileReferenceContext;
-
-        // Anchor avatar file if present
         if let Some(avatar) = &contact.avatar_file {
-            let context = FileReferenceContext::Contact {
-                node_id: contact.node_id.to_string(),
-                field: "avatar_file".to_string(),
-            };
-            // Use empty server URLs - will be populated when file is actually downloaded
-            if let Err(e) = self
-                .file_reference_store
-                .upsert(
-                    &avatar.hash,
-                    &avatar.nostr_hash,
-                    Some(avatar.name.clone()),
-                    vec![],     // No server URLs yet - passive anchor only
-                    Some(true), // Important file
-                    vec![context],
-                )
-                .await
-            {
-                debug!("Failed to anchor avatar file reference: {e}");
-            } else {
-                debug!(
-                    "Anchored avatar file reference for contact {}",
-                    contact.node_id
-                );
-            }
+            anchor_important_file(
+                &self.file_reference_store,
+                avatar,
+                contact_file_context(&contact.node_id, "avatar_file"),
+            )
+            .await?;
         }
 
-        // Anchor proof document file if present
         if let Some(proof) = &contact.proof_document_file {
-            let context = FileReferenceContext::Contact {
-                node_id: contact.node_id.to_string(),
-                field: "proof_document_file".to_string(),
-            };
-            if let Err(e) = self
-                .file_reference_store
-                .upsert(
-                    &proof.hash,
-                    &proof.nostr_hash,
-                    Some(proof.name.clone()),
-                    vec![],     // No server URLs yet - passive anchor only
-                    Some(true), // Important file
-                    vec![context],
-                )
-                .await
-            {
-                debug!("Failed to anchor proof document file reference: {e}");
-            } else {
-                debug!(
-                    "Anchored proof document file reference for contact {}",
-                    contact.node_id
-                );
-            }
+            anchor_important_file(
+                &self.file_reference_store,
+                proof,
+                contact_file_context(&contact.node_id, "proof_document_file"),
+            )
+            .await?;
         }
 
         Ok(())

@@ -35,17 +35,19 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::{
-    NotificationStoreApi,
+    FileReferenceStoreApi, NotificationStoreApi,
     company::{CompanyChainStoreApi, CompanyStoreApi},
     identity::IdentityStoreApi,
 };
 
+use super::inbound_file_anchor::{anchor_important_file, company_file_context};
 use super::{CompanyChainEventProcessorApi, NostrContactProcessorApi};
 
 #[derive(Clone)]
 pub struct CompanyChainEventProcessor {
     blockchain_store: Arc<dyn CompanyChainStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     notification_store: Arc<dyn NotificationStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
@@ -247,6 +249,7 @@ impl CompanyChainEventProcessor {
     pub fn new(
         blockchain_store: Arc<dyn CompanyChainStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         notification_store: Arc<dyn NotificationStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
@@ -258,6 +261,7 @@ impl CompanyChainEventProcessor {
         Self {
             blockchain_store,
             company_store,
+            file_reference_store,
             identity_store,
             notification_store,
             nostr_contact_processor,
@@ -293,6 +297,24 @@ impl CompanyChainEventProcessor {
             // save the first block
             self.save_block(&company_id, chain.get_first_block())
                 .await?;
+
+            if let Some(file) = &company.logo_file {
+                anchor_important_file(
+                    &self.file_reference_store,
+                    file,
+                    company_file_context(&company.id, "logo_file"),
+                )
+                .await?;
+            }
+
+            if let Some(file) = &company.proof_of_registration_file {
+                anchor_important_file(
+                    &self.file_reference_store,
+                    file,
+                    company_file_context(&company.id, "proof_of_registration_file"),
+                )
+                .await?;
+            }
 
             // save all blocks
             for block in blocks.iter().skip(1) {
@@ -510,12 +532,34 @@ impl CompanyChainEventProcessor {
         match data {
             CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
             update @ CompanyBlockPayload::Update(_) => {
+                let files_to_anchor = match &update {
+                    CompanyBlockPayload::Update(payload) => vec![
+                        match &payload.logo_file {
+                            bcr_ebill_core::protocol::EditOptionalFieldMode::Set(file) => {
+                                Some((file.clone(), company_file_context(company_id, "logo_file")))
+                            }
+                            _ => None,
+                        },
+                        match &payload.proof_of_registration_file {
+                            bcr_ebill_core::protocol::EditOptionalFieldMode::Set(file) => Some((
+                                file.clone(),
+                                company_file_context(company_id, "proof_of_registration_file"),
+                            )),
+                            _ => None,
+                        },
+                    ],
+                    _ => vec![],
+                };
                 info!("Updating company {company_id} from block data");
                 company.apply_block_data(&update, identity_node_id, timestamp);
                 self.company_store
                     .update(company_id, company)
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                for (file, context) in files_to_anchor.into_iter().flatten() {
+                    anchor_important_file(&self.file_reference_store, &file, context).await?;
+                }
             }
             CompanyBlockPayload::InviteSignatory(payload) => {
                 info!("Signatory invited to company {company_id}, adding to contacts");
@@ -846,7 +890,7 @@ pub mod tests {
         private_key_test, private_key_test_another, update_company_block_with_name,
     };
     use crate::push_notification::MockPushApi;
-    use crate::test_utils::{signed_identity_proof_test, test_ts};
+    use crate::test_utils::{MockFileReferenceStore, signed_identity_proof_test, test_ts};
     use crate::{
         handler::{
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
@@ -875,6 +919,7 @@ pub mod tests {
         CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -912,6 +957,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -950,6 +996,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -992,6 +1039,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1078,6 +1126,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1186,6 +1235,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1366,6 +1416,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1520,6 +1571,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1639,6 +1691,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1758,6 +1811,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1879,6 +1933,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -1998,6 +2053,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity),
             Arc::new(notification_store),
             Arc::new(contact),
@@ -2226,6 +2282,7 @@ pub mod tests {
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(identity_store),
             Arc::new(MockNotificationStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
@@ -2251,6 +2308,111 @@ pub mod tests {
         // Should succeed without persisting block
         assert!(result.is_ok());
         // Test passes if add_block was never called (mock verifies this)
+    }
+
+    #[tokio::test]
+    async fn test_process_company_block_effects_anchors_inbound_files() {
+        let mut chain_store = MockCompanyChainStore::new();
+        let mut store = MockCompanyStore::new();
+        let mut file_reference_store = MockFileReferenceStore::new();
+        let company_id = node_id_test();
+        let identity_node_id = node_id_test_another();
+        let (_, (company, _)) = get_company_data();
+
+        chain_store.expect_add_block().times(0);
+        store.expect_update().times(1).returning(|_, _| Ok(()));
+
+        let logo_file = bcr_ebill_core::protocol::File {
+            name: Name::new("logo.png").unwrap(),
+            hash: Sha256Hash::new("company_logo_file_hash_123456789012"),
+            nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .parse()
+                .unwrap(),
+        };
+        let expected_hash = logo_file.hash.clone();
+        let expected_name = logo_file.name.clone();
+
+        file_reference_store
+            .expect_upsert()
+            .withf(move |
+                hash: &Sha256Hash,
+                _nostr_hash: &nostr::hashes::sha256::Hash,
+                name: &Option<bcr_ebill_core::protocol::Name>,
+                server_urls: &Vec<url::Url>,
+                is_important: &Option<bool>,
+                context: &Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
+            | {
+                *hash == expected_hash
+                    && *name == Some(expected_name.clone())
+                    && server_urls.is_empty()
+                    && *is_important == Some(true)
+                    && context
+                        == &vec![bcr_ebill_core::protocol::file_reference::FileReferenceContext::Company {
+                            company_id: company_id.to_string(),
+                            field: "logo_file".to_string(),
+                        }]
+            })
+            .returning(|
+                hash: &Sha256Hash,
+                nostr_hash: &nostr::hashes::sha256::Hash,
+                name: Option<bcr_ebill_core::protocol::Name>,
+                _: Vec<url::Url>,
+                is_important: Option<bool>,
+                context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
+            | {
+                let mut file_ref = bcr_ebill_core::protocol::file_reference::FileReference::new(
+                    hash.clone(),
+                    *nostr_hash,
+                    name,
+                );
+                file_ref.is_important = is_important.unwrap_or(false);
+                file_ref.context = context;
+                Ok(file_ref)
+            })
+            .once();
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(file_reference_store),
+            Arc::new(MockIdentityStore::new()),
+            Arc::new(MockNotificationStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(MockPushApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_company = company.clone();
+        let update_data = CompanyBlockPayload::Update(
+            bcr_ebill_core::protocol::blockchain::company::block::CompanyUpdateBlockData {
+                name: None,
+                email: None,
+                country: None,
+                city: None,
+                zip: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+                address: None,
+                country_of_registration: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+                city_of_registration: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+                registration_number: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+                registration_date: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+                logo_file: bcr_ebill_core::protocol::EditOptionalFieldMode::Set(logo_file),
+                proof_of_registration_file: bcr_ebill_core::protocol::EditOptionalFieldMode::Ignore,
+            },
+        );
+
+        let result = handler
+            .process_company_block_effects(
+                &company.id,
+                &mut test_company,
+                update_data,
+                &identity_node_id,
+                test_ts(),
+            )
+            .await;
+
+        assert!(result.is_ok());
     }
 
     fn create_mocks() -> (

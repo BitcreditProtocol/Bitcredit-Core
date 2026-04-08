@@ -21,11 +21,11 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::crypto::btc::validate_payment_address_for_payment_request;
-use bcr_ebill_persistence::bill::BillChainStoreApi;
-use bcr_ebill_persistence::bill::BillStoreApi;
+use bcr_ebill_persistence::{FileReferenceStoreApi, bill::BillChainStoreApi, bill::BillStoreApi};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 
+use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
 use super::{BillChainEventProcessorApi, NostrContactProcessorApi};
 
 impl ServiceTraitBounds for BillChainEventProcessor {}
@@ -226,6 +226,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
 pub struct BillChainEventProcessor {
     bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     bill_store: Arc<dyn BillStoreApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     transport: Arc<dyn TransportClientApi>,
     bitcoin_network: bitcoin::Network,
@@ -235,6 +236,7 @@ impl BillChainEventProcessor {
     pub fn new(
         bill_blockchain_store: Arc<dyn BillChainStoreApi>,
         bill_store: Arc<dyn BillStoreApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         transport: Arc<dyn TransportClientApi>,
         bitcoin_network: bitcoin::Network,
@@ -242,6 +244,7 @@ impl BillChainEventProcessor {
         Self {
             bill_blockchain_store,
             bill_store,
+            file_reference_store,
             nostr_contact_processor,
             transport,
             bitcoin_network,
@@ -269,6 +272,15 @@ impl BillChainEventProcessor {
             error!("Could not process received blocks for bill {bill_id} because getting first version bill data failed");
             Error::Blockchain(e.to_string())
         })?;
+
+        for file in &bill_first_version.files {
+            anchor_important_file(
+                &self.file_reference_store,
+                file,
+                bill_file_context(bill_id, "files"),
+            )
+            .await?;
+        }
 
         debug!("adding {} bill blocks for bill {bill_id}", blocks.len());
         let mut block_height = chain.get_latest_block().id;
@@ -589,6 +601,15 @@ impl BillChainEventProcessor {
             };
         self.save_block(&bill_id, &issue_block).await?;
 
+        for file in &bill_first_version.files {
+            anchor_important_file(
+                &self.file_reference_store,
+                file,
+                bill_file_context(&bill_id, "files"),
+            )
+            .await?;
+        }
+
         // Only add other blocks, if there are any
         if chain.block_height() > 1 {
             let blocks = chain.blocks()[1..].to_vec();
@@ -724,7 +745,9 @@ mod tests {
                 node_id_test, node_id_test_other, private_key_test,
             },
         },
-        test_utils::{MockNotificationJsonTransport, signed_identity_proof_test},
+        test_utils::{
+            MockFileReferenceStore, MockNotificationJsonTransport, signed_identity_proof_test,
+        },
         transport::create_public_chain_event,
     };
 
@@ -736,6 +759,7 @@ mod tests {
         BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -770,6 +794,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -804,6 +829,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -857,6 +883,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -926,6 +953,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1055,6 +1083,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1153,6 +1182,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1201,6 +1231,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1257,6 +1288,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1318,6 +1350,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1378,6 +1411,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1396,6 +1430,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1472,6 +1507,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1563,6 +1599,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1618,6 +1655,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             bitcoin::Network::Testnet,
@@ -1678,6 +1716,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             bitcoin::Network::Testnet,
@@ -1789,6 +1828,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -1913,6 +1953,7 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
@@ -2021,12 +2062,101 @@ mod tests {
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
         let result = handler.resync_chain(&bill_id).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_add_new_chain_anchors_inbound_bill_files() {
+        let mut bill = get_baseline_bill(&bill_id_test());
+        let attachment = bcr_ebill_core::protocol::File {
+            name: bcr_ebill_core::protocol::Name::new("attachment.pdf").unwrap(),
+            hash: Sha256Hash::new("bill_attachment_file_hash_1234567890"),
+            nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .parse()
+                .unwrap(),
+        };
+        bill.files = vec![attachment.clone()];
+
+        let chain = get_genesis_chain(Some(bill));
+        let issue_block = chain.get_first_block().clone();
+        let keys = get_bill_keys();
+
+        let mut bill_chain_store = MockBillChainStore::new();
+        let mut bill_store = MockBillStore::new();
+        let mut file_reference_store = MockFileReferenceStore::new();
+        let mut contact = MockNostrContactProcessorApi::new();
+
+        bill_chain_store
+            .expect_add_block()
+            .with(eq(bill_id_test()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+        bill_store
+            .expect_save_keys()
+            .returning(|_, _| Ok(()))
+            .once();
+        contact
+            .expect_ensure_nostr_contact()
+            .returning(|_| ())
+            .times(2);
+
+        file_reference_store
+            .expect_upsert()
+            .withf(move |
+                hash: &Sha256Hash,
+                _nostr_hash: &nostr::hashes::sha256::Hash,
+                name: &Option<bcr_ebill_core::protocol::Name>,
+                server_urls: &Vec<url::Url>,
+                is_important: &Option<bool>,
+                context: &Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
+            | {
+                *hash == attachment.hash
+                    && *name == Some(attachment.name.clone())
+                    && server_urls.is_empty()
+                    && *is_important == Some(true)
+                    && context
+                        == &vec![bcr_ebill_core::protocol::file_reference::FileReferenceContext::Bill {
+                            bill_id: bill_id_test().to_string(),
+                            field: "files".to_string(),
+                        }]
+            })
+            .returning(|
+                hash: &Sha256Hash,
+                nostr_hash: &nostr::hashes::sha256::Hash,
+                name: Option<bcr_ebill_core::protocol::Name>,
+                _: Vec<url::Url>,
+                is_important: Option<bool>,
+                context: Vec<bcr_ebill_core::protocol::file_reference::FileReferenceContext>,
+            | {
+                let mut file_ref = bcr_ebill_core::protocol::file_reference::FileReference::new(
+                    hash.clone(),
+                    *nostr_hash,
+                    name,
+                );
+                file_ref.is_important = is_important.unwrap_or(false);
+                file_ref.context = context;
+                Ok(file_ref)
+            })
+            .once();
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(file_reference_store),
+            Arc::new(contact),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let result = handler.add_new_chain(vec![issue_block], &keys).await;
 
         assert!(result.is_ok());
     }
