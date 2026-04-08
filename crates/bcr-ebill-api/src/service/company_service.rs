@@ -2732,20 +2732,28 @@ pub mod tests {
             mut identity_store,
             contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
             email_notification_store,
         ) = get_storages();
-        storage.expect_exists().returning(|_| false);
+        storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
             data.signatories = vec![get_valid_activated_signatory(&node_id_test_other())];
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
         identity_store.expect_get_full().returning(|| {
-            let identity = empty_identity();
+            let mut identity = empty_identity();
+            identity.node_id = node_id_test_other();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
