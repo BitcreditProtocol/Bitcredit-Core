@@ -2462,6 +2462,74 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn create_company_propagates_persistence_errors() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            mut identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+            notification,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        storage.expect_save_key_pair().returning(|_, _| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        storage.expect_insert().returning(|_| {
+            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
+                "test error",
+            )))
+        });
+        storage
+            .expect_get_email_confirmations()
+            .returning(|_| Ok(vec![signed_identity_proof_test()]));
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            notification,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .create_company(
+                node_id_test(),
+                Name::new("name").unwrap(),
+                Some(Country::AT),
+                Some(City::new("Vienna").unwrap()),
+                empty_address(),
+                Email::new("company@example.com").unwrap(),
+                Some(Identification::new("some_number").unwrap()),
+                Some(Date::new("2012-01-01").unwrap()),
+                None,
+                None,
+                Email::new("test@example.com").unwrap(),
+                test_ts(),
+            )
+            .await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
     async fn edit_company_fails_if_company_doesnt_exist() {
         let (
             mut storage,
@@ -2496,6 +2564,284 @@ pub mod tests {
             identity_chain_store,
             company_chain_store,
             transport,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .edit_company(
+                &node_id_test(),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
+                None,
+                None,
+                EditOptionalFieldMode::Ignore,
+                None,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                test_ts(),
+            )
+            .await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn edit_company_baseline() {
+        crate::tests::tests::init_test_cfg();
+        let keys = BcrKeys::from_private_key(&private_key_test());
+        let node_id = node_id_test();
+        let (
+            mut storage,
+            mut file_upload_store,
+            mut file_upload_client,
+            mut file_reference_store,
+            mut identity_store,
+            contact_store,
+            identity_chain_store,
+            mut company_chain_store,
+            mut transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+
+        transport.expect_on_contact_transport(|t| {
+            t.expect_publish_contact().returning(|_, _| Ok(())).once();
+            t.expect_ensure_nostr_contact().returning(|_| ()).once();
+        });
+
+        let node_id_clone = node_id.clone();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
+            Ok(data)
+        });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        storage.expect_exists().returning(|_| true);
+        storage.expect_update().returning(|_, _| Ok(()));
+        file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
+        identity_store.expect_get_full().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = node_id.clone();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: keys.clone(),
+            })
+        });
+        file_upload_store
+            .expect_read_temp_upload_file()
+            .returning(|_| {
+                Ok((
+                    Name::new("some_file").unwrap(),
+                    "hello_world".as_bytes().to_vec(),
+                ))
+            });
+        file_upload_store
+            .expect_remove_temp_upload_folder()
+            .returning(|_| Ok(()));
+        file_reference_store.expect_get().returning(|_| Ok(None));
+        file_reference_store
+            .expect_add_server_urls()
+            .returning(|_, _| Ok(true));
+        file_reference_store
+            .expect_upsert()
+            .returning(|_, _, _, _, _, _| {
+                Ok(FileReference::new(
+                    Sha256Hash::from_bytes(b"test"),
+                    nostr::hashes::sha256::Hash::from_str(
+                        "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+                    )
+                    .unwrap(),
+                    None,
+                ))
+            })
+            .times(2);
+        transport
+            .expect_publish_file_metadata()
+            .returning(|_, _, _, _, _| Ok(()))
+            .times(1);
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .edit_company(
+                &node_id_test(),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
+                None,
+                None,
+                EditOptionalFieldMode::Ignore,
+                None,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Set(get_uuid_v4()),
+                EditOptionalFieldMode::Ignore,
+                test_ts(),
+            )
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn edit_company_fails_if_caller_is_not_signatory() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            mut identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+            notification,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        storage.expect_exists().returning(|_| false);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories = vec![get_valid_activated_signatory(&node_id_test_other())];
+            Ok(data)
+        });
+        identity_store.expect_get_full().returning(|| {
+            let identity = empty_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            notification,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .edit_company(
+                &node_id_test(),
+                Some(Name::new("name").unwrap()),
+                Some(Email::new("company@example.com").unwrap()),
+                None,
+                None,
+                EditOptionalFieldMode::Ignore,
+                None,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                test_ts(),
+            )
+            .await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn edit_company_propagates_persistence_errors() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            mut identity_store,
+            contact_store,
+            identity_chain_store,
+            mut company_chain_store,
+            notification,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let node_id_clone = node_id.clone();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1.0;
+            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
+            Ok(data)
+        });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        storage.expect_exists().returning(|_| true);
+        storage.expect_update().returning(|_, _| {
+            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
+                "test error",
+            )))
+        });
+        identity_store.expect_get_full().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = node_id.clone();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: keys.clone(),
+            })
+        });
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            notification,
             email_client,
             email_notification_store,
         );
@@ -2606,6 +2952,104 @@ pub mod tests {
         );
         let res = service
             .reject_company_invite(&node_id_test(), test_ts())
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn accept_company_invite_baseline() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            mut identity_store,
+            contact_store,
+            mut identity_chain_store,
+            mut company_chain_store,
+            mut transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        storage.expect_exists().returning(|_| true);
+        storage.expect_update().returning(|_, _| Ok(()));
+        storage.expect_get_email_confirmations().returning(|_| {
+            let (proof, mut data) = signed_identity_proof_test();
+            data.node_id = node_id_test_another();
+            data.company_node_id = Some(node_id_test());
+            Ok(vec![(proof, data)])
+        });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
+            .once();
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_company_chain_events()
+                .returning(|_| Ok(()))
+                .times(2);
+            t.expect_send_identity_chain_events()
+                .returning(|_| Ok(()))
+                .once();
+        });
+        let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
+        let caller_keys_clone = caller_keys.clone();
+        let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
+        let caller_node_id_clone = caller_node_id.clone();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1.0;
+            let mut sig = get_valid_activated_signatory(&caller_node_id_clone);
+            sig.status = CompanySignatoryStatus::Invited {
+                ts: test_ts(),
+                inviter: node_id_test(),
+            };
+            data.signatories = vec![sig];
+            Ok(data)
+        });
+        identity_store.expect_get_full().returning(move || {
+            let mut identity = empty_identity();
+            identity.node_id = caller_node_id.clone();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: caller_keys_clone.clone(),
+            })
+        });
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
+        identity_chain_store
+            .expect_add_block()
+            .returning(|_| Ok(()));
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+        );
+        let res = service
+            .accept_company_invite(
+                &node_id_test(),
+                &Email::new("test@example.com").unwrap(),
+                test_ts(),
+            )
             .await;
         assert!(res.is_ok());
     }
