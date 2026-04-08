@@ -236,56 +236,71 @@ pub async fn download_file_with_fallback(
     // Try 3: On-demand metadata enrichment (lazy - only when earlier servers failed)
     // Only for important files that have a file reference entry
     let discovered_servers = if let (Some(store), Some(tr)) = (file_reference_store, transport) {
-        if store.get(file_hash).await.ok().flatten().is_some() {
-            debug!(
-                "Attempting on-demand metadata enrichment for file {}",
-                file_hash
-            );
-            match enrich_servers_from_metadata(tr, file_hash, nostr_hash).await {
-                Ok(servers) if !servers.is_empty() => {
-                    debug!(
-                        "Discovered {} servers from metadata for file {}",
-                        servers.len(),
-                        file_hash
-                    );
+        match store.get(file_hash).await {
+            Ok(Some(file_ref)) if file_ref.is_important => {
+                debug!(
+                    "Attempting on-demand metadata enrichment for file {}",
+                    file_hash
+                );
+                match enrich_servers_from_metadata(tr, file_hash, nostr_hash).await {
+                    Ok(servers) if !servers.is_empty() => {
+                        debug!(
+                            "Discovered {} servers from metadata for file {}",
+                            servers.len(),
+                            file_hash
+                        );
 
-                    // Persist discovered servers to file reference
-                    match store.add_server_urls(file_hash, servers.clone()).await {
-                        Ok(added) => {
-                            if added {
+                        // Persist discovered servers to file reference
+                        match store.add_server_urls(file_hash, servers.clone()).await {
+                            Ok(added) => {
+                                if added {
+                                    debug!(
+                                        "Persisted {} new server URLs to file reference for file {}",
+                                        servers.len(),
+                                        file_hash
+                                    );
+                                } else {
+                                    debug!(
+                                        "All discovered servers already existed for file {}",
+                                        file_hash
+                                    );
+                                }
+                            }
+                            Err(e) => {
                                 debug!(
-                                    "Persisted {} new server URLs to file reference for file {}",
-                                    servers.len(),
-                                    file_hash
-                                );
-                            } else {
-                                debug!(
-                                    "All discovered servers already existed for file {}",
-                                    file_hash
+                                    "Failed to persist discovered servers for file {}: {}",
+                                    file_hash, e
                                 );
                             }
                         }
-                        Err(e) => {
-                            debug!(
-                                "Failed to persist discovered servers for file {}: {}",
-                                file_hash, e
-                            );
-                        }
-                    }
 
-                    servers
-                }
-                Ok(_) => {
-                    debug!("No servers discovered from metadata for file {}", file_hash);
-                    vec![]
-                }
-                Err(e) => {
-                    debug!("Metadata enrichment failed for file {}: {}", file_hash, e);
-                    vec![]
+                        servers
+                    }
+                    Ok(_) => {
+                        debug!("No servers discovered from metadata for file {}", file_hash);
+                        vec![]
+                    }
+                    Err(e) => {
+                        debug!("Metadata enrichment failed for file {}: {}", file_hash, e);
+                        vec![]
+                    }
                 }
             }
-        } else {
-            vec![]
+            Ok(Some(_)) => {
+                debug!(
+                    "Skipping on-demand metadata enrichment for non-important file {}",
+                    file_hash
+                );
+                vec![]
+            }
+            Ok(None) => vec![],
+            Err(e) => {
+                debug!(
+                    "Failed to get file reference for metadata enrichment for file {}: {}",
+                    file_hash, e
+                );
+                vec![]
+            }
         }
     } else {
         vec![]
@@ -620,6 +635,7 @@ mod tests {
             nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
             Some(Name::new("test.txt").unwrap()),
         );
+        file_ref.is_important = true;
         file_ref.server_urls = vec![];
         file_reference_store
             .expect_get()
@@ -706,6 +722,7 @@ mod tests {
             nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap(),
             Some(Name::new("test.txt").unwrap()),
         );
+        file_ref.is_important = true;
         file_ref.server_urls = vec![existing_server.clone()];
         file_reference_store
             .expect_get()

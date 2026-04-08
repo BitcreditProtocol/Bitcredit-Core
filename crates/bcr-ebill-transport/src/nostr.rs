@@ -954,32 +954,15 @@ impl TransportClientApi for NostrClient {
 
     async fn query_file_metadata_events(
         &self,
-        file_hash: &str,
+        _file_hash: &str,
         nostr_hash: &str,
     ) -> Result<Vec<Event>> {
         let filter = Filter::new()
             .kind(FILE_METADATA_KIND)
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::O), file_hash)
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::X), nostr_hash)
             .limit(50);
 
-        let mut events = self
-            .fetch_events(filter, Some(SortOrder::Desc), None)
-            .await?;
-
-        // Also try querying by nostr_hash (x tag) if we didn't find enough results
-        if events.len() < 5 {
-            let filter_by_nostr_hash = Filter::new()
-                .kind(FILE_METADATA_KIND)
-                .custom_tag(SingleLetterTag::lowercase(Alphabet::X), nostr_hash)
-                .limit(50);
-
-            let mut nostr_hash_events = self
-                .fetch_events(filter_by_nostr_hash, Some(SortOrder::Desc), None)
-                .await?;
-            events.append(&mut nostr_hash_events);
-        }
-
-        Ok(events)
+        self.fetch_events(filter, Some(SortOrder::Desc), None).await
     }
 }
 

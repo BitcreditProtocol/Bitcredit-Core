@@ -229,12 +229,11 @@ pub async fn record_confirmed_servers_and_publish(
         return Ok(());
     }
 
-    // Check if we already have this file reference with the same servers
     let should_publish = match file_reference_store.get(&file.hash).await? {
         Some(existing) => {
             let existing_set = normalized_url_set(&existing.server_urls);
-            let new_set = normalized_url_set(&confirmed_servers);
-            existing_set != new_set
+            let confirmed_set = normalized_url_set(&confirmed_servers);
+            !confirmed_set.is_subset(&existing_set)
         }
         None => {
             // No existing record, should publish

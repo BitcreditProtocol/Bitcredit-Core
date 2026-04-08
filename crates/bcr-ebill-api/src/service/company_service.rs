@@ -253,6 +253,7 @@ impl CompanyService {
         public_key: &PublicKey,
         signer: &BcrKeys,
         upload_file_type: UploadFileType,
+        field_name: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
             debug!("processing upload file for company {id}: {upload_id:?}");
@@ -270,14 +271,7 @@ impl CompanyService {
                 ));
             }
             let file = self
-                .encrypt_and_upload_file(
-                    file_name,
-                    file_bytes,
-                    id,
-                    public_key,
-                    signer,
-                    upload_file_type.field_name(),
-                )
+                .encrypt_and_upload_file(file_name, file_bytes, id, public_key, signer, field_name)
                 .await?;
             return Ok(Some(file));
         }
@@ -636,6 +630,7 @@ impl CompanyServiceApi for CompanyService {
                 &company_keys.pub_key(),
                 &company_keys,
                 UploadFileType::Document,
+                "proof_of_registration_file",
             )
             .await?;
 
@@ -646,6 +641,7 @@ impl CompanyServiceApi for CompanyService {
                 &company_keys.pub_key(),
                 &company_keys,
                 UploadFileType::Picture,
+                "logo_file",
             )
             .await?;
 
@@ -891,6 +887,7 @@ impl CompanyServiceApi for CompanyService {
                         &company_keys.pub_key(),
                         &company_keys,
                         UploadFileType::Picture,
+                        "logo_file",
                     )
                     .await?;
 
@@ -921,6 +918,7 @@ impl CompanyServiceApi for CompanyService {
                         &company_keys.pub_key(),
                         &company_keys,
                         UploadFileType::Document,
+                        "proof_of_registration_file",
                     )
                     .await?;
 

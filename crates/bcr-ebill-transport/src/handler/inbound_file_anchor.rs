@@ -1,8 +1,7 @@
-use crate::Result;
+use crate::{Error, Result};
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::{File, file_reference::FileReferenceContext};
 use bcr_ebill_persistence::FileReferenceStoreApi;
-use log::debug;
 use std::sync::Arc;
 
 pub async fn anchor_important_file(
@@ -10,7 +9,7 @@ pub async fn anchor_important_file(
     file: &File,
     context: FileReferenceContext,
 ) -> Result<()> {
-    if let Err(e) = file_reference_store
+    file_reference_store
         .upsert(
             &file.hash,
             &file.nostr_hash,
@@ -20,9 +19,7 @@ pub async fn anchor_important_file(
             vec![context],
         )
         .await
-    {
-        debug!("Failed to anchor inbound important file reference: {e}");
-    }
+        .map_err(|e| Error::Persistence(e.to_string()))?;
 
     Ok(())
 }
