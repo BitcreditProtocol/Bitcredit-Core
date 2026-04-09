@@ -9,6 +9,7 @@
     * Added a field `pub participants: Vec<NodeId>`, which defaults to empty and which, if set, filters for bills that contain all participants in the list
 * Update to latest bcr-common
 * Add bill service function `get_address_derivation_metadata_for_payment_request` to get address derivation metadata for mint req to pay
+* Implement file mirroring and automatic file reference tracking
 
 # 0.5.6
 
