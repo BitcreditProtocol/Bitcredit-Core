@@ -1,16 +1,16 @@
 use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
+use crate::service::file_reference_helper::{bill_file_context, encrypt_upload_and_track_file};
 use crate::{
     constants::MAX_BILL_ATTACHMENTS,
     get_config,
     service::{
-        file_server_service::{configured_blossom_servers, upload_to_blossom_servers},
-        file_upload_service::UploadFileType,
+        file_server_service::configured_blossom_servers, file_upload_service::UploadFileType,
     },
     util::validate_node_id_network,
 };
-use bcr_common::core::BillId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::{
-    File, Name, PublicKey, Sha256Hash, Validate,
+    File, Name, PublicKey, Validate,
     blockchain::{
         Blockchain,
         bill::{
@@ -20,14 +20,14 @@ use bcr_ebill_core::protocol::{
             validation::validate_bill_issue,
         },
     },
-    crypto::{self, BcrKeys},
+    crypto::BcrKeys,
     event::BillChainEvent,
 };
 use bcr_ebill_core::{
     application::{ValidationError, bill::BillType},
     protocol::ProtocolValidationError,
 };
-use log::{debug, error, info};
+use log::{debug, error};
 
 impl BillService {
     pub(super) async fn encrypt_and_save_uploaded_file(
@@ -45,22 +45,23 @@ impl BillService {
                 ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
             ));
         }
-        let file_hash = Sha256Hash::from_bytes(file_bytes);
-        let encrypted = crypto::encrypt_ecies(file_bytes, public_key)?;
-        let nostr_hash = upload_to_blossom_servers(
-            self.file_upload_client.as_ref(),
+        let node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
+        encrypt_upload_and_track_file(
+            &self.file_reference_store,
+            &self.file_upload_client,
+            &self.transport_service,
             &configured_blossom_servers(&get_config().nostr_config),
-            encrypted,
+            file_name,
+            file_bytes,
+            public_key,
             signer,
+            &node_id,
+            bill_file_context(&bill_id.to_string(), "files"),
+            None,
+            "bill",
         )
         .await
-        .map_err(Error::from)?;
-        info!("Saved file {file_name} with hash {file_hash} for bill {bill_id}");
-        Ok(File {
-            name: file_name.to_owned(),
-            hash: file_hash,
-            nostr_hash,
-        })
+        .map_err(Error::from)
     }
 
     pub(super) async fn issue_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {

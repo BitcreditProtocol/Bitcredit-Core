@@ -7,8 +7,7 @@ use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::get_config;
 use crate::service::file_server_service::{
-    configured_blossom_servers, download_from_blossom_servers,
-    upload_to_blossom_servers_with_server,
+    configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers_with_server,
 };
 use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
@@ -47,6 +46,7 @@ use bcr_ebill_core::{
     protocol::Validate,
 };
 use bcr_ebill_persistence::ContactStoreApi;
+use bcr_ebill_persistence::FileReferenceStoreApi;
 use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
 use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
@@ -68,6 +68,7 @@ pub struct BillService {
     pub identity_store: Arc<dyn IdentityStoreApi>,
     pub file_upload_store: Arc<dyn FileUploadStoreApi>,
     pub file_upload_client: Arc<dyn FileStorageClientApi>,
+    pub file_reference_store: Arc<dyn FileReferenceStoreApi>,
     pub bitcoin_client: Arc<dyn BitcoinClientApi>,
     pub transport_service: Arc<dyn TransportServiceApi>,
     pub identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
@@ -88,6 +89,7 @@ impl BillService {
         identity_store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         file_upload_client: Arc<dyn FileStorageClientApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         bitcoin_client: Arc<dyn BitcoinClientApi>,
         transport_service: Arc<dyn TransportServiceApi>,
         identity_blockchain_store: Arc<dyn IdentityChainStoreApi>,
@@ -105,6 +107,7 @@ impl BillService {
             identity_store,
             file_upload_store,
             file_upload_client,
+            file_reference_store,
             bitcoin_client,
             transport_service,
             identity_blockchain_store,
@@ -731,14 +734,15 @@ impl BillService {
                 .await?;
             let encrypted_file = crypto::encrypt_ecies(&decrypted_file, receiver_public_key)?;
 
-            let (uploaded_server, uploaded_hash) = upload_to_blossom_servers_with_server(
-                self.file_upload_client.as_ref(),
-                &blossom_servers,
-                encrypted_file,
-                signer,
-            )
-            .await
-            .map_err(Error::from)?;
+            let (uploaded_server, uploaded_hash, _confirmed_servers) =
+                upload_to_blossom_servers_with_server(
+                    self.file_upload_client.as_ref(),
+                    &blossom_servers,
+                    encrypted_file,
+                    signer,
+                )
+                .await
+                .map_err(Error::from)?;
 
             file_urls.push(file_storage::to_url(
                 &uploaded_server,
@@ -1136,9 +1140,12 @@ impl BillServiceApi for BillService {
     ) -> Result<Vec<u8>> {
         debug!("getting file {} for bill with id: {bill_id}", file.name);
         validate_bill_id_network(bill_id)?;
-        let file_bytes = download_from_blossom_servers(
+        let file_bytes = download_file_with_fallback(
             self.file_upload_client.as_ref(),
+            Some(&self.file_reference_store),
+            Some(&self.transport_service),
             &configured_blossom_servers(&get_config().nostr_config),
+            &file.hash,
             &file.nostr_hash,
         )
         .await

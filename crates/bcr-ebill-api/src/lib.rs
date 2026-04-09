@@ -5,11 +5,12 @@ use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 #[cfg(not(target_arch = "wasm32"))]
 use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
-    ContactStoreApi, NostrChainEventStoreApi, NostrContactStoreApi, NostrEventOffsetStoreApi,
-    NotificationStoreApi, SurrealBillChainStore, SurrealBillStore, SurrealCompanyChainStore,
-    SurrealCompanyStore, SurrealContactStore, SurrealDbConfig, SurrealIdentityChainStore,
-    SurrealIdentityStore, SurrealNostrChainEventStore, SurrealNostrContactStore,
-    SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealBillChainStore, SurrealBillStore,
+    SurrealCompanyChainStore, SurrealCompanyStore, SurrealContactStore, SurrealDbConfig,
+    SurrealFileReferenceStore, SurrealIdentityChainStore, SurrealIdentityStore,
+    SurrealNostrChainEventStore, SurrealNostrContactStore, SurrealNostrEventOffsetStore,
+    SurrealNotificationStore,
     bill::{BillChainStoreApi, BillStoreApi},
     company::{CompanyChainStoreApi, CompanyStoreApi},
     db::{
@@ -158,6 +159,7 @@ pub struct DbContext {
     pub company_chain_store: Arc<dyn CompanyChainStoreApi>,
     pub company_store: Arc<dyn CompanyStoreApi>,
     pub file_upload_store: Arc<dyn FileUploadStoreApi>,
+    pub file_reference_store: Arc<dyn FileReferenceStoreApi>,
     pub nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     pub notification_store: Arc<dyn NotificationStoreApi>,
     pub email_notification_store: Arc<dyn EmailNotificationStoreApi>,
@@ -222,6 +224,7 @@ pub async fn get_db_context(
     let mint_store = Arc::new(SurrealMintStore::new(surreal_wrapper.clone()));
     let nostr_chain_event_store =
         Arc::new(SurrealNostrChainEventStore::new(surreal_wrapper.clone()));
+    let file_reference_store = Arc::new(SurrealFileReferenceStore::new(surreal_wrapper.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -232,6 +235,7 @@ pub async fn get_db_context(
         company_chain_store,
         company_store,
         file_upload_store,
+        file_reference_store,
         nostr_event_offset_store,
         notification_store,
         email_notification_store,

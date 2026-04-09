@@ -72,6 +72,17 @@ pub trait TransportClientApi: ServiceTraitBounds {
         blossom_servers: Vec<url::Url>,
     ) -> Result<()>;
 
+    /// Publishes file metadata (kind:1063) for the specified file.
+    /// This is idempotent - it will only publish if the server URLs have changed.
+    async fn publish_file_metadata(
+        &self,
+        node_id: &NodeId,
+        plaintext_hash: &str,
+        encrypted_hash: &str,
+        server_urls: Vec<url::Url>,
+        mime_type: Option<String>,
+    ) -> Result<()>;
+
     /// Opens the connection(s) to the underlying network. This can be called multiple times and
     /// will only open the connection once.
     async fn connect(&self) -> Result<()>;
@@ -91,4 +102,12 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Retries events that failed to sync.
     /// This is called by the background job runner.
     async fn retry_failed_syncs(&self) -> Result<()>;
+
+    /// Queries historical file metadata (kind:1063) events for a given file hash.
+    /// Returns events that contain server URLs for the file.
+    async fn query_file_metadata_events(
+        &self,
+        file_hash: &str,
+        nostr_hash: &str,
+    ) -> Result<Vec<Event>>;
 }

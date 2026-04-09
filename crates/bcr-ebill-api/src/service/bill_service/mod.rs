@@ -9,6 +9,7 @@ use bcr_ebill_core::application::bill::{
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
 use bcr_ebill_core::protocol::BitcoinAddress;
 use bcr_ebill_core::protocol::Currency;
+use bcr_ebill_core::protocol::File;
 use bcr_ebill_core::protocol::SecretKey;
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::protocol::Timestamp;
@@ -103,7 +104,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     async fn open_and_decrypt_attached_file(
         &self,
         bill_id: &BillId,
-        file: &bcr_ebill_core::protocol::File,
+        file: &File,
         bill_private_key: &SecretKey,
     ) -> Result<Vec<u8>>;
 

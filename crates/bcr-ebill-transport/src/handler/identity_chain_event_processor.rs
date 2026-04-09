@@ -15,15 +15,19 @@ use std::sync::Arc;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::identity::{Identity, IdentityWithAll},
-    protocol::BlockId,
     protocol::blockchain::{
         Blockchain, BlockchainType,
         bill::BillOpCode,
         identity::{IdentityBlock, IdentityBlockPayload, IdentityBlockchain},
     },
+    protocol::{BlockId, EditOptionalFieldMode},
 };
-use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
+use bcr_ebill_persistence::{
+    FileReferenceStoreApi,
+    identity::{IdentityChainStoreApi, IdentityStoreApi},
+};
 
+use super::inbound_file_anchor::{anchor_important_file, identity_file_context};
 use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, NotificationHandlerApi};
 
 #[allow(dead_code)]
@@ -31,6 +35,7 @@ use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, Notificati
 pub struct IdentityChainEventProcessor {
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
+    file_reference_store: Arc<dyn FileReferenceStoreApi>,
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
@@ -191,6 +196,7 @@ impl IdentityChainEventProcessor {
     pub fn new(
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
+        file_reference_store: Arc<dyn FileReferenceStoreApi>,
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
@@ -200,6 +206,7 @@ impl IdentityChainEventProcessor {
         Self {
             blockchain_store,
             identity_store,
+            file_reference_store,
             company_invite_handler,
             bill_invite_handler,
             nostr_contact_processor,
@@ -219,6 +226,23 @@ impl IdentityChainEventProcessor {
 
         // Save the first block of the chain as it is the create block
         self.save_block(chain.get_first_block()).await?;
+
+        if let Some(file) = &identity.profile_picture_file {
+            anchor_important_file(
+                &self.file_reference_store,
+                file,
+                identity_file_context("profile_picture_file"),
+            )
+            .await?;
+        }
+        if let Some(file) = &identity.identity_document_file {
+            anchor_important_file(
+                &self.file_reference_store,
+                file,
+                identity_file_context("identity_document_file"),
+            )
+            .await?;
+        }
 
         // process remaining blocks
         for block in blocks.iter().skip(1) {
@@ -370,12 +394,34 @@ impl IdentityChainEventProcessor {
     ) -> Result<()> {
         match data {
             update @ IdentityBlockPayload::Update(_) => {
+                let files_to_anchor = match &update {
+                    IdentityBlockPayload::Update(payload) => vec![
+                        match &payload.profile_picture_file {
+                            EditOptionalFieldMode::Set(file) => {
+                                Some((file.clone(), identity_file_context("profile_picture_file")))
+                            }
+                            _ => None,
+                        },
+                        match &payload.identity_document_file {
+                            EditOptionalFieldMode::Set(file) => Some((
+                                file.clone(),
+                                identity_file_context("identity_document_file"),
+                            )),
+                            _ => None,
+                        },
+                    ],
+                    _ => vec![],
+                };
                 info!("Updating identity {node_id} from block data");
                 identity.apply_block_data(&update);
                 self.identity_store
                     .save(identity)
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                for (file, context) in files_to_anchor.into_iter().flatten() {
+                    anchor_important_file(&self.file_reference_store, &file, context).await?;
+                }
             }
             IdentityBlockPayload::InviteSignatory(payload) => {
                 info!("Adding signatory to identity {node_id}");
@@ -494,9 +540,6 @@ pub mod tests {
     use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
     use bcr_ebill_core::{
         application::identity::Identity,
-        protocol::Name,
-        protocol::Sha256Hash,
-        protocol::Timestamp,
         protocol::blockchain::{
             Blockchain, BlockchainType,
             identity::{
@@ -505,6 +548,8 @@ pub mod tests {
             },
         },
         protocol::crypto::BcrKeys,
+        protocol::file_reference::{FileReference, FileReferenceContext},
+        protocol::{EditOptionalFieldMode, File, Name, Sha256Hash, Timestamp},
     };
     use mockall::predicate::{always, eq};
 
@@ -519,7 +564,7 @@ pub mod tests {
                 MockIdentityChainStore, MockIdentityStore, get_baseline_identity, node_id_test,
             },
         },
-        test_utils::MockNotificationJsonTransport,
+        test_utils::{MockFileReferenceStore, MockNotificationJsonTransport},
         transport::create_public_chain_event,
     };
 
@@ -529,6 +574,7 @@ pub mod tests {
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -553,6 +599,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -577,6 +624,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -603,6 +651,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -665,6 +714,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -786,6 +836,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -881,6 +932,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
@@ -944,6 +996,7 @@ pub mod tests {
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(contact),
@@ -961,6 +1014,96 @@ pub mod tests {
         // Should succeed without persisting block
         assert!(result.is_ok());
         // Test passes if add_block was never called (mock verifies this)
+    }
+
+    #[tokio::test]
+    async fn test_process_identity_block_effects_anchors_inbound_files() {
+        let mut chain_store = MockIdentityChainStore::new();
+        let mut store = MockIdentityStore::new();
+        let mut file_reference_store = MockFileReferenceStore::new();
+        let full = get_baseline_identity();
+        let identity = full.identity.clone();
+
+        chain_store.expect_add_block().times(0);
+        store.expect_save().times(1).returning(|_| Ok(()));
+
+        let profile_picture_file = File {
+            name: Name::new("profile.png").unwrap(),
+            hash: Sha256Hash::new("identity_profile_file_hash_123456789"),
+            nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .parse()
+                .unwrap(),
+        };
+        let expected_hash = profile_picture_file.hash.clone();
+        let expected_name = profile_picture_file.name.clone();
+
+        file_reference_store
+            .expect_upsert()
+            .withf(
+                move |hash: &Sha256Hash,
+                      _nostr_hash: &nostr::hashes::sha256::Hash,
+                      name: &Option<Name>,
+                      server_urls: &Vec<url::Url>,
+                      is_important: &Option<bool>,
+                      context: &Vec<FileReferenceContext>| {
+                    *hash == expected_hash
+                        && *name == Some(expected_name.clone())
+                        && server_urls.is_empty()
+                        && *is_important == Some(true)
+                        && context
+                            == &vec![FileReferenceContext::Identity {
+                                field: "profile_picture_file".to_string(),
+                            }]
+                },
+            )
+            .returning(
+                |hash: &Sha256Hash,
+                 nostr_hash: &nostr::hashes::sha256::Hash,
+                 name: Option<Name>,
+                 _: Vec<url::Url>,
+                 is_important: Option<bool>,
+                 context: Vec<FileReferenceContext>| {
+                    let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
+                    file_ref.is_important = is_important.unwrap_or(false);
+                    file_ref.context = context;
+                    Ok(file_ref)
+                },
+            )
+            .once();
+
+        let handler = IdentityChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(file_reference_store),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        let mut test_identity = identity.clone();
+        let update_data = IdentityBlockPayload::Update(IdentityUpdateBlockData {
+            t: None,
+            name: None,
+            email: None,
+            country: None,
+            city: None,
+            zip: EditOptionalFieldMode::Ignore,
+            address: None,
+            date_of_birth: EditOptionalFieldMode::Ignore,
+            country_of_birth: EditOptionalFieldMode::Ignore,
+            city_of_birth: EditOptionalFieldMode::Ignore,
+            identification_number: EditOptionalFieldMode::Ignore,
+            profile_picture_file: EditOptionalFieldMode::Set(profile_picture_file),
+            identity_document_file: EditOptionalFieldMode::Ignore,
+        });
+
+        let result = handler
+            .process_identity_block_effects(&identity.node_id, &mut test_identity, update_data)
+            .await;
+
+        assert!(result.is_ok());
     }
 
     fn create_mocks() -> (

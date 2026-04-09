@@ -5,6 +5,7 @@ pub mod blockchain;
 pub mod constants;
 pub mod crypto;
 pub mod event;
+pub mod file_reference;
 pub mod mint;
 pub mod serialization;
 /// Test helpers

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     NostrClient, Result,
     chain_keys::ChainKeyServiceApi,
-    handler::NotificationHandlerApi,
+    handler::{FileMetadataProcessorApi, NotificationHandlerApi},
     nostr::{add_offset, determine_recipient, process_event, should_process},
 };
 use async_trait::async_trait;
@@ -20,6 +20,7 @@ pub struct DirectMessageEventProcessor {
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     handlers: Vec<Arc<dyn NotificationHandlerApi>>,
+    file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
 }
 
 impl DirectMessageEventProcessor {
@@ -29,6 +30,7 @@ impl DirectMessageEventProcessor {
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
         handlers: Vec<Arc<dyn NotificationHandlerApi>>,
+        file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
     ) -> Self {
         Self {
             client,
@@ -36,6 +38,7 @@ impl DirectMessageEventProcessor {
             offset_store,
             chain_key_service,
             handlers,
+            file_metadata_processor,
         }
     }
 }
@@ -67,6 +70,7 @@ impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
                         recipient_node_id.clone(),
                         self.chain_key_service.clone(),
                         &self.handlers,
+                        self.file_metadata_processor.clone(),
                     )
                     .await?;
 

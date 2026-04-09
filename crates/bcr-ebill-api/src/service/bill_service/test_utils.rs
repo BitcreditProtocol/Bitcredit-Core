@@ -8,13 +8,13 @@ use crate::{
     },
     tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
-        MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileUploadStoreApiMock,
-        MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, MockMintStore,
-        MockNostrContactStore, bill_id_test, bill_identified_participant_only_node_id,
-        bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
-        empty_bitcredit_bill, empty_identity, init_test_cfg, node_id_test, node_id_test_other,
-        node_id_test_other2, private_key_test, signed_identity_proof_test, test_ts,
-        valid_payment_address_testnet,
+        MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileReferenceStoreApiMock,
+        MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
+        MockMintStore, MockNostrContactStore, bill_id_test,
+        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
+        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, init_test_cfg,
+        node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
+        signed_identity_proof_test, test_ts, valid_payment_address_testnet,
     },
 };
 use bcr_ebill_core::{
@@ -40,6 +40,7 @@ use bcr_ebill_core::{
             ACCEPT_DEADLINE_SECONDS, DAY_IN_SECS, PAYMENT_DEADLINE_SECONDS,
             RECOURSE_DEADLINE_SECONDS,
         },
+        file_reference::FileReference,
     },
 };
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
@@ -56,6 +57,7 @@ pub struct MockBillContext {
     pub company_store: MockCompanyStoreApiMock,
     pub file_upload_store: MockFileUploadStoreApiMock,
     pub file_upload_client: MockFileStorageClientApi,
+    pub file_reference_store: MockFileReferenceStoreApiMock,
     pub transport_service: MockTransportServiceApi,
     pub mint_store: MockMintStore,
     pub mint_client: MockMintClientApi,
@@ -272,12 +274,32 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.mint_store
         .expect_exists_for_bill()
         .returning(|_, _| Ok(false));
+    ctx.file_reference_store
+        .expect_upsert()
+        .returning(|hash, nostr_hash, name, _, _, _| {
+            Ok(FileReference::new(hash.clone(), *nostr_hash, name))
+        });
+    ctx.file_reference_store
+        .expect_upsert()
+        .returning(|hash, nostr_hash, name, _, _, _| {
+            Ok(FileReference::new(hash.clone(), *nostr_hash, name))
+        });
+    ctx.file_reference_store
+        .expect_get()
+        .returning(|_| Ok(None));
+    ctx.file_reference_store
+        .expect_add_server_urls()
+        .returning(|_, _| Ok(true));
+    ctx.transport_service
+        .expect_publish_file_metadata()
+        .returning(|_, _, _, _, _| Ok(()));
     BillService::new(
         Arc::new(ctx.bill_store),
         Arc::new(ctx.bill_blockchain_store),
         Arc::new(ctx.identity_store),
         Arc::new(ctx.file_upload_store),
         Arc::new(ctx.file_upload_client),
+        Arc::new(ctx.file_reference_store),
         Arc::new(bitcoin_client),
         Arc::new(ctx.transport_service),
         Arc::new(ctx.identity_chain_store),
@@ -298,6 +320,7 @@ pub fn get_ctx() -> MockBillContext {
         identity_store: MockIdentityStoreApiMock::new(),
         file_upload_store: MockFileUploadStoreApiMock::new(),
         file_upload_client: MockFileStorageClientApi::new(),
+        file_reference_store: MockFileReferenceStoreApiMock::new(),
         identity_chain_store: MockIdentityChainStoreApiMock::new(),
         company_chain_store: MockCompanyChainStoreApiMock::new(),
         contact_store: MockContactStoreApiMock::new(),
