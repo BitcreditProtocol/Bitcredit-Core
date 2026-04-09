@@ -36,7 +36,7 @@ pub async fn encrypt_upload_and_track_file(
     )
     .await?;
 
-    info!("Saved {owner_label} file {file_name} with hash {file_hash} for {owner_label} {node_id}");
+    info!("Saved {owner_label} file {file_name} with hash {file_hash} for node {node_id}");
 
     let file = File {
         name: file_name.to_owned(),
@@ -332,6 +332,9 @@ pub fn bill_file_context(bill_id: &str, field: &str) -> FileReferenceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::{
+        COMPANY_LOGO_FILE_FIELD, IDENTITY_DOCUMENT_FILE_FIELD, IDENTITY_PROFILE_PICTURE_FILE_FIELD,
+    };
     use crate::tests::tests::MockFileReferenceStoreApiMock;
     use bcr_ebill_core::protocol::{Name, file_reference::FileReference};
     use bitcoin::hashes::Hash;
@@ -505,12 +508,12 @@ mod tests {
             "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
         )
         .unwrap();
-        let ctx = company_file_context(&node_id, "logo_file");
+        let ctx = company_file_context(&node_id, COMPANY_LOGO_FILE_FIELD);
         assert_eq!(
             ctx,
             FileReferenceContext::Company {
                 company_id: node_id.to_string(),
-                field: "logo_file".to_string()
+                field: COMPANY_LOGO_FILE_FIELD.to_string()
             }
         );
     }
@@ -590,7 +593,7 @@ mod tests {
         let result = upsert_important_file_reference(
             &mock_store,
             &file,
-            identity_file_context("profile_picture_file"),
+            identity_file_context(IDENTITY_PROFILE_PICTURE_FILE_FIELD),
             test_helper_server_urls(),
         )
         .await;
@@ -607,7 +610,7 @@ mod tests {
         let result = upsert_important_file_reference(
             &mock_store,
             &file,
-            company_file_context(&company_id, "logo_file"),
+            company_file_context(&company_id, COMPANY_LOGO_FILE_FIELD),
             test_helper_server_urls(),
         )
         .await;
@@ -673,7 +676,7 @@ mod tests {
         let result = upsert_important_file_reference(
             &mock_store,
             &file,
-            identity_file_context("identity_document_file"),
+            identity_file_context(IDENTITY_DOCUMENT_FILE_FIELD),
             test_helper_server_urls(),
         )
         .await;

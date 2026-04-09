@@ -21,3 +21,8 @@ pub const RELAY_SYNC_RETRY_BATCH_SIZE: usize = 100;
 /// Gap threshold for detecting removed and re-added relays (seconds)
 /// If last_seen_in_config is older than this, consider it a gap and re-sync
 pub const RELAY_SYNC_GAP_THRESHOLD_SECONDS: u64 = 86400; // 24 hours
+
+pub const COMPANY_LOGO_FILE_FIELD: &str = "logo_file";
+pub const COMPANY_PROOF_OF_REGISTRATION_FILE_FIELD: &str = "proof_of_registration_file";
+pub const IDENTITY_PROFILE_PICTURE_FILE_FIELD: &str = "profile_picture_file";
+pub const IDENTITY_DOCUMENT_FILE_FIELD: &str = "identity_document_file";

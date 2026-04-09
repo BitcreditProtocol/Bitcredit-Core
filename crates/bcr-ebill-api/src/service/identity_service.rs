@@ -1,4 +1,5 @@
 use super::Result;
+use crate::constants::{IDENTITY_DOCUMENT_FILE_FIELD, IDENTITY_PROFILE_PICTURE_FILE_FIELD};
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
@@ -467,7 +468,7 @@ impl IdentityServiceApi for IdentityService {
                             &keys.pub_key(),
                             &keys,
                             UploadFileType::Picture,
-                            "profile_picture_file",
+                            IDENTITY_PROFILE_PICTURE_FILE_FIELD,
                         )
                         .await?;
                     if profile_picture_file.is_some() {
@@ -493,7 +494,7 @@ impl IdentityServiceApi for IdentityService {
                             &keys.pub_key(),
                             &keys,
                             UploadFileType::Document,
-                            "identity_document_file",
+                            IDENTITY_DOCUMENT_FILE_FIELD,
                         )
                         .await?;
                     if identity_document_file.is_some() {
@@ -646,7 +647,7 @@ impl IdentityServiceApi for IdentityService {
                         &keys.pub_key(),
                         &keys,
                         UploadFileType::Picture,
-                        "profile_picture_file",
+                        IDENTITY_PROFILE_PICTURE_FILE_FIELD,
                     )
                     .await?;
 
@@ -657,7 +658,7 @@ impl IdentityServiceApi for IdentityService {
                         &keys.pub_key(),
                         &keys,
                         UploadFileType::Document,
-                        "identity_document_file",
+                        IDENTITY_DOCUMENT_FILE_FIELD,
                     )
                     .await?;
 
@@ -759,7 +760,7 @@ impl IdentityServiceApi for IdentityService {
                 &keys.pub_key(),
                 &keys,
                 UploadFileType::Picture,
-                "profile_picture_file",
+                IDENTITY_PROFILE_PICTURE_FILE_FIELD,
             )
             .await?;
 
@@ -770,7 +771,7 @@ impl IdentityServiceApi for IdentityService {
                 &keys.pub_key(),
                 &keys,
                 UploadFileType::Document,
-                "identity_document_file",
+                IDENTITY_DOCUMENT_FILE_FIELD,
             )
             .await?;
 

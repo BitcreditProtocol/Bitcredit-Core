@@ -1,4 +1,5 @@
 use super::Result;
+use crate::constants::{COMPANY_LOGO_FILE_FIELD, COMPANY_PROOF_OF_REGISTRATION_FILE_FIELD};
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::get_config;
@@ -630,7 +631,7 @@ impl CompanyServiceApi for CompanyService {
                 &company_keys.pub_key(),
                 &company_keys,
                 UploadFileType::Document,
-                "proof_of_registration_file",
+                COMPANY_PROOF_OF_REGISTRATION_FILE_FIELD,
             )
             .await?;
 
@@ -641,7 +642,7 @@ impl CompanyServiceApi for CompanyService {
                 &company_keys.pub_key(),
                 &company_keys,
                 UploadFileType::Picture,
-                "logo_file",
+                COMPANY_LOGO_FILE_FIELD,
             )
             .await?;
 
@@ -887,7 +888,7 @@ impl CompanyServiceApi for CompanyService {
                         &company_keys.pub_key(),
                         &company_keys,
                         UploadFileType::Picture,
-                        "logo_file",
+                        COMPANY_LOGO_FILE_FIELD,
                     )
                     .await?;
 
@@ -918,7 +919,7 @@ impl CompanyServiceApi for CompanyService {
                         &company_keys.pub_key(),
                         &company_keys,
                         UploadFileType::Document,
-                        "proof_of_registration_file",
+                        COMPANY_PROOF_OF_REGISTRATION_FILE_FIELD,
                     )
                     .await?;
 

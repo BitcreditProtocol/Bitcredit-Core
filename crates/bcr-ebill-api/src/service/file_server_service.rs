@@ -171,7 +171,7 @@ pub async fn download_from_blossom_servers(
 /// 1. Configured Blossom servers
 /// 2. File-reference stored servers
 /// 3. On-demand metadata enrichment (lazy - only when needed)
-/// 4. Retry with discovered servers
+/// 4. Download retry using servers discovered during enrichment
 pub async fn download_file_with_fallback(
     client: &dyn FileStorageClientApi,
     file_reference_store: Option<&Arc<dyn FileReferenceStoreApi>>,
@@ -306,7 +306,7 @@ pub async fn download_file_with_fallback(
         vec![]
     };
 
-    // Try 4: Retry with discovered servers
+    // Retry with discovered servers
     if !discovered_servers.is_empty() {
         debug!(
             "Trying download from {} discovered servers for file {}",
