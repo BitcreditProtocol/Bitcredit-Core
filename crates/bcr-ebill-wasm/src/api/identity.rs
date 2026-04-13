@@ -453,6 +453,7 @@ impl Identity {
                 context.chain_key_service.clone(),
                 context.contact_service.clone(),
                 context.push_service.clone(),
+                context.mint_client.clone(),
             )
             .await?;
             recovery_service.restore_account().await?;

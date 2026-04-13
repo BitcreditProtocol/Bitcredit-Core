@@ -2,6 +2,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bcr_common::core::NodeId;
+use bcr_ebill_api::external::mint::MintClientApi;
 use bcr_ebill_api::service::transport_service::{Error, Result, TransportServiceApi};
 use bcr_ebill_api::{
     Config, DbContext,
@@ -128,6 +129,7 @@ pub async fn create_transport_service(
     email_client: Arc<dyn EmailClientApi>,
     nostr_relays: Vec<url::Url>,
     push_service: Arc<dyn PushApi>,
+    mint_client: Arc<dyn MintClientApi>,
 ) -> Result<Arc<dyn TransportServiceApi>> {
     let transport = client.clone();
 
@@ -143,6 +145,7 @@ pub async fn create_transport_service(
         db_context.file_reference_store.clone(),
         nostr_contact_processor.clone(),
         transport.clone(),
+        mint_client,
         get_config().bitcoin_network(),
     ));
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
@@ -224,6 +227,7 @@ pub async fn create_nostr_consumer(
     push_service: Arc<dyn PushApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     db_context: DbContext,
+    mint_client: Arc<dyn MintClientApi>,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
     let transport = client.clone();
@@ -241,6 +245,7 @@ pub async fn create_nostr_consumer(
         db_context.file_reference_store.clone(),
         nostr_contact_processor.clone(),
         transport.clone(),
+        mint_client,
         get_config().bitcoin_network(),
     ));
 
@@ -337,6 +342,7 @@ pub async fn create_restore_account_service(
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     push_service: Arc<dyn PushApi>,
+    mint_client: Arc<dyn MintClientApi>,
 ) -> Result<RestoreAccountService> {
     let db_context = get_db_context(config)
         .await
@@ -366,6 +372,7 @@ pub async fn create_restore_account_service(
         db_context.file_reference_store.clone(),
         nostr_contact_processor.clone(),
         nostr_client.clone(),
+        mint_client,
         get_config().bitcoin_network(),
     ));
 

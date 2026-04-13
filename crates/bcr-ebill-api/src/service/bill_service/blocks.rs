@@ -33,6 +33,7 @@ use bcr_ebill_core::{
         event::{CompanyChainEvent, IdentityChainEvent},
     },
 };
+use log::error;
 
 use crate::{get_config, util::validate_node_id_network};
 
@@ -161,7 +162,20 @@ impl BillService {
                                 ProtocolValidationError::InvalidBitcoinAddress.into(),
                             ));
                         }
-                        // TODO (mint-req-to-pay): properly validate address against alpha and betas
+
+                        self.mint_client
+                            .validate_payment_address_from_mint(
+                                &get_config().mint_config.default_mint_url,
+                                mint_payment_address,
+                                &bill.id,
+                                BlockId::next_from_previous_block_id(&previous_block.id()),
+                                previous_block.hash(),
+                            )
+                            .await
+                            .map_err(|e| {
+                                error!("Invalid mint payment address: {e}");
+                                ProtocolValidationError::InvalidBitcoinAddress
+                            })?;
                         mint_payment_address.to_owned()
                     } else {
                         return Err(Error::Protocol(

@@ -2,18 +2,19 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
-use bcr_common::client::clowder::Client as ClowderClient;
-use bcr_common::client::core::Client as CoreClient;
-use bcr_common::client::quote::Client as QuoteClient;
-use bcr_common::client::treasury::Client as TreasuryClient;
+use bcr_common::client::mint::Client as ExternalMintClient;
 use bcr_common::core::BillId;
-use bcr_common::wire::clowder::{ConnectedMintResponse, ConnectedMintsResponse};
+use bcr_common::wire::clowder::{
+    ConnectedMintResponse, ConnectedMintsResponse, DeriveEbillPaymentAddressRequest,
+};
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
-use bcr_ebill_core::protocol::Sum;
+use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash, Sum};
 use bcr_ebill_core::{
     application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::SecretKey,
     protocol::blockchain::bill::BillToShareWithExternalParty, protocol::crypto::BcrKeys,
 };
+use nostr::hashes::{Hash, sha256};
+use secp256k1::rand::{prelude::SliceRandom, thread_rng};
 use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
@@ -75,6 +76,12 @@ pub enum Error {
     /// all errors originating from the clowder client
     #[error("External Mint Clowder Client Error")]
     ClowderClient,
+    /// all errors originating from an invalid payment address in a mint request to pay
+    #[error("External Mint Request To Pay Payment Address Error")]
+    InvalidMintRequestToPayPaymentAddress,
+    /// all errors originating from an alpha returning no betas
+    #[error("External Mint No Betas Error")]
+    NoBetas,
 }
 
 #[cfg(test)]
@@ -127,8 +134,15 @@ pub trait MintClientApi: ServiceTraitBounds {
     ) -> Result<()>;
     /// Cancel request to mint
     async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &Uuid) -> Result<()>;
-    /// Get Betas for a given mint
-    async fn get_betas_for_mint(&self, mint_url: &url::Url) -> Result<ConnectedMintsReply>;
+    /// Validate the given btc address from a mint request to pay against a random beta of our alpha mint
+    async fn validate_payment_address_from_mint(
+        &self,
+        mint_url: &url::Url,
+        address_to_validate: &BitcoinAddress,
+        bill_id: &BillId,
+        block_id: BlockId,
+        previous_block_hash: &Sha256Hash,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -144,24 +158,9 @@ impl MintClient {
         Self {}
     }
 
-    pub fn quote_client(&self, mint_url: &url::Url) -> Result<QuoteClient> {
-        let quote_client = QuoteClient::new(mint_url.to_owned());
-        Ok(quote_client)
-    }
-
-    pub fn core_client(&self, mint_url: &url::Url) -> Result<CoreClient> {
-        let core_client = CoreClient::new(mint_url.to_owned());
-        Ok(core_client)
-    }
-
-    pub fn treasury_client(&self, mint_url: &url::Url) -> Result<TreasuryClient> {
-        let treasury_client = TreasuryClient::new(mint_url.to_owned());
-        Ok(treasury_client)
-    }
-
-    pub fn clowder_client(&self, mint_url: &url::Url) -> Result<ClowderClient> {
-        let clowder_client = ClowderClient::new(mint_url.to_owned());
-        Ok(clowder_client)
+    pub fn client(&self, mint_url: &url::Url) -> Result<ExternalMintClient> {
+        let mint_client = ExternalMintClient::new(mint_url.to_owned());
+        Ok(mint_client)
     }
 }
 
@@ -189,7 +188,7 @@ impl MintClientApi for MintClient {
         })?;
 
         let keyset_info = self
-            .core_client(mint_url)?
+            .client(mint_url)?
             .keyset_info(keyset_id_parsed)
             .await
             .map_err(|e| {
@@ -203,14 +202,10 @@ impl MintClientApi for MintClient {
             .ys()
             .map_err(|_| Error::PubKey)?;
 
-        let proof_states = self
-            .core_client(mint_url)?
-            .check_state(ys)
-            .await
-            .map_err(|e| {
-                log::error!("Error checking if proofs are spent at {mint_url}: {e}");
-                Error::SwapClient
-            })?;
+        let proof_states = self.client(mint_url)?.check_state(ys).await.map_err(|e| {
+            log::error!("Error checking if proofs are spent at {mint_url}: {e}");
+            Error::SwapClient
+        })?;
         // all proofs have to be spent
         let proofs_spent = proof_states
             .iter()
@@ -235,7 +230,7 @@ impl MintClientApi for MintClient {
             .map_err(|_| Error::PrivateKey)?;
         let qid = quote_id.to_owned();
         let currency = self
-            .core_client(mint_url)?
+            .client(mint_url)?
             .keyset_info(keyset.id)
             .await
             .map_err(|e| {
@@ -246,8 +241,8 @@ impl MintClientApi for MintClient {
 
         // mint
         let blinded_signatures = self
-            .treasury_client(mint_url)?
-            .mint(qid, blinded_messages, secret_key)
+            .client(mint_url)?
+            .ebill_mint(qid, blinded_messages, secret_key)
             .await
             .map_err(|e| {
                 log::error!("Error minting at mint {mint_url}: {e}");
@@ -302,7 +297,7 @@ impl MintClientApi for MintClient {
             .map_err(|_| Error::PubKey)?;
 
         let mint_request_id = self
-            .quote_client(mint_url)?
+            .client(mint_url)?
             .enquire(shared_bill, public_key, &requester_keys.get_key_pair())
             .await
             .map_err(|e| {
@@ -318,7 +313,7 @@ impl MintClientApi for MintClient {
         quote_id: &Uuid,
     ) -> Result<QuoteStatusReply> {
         let reply = self
-            .quote_client(mint_url)?
+            .client(mint_url)?
             .lookup(quote_id.to_owned())
             .await
             .map_err(|e| {
@@ -336,7 +331,7 @@ impl MintClientApi for MintClient {
     ) -> Result<()> {
         match resolve {
             ResolveMintOffer::Accept => {
-                self.quote_client(mint_url)?
+                self.client(mint_url)?
                     .accept_offer(quote_id.to_owned())
                     .await
                     .map_err(|e| {
@@ -345,7 +340,7 @@ impl MintClientApi for MintClient {
                     })?;
             }
             ResolveMintOffer::Reject => {
-                self.quote_client(mint_url)?
+                self.client(mint_url)?
                     .reject_offer(quote_id.to_owned())
                     .await
                     .map_err(|e| {
@@ -358,7 +353,7 @@ impl MintClientApi for MintClient {
     }
 
     async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &Uuid) -> Result<()> {
-        self.quote_client(mint_url)?
+        self.client(mint_url)?
             .cancel_enquiry(quote_id.to_owned())
             .await
             .map_err(|e| {
@@ -368,16 +363,45 @@ impl MintClientApi for MintClient {
         Ok(())
     }
 
-    async fn get_betas_for_mint(&self, mint_url: &url::Url) -> Result<ConnectedMintsReply> {
-        let resp = self
-            .clowder_client(mint_url)?
-            .get_betas()
+    async fn validate_payment_address_from_mint(
+        &self,
+        mint_url: &url::Url,
+        address_to_validate: &BitcoinAddress,
+        bill_id: &BillId,
+        block_id: BlockId,
+        previous_block_hash: &Sha256Hash,
+    ) -> Result<()> {
+        let betas = self.client(mint_url)?.get_betas().await.map_err(|e| {
+            log::error!("Error getting betas on mint {mint_url}: {e}");
+            Error::ClowderClient
+        })?;
+        let Some(random_beta) = betas.mints.choose(&mut thread_rng()) else {
+            return Err(Error::NoBetas.into());
+        };
+
+        let beta_url =
+            url::Url::from_str(&random_beta.mint.to_string()).map_err(|_| Error::InvalidMintUrl)?;
+        let req = DeriveEbillPaymentAddressRequest {
+            bill_id: bill_id.to_owned(),
+            block_id: block_id.inner(),
+            previous_block_hash: sha256::Hash::from_byte_array(
+                previous_block_hash.decode_to_array(),
+            ),
+        };
+        let derived_payment_address_from_beta = self
+            .client(&beta_url)?
+            .post_derive_ebill_payment_address(req)
             .await
             .map_err(|e| {
-                log::error!("Error getting betas on mint {mint_url}: {e}");
+                log::error!("Error deriving payment address on mint {beta_url}: {e}");
                 Error::ClowderClient
             })?;
-        Ok(resp.into())
+
+        if address_to_validate != &derived_payment_address_from_beta.payment_address {
+            return Err(Error::InvalidMintRequestToPayPaymentAddress.into());
+        }
+
+        Ok(())
     }
 }
 
