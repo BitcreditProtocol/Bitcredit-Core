@@ -4,25 +4,27 @@ use crate::handler::public_chain_helpers::{
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
+use bcr_ebill_api::external::mint::MintClientApi;
 use bcr_ebill_api::get_config;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::protocol::BlockId;
 use bcr_ebill_core::protocol::Validate;
 use bcr_ebill_core::protocol::blockchain::bill::BillOpCode;
 use bcr_ebill_core::protocol::blockchain::bill::block::{
     BillIssueBlockData, BillOfferToSellBlockData, BillRequestRecourseBlockData,
     BillRequestToPayBlockData,
 };
+use bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant;
 use bcr_ebill_core::protocol::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::protocol::blockchain::bill::{
     BillValidateActionData, BillValidationActionMode,
 };
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
-use bcr_ebill_core::protocol::crypto::BcrKeys;
-use bcr_ebill_core::protocol::crypto::btc::validate_payment_address_for_payment_request;
+use bcr_ebill_core::protocol::crypto::{BcrKeys, btc};
+use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash};
 use bcr_ebill_persistence::{FileReferenceStoreApi, bill::BillChainStoreApi, bill::BillStoreApi};
 use log::{debug, error, info, warn};
+use secp256k1::PublicKey;
 use std::sync::Arc;
 
 use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
@@ -154,14 +156,17 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                             test_chain.truncate_from(*fork_id);
                         }
 
-                        match self.validate_blocks_for_chain(
-                            bill_id,
-                            &mut test_chain,
-                            &blocks,
-                            &bill_keys,
-                            &bill_first_version,
-                            is_paid,
-                        ) {
+                        match self
+                            .validate_blocks_for_chain(
+                                bill_id,
+                                &mut test_chain,
+                                &blocks,
+                                &bill_keys,
+                                &bill_first_version,
+                                is_paid,
+                            )
+                            .await
+                        {
                             Ok(()) => {
                                 if let Some(fork_id) = fork_point {
                                     info!(
@@ -229,6 +234,7 @@ pub struct BillChainEventProcessor {
     file_reference_store: Arc<dyn FileReferenceStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     transport: Arc<dyn TransportClientApi>,
+    mint_client: Arc<dyn MintClientApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -239,6 +245,7 @@ impl BillChainEventProcessor {
         file_reference_store: Arc<dyn FileReferenceStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         transport: Arc<dyn TransportClientApi>,
+        mint_client: Arc<dyn MintClientApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
@@ -247,6 +254,7 @@ impl BillChainEventProcessor {
             file_reference_store,
             nostr_contact_processor,
             transport,
+            mint_client,
             bitcoin_network,
         }
     }
@@ -360,7 +368,7 @@ impl BillChainEventProcessor {
     /// Validates a single block for a chain.
     /// Returns true if the block was validated and added to the in-memory chain.
     /// Returns false if the block should be skipped (already exists, etc.).
-    fn validate_block_for_chain(
+    async fn validate_block_for_chain(
         &self,
         bill_id: &BillId,
         chain: &mut BillBlockchain,
@@ -435,7 +443,8 @@ impl BillChainEventProcessor {
                 let data: BillRequestToPayBlockData = block
                     .get_decrypted_block(bill_keys)
                     .map_err(|e| Error::Blockchain(e.to_string()))?;
-                validate_payment_address_for_payment_request(
+                self.validate_payment_address_for_payment_request(
+                    bill_id,
                     block.op_code().to_owned(),
                     &block.id(),
                     latest_block_before_add.hash(),
@@ -445,13 +454,15 @@ impl BillChainEventProcessor {
                     &data.payment_data.payment_address,
                     &holder_is_mint_for_validation,
                 )
+                .await
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             }
             BillOpCode::OfferToSell => {
                 let data: BillOfferToSellBlockData = block
                     .get_decrypted_block(bill_keys)
                     .map_err(|e| Error::Blockchain(e.to_string()))?;
-                validate_payment_address_for_payment_request(
+                self.validate_payment_address_for_payment_request(
+                    bill_id,
                     block.op_code().to_owned(),
                     &block.id(),
                     latest_block_before_add.hash(),
@@ -461,13 +472,15 @@ impl BillChainEventProcessor {
                     &data.payment_data.payment_address,
                     &None,
                 )
+                .await
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             }
             BillOpCode::RequestRecourse => {
                 let data: BillRequestRecourseBlockData = block
                     .get_decrypted_block(bill_keys)
                     .map_err(|e| Error::Blockchain(e.to_string()))?;
-                validate_payment_address_for_payment_request(
+                self.validate_payment_address_for_payment_request(
+                    bill_id,
                     block.op_code().to_owned(),
                     &block.id(),
                     latest_block_before_add.hash(),
@@ -477,6 +490,7 @@ impl BillChainEventProcessor {
                     &data.payment_data.payment_address,
                     &None,
                 )
+                .await
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
             }
             _ => {} // nothing to do for non-payment-requests
@@ -524,9 +538,68 @@ impl BillChainEventProcessor {
         Ok(true) // block was validated and added to in-memory chain
     }
 
+    /// Calculates the payment address with the given values and validates it against the given address
+    async fn validate_payment_address_for_payment_request(
+        &self,
+        bill_id: &BillId,
+        payment_op: BillOpCode,
+        block_id: &BlockId,
+        previous_hash: &Sha256Hash,
+        bill_pub_key: &PublicKey,
+        caller_pub_key: &PublicKey,
+        btc_network: bitcoin::Network,
+        address_to_check: &BitcoinAddress,
+        holder_is_mint: &Option<BillParticipant>,
+    ) -> Result<()> {
+        if let Some(_mint_holder) = holder_is_mint
+            && matches!(payment_op, BillOpCode::RequestToPay)
+        {
+            if !address_to_check.is_valid_for_network(btc_network) {
+                return Err(Error::Crypto(
+                    "Wrong Network for mint payment address".to_owned(),
+                ));
+            }
+
+            self.mint_client
+                .validate_payment_address_from_mint(
+                    &get_config().mint_config.default_mint_url,
+                    address_to_check,
+                    bill_id,
+                    *block_id,
+                    previous_hash,
+                )
+                .await
+                .map_err(|e| {
+                    error!("Invalid mint payment address: {e}");
+                    Error::Crypto("Invalid mint payment address".to_owned())
+                })?;
+            Ok(())
+        } else {
+            let addr = btc::get_address_to_pay(
+                bill_pub_key,
+                caller_pub_key,
+                &btc::calculate_tweak_hash_for_payment_request(
+                    payment_op,
+                    block_id,
+                    previous_hash,
+                )?,
+                btc_network,
+            )?;
+            if &addr != address_to_check {
+                Err(Error::Crypto(format!(
+                    "Payment Addresses don't match - derived: {}, to check: {}",
+                    addr.assume_checked(),
+                    address_to_check.clone().assume_checked(),
+                )))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     /// Validates multiple blocks for a chain WITHOUT persisting.
     /// Returns Ok(()) if all blocks are valid, Err otherwise.
-    fn validate_blocks_for_chain(
+    async fn validate_blocks_for_chain(
         &self,
         bill_id: &BillId,
         chain: &mut BillBlockchain,
@@ -543,7 +616,8 @@ impl BillChainEventProcessor {
                 bill_keys,
                 block,
                 is_paid,
-            )?;
+            )
+            .await?;
         }
         Ok(())
     }
@@ -559,14 +633,16 @@ impl BillChainEventProcessor {
         block: BillBlock,
         is_paid: bool,
     ) -> Result<bool> {
-        let added = self.validate_block_for_chain(
-            bill_id,
-            chain,
-            bill_first_version,
-            bill_keys,
-            &block,
-            is_paid,
-        )?;
+        let added = self
+            .validate_block_for_chain(
+                bill_id,
+                chain,
+                bill_first_version,
+                bill_keys,
+                &block,
+                is_paid,
+            )
+            .await?;
 
         if added {
             // if everything works out - add the block
@@ -722,34 +798,37 @@ impl BillChainEventProcessor {
 #[cfg(test)]
 mod tests {
     use bcr_common::core::NodeId;
-    use bcr_ebill_core::{
-        protocol::File,
-        protocol::Name,
-        protocol::Sha256Hash,
-        protocol::Timestamp,
-        protocol::blockchain::bill::block::{
-            BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
-            BillRejectBlockData, BillRequestToAcceptBlockData,
+    use bcr_ebill_core::protocol::{
+        File, Name, Sha256Hash, Timestamp,
+        blockchain::bill::{
+            block::{
+                BillAcceptBlockData, BillEndorseBlockData, BillParticipantBlockData,
+                BillRejectBlockData, BillRequestToAcceptBlockData,
+            },
+            participant::BillIdentParticipant,
         },
-        protocol::blockchain::bill::participant::BillIdentParticipant,
-        protocol::constants::ACCEPT_DEADLINE_SECONDS,
-        protocol::crypto::BcrKeys,
-        protocol::event::{BillBlockEvent, Event, EventEnvelope},
-        protocol::file_reference::{FileReference, FileReferenceContext},
+        constants::ACCEPT_DEADLINE_SECONDS,
+        crypto::BcrKeys,
+        event::{BillBlockEvent, Event, EventEnvelope},
+        file_reference::{FileReference, FileReferenceContext},
     };
+    use bitcoin::PrivateKey;
     use mockall::predicate::{always, eq};
+    use secp256k1::{SECP256K1, SecretKey};
+    use std::str::FromStr;
 
     use crate::{
         handler::{
             MockNostrContactProcessorApi,
             test_utils::{
-                MockBillChainStore, MockBillStore, bill_id_test, empty_address, get_baseline_bill,
-                get_baseline_identity, get_bill_keys, get_genesis_chain, get_test_bitcredit_bill,
-                node_id_test, node_id_test_other, private_key_test,
+                MockBillChainStore, MockBillStore, MockMintClient, bill_id_test, empty_address,
+                get_baseline_bill, get_baseline_identity, get_bill_keys, get_genesis_chain,
+                get_test_bitcredit_bill, node_id_test, node_id_test_other, private_key_test,
             },
         },
         test_utils::{
-            MockFileReferenceStore, MockNotificationJsonTransport, signed_identity_proof_test,
+            MockFileReferenceStore, MockNotificationJsonTransport, init_test_cfg,
+            signed_identity_proof_test, valid_payment_address_testnet,
         },
         transport::create_public_chain_event,
     };
@@ -765,6 +844,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
     }
@@ -800,6 +880,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -835,6 +916,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -889,6 +971,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -959,6 +1042,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1089,6 +1173,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1188,6 +1273,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1237,6 +1323,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1294,6 +1381,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1356,6 +1444,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1417,6 +1506,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1436,6 +1526,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
@@ -1513,6 +1604,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1605,6 +1697,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1661,6 +1754,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1669,14 +1763,16 @@ mod tests {
         let bill_first_version = chain.get_first_version_bill(&bill_keys).unwrap();
 
         // Call the pure validation method
-        let result = handler.validate_blocks_for_chain(
-            &bill_id_test(),
-            &mut test_chain,
-            &[block1],
-            &bill_keys,
-            &bill_first_version,
-            false,
-        );
+        let result = handler
+            .validate_blocks_for_chain(
+                &bill_id_test(),
+                &mut test_chain,
+                &[block1],
+                &bill_keys,
+                &bill_first_version,
+                false,
+            )
+            .await;
 
         // Should succeed without persisting
         assert!(result.is_ok());
@@ -1722,6 +1818,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1730,14 +1827,16 @@ mod tests {
         let bill_first_version = chain.get_first_version_bill(&bill_keys).unwrap();
 
         // Call the pure validation method with invalid block
-        let result = handler.validate_blocks_for_chain(
-            &bill_id_test(),
-            &mut test_chain,
-            &[invalid_block],
-            &bill_keys,
-            &bill_first_version,
-            false,
-        );
+        let result = handler
+            .validate_blocks_for_chain(
+                &bill_id_test(),
+                &mut test_chain,
+                &[invalid_block],
+                &bill_keys,
+                &bill_first_version,
+                false,
+            )
+            .await;
 
         // Should return error without persisting anything
         assert!(result.is_err());
@@ -1834,6 +1933,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1959,6 +2059,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -2068,6 +2169,7 @@ mod tests {
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
             Arc::new(transport),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -2152,6 +2254,7 @@ mod tests {
             Arc::new(file_reference_store),
             Arc::new(contact),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -2172,5 +2275,207 @@ mod tests {
             MockNostrContactProcessorApi::new(),
             MockNotificationJsonTransport::new(),
         )
+    }
+
+    fn test_privkeys(network: bitcoin::Network) -> (PrivateKey, PrivateKey) {
+        let sk1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let sk2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
+
+        (PrivateKey::new(sk1, network), PrivateKey::new(sk2, network))
+    }
+
+    fn test_pubkeys(network: bitcoin::Network) -> (PublicKey, PublicKey) {
+        let (pk1, pk2) = test_privkeys(network);
+        (
+            pk1.public_key(SECP256K1).inner,
+            pk2.public_key(SECP256K1).inner,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_validate_payment_address_accepts_matching_address() {
+        let (bill_chain_store, _, _, _) = create_mocks();
+        let network = bitcoin::Network::Testnet;
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
+            network,
+        );
+
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let tweak_hash = btc::calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+        )
+        .unwrap();
+
+        let address =
+            btc::get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let result = handler
+            .validate_payment_address_for_payment_request(
+                &bill_id_test(),
+                BillOpCode::RequestToPay,
+                &block_id,
+                &previous_hash,
+                &bill_pub,
+                &holder_pub,
+                network,
+                &address,
+                &None,
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_payment_address_mint_case() {
+        init_test_cfg();
+        let (bill_chain_store, _, _, _) = create_mocks();
+        let network = bitcoin::Network::Testnet;
+        let mut mock_mint_client = MockMintClient::new();
+        mock_mint_client
+            .expect_validate_payment_address_from_mint()
+            .returning(|_, _, _, _, _| Ok(()))
+            .times(1);
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(mock_mint_client),
+            network,
+        );
+
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let address = valid_payment_address_testnet();
+
+        let result = handler
+            .validate_payment_address_for_payment_request(
+                &bill_id_test(),
+                BillOpCode::RequestToPay,
+                &block_id,
+                &previous_hash,
+                &bill_pub,
+                &holder_pub,
+                network,
+                &address,
+                &Some(BillParticipant::Ident(
+                    BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+                )),
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_payment_address_rejects_non_matching_address() {
+        let (bill_chain_store, _, _, _) = create_mocks();
+        let network = bitcoin::Network::Testnet;
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
+            network,
+        );
+
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let wrong_address = BitcoinAddress::from_str(
+            "tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k",
+        )
+        .unwrap();
+
+        let err = handler
+            .validate_payment_address_for_payment_request(
+                &bill_id_test(),
+                BillOpCode::RequestToPay,
+                &block_id,
+                &previous_hash,
+                &bill_pub,
+                &holder_pub,
+                network,
+                &wrong_address,
+                &None,
+            )
+            .await
+            .expect_err("wrong address should fail");
+
+        match err {
+            Error::Crypto(msg) => assert!(msg.contains("don't match")),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validate_payment_address_rejects_when_op_changes() {
+        let (bill_chain_store, _, _, _) = create_mocks();
+        let network = bitcoin::Network::Testnet;
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
+            network,
+        );
+
+        let block_id = BlockId::first().add(6);
+        let previous_hash =
+            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let (bill_pub, holder_pub) = test_pubkeys(network);
+
+        let tweak_hash = btc::calculate_tweak_hash_for_payment_request(
+            BillOpCode::RequestToPay,
+            &block_id,
+            &previous_hash,
+        )
+        .unwrap();
+
+        let address =
+            btc::get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
+
+        let err = handler
+            .validate_payment_address_for_payment_request(
+                &bill_id_test(),
+                BillOpCode::OfferToSell,
+                &block_id,
+                &previous_hash,
+                &bill_pub,
+                &holder_pub,
+                network,
+                &address,
+                &None,
+            )
+            .await
+            .expect_err("different op should fail");
+
+        match err {
+            Error::Crypto(msg) => assert!(msg.contains("don't match")),
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

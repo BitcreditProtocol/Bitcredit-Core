@@ -335,7 +335,10 @@ mod tests {
 #[cfg(test)]
 mod test_utils {
     use async_trait::async_trait;
+    use bcr_common::cashu::{self, nut02 as cdk02};
     use bcr_common::core::{BillId, NodeId};
+    use bcr_ebill_api::external::mint::MintClientApi;
+    use bcr_ebill_api::external::mint::{QuoteStatusReply, ResolveMintOffer};
     use bcr_ebill_core::application::company::{
         CompanySignatory, CompanySignatoryStatus, CompanyStatus,
     };
@@ -369,7 +372,8 @@ mod test_utils {
         event::ActionType,
     };
     use bcr_ebill_core::protocol::{
-        EditOptionalFieldMode, EmailIdentityProofData, SignedIdentityProof,
+        BitcoinAddress, EditOptionalFieldMode, EmailIdentityProofData, Sha256Hash,
+        SignedIdentityProof, blockchain::bill::BillToShareWithExternalParty,
     };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result, ShareDirection,
@@ -385,6 +389,60 @@ mod test_utils {
 
     use crate::PushApi;
     use crate::test_utils::{signed_identity_proof_test, test_ts};
+
+    mock! {
+        pub MintClient {}
+
+        impl ServiceTraitBounds for MintClient {}
+
+        #[async_trait]
+        impl MintClientApi for MintClient {
+            async fn check_if_proofs_are_spent(
+                &self,
+                mint_url: &url::Url,
+                proofs: &str,
+                keyset_id: &str,
+            ) -> bcr_ebill_api::external::mint::Result<bool>;
+            async fn mint(
+                &self,
+                bill_id: &BillId,
+                mint_url: &url::Url,
+                keyset: cdk02::KeySet,
+                quote_id: &uuid::Uuid,
+                private_key: &SecretKey,
+                blinded_messages: Vec<cashu::BlindedMessage>,
+                secrets: Vec<cashu::secret::Secret>,
+                rs: Vec<cashu::SecretKey>,
+            ) -> bcr_ebill_api::external::mint::Result<String>;
+            async fn get_keyset_info(&self, mint_url: &url::Url, keyset_id: &str) -> bcr_ebill_api::external::mint::Result<cdk02::KeySet>;
+            async fn enquire_mint_quote(
+                &self,
+                mint_url: &url::Url,
+                bill_to_share: BillToShareWithExternalParty,
+                requester_keys: &BcrKeys,
+            ) -> bcr_ebill_api::external::mint::Result<uuid::Uuid>;
+            async fn lookup_quote_for_mint(
+                &self,
+                mint_url: &url::Url,
+                quote_id: &uuid::Uuid,
+            ) -> bcr_ebill_api::external::mint::Result<QuoteStatusReply>;
+            async fn resolve_quote_for_mint(
+                &self,
+                mint_url: &url::Url,
+                quote_id: &uuid::Uuid,
+                resolve: ResolveMintOffer,
+            ) -> bcr_ebill_api::external::mint::Result<()>;
+            async fn cancel_quote_for_mint(&self, mint_url: &url::Url, quote_id: &uuid::Uuid) -> bcr_ebill_api::external::mint::Result<()>;
+            async fn validate_payment_address_from_mint(
+                &self,
+                mint_url: &url::Url,
+                address_to_validate: &BitcoinAddress,
+                bill_id: &BillId,
+                block_id: BlockId,
+                previous_block_hash: &Sha256Hash,
+            ) -> bcr_ebill_api::external::mint::Result<()>;
+        }
+    }
 
     mock! {
         pub NotificationStore {}

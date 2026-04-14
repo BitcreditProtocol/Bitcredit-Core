@@ -3,7 +3,7 @@ use std::{fmt::Display, str::FromStr};
 use super::{Error, Result};
 use crate::protocol::{
     BitcoinAddress, BlockId, ProtocolValidationError, PublicKey, Sha256Hash,
-    blockchain::bill::{BillOpCode, participant::BillParticipant},
+    blockchain::bill::BillOpCode,
 };
 use bitcoin::secp256k1::Scalar;
 use secp256k1::SECP256K1;
@@ -194,48 +194,8 @@ pub fn calculate_tweak_hash_for_payment_request(
     Ok(tweak_hash)
 }
 
-/// Calculates the payment address with the given values and validates it against the given address
-pub fn validate_payment_address_for_payment_request(
-    payment_op: BillOpCode,
-    block_id: &BlockId,
-    previous_hash: &Sha256Hash,
-    bill_pub_key: &PublicKey,
-    caller_pub_key: &PublicKey,
-    btc_network: bitcoin::Network,
-    address_to_check: &BitcoinAddress,
-    holder_is_mint: &Option<BillParticipant>,
-) -> Result<()> {
-    if let Some(_mint_holder) = holder_is_mint
-        && matches!(payment_op, BillOpCode::RequestToPay)
-    {
-        if !address_to_check.is_valid_for_network(btc_network) {
-            return Err(super::Error::BtcAddress("Wrong Network".to_owned()));
-        }
-        // TODO (mint-req-to-pay): properly validate address against alpha and betas
-        Ok(())
-    } else {
-        let addr = get_address_to_pay(
-            bill_pub_key,
-            caller_pub_key,
-            &calculate_tweak_hash_for_payment_request(payment_op, block_id, previous_hash)?,
-            btc_network,
-        )?;
-        if &addr != address_to_check {
-            Err(super::Error::BtcAddress(format!(
-                "Addresses don't match - derived: {}, to check: {}",
-                addr.assume_checked(),
-                address_to_check.clone().assume_checked(),
-            )))
-        } else {
-            Ok(())
-        }
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
-    use std::str::FromStr;
-
     use bitcoin::{AddressType, Network, PrivateKey};
     use miniscript::{Descriptor, DescriptorPublicKey};
     use secp256k1::{SecretKey, global::SECP256K1};
@@ -413,103 +373,6 @@ pub mod tests {
     }
 
     #[test]
-    fn validate_payment_address_accepts_matching_address() {
-        let network = Network::Testnet;
-        let block_id = BlockId::first().add(6);
-        let previous_hash =
-            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        let (bill_pub, holder_pub) = test_pubkeys(network);
-
-        let tweak_hash = calculate_tweak_hash_for_payment_request(
-            BillOpCode::RequestToPay,
-            &block_id,
-            &previous_hash,
-        )
-        .unwrap();
-
-        let address = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
-
-        let result = validate_payment_address_for_payment_request(
-            BillOpCode::RequestToPay,
-            &block_id,
-            &previous_hash,
-            &bill_pub,
-            &holder_pub,
-            network,
-            &address,
-            &None,
-        );
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn validate_payment_address_rejects_non_matching_address() {
-        let network = Network::Testnet;
-        let block_id = BlockId::first().add(6);
-        let previous_hash =
-            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        let (bill_pub, holder_pub) = test_pubkeys(network);
-
-        let wrong_address = BitcoinAddress::from_str(
-            "tb1p98hgytlecct3qzfmd9qnf05q03ql032xvpdg9kpwfftej2t95t8s0eyx5k",
-        )
-        .unwrap();
-
-        let err = validate_payment_address_for_payment_request(
-            BillOpCode::RequestToPay,
-            &block_id,
-            &previous_hash,
-            &bill_pub,
-            &holder_pub,
-            network,
-            &wrong_address,
-            &None,
-        )
-        .expect_err("wrong address should fail");
-
-        match err {
-            super::Error::BtcAddress(msg) => assert!(msg.contains("don't match")),
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn validate_payment_address_rejects_when_op_changes() {
-        let network = Network::Testnet;
-        let block_id = BlockId::first().add(6);
-        let previous_hash =
-            Sha256Hash::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        let (bill_pub, holder_pub) = test_pubkeys(network);
-
-        let tweak_hash = calculate_tweak_hash_for_payment_request(
-            BillOpCode::RequestToPay,
-            &block_id,
-            &previous_hash,
-        )
-        .unwrap();
-
-        let address = get_address_to_pay(&bill_pub, &holder_pub, &tweak_hash, network).unwrap();
-
-        let err = validate_payment_address_for_payment_request(
-            BillOpCode::OfferToSell,
-            &block_id,
-            &previous_hash,
-            &bill_pub,
-            &holder_pub,
-            network,
-            &address,
-            &None,
-        )
-        .expect_err("different op should fail");
-
-        match err {
-            super::Error::BtcAddress(msg) => assert!(msg.contains("don't match")),
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
     fn full_flow_tweak_address_descriptor_validation_all_match() {
         let network = Network::Testnet;
         let block_id = BlockId::first().add(6);
@@ -541,18 +404,6 @@ pub mod tests {
             .unwrap();
 
         assert_eq!(address.clone().assume_checked(), address_from_descriptor);
-
-        validate_payment_address_for_payment_request(
-            BillOpCode::RequestRecourse,
-            &block_id,
-            &previous_hash,
-            &bill_pub,
-            &holder_pub,
-            network,
-            &address,
-            &None,
-        )
-        .unwrap();
     }
 
     #[test]
