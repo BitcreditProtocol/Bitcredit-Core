@@ -3,8 +3,11 @@ use super::{CONTEXT, Result};
 use bcr_ebill_api::{
     Config, DbContext,
     external::{
-        bitcoin::BitcoinClient, court::CourtClient, email::EmailClient,
-        file_storage::FileStorageClient, mint::MintClient,
+        bitcoin::BitcoinClient,
+        court::CourtClient,
+        email::EmailClient,
+        file_storage::FileStorageClient,
+        mint::{MintClient, MintClientApi},
     },
     service::{
         bill_service::{BillService, BillServiceApi},
@@ -37,6 +40,7 @@ pub struct Context {
     pub transport_service: Arc<dyn TransportServiceApi>,
     pub push_service: Arc<dyn PushApi>,
     pub chain_key_service: Arc<dyn ChainKeyServiceApi>,
+    pub mint_client: Arc<dyn MintClientApi>,
     pub cfg: Config,
 }
 
@@ -63,6 +67,7 @@ impl Context {
             email_client.clone(),
             cfg.nostr_config.relays.to_owned(),
             push_service.clone(),
+            mint_client.clone(),
         )
         .await?;
 
@@ -92,7 +97,7 @@ impl Context {
             db.contact_store.clone(),
             db.company_store.clone(),
             db.mint_store.clone(),
-            mint_client,
+            mint_client.clone(),
             court_client,
             db.nostr_contact_store.clone(),
         ));
@@ -136,6 +141,7 @@ impl Context {
             push_service.clone(),
             chain_key_service.clone(),
             db_ctx.clone(),
+            mint_client.clone(),
         )
         .await?;
 
@@ -157,6 +163,7 @@ impl Context {
             transport_service,
             push_service,
             chain_key_service,
+            mint_client,
             cfg,
         })
     }
