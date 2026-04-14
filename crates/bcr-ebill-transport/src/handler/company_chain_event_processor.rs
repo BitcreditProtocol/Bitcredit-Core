@@ -294,6 +294,10 @@ impl CompanyChainEventProcessor {
             // save keys
             self.save_keys(&company_id, keys).await?;
 
+            self.transport
+                .add_identity(company_id.clone(), keys.clone())
+                .await?;
+
             // save the first block
             self.save_block(&company_id, chain.get_first_block())
                 .await?;
@@ -1066,7 +1070,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
-            transport,
+            mut transport,
             push_service,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
@@ -1114,6 +1118,12 @@ pub mod tests {
         store
             .expect_save_key_pair()
             .with(eq(node_id.clone()), always())
+            .returning(|_, _| Ok(()))
+            .once();
+
+        transport
+            .expect_add_identity()
+            .with(eq(node_id.clone()), eq(keys.clone()))
             .returning(|_, _| Ok(()))
             .once();
 
