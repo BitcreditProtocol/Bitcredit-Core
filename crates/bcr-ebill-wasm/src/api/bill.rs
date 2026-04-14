@@ -599,6 +599,48 @@ impl Bill {
     }
 
     #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn mint_bill(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "EndorseBitcreditBillPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let endorse_bill_payload: EndorseBitcreditBillPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            let public_data_endorsee = match get_ctx()
+                .contact_service
+                .get_identity_by_node_id(
+                    &NodeId::from_str(&endorse_bill_payload.endorsee)
+                        .map_err(ProtocolValidationError::from)?,
+                )
+                .await
+            {
+                Ok(Some(endorsee)) => endorsee,
+                Ok(None) | Err(_) => {
+                    return Err(BillServiceError::Validation(
+                        ValidationError::EndorseeNotInContacts,
+                    )
+                    .into());
+                }
+            };
+            let timestamp = Timestamp::now();
+            let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
+            get_ctx()
+                .bill_service
+                .execute_bill_action(
+                    &endorse_bill_payload.bill_id,
+                    BillAction::Mint(public_data_endorsee, Sum::new_sat(14500)?),
+                    &signer_public_data,
+                    &signer_keys,
+                    timestamp,
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn endorse_bill(
         &self,
         #[wasm_bindgen(unchecked_param_type = "EndorseBitcreditBillPayload")] payload: JsValue,
