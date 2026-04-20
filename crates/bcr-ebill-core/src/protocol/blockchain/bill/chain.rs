@@ -961,7 +961,7 @@ impl BillBlockchain {
 
         // sort by signing timestamp descending
         let mut list: Vec<PastEndorsee> = result.into_values().collect();
-        list.sort_by(|a, b| b.signing_timestamp.cmp(&a.signing_timestamp));
+        list.sort_by_key(|b| std::cmp::Reverse(b.signing_timestamp));
 
         Ok(list)
     }
