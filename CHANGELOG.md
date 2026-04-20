@@ -10,6 +10,7 @@
 * Update to latest bcr-common
 * Add bill service function `get_address_derivation_metadata_for_payment_request` to get address derivation metadata for mint req to pay
 * Implement file mirroring and automatic file reference tracking
+* Fixed a bug in identity change, where only changing identity proof document and nothing else didn't lead to a change
 
 # 0.5.6
 

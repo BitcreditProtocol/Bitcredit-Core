@@ -499,6 +499,7 @@ impl IdentityServiceApi for IdentityService {
                         .await?;
                     if identity_document_file.is_some() {
                         identity.identity_document_file = identity_document_file.clone();
+                        changed = true;
                     }
                     identity_document_file
                 }
@@ -511,6 +512,7 @@ impl IdentityServiceApi for IdentityService {
             };
 
             if !changed {
+                log::warn!("Called Identity Change without any changes - returning");
                 return Ok(());
             }
         }

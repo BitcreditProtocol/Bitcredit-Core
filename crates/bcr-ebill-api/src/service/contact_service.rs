@@ -520,6 +520,7 @@ impl ContactServiceApi for ContactService {
             };
 
             if !changed {
+                log::warn!("Called Contact Change without any changes - returning");
                 return Ok(());
             }
         }

@@ -942,6 +942,7 @@ impl CompanyServiceApi for CompanyService {
         };
 
         if !changed {
+            log::warn!("Called Company Change without any changes - returning");
             return Ok(());
         }
 

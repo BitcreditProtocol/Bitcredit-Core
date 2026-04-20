@@ -3,6 +3,7 @@ import * as wasm from '../pkg/index.js';
 // file upload
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("attach_identity_profile_picture").addEventListener("click", attachIdentityProfilePicture);
+document.getElementById("attach_identity_document").addEventListener("click", attachIdentityDocument);
 document.getElementById("attach_contact_avatar").addEventListener("click", attachContactAvatar);
 document.getElementById("attach_company_proof").addEventListener("click", attachCompanyProof);
 document.getElementById("remove_company_proof").addEventListener("click", removeCompanyProof);
@@ -286,6 +287,27 @@ async function attachIdentityProfilePicture() {
     buildBlossomUrl();
   }
   console.log("attached uploaded file as identity profile picture:", identity);
+}
+
+async function attachIdentityDocument() {
+  const file_upload_id = document.getElementById("file_upload_id").value;
+  if (!file_upload_id) {
+    console.log("No file_upload_id set.");
+    return;
+  }
+
+  fail_on_error(await window.identityApi.change({
+    identity_document_file_upload_id: file_upload_id,
+    postal_address: {}
+  }));
+
+  const identity = success_or_fail(await window.identityApi.detail());
+  document.getElementById("node_id_identity").value = identity.node_id;
+  if (identity.identity_document_file) {
+    document.getElementById("blossom_nostr_hash").value = identity.identity_document_file.nostr_hash;
+    buildBlossomUrl();
+  }
+  console.log("attached uploaded file as identity document:", identity);
 }
 
 async function attachContactAvatar() {
@@ -1143,7 +1165,7 @@ async function devModeGetCompanyChain() {
 }
 
 function measure(promiseFunction) {
-  return async function (...args) {
+  return async function(...args) {
     const startTime = performance.now();
     const result = await promiseFunction(...args);
     const endTime = performance.now();
