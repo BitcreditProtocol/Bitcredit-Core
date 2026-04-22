@@ -310,35 +310,101 @@ impl BlockTransportServiceApi for BlockTransportService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handler::{
+        MockBillChainEventProcessorApi, MockCompanyChainEventProcessorApi,
+        MockIdentityChainEventProcessorApi,
+    };
+    use crate::test_utils::{
+        MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
+        MockNostrQueuedMessageStore, MockNotificationJsonTransport, get_nostr_transport,
+    };
     use bcr_ebill_core::protocol::Sha256Hash;
+    use bcr_ebill_core::protocol::blockchain::BlockchainType;
+    use bcr_ebill_persistence::nostr::NostrChainEvent;
+
+    fn create_test_chain_event(
+        chain_id: &str,
+        chain_type: BlockchainType,
+        block_height: usize,
+        block_hash: Sha256Hash,
+    ) -> NostrChainEvent {
+        NostrChainEvent {
+            event_id: format!("test_event_{block_height}"),
+            root_id: "test_event_1".to_string(),
+            reply_id: if block_height > 1 {
+                Some(format!("test_event_{}", block_height - 1))
+            } else {
+                None
+            },
+            author: "test_author".to_string(),
+            chain_id: chain_id.to_string(),
+            chain_type,
+            block_height,
+            block_hash,
+            received: bcr_ebill_core::protocol::Timestamp::now(),
+            time: bcr_ebill_core::protocol::Timestamp::now(),
+            payload: nostr::EventBuilder::text_note("test")
+                .sign_with_keys(&nostr::key::Keys::generate())
+                .unwrap(),
+        }
+    }
+
+    fn get_service(chain_event_store: MockNostrChainEventStore) -> BlockTransportService {
+        BlockTransportService::new(
+            Arc::new(get_nostr_transport(
+                MockNotificationJsonTransport::new(),
+                MockContactStore::new(),
+                MockNostrContactStore::new(),
+                MockNostrQueuedMessageStore::new(),
+                chain_event_store,
+            )),
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            Arc::new(MockCompanyChainEventProcessorApi::new()),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+        )
+    }
 
     #[tokio::test]
     async fn test_validate_previous_event_exists_allows_genesis() {
-        // Genesis block (height 1) should succeed even without previous event
-        // This is a unit test for the validation logic only
-        let previous_hash = Sha256Hash::new("genesis");
-        let block_height = 1;
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        // No previous event in store for genesis block
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
 
-        // For genesis blocks, we don't need a previous event
-        assert!(block_height <= 1 || previous_hash != Sha256Hash::new("genesis"));
+        let service = get_service(chain_event_store);
+        let result = service
+            .validate_previous_event_exists(
+                &Sha256Hash::new("genesis"),
+                "test_chain",
+                BlockchainType::Bill,
+                1,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let (previous, root) = result.unwrap();
+        assert!(previous.is_none());
+        assert!(root.is_none());
     }
 
     #[tokio::test]
     async fn test_validate_previous_event_exists_rejects_missing() {
-        // Non-genesis block without previous event should fail
-        let block_height = 2;
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        // No previous event in store for non-genesis block
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
 
-        // Simulate the validation check
-        let previous_event_exists = false;
-        let is_genesis = block_height <= 1;
-
-        let result = if !previous_event_exists && !is_genesis {
-            Err(Error::Blockchain(
-                "Cannot publish block: missing previous block".to_string(),
-            ))
-        } else {
-            Ok(())
-        };
+        let service = get_service(chain_event_store);
+        let result = service
+            .validate_previous_event_exists(
+                &Sha256Hash::new("missing_hash"),
+                "test_chain",
+                BlockchainType::Bill,
+                2,
+            )
+            .await;
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -348,19 +414,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_previous_event_exists_accepts_with_previous() {
-        // Non-genesis block with previous event should succeed
-        let block_height = 2;
-        let previous_event_exists = true;
-        let is_genesis = block_height <= 1;
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        let previous_hash = Sha256Hash::new("previous_hash");
+        let previous_event =
+            create_test_chain_event("test_chain", BlockchainType::Bill, 1, previous_hash.clone());
 
-        let result = if !previous_event_exists && !is_genesis {
-            Err(Error::Blockchain(
-                "Cannot publish block: missing previous block".to_string(),
-            ))
-        } else {
-            Ok(())
-        };
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(move |_| Ok(Some(previous_event.clone())));
+
+        let service = get_service(chain_event_store);
+        let result = service
+            .validate_previous_event_exists(&previous_hash, "test_chain", BlockchainType::Bill, 2)
+            .await;
 
         assert!(result.is_ok());
+        let (previous, root) = result.unwrap();
+        assert!(previous.is_some());
+        assert!(root.is_some());
     }
 }

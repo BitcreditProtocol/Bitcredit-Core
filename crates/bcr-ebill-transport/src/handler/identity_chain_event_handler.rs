@@ -39,7 +39,8 @@ impl NotificationHandlerApi for IdentityChainEventHandler {
         debug!("incoming identity chain event");
         if let Ok(decoded) = Event::<IdentityBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.identity_store.get_key_pair().await {
-                self.processor
+                let valid = self
+                    .processor
                     .process_chain_data(
                         &decoded.data.node_id,
                         vec![decoded.data.block.clone()],
@@ -47,8 +48,9 @@ impl NotificationHandlerApi for IdentityChainEventHandler {
                     )
                     .await
                     .inspect_err(|e| error!("Received invalid block {e}"))
-                    .ok();
-                if let Some(original_event) = original_event {
+                    .is_ok();
+
+                if valid && let Some(original_event) = original_event {
                     self.store_event(
                         &original_event,
                         decoded.data.block_height,
@@ -108,7 +110,7 @@ impl IdentityChainEventHandler {
             })
             .await
         {
-            error!("Failed to store bill chain nostr event into event store {e}");
+            error!("Failed to store identity chain nostr event into event store {e}");
         }
         Ok(())
     }

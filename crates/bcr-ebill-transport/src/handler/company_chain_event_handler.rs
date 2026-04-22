@@ -39,7 +39,8 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
         debug!("incoming company chain event");
         if let Ok(decoded) = Event::<CompanyBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.company_store.get_key_pair(&decoded.data.node_id).await {
-                self.processor
+                let valid = self
+                    .processor
                     .process_chain_data(
                         &decoded.data.node_id,
                         vec![decoded.data.block.clone()],
@@ -47,9 +48,9 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
                     )
                     .await
                     .inspect_err(|e| error!("Received invalid block {e}"))
-                    .ok();
+                    .is_ok();
 
-                if let Some(original_event) = original_event {
+                if valid && let Some(original_event) = original_event {
                     self.store_event(
                         original_event,
                         decoded.data.block_height,
@@ -109,7 +110,7 @@ impl CompanyChainEventHandler {
             })
             .await
         {
-            error!("Failed to store bill chain nostr event into event store {e}");
+            error!("Failed to store company chain nostr event into event store {e}");
         }
         Ok(())
     }
