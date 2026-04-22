@@ -268,21 +268,19 @@ impl MintClientApi for MintClient {
     }
 
     async fn get_keyset_info(&self, mint_url: &url::Url, keyset_id: &str) -> Result<cdk02::KeySet> {
-        let url = mint_url
-            .join(&format!("/v1/keys/{keyset_id}"))
-            .expect("keys relative path");
-        let res = reqwest::Client::new().get(url).send().await.map_err(|e| {
-            log::error!("Error getting keyset info from mint {mint_url}: {e}");
-            Error::KeyClient
+        let keyset_id_parsed = cdk02::Id::from_str(keyset_id).map_err(|e| {
+            log::error!("Error parsing keyset id {keyset_id} for {mint_url}: {e}");
+            Error::InvalidKeySetId
         })?;
-        let json: cdk01::KeysResponse = res.json().await.map_err(|e| {
-            log::error!("Error deserializing keyset info: {e}");
-            Error::KeyClient
-        })?;
-        json.keysets.first().map(|k| k.to_owned()).ok_or_else(|| {
-            log::error!("Empty keyset");
-            Error::KeyClient.into()
-        })
+        let keyset = self
+            .client(mint_url)?
+            .keys(keyset_id_parsed)
+            .await
+            .map_err(|e| {
+                log::error!("Error getting keyset info at mint {mint_url}: {e}");
+                Error::KeyClient
+            })?;
+        Ok(keyset)
     }
 
     async fn enquire_mint_quote(
