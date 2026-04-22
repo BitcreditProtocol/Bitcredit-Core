@@ -334,7 +334,6 @@ impl EventContainer {
         chain_id: &str,
         chain_type: BlockchainType,
         block_height: usize,
-        valid: bool,
     ) -> NostrChainEvent {
         NostrChainEvent {
             event_id: self.event.id.to_string(),
@@ -348,7 +347,6 @@ impl EventContainer {
             received: Timestamp::now(),
             time: self.event.created_at.into(),
             payload: self.event.clone(),
-            valid,
         }
     }
 }

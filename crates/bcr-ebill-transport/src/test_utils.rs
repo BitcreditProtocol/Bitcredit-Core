@@ -736,6 +736,7 @@ mockall::mock! {
         async fn find_by_block_hash(&self, hash: &Sha256Hash) -> bcr_ebill_persistence::Result<Option<NostrChainEvent>>;
         async fn add_chain_event(&self, event: NostrChainEvent) -> bcr_ebill_persistence::Result<()>;
         async fn by_event_id(&self, event_id: &str) -> bcr_ebill_persistence::Result<Option<NostrChainEvent>>;
+        async fn remove_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> bcr_ebill_persistence::Result<()>;
     }
 }
 

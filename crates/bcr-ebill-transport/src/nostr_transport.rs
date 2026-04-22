@@ -296,7 +296,6 @@ impl NostrTransportService {
                 received: event.created_at.into(),
                 time: event.created_at.into(),
                 payload: event.clone(),
-                valid: true,
             })
             .await
             .map_err(|_| Error::Persistence("failed to write to chain events".to_owned()))?;

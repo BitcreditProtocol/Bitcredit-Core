@@ -22,7 +22,9 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::{BcrKeys, btc};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash};
-use bcr_ebill_persistence::{FileReferenceStoreApi, bill::BillChainStoreApi, bill::BillStoreApi};
+use bcr_ebill_persistence::{
+    FileReferenceStoreApi, NostrChainEventStoreApi, bill::BillChainStoreApi, bill::BillStoreApi,
+};
 use log::{debug, error, info, warn};
 use secp256k1::PublicKey;
 use std::sync::Arc;
@@ -131,6 +133,14 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 )
                 .await
                 {
+                    if let Err(e) = self
+                        .chain_event_store
+                        .remove_chain_events(&bill_id.to_string(), BlockchainType::Bill)
+                        .await
+                    {
+                        error!("Failed to invalidate old bill chain events during resync: {e}");
+                    }
+
                     for data in chain_data.iter() {
                         let blocks: Vec<BillBlock> = data
                             .iter()
@@ -198,6 +208,21 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                     return Err(e);
                                 }
 
+                                for event_container in data.iter() {
+                                    let event = event_container.as_chain_store_event(
+                                        &bill_id.to_string(),
+                                        BlockchainType::Bill,
+                                        event_container.block.get_block_height() as usize,
+                                    );
+                                    if let Err(e) =
+                                        self.chain_event_store.add_chain_event(event).await
+                                    {
+                                        error!(
+                                            "Failed to store bill chain event during resync: {e}"
+                                        );
+                                    }
+                                }
+
                                 debug!("resynced bill {bill_id} with {} remote events", data.len());
                                 return Ok(());
                             }
@@ -233,6 +258,7 @@ pub struct BillChainEventProcessor {
     bill_store: Arc<dyn BillStoreApi>,
     file_reference_store: Arc<dyn FileReferenceStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
     mint_client: Arc<dyn MintClientApi>,
     bitcoin_network: bitcoin::Network,
@@ -244,6 +270,7 @@ impl BillChainEventProcessor {
         bill_store: Arc<dyn BillStoreApi>,
         file_reference_store: Arc<dyn FileReferenceStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
         mint_client: Arc<dyn MintClientApi>,
         bitcoin_network: bitcoin::Network,
@@ -253,6 +280,7 @@ impl BillChainEventProcessor {
             bill_store,
             file_reference_store,
             nostr_contact_processor,
+            chain_event_store,
             transport,
             mint_client,
             bitcoin_network,
@@ -821,9 +849,10 @@ mod tests {
         handler::{
             MockNostrContactProcessorApi,
             test_utils::{
-                MockBillChainStore, MockBillStore, MockMintClient, bill_id_test, empty_address,
-                get_baseline_bill, get_baseline_identity, get_bill_keys, get_genesis_chain,
-                get_test_bitcredit_bill, node_id_test, node_id_test_other, private_key_test,
+                MockBillChainStore, MockBillStore, MockMintClient, MockNostrChainEventStore,
+                bill_id_test, empty_address, get_baseline_bill, get_baseline_identity,
+                get_bill_keys, get_genesis_chain, get_test_bitcredit_bill, node_id_test_other,
+                private_key_test,
             },
         },
         test_utils::{
@@ -837,12 +866,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (bill_chain_store, bill_store, contact, transport) = create_mocks();
+        let (bill_chain_store, bill_store, contact, transport, chain_event_store) = create_mocks();
         BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -852,7 +882,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
 
         bill_store
             .expect_get_keys()
@@ -879,6 +909,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -892,12 +923,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_validate_chain_event_and_sender() {
-        let bill = get_baseline_bill(&bill_id_test());
-        let node_id = node_id_test();
-        let npub = node_id.npub();
+    async fn test_validate_chain_event_and_sender_valid() {
+        let baseline = get_baseline_identity();
+        let npub = baseline.key_pair.get_nostr_keys().public_key();
+        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
 
-        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+        let payer = BillIdentParticipant::new(baseline.identity.clone()).unwrap();
+        let payee = BillIdentParticipant::new(baseline.identity.clone()).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
 
         bill_store
             .expect_get_keys()
@@ -915,6 +948,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -938,7 +972,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, mut contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, mut contact, transport, _) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -970,6 +1004,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1012,7 +1047,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, mut contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, mut contact, transport, _) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -1041,6 +1076,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1126,7 +1162,13 @@ mod tests {
         // mock the nostr chain
         let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
 
-        let (mut bill_chain_store, mut bill_store, mut contact, mut transport) = create_mocks();
+        let (
+            mut bill_chain_store,
+            mut bill_store,
+            mut contact,
+            mut transport,
+            mut chain_event_store,
+        ) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -1167,11 +1209,21 @@ mod tests {
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
+        chain_event_store
+            .expect_remove_chain_events()
+            .returning(|_, _| Ok(()));
+
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(0..);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1243,7 +1295,7 @@ mod tests {
         .unwrap();
         assert!(chain.try_add_block(block));
 
-        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -1272,6 +1324,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1295,7 +1348,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -1322,6 +1375,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1358,7 +1412,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -1380,6 +1434,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1421,7 +1476,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, contact, transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -1443,6 +1498,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1485,7 +1541,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, bill_store, contact, transport) = create_mocks();
+        let (mut bill_chain_store, bill_store, contact, transport, _) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -1505,6 +1561,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1519,12 +1576,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fails_to_add_block_for_bill_id_from_different_network() {
-        let (bill_chain_store, bill_store, contact, transport) = create_mocks();
+        let (bill_chain_store, bill_store, contact, transport, _) = create_mocks();
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1576,7 +1634,7 @@ mod tests {
         split_block.timestamp = chain.get_latest_block().timestamp - 1000; // Earlier timestamp
         split_block.hash = Sha256Hash::new("different_hash"); // Different hash
 
-        let (mut bill_chain_store, mut bill_store, contact, mut transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, _) = create_mocks();
 
         // Setup existing chain
         let chain_clone = chain.clone();
@@ -1603,6 +1661,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1670,7 +1729,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, mut bill_store, contact, mut transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, _) = create_mocks();
 
         // Setup existing chain
         let chain_clone = chain.clone();
@@ -1696,6 +1755,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1740,7 +1800,7 @@ mod tests {
         )
         .unwrap();
 
-        let (mut bill_chain_store, _, _, _) = create_mocks();
+        let (mut bill_chain_store, _, _, _, _) = create_mocks();
 
         // CRITICAL: add_block should NEVER be called during validation
         bill_chain_store
@@ -1753,6 +1813,7 @@ mod tests {
             Arc::new(MockBillStore::new()),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1810,13 +1871,14 @@ mod tests {
         // Tamper with the block to make it invalid
         invalid_block.hash = Sha256Hash::new("tampered_hash");
 
-        let (bill_chain_store, _, _, _) = create_mocks();
+        let (bill_chain_store, _, _, _, _) = create_mocks();
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(MockBillStore::new()),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -1895,7 +1957,13 @@ mod tests {
         // All events (resolve_public_chain returns flat Vec<Event>)
         let all_events = vec![event1.clone(), event2.clone()];
 
-        let (mut bill_chain_store, mut bill_store, mut contact, mut transport) = create_mocks();
+        let (
+            mut bill_chain_store,
+            mut bill_store,
+            mut contact,
+            mut transport,
+            mut chain_event_store,
+        ) = create_mocks();
 
         let chain_clone = chain.clone();
         bill_store
@@ -1927,11 +1995,21 @@ mod tests {
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
+        chain_event_store
+            .expect_remove_chain_events()
+            .returning(|_, _| Ok(()));
+
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(0..);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -2018,7 +2096,13 @@ mod tests {
 
         let nostr_events = vec![event0.clone(), event_remote.clone()];
 
-        let (mut bill_chain_store, mut bill_store, mut contact, mut transport) = create_mocks();
+        let (
+            mut bill_chain_store,
+            mut bill_store,
+            mut contact,
+            mut transport,
+            mut chain_event_store,
+        ) = create_mocks();
 
         bill_store
             .expect_invalidate_bill_in_cache()
@@ -2053,11 +2137,21 @@ mod tests {
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
+        chain_event_store
+            .expect_remove_chain_events()
+            .returning(|_, _| Ok(()));
+
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(0..);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -2138,7 +2232,8 @@ mod tests {
 
         let nostr_events = vec![event0.clone(), event_remote.clone()];
 
-        let (mut bill_chain_store, mut bill_store, contact, mut transport) = create_mocks();
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
+            create_mocks();
 
         bill_store
             .expect_invalidate_bill_in_cache()
@@ -2163,11 +2258,16 @@ mod tests {
 
         bill_chain_store.expect_add_block().times(0);
 
+        chain_event_store
+            .expect_remove_chain_events()
+            .returning(|_, _| Ok(()));
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -2253,6 +2353,7 @@ mod tests {
             Arc::new(bill_store),
             Arc::new(file_reference_store),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
@@ -2268,12 +2369,14 @@ mod tests {
         MockBillStore,
         MockNostrContactProcessorApi,
         MockNotificationJsonTransport,
+        MockNostrChainEventStore,
     ) {
         (
             MockBillChainStore::new(),
             MockBillStore::new(),
             MockNostrContactProcessorApi::new(),
             MockNotificationJsonTransport::new(),
+            MockNostrChainEventStore::new(),
         )
     }
 
@@ -2294,13 +2397,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_payment_address_accepts_matching_address() {
-        let (bill_chain_store, _, _, _) = create_mocks();
+        let (bill_chain_store, _, _, _, _) = create_mocks();
         let network = bitcoin::Network::Testnet;
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(MockBillStore::new()),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             network,
@@ -2341,7 +2445,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_payment_address_mint_case() {
         init_test_cfg();
-        let (bill_chain_store, _, _, _) = create_mocks();
+        let (bill_chain_store, _, _, _, _) = create_mocks();
         let network = bitcoin::Network::Testnet;
         let mut mock_mint_client = MockMintClient::new();
         mock_mint_client
@@ -2353,9 +2457,10 @@ mod tests {
             Arc::new(MockBillStore::new()),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(mock_mint_client),
-            network,
+            bitcoin::Network::Testnet,
         );
 
         let block_id = BlockId::first().add(6);
@@ -2386,13 +2491,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_payment_address_rejects_non_matching_address() {
-        let (bill_chain_store, _, _, _) = create_mocks();
+        let (bill_chain_store, _, _, _, _) = create_mocks();
         let network = bitcoin::Network::Testnet;
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(MockBillStore::new()),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             network,
@@ -2431,13 +2537,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_payment_address_rejects_when_op_changes() {
-        let (bill_chain_store, _, _, _) = create_mocks();
+        let (bill_chain_store, _, _, _, _) = create_mocks();
         let network = bitcoin::Network::Testnet;
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(MockBillStore::new()),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             network,

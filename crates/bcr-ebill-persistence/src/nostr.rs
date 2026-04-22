@@ -248,6 +248,8 @@ pub trait NostrChainEventStoreApi: ServiceTraitBounds {
 
     /// Finds an event by a specific Nostr event_id
     async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;
+
+    async fn remove_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<()>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -274,8 +276,6 @@ pub struct NostrChainEvent {
     pub time: Timestamp,
     /// The event as we received it via nostr.
     pub payload: Event,
-    /// We consider this event as part of the valid chain
-    pub valid: bool,
 }
 
 impl NostrChainEvent {

@@ -39,8 +39,7 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
         debug!("incoming company chain event");
         if let Ok(decoded) = Event::<CompanyBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.company_store.get_key_pair(&decoded.data.node_id).await {
-                let valid = self
-                    .processor
+                self.processor
                     .process_chain_data(
                         &decoded.data.node_id,
                         vec![decoded.data.block.clone()],
@@ -48,7 +47,7 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
                     )
                     .await
                     .inspect_err(|e| error!("Received invalid block {e}"))
-                    .is_ok();
+                    .ok();
 
                 if let Some(original_event) = original_event {
                     self.store_event(
@@ -56,7 +55,6 @@ impl NotificationHandlerApi for CompanyChainEventHandler {
                         decoded.data.block_height,
                         &decoded.data.block.hash,
                         &decoded.data.node_id.to_string(),
-                        valid,
                     )
                     .await?;
                 }
@@ -90,7 +88,6 @@ impl CompanyChainEventHandler {
         block_height: usize,
         block_hash: &Sha256Hash,
         chain_id: &str,
-        valid: bool,
     ) -> Result<()> {
         let (root, reply) = root_and_reply_id(&event);
         if let Err(e) = self
@@ -108,8 +105,7 @@ impl CompanyChainEventHandler {
                 block_hash: block_hash.to_owned(),
                 received: Timestamp::now(),
                 time: event.created_at.into(),
-                payload: *event.clone(),
-                valid,
+                payload: *event,
             })
             .await
         {

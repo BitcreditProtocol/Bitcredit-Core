@@ -388,6 +388,7 @@ pub mod tests {
             async fn find_by_block_hash(&self, hash: &Sha256Hash) -> Result<Option<NostrChainEvent>>;
             async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()>;
             async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>>;
+            async fn remove_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<()>;
         }
     }
 

@@ -144,6 +144,7 @@ pub async fn create_transport_service(
         db_context.bill_store.clone(),
         db_context.file_reference_store.clone(),
         nostr_contact_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         mint_client,
         get_config().bitcoin_network(),
@@ -161,6 +162,7 @@ pub async fn create_transport_service(
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
         push_service,
+        db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         get_config().bitcoin_network(),
     ));
@@ -176,6 +178,7 @@ pub async fn create_transport_service(
         Arc::new(company_invite_handler.clone()),
         bill_invite_handler.clone(),
         nostr_contact_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         get_config().bitcoin_network(),
     ));
@@ -244,6 +247,7 @@ pub async fn create_nostr_consumer(
         db_context.bill_store.clone(),
         db_context.file_reference_store.clone(),
         nostr_contact_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         mint_client,
         get_config().bitcoin_network(),
@@ -263,6 +267,7 @@ pub async fn create_nostr_consumer(
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
         push_service.clone(),
+        db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         get_config().bitcoin_network(),
     ));
@@ -280,6 +285,7 @@ pub async fn create_nostr_consumer(
         Arc::new(company_invite_handler.clone()),
         bill_invite_handler.clone(),
         nostr_contact_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         get_config().bitcoin_network(),
     ));
@@ -371,6 +377,7 @@ pub async fn create_restore_account_service(
         db_context.bill_store.clone(),
         db_context.file_reference_store.clone(),
         nostr_contact_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         mint_client,
         get_config().bitcoin_network(),
@@ -390,6 +397,7 @@ pub async fn create_restore_account_service(
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
         push_service,
+        db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         config.bitcoin_network(),
     ));
@@ -407,6 +415,7 @@ pub async fn create_restore_account_service(
         company_invite_handler.clone(),
         bill_invite_handler.clone(),
         nostr_contact_processor,
+        db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         config.bitcoin_network(),
     ));
@@ -425,8 +434,13 @@ pub async fn create_restore_account_service(
         .await,
     );
 
-    Ok(
-        RestoreAccountService::new(nostr_client, processor, dm_processor, keys.clone(), node_id)
-            .await,
+    Ok(RestoreAccountService::new(
+        nostr_client,
+        processor,
+        dm_processor,
+        db_context.nostr_chain_event_store.clone(),
+        keys.clone(),
+        node_id,
     )
+    .await)
 }

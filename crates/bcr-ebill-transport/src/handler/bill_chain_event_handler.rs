@@ -59,8 +59,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
         debug!("incoming bill chain event in chain event handler");
         if let Ok(decoded) = Event::<BillBlockEvent>::try_from(event.clone()) {
             if let Ok(keys) = self.bill_store.get_keys(&decoded.data.bill_id).await {
-                let valid = self
-                    .processor
+                self.processor
                     .process_chain_data(
                         &decoded.data.bill_id,
                         vec![decoded.data.block.clone()],
@@ -68,7 +67,7 @@ impl NotificationHandlerApi for BillChainEventHandler {
                     )
                     .await
                     .inspect_err(|e| error!("Received invalid block {e}"))
-                    .is_ok();
+                    .ok();
 
                 if let Some(original_event) = original_event {
                     self.store_event(
@@ -76,7 +75,6 @@ impl NotificationHandlerApi for BillChainEventHandler {
                         decoded.data.block_height,
                         &decoded.data.block.hash,
                         &decoded.data.bill_id.to_string(),
-                        valid,
                     )
                     .await?;
                 }
@@ -97,7 +95,6 @@ impl BillChainEventHandler {
         block_height: usize,
         block_hash: &Sha256Hash,
         chain_id: &str,
-        valid: bool,
     ) -> Result<()> {
         let (root, reply) = root_and_reply_id(&event);
         if let Err(e) = self
@@ -115,8 +112,7 @@ impl BillChainEventHandler {
                 block_hash: block_hash.to_owned(),
                 received: Timestamp::now(),
                 time: event.created_at.into(),
-                payload: *event.clone(),
-                valid,
+                payload: *event,
             })
             .await
         {

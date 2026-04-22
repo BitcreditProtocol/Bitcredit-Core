@@ -35,7 +35,7 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::{
-    FileReferenceStoreApi, NotificationStoreApi,
+    FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
     company::{CompanyChainStoreApi, CompanyStoreApi},
     identity::IdentityStoreApi,
 };
@@ -53,6 +53,7 @@ pub struct CompanyChainEventProcessor {
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     push_service: Arc<dyn PushApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
     bitcoin_network: bitcoin::Network,
 }
@@ -143,6 +144,14 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 )
                 .await
                 {
+                    if let Err(e) = self
+                        .chain_event_store
+                        .remove_chain_events(&company_id.to_string(), BlockchainType::Company)
+                        .await
+                    {
+                        error!("Failed to invalidate old company chain events during resync: {e}");
+                    }
+
                     for data in chain_data.iter() {
                         let blocks: Vec<CompanyBlock> = data
                             .iter()
@@ -210,6 +219,21 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                     return Err(e);
                                 }
 
+                                for event_container in data.iter() {
+                                    let event = event_container.as_chain_store_event(
+                                        &company_id.to_string(),
+                                        BlockchainType::Company,
+                                        event_container.block.get_block_height() as usize,
+                                    );
+                                    if let Err(e) =
+                                        self.chain_event_store.add_chain_event(event).await
+                                    {
+                                        error!(
+                                            "Failed to store company chain event during resync: {e}"
+                                        );
+                                    }
+                                }
+
                                 debug!(
                                     "resynced company {company_id} with {} remote events",
                                     data.len()
@@ -255,6 +279,7 @@ impl CompanyChainEventProcessor {
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         push_service: Arc<dyn PushApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
@@ -267,6 +292,7 @@ impl CompanyChainEventProcessor {
             nostr_contact_processor,
             bill_invite_handler,
             push_service,
+            chain_event_store,
             bitcoin_network,
             transport,
         }
@@ -901,8 +927,8 @@ pub mod tests {
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
             MockNostrContactProcessorApi, MockNotificationHandlerApi,
             test_utils::{
-                MockCompanyChainStore, MockCompanyStore, MockIdentityStore, get_company_data,
-                node_id_test,
+                MockCompanyChainStore, MockCompanyStore, MockIdentityStore,
+                MockNostrChainEventStore, get_company_data, node_id_test,
             },
         },
         test_utils::{MockNotificationJsonTransport, get_baseline_identity},
@@ -918,6 +944,7 @@ pub mod tests {
             contact,
             bill,
             identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -930,6 +957,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -945,6 +973,7 @@ pub mod tests {
             contact,
             bill,
             identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -968,6 +997,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -989,6 +1019,7 @@ pub mod tests {
             contact,
             bill,
             identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1007,6 +1038,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1028,6 +1060,7 @@ pub mod tests {
             contact,
             bill,
             identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1050,6 +1083,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1070,11 +1104,12 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            chain_event_store,
             mut transport,
             push_service,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
-        let blocks = vec![get_company_create_block(
+        let _blocks = [get_company_create_block(
             node_id.clone(),
             company.clone(),
             &keys,
@@ -1143,12 +1178,14 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
 
+        let block = get_company_create_block(node_id.clone(), company.clone(), &keys);
         handler
-            .process_chain_data(&node_id, blocks, Some(keys))
+            .process_chain_data(&node_id, vec![block], Some(keys.clone()))
             .await
             .expect("Process chain data should be handled");
     }
@@ -1162,6 +1199,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1252,6 +1290,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1271,6 +1310,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            mut chain_event_store,
             mut transport,
             push_service,
         ) = create_mocks();
@@ -1424,6 +1464,15 @@ pub mod tests {
             .returning(|_| ())
             .never();
 
+        chain_event_store
+            .expect_remove_chain_events()
+            .returning(|_, _| Ok(()));
+
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(0..);
+
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -1433,6 +1482,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1483,6 +1533,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1588,6 +1639,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1607,6 +1659,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1708,6 +1761,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1727,6 +1781,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1828,6 +1883,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1847,6 +1903,7 @@ pub mod tests {
             mut contact,
             bill,
             mut identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -1950,6 +2007,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -1969,6 +2027,7 @@ pub mod tests {
             contact,
             bill,
             mut identity,
+            chain_event_store,
             transport,
             push_service,
         ) = create_mocks();
@@ -2070,6 +2129,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(bill),
             Arc::new(push_service),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -2263,7 +2323,7 @@ pub mod tests {
     async fn test_process_company_block_effects_does_not_persist_block() {
         // Verify that process_company_block_effects updates company data
         // but does NOT call blockchain_store.add_block
-        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _) = create_mocks();
+        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _, _) = create_mocks();
 
         let (_, (company, _)) = get_company_data();
         let identity_full = get_baseline_identity();
@@ -2299,6 +2359,7 @@ pub mod tests {
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(MockPushApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             bitcoin::Network::Testnet,
         );
@@ -2387,6 +2448,7 @@ pub mod tests {
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(MockPushApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             bitcoin::Network::Testnet,
         );
@@ -2427,6 +2489,7 @@ pub mod tests {
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
         MockIdentityStore,
+        MockNostrChainEventStore,
         MockNotificationJsonTransport,
         MockPushApi,
     ) {
@@ -2437,6 +2500,7 @@ pub mod tests {
             MockNostrContactProcessorApi::new(),
             MockNotificationHandlerApi::new(),
             MockIdentityStore::new(),
+            MockNostrChainEventStore::new(),
             MockNotificationJsonTransport::new(),
             MockPushApi::new(),
         )
