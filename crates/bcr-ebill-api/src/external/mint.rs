@@ -369,6 +369,10 @@ impl MintClientApi for MintClient {
         block_id: BlockId,
         previous_block_hash: &Sha256Hash,
     ) -> Result<()> {
+        let mint_info = self.client(mint_url)?.get_info().await.map_err(|e| {
+            log::error!("Error getting mint clowder info on mint {mint_url}: {e}");
+            Error::ClowderClient
+        })?;
         let betas = self.client(mint_url)?.get_betas().await.map_err(|e| {
             log::error!("Error getting betas on mint {mint_url}: {e}");
             Error::ClowderClient
@@ -380,6 +384,7 @@ impl MintClientApi for MintClient {
         let beta_url =
             url::Url::from_str(&random_beta.mint.to_string()).map_err(|_| Error::InvalidMintUrl)?;
         let req = DeriveEbillPaymentAddressRequest {
+            alpha_node_id: *mint_info.node_id,
             bill_id: bill_id.to_owned(),
             block_id: block_id.inner(),
             previous_block_hash: sha256::Hash::from_byte_array(
@@ -396,6 +401,13 @@ impl MintClientApi for MintClient {
             })?;
 
         if address_to_validate != &derived_payment_address_from_beta.payment_address {
+            log::error!(
+                "Error deriving payment address on mint {beta_url}: Addresses don't match: to_validate: {}, derived: {}",
+                address_to_validate.assume_checked_ref(),
+                derived_payment_address_from_beta
+                    .payment_address
+                    .assume_checked_ref()
+            );
             return Err(Error::InvalidMintRequestToPayPaymentAddress.into());
         }
 
