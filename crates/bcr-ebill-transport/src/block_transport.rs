@@ -9,11 +9,13 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::BlockTransportServiceApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::company::Company;
+use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
 };
+use bcr_ebill_persistence::nostr::NostrChainEvent;
 use bitcoin::base58;
 use log::{debug, error};
 
@@ -45,6 +47,32 @@ impl BlockTransportService {
 
 impl ServiceTraitBounds for BlockTransportService {}
 
+impl BlockTransportService {
+    /// Validates that a previous block event exists before publishing.
+    /// If no previous event is found and the block is not genesis,
+    /// returns an error to prevent publishing an orphaned block.
+    async fn validate_previous_event_exists(
+        &self,
+        previous_hash: &Sha256Hash,
+        chain_id: &str,
+        chain_type: BlockchainType,
+        block_height: usize,
+    ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
+        let (previous_event, root_event) = self
+            .nostr_transport
+            .find_root_and_previous_event(previous_hash, chain_id, chain_type)
+            .await?;
+
+        if previous_event.is_none() && block_height > 1 {
+            return Err(Error::Blockchain(format!(
+                "Cannot publish block: missing previous block for {chain_type:?} chain {chain_id} at height {block_height}"
+            )));
+        }
+
+        Ok((previous_event, root_event))
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl BlockTransportServiceApi for BlockTransportService {
@@ -58,11 +86,11 @@ impl BlockTransportServiceApi for BlockTransportService {
 
         if let Some(event) = events.generate_blockchain_message() {
             let (previous_event, root_event) = self
-                .nostr_transport
-                .find_root_and_previous_event(
+                .validate_previous_event_exists(
                     &event.data.block.previous_hash,
                     &event.data.node_id.to_string(),
                     BlockchainType::Identity,
+                    event.data.block.id.inner() as usize,
                 )
                 .await?;
             let nostr_event = node
@@ -113,11 +141,11 @@ impl BlockTransportServiceApi for BlockTransportService {
 
         if let Some(event) = events.generate_blockchain_message() {
             let (previous_event, root_event) = self
-                .nostr_transport
-                .find_root_and_previous_event(
+                .validate_previous_event_exists(
                     &event.data.block.previous_hash,
                     &event.data.node_id.to_string(),
                     BlockchainType::Company,
+                    event.data.block.id.inner() as usize,
                 )
                 .await?;
             let nostr_event = node
@@ -184,11 +212,11 @@ impl BlockTransportServiceApi for BlockTransportService {
 
         if let Some(block_event) = events.generate_blockchain_message() {
             let (previous_event, root_event) = self
-                .nostr_transport
-                .find_root_and_previous_event(
+                .validate_previous_event_exists(
                     &block_event.data.block.previous_hash,
                     &block_event.data.bill_id.to_string(),
                     BlockchainType::Bill,
+                    block_event.data.block.id.inner() as usize,
                 )
                 .await?;
 
@@ -276,5 +304,133 @@ impl BlockTransportServiceApi for BlockTransportService {
     /// Adds a new transport client for a company if it does not already exist
     async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         self.nostr_transport.add_company_keys(company, keys).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handler::{
+        MockBillChainEventProcessorApi, MockCompanyChainEventProcessorApi,
+        MockIdentityChainEventProcessorApi,
+    };
+    use crate::test_utils::{
+        MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
+        MockNostrQueuedMessageStore, MockNotificationJsonTransport, get_nostr_transport,
+    };
+    use bcr_ebill_core::protocol::Sha256Hash;
+    use bcr_ebill_core::protocol::blockchain::BlockchainType;
+    use bcr_ebill_persistence::nostr::NostrChainEvent;
+
+    fn create_test_chain_event(
+        chain_id: &str,
+        chain_type: BlockchainType,
+        block_height: usize,
+        block_hash: Sha256Hash,
+    ) -> NostrChainEvent {
+        NostrChainEvent {
+            event_id: format!("test_event_{block_height}"),
+            root_id: "test_event_1".to_string(),
+            reply_id: if block_height > 1 {
+                Some(format!("test_event_{}", block_height - 1))
+            } else {
+                None
+            },
+            author: "test_author".to_string(),
+            chain_id: chain_id.to_string(),
+            chain_type,
+            block_height,
+            block_hash,
+            received: bcr_ebill_core::protocol::Timestamp::now(),
+            time: bcr_ebill_core::protocol::Timestamp::now(),
+            payload: nostr::EventBuilder::text_note("test")
+                .sign_with_keys(&nostr::key::Keys::generate())
+                .unwrap(),
+        }
+    }
+
+    fn get_service(chain_event_store: MockNostrChainEventStore) -> BlockTransportService {
+        BlockTransportService::new(
+            Arc::new(get_nostr_transport(
+                MockNotificationJsonTransport::new(),
+                MockContactStore::new(),
+                MockNostrContactStore::new(),
+                MockNostrQueuedMessageStore::new(),
+                chain_event_store,
+            )),
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            Arc::new(MockCompanyChainEventProcessorApi::new()),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_validate_previous_event_exists_allows_genesis() {
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        // No previous event in store for genesis block
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
+
+        let service = get_service(chain_event_store);
+        let result = service
+            .validate_previous_event_exists(
+                &Sha256Hash::new("genesis"),
+                "test_chain",
+                BlockchainType::Bill,
+                1,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let (previous, root) = result.unwrap();
+        assert!(previous.is_none());
+        assert!(root.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_validate_previous_event_exists_rejects_missing() {
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        // No previous event in store for non-genesis block
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
+
+        let service = get_service(chain_event_store);
+        let result = service
+            .validate_previous_event_exists(
+                &Sha256Hash::new("missing_hash"),
+                "test_chain",
+                BlockchainType::Bill,
+                2,
+            )
+            .await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Cannot publish block"));
+        assert!(err_msg.contains("missing previous block"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_previous_event_exists_accepts_with_previous() {
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        let previous_hash = Sha256Hash::new("previous_hash");
+        let previous_event =
+            create_test_chain_event("test_chain", BlockchainType::Bill, 1, previous_hash.clone());
+
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(move |_| Ok(Some(previous_event.clone())));
+
+        let service = get_service(chain_event_store);
+        let result = service
+            .validate_previous_event_exists(&previous_hash, "test_chain", BlockchainType::Bill, 2)
+            .await;
+
+        assert!(result.is_ok());
+        let (previous, root) = result.unwrap();
+        assert!(previous.is_some());
+        assert!(root.is_some());
     }
 }

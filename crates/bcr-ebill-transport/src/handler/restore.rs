@@ -14,6 +14,7 @@ use log::{error, info};
 use nostr::filter::Filter;
 
 use crate::handler::DirectMessageEventProcessorApi;
+use bcr_ebill_persistence::NostrChainEventStoreApi;
 
 use super::{
     IdentityChainEventProcessorApi,
@@ -25,6 +26,7 @@ pub struct RestoreAccountService {
     nostr: Arc<dyn TransportClientApi>,
     identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
     dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     keys: BcrKeys,
     node_id: NodeId,
 }
@@ -35,6 +37,7 @@ impl RestoreAccountService {
         nostr: Arc<dyn TransportClientApi>,
         identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
         dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         keys: BcrKeys,
         node_id: NodeId,
     ) -> Self {
@@ -42,6 +45,7 @@ impl RestoreAccountService {
             nostr,
             identity_chain_processor,
             dm_processor,
+            chain_event_store,
             keys,
             node_id,
         }
@@ -96,6 +100,16 @@ impl RestoreAccountService {
                 self.identity_chain_processor
                     .process_chain_data(&self.node_id, blocks, Some(self.keys.clone()))
                     .await?;
+                for event_container in &chain {
+                    let event = event_container.as_chain_store_event(
+                        &self.node_id.to_string(),
+                        BlockchainType::Identity,
+                        event_container.block.get_block_height() as usize,
+                    );
+                    if let Err(e) = self.chain_event_store.add_chain_event(event).await {
+                        error!("Failed to store identity chain event during restore: {e}");
+                    }
+                }
                 info!("restored identity chain from {} events", chain.len());
             }
         }
@@ -142,7 +156,7 @@ mod tests {
     use crate::{
         handler::{
             MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi,
-            test_utils::{get_baseline_identity, private_key_test},
+            test_utils::{MockNostrChainEventStore, get_baseline_identity, private_key_test},
         },
         test_utils::{MockNotificationJsonTransport, node_id_test, test_ts},
         transport::create_public_chain_event,
@@ -155,6 +169,7 @@ mod tests {
         let mut nostr = MockNotificationJsonTransport::new();
         let processor = MockIdentityChainEventProcessorApi::new();
         let dm_processor = MockDirectMessageEventProcessorApi::new();
+        let chain_event_store = MockNostrChainEventStore::new();
         let keys = BcrKeys::new();
 
         nostr
@@ -171,6 +186,7 @@ mod tests {
             Arc::new(nostr),
             Arc::new(processor),
             Arc::new(dm_processor),
+            Arc::new(chain_event_store),
             keys,
             node_id_test(),
         )
@@ -188,13 +204,12 @@ mod tests {
         let mut nostr = MockNotificationJsonTransport::new();
         let mut processor = MockIdentityChainEventProcessorApi::new();
         let dm_processor = MockDirectMessageEventProcessorApi::new();
+        let mut chain_event_store = MockNostrChainEventStore::new();
 
-        // given some node id
-        let return_events = events.clone();
-        // and identity chain events
+        let _return_events = events.clone();
         nostr
             .expect_resolve_public_chain()
-            .returning(move |_, _| Ok(return_events.clone()))
+            .returning(move |_, _| Ok(_return_events.clone()))
             .once();
 
         // should validate the event sender
@@ -210,6 +225,12 @@ mod tests {
             .returning(|_, _, _| Ok(()))
             .once();
 
+        chain_event_store
+            .expect_add_chain_event()
+            .with(always())
+            .returning(|_| Ok(()))
+            .times(events.len());
+
         nostr
             .expect_resolve_private_events()
             .returning(|_| Ok(vec![]))
@@ -219,6 +240,7 @@ mod tests {
             Arc::new(nostr),
             Arc::new(processor),
             Arc::new(dm_processor),
+            Arc::new(chain_event_store),
             keys,
             node_id_test(),
         )

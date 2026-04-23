@@ -27,7 +27,6 @@ const BLOCK_HASH: &str = "block_hash";
 const BLOCK_HEIGHT: &str = "block_height";
 const ROOT_ID: &str = "root_id";
 const EVENT_ID: &str = "event_id";
-const VALID: &str = "valid";
 
 impl SurrealNostrChainEventStore {
     const TABLE: &'static str = "nostr_chain_event";
@@ -37,7 +36,7 @@ impl SurrealNostrChainEventStore {
         Self { db }
     }
 
-    async fn find_all_valid_chain_events(
+    async fn find_all_chain_events(
         &self,
         chain_id: String,
         chain_type: BlockchainType,
@@ -49,7 +48,7 @@ impl SurrealNostrChainEventStore {
 
         let result: Vec<NostrChainEventDb> = self.db
                 .query(format!(
-                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {VALID} = true ORDER BY {BLOCK_HEIGHT} DESC"
+                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} ORDER BY {BLOCK_HEIGHT} DESC"
                 ).as_str(), bindings)
                 .await?;
         Ok(result)
@@ -61,29 +60,24 @@ impl ServiceTraitBounds for SurrealNostrChainEventStore {}
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
-    /// Finds all chain events for the given chain id and type. This will return all valid
-    /// events we ever received for a chain id.
     async fn find_chain_events(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
     ) -> Result<Vec<NostrChainEvent>> {
         let result: Vec<NostrChainEventDb> = self
-            .find_all_valid_chain_events(chain_id.to_owned(), chain_type)
+            .find_all_chain_events(chain_id.to_owned(), chain_type)
             .await?;
         Ok(result.into_iter().map(Into::into).collect())
     }
 
-    /// Finds the latest chain events for the given chain id and type. This can be considered the
-    /// tip of the current chain state on Nostr. Latest means the blocks with the highest block
-    /// height. In split chain scenarios this can return more than one event.
     async fn find_latest_block_events(
         &self,
         chain_id: &str,
         chain_type: BlockchainType,
     ) -> Result<Vec<NostrChainEvent>> {
         let result: Vec<NostrChainEventDb> = self
-            .find_all_valid_chain_events(chain_id.to_owned(), chain_type)
+            .find_all_chain_events(chain_id.to_owned(), chain_type)
             .await?;
         // Find the highest block_height
         let max_height = result.first().map(|e| e.block_height);
@@ -97,7 +91,6 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
         Ok(latest.into_iter().map(Into::into).collect())
     }
 
-    /// Finds a message with a specific block hash as extracted from the chain payload.
     async fn find_by_block_hash(&self, hash: &Sha256Hash) -> Result<Option<NostrChainEvent>> {
         let mut bindings = Bindings::default();
         bindings.add(DB_TABLE, Self::TABLE)?;
@@ -107,7 +100,7 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
             .db
             .query(
                 format!(
-                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {BLOCK_HASH} = ${BLOCK_HASH}"
+                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {BLOCK_HASH} = ${BLOCK_HASH} ORDER BY {BLOCK_HEIGHT} DESC, received DESC"
                 )
                 .as_str(),
                 bindings,
@@ -118,7 +111,6 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
         Ok(value)
     }
 
-    /// Adds a new chain event to the store.
     async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()> {
         let db_data: NostrChainEventDb = event.clone().into();
         let _: Option<NostrChainEventDb> = self
@@ -128,14 +120,12 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
         Ok(())
     }
 
-    /// Finds an event by a specific Nostr event_id
     async fn by_event_id(&self, event_id: &str) -> Result<Option<NostrChainEvent>> {
         let event_id = event_id.to_owned();
         let result: Option<NostrChainEventDb> = self.db.select_one(Self::TABLE, event_id).await?;
         Ok(result.map(|r| r.into()))
     }
 
-    /// Finds the root (genesis) event for a given chain
     async fn find_root_event(
         &self,
         chain_id: &str,
@@ -148,10 +138,28 @@ impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
 
         let result: Vec<NostrChainEventDb> = self.db
                 .query(format!(
-                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {EVENT_ID} = {ROOT_ID} AND {VALID} = true"
+                    "SELECT * FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE} AND {EVENT_ID} = {ROOT_ID}"
                 ).as_str(), bindings)
                 .await?;
         Ok(result.first().map(|r| r.to_owned().into()))
+    }
+
+    async fn remove_chain_events(&self, chain_id: &str, chain_type: BlockchainType) -> Result<()> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        bindings.add(CHAIN_ID, chain_id.to_owned())?;
+        bindings.add(CHAIN_TYPE, chain_type)?;
+
+        self.db
+            .query_check(
+                format!(
+                    "DELETE FROM type::table(${DB_TABLE}) WHERE {CHAIN_ID} = ${CHAIN_ID} AND {CHAIN_TYPE} = ${CHAIN_TYPE}"
+                )
+                .as_str(),
+                bindings,
+            )
+            .await?;
+        Ok(())
     }
 }
 
@@ -180,8 +188,6 @@ pub struct NostrChainEventDb {
     pub time: Timestamp,
     /// The event as we received it via nostr.
     pub payload: Event,
-    /// We consider this event as part of the valid chain
-    pub valid: bool,
 }
 
 impl From<NostrChainEvent> for NostrChainEventDb {
@@ -198,7 +204,6 @@ impl From<NostrChainEvent> for NostrChainEventDb {
             received: event.received,
             time: event.time,
             payload: event.payload,
-            valid: event.valid,
         }
     }
 }
@@ -217,7 +222,6 @@ impl From<NostrChainEventDb> for NostrChainEvent {
             received: db.received,
             time: db.time,
             payload: db.payload,
-            valid: db.valid,
         }
     }
 }
@@ -376,14 +380,6 @@ mod tests {
             &root,
             Some(&child),
         );
-        let mut invalid = get_child_event(
-            "child_event_c",
-            3,
-            &Sha256Hash::new("child_hash_c"),
-            &root,
-            Some(&child),
-        );
-        invalid.valid = false;
 
         store
             .add_chain_event(root)
@@ -402,17 +398,11 @@ mod tests {
             .await
             .expect("target event creation failed");
 
-        store
-            .add_chain_event(invalid)
-            .await
-            .expect("failed to add invalid event");
-
         let all = store
             .find_chain_events("chain_id", BlockchainType::Bill)
             .await
             .expect("could not find all events");
 
-        // result should not include invalid event
         assert_eq!(all.len(), 4);
     }
     async fn get_store(db: &str) -> SurrealNostrChainEventStore {
@@ -470,7 +460,6 @@ mod tests {
             received: Timestamp::now(),
             time: Timestamp::now(),
             payload: get_test_event(),
-            valid: true,
         }
     }
 

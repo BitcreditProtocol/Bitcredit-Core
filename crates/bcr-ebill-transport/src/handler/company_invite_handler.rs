@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -12,7 +12,7 @@ use bcr_ebill_core::{
         event::{ChainInvite, Event},
     },
 };
-use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
+use bcr_ebill_persistence::NostrChainEventStoreApi;
 use log::{debug, error, trace, warn};
 
 use crate::{
@@ -127,27 +127,10 @@ impl CompanyInviteEventHandler {
         chain_id: &str,
         chain_type: BlockchainType,
         inserted_chain: Vec<EventContainer>,
-        chains: &[Vec<EventContainer>],
+        _chains: &[Vec<EventContainer>],
     ) -> Result<()> {
-        let mut to_insert: HashMap<String, NostrChainEvent> = HashMap::new();
-
-        // first store the inserted valid blocks
         for (idx, inserted) in inserted_chain.iter().enumerate() {
-            let data = inserted.as_chain_store_event(chain_id, chain_type, idx + 1, true);
-            to_insert.insert(data.event_id.to_owned(), data);
-        }
-
-        // then store all malicious or invalid blocks with their pretended block height
-        for chain in chains {
-            for (idx, data) in chain.iter().enumerate() {
-                if !to_insert.contains_key(&data.event.id.to_string()) {
-                    let data = data.as_chain_store_event(chain_id, chain_type, idx + 1, false);
-                    to_insert.insert(data.event_id.to_owned(), data);
-                }
-            }
-        }
-
-        for (_, data) in to_insert {
+            let data = inserted.as_chain_store_event(chain_id, chain_type, idx + 1);
             if let Err(e) = self.chain_event_store.add_chain_event(data).await {
                 debug!("Could not store chain event because {e}")
             }
@@ -352,19 +335,10 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        // store valid events
         chain_event_store
             .expect_add_chain_event()
-            .withf(|e| e.valid)
             .returning(|_| Ok(()))
             .times(3);
-
-        // store invalid events
-        chain_event_store
-            .expect_add_chain_event()
-            .withf(|e| !e.valid)
-            .returning(|_| Ok(()))
-            .times(1);
 
         let event = generate_test_event(&BcrKeys::new(), None, None, 1);
         let invite = Event::new_company_invite(ChainInvite::company(

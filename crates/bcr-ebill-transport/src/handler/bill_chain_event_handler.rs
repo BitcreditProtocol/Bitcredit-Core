@@ -70,13 +70,12 @@ impl NotificationHandlerApi for BillChainEventHandler {
                     .inspect_err(|e| error!("Received invalid block {e}"))
                     .is_ok();
 
-                if let Some(original_event) = original_event {
+                if valid && let Some(original_event) = original_event {
                     self.store_event(
                         original_event,
                         decoded.data.block_height,
                         &decoded.data.block.hash,
                         &decoded.data.bill_id.to_string(),
-                        valid,
                     )
                     .await?;
                 }
@@ -97,7 +96,6 @@ impl BillChainEventHandler {
         block_height: usize,
         block_hash: &Sha256Hash,
         chain_id: &str,
-        valid: bool,
     ) -> Result<()> {
         let (root, reply) = root_and_reply_id(&event);
         if let Err(e) = self
@@ -115,8 +113,7 @@ impl BillChainEventHandler {
                 block_hash: block_hash.to_owned(),
                 received: Timestamp::now(),
                 time: event.created_at.into(),
-                payload: *event.clone(),
-                valid,
+                payload: *event,
             })
             .await
         {

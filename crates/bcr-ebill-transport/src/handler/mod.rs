@@ -729,6 +729,7 @@ mod test_utils {
           async fn find_by_block_hash(&self, hash: &bcr_ebill_core::protocol::Sha256Hash) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
           async fn add_chain_event(&self, event: bcr_ebill_persistence::nostr::NostrChainEvent) -> Result<()>;
           async fn by_event_id(&self, event_id: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          async fn remove_chain_events(&self, chain_id: &str, chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType) -> Result<()>;
         }
     }
 

@@ -22,6 +22,7 @@ use bcr_ebill_core::{
     },
     protocol::{BlockId, EditOptionalFieldMode},
 };
+use bcr_ebill_persistence::NostrChainEventStoreApi;
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
@@ -39,6 +40,7 @@ pub struct IdentityChainEventProcessor {
     company_invite_handler: Arc<dyn NotificationHandlerApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
     bitcoin_network: bitcoin::Network,
 }
@@ -99,6 +101,17 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 )
                 .await
                 {
+                    if let Err(e) = self
+                        .chain_event_store
+                        .remove_chain_events(
+                            &identity.node_id.to_string(),
+                            BlockchainType::Identity,
+                        )
+                        .await
+                    {
+                        error!("Failed to invalidate old identity chain events during resync: {e}");
+                    }
+
                     for data in chain_data.iter() {
                         let blocks: Vec<IdentityBlock> = data
                             .iter()
@@ -154,6 +167,21 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                     return Err(e);
                                 }
 
+                                for event_container in data.iter() {
+                                    let event = event_container.as_chain_store_event(
+                                        &identity.node_id.to_string(),
+                                        BlockchainType::Identity,
+                                        event_container.block.get_block_height() as usize,
+                                    );
+                                    if let Err(e) =
+                                        self.chain_event_store.add_chain_event(event).await
+                                    {
+                                        error!(
+                                            "Failed to store identity chain event during resync: {e}"
+                                        );
+                                    }
+                                }
+
                                 debug!(
                                     "resynced identity {} with {} remote events",
                                     identity.node_id,
@@ -200,6 +228,7 @@ impl IdentityChainEventProcessor {
         company_invite_handler: Arc<dyn NotificationHandlerApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
@@ -210,6 +239,7 @@ impl IdentityChainEventProcessor {
             company_invite_handler,
             bill_invite_handler,
             nostr_contact_processor,
+            chain_event_store,
             transport,
             bitcoin_network,
         }
@@ -561,7 +591,8 @@ pub mod tests {
             MockNotificationHandlerApi,
             identity_chain_event_processor::IdentityChainEventProcessor,
             test_utils::{
-                MockIdentityChainStore, MockIdentityStore, get_baseline_identity, node_id_test,
+                MockIdentityChainStore, MockIdentityStore, MockNostrChainEventStore,
+                get_baseline_identity, node_id_test,
             },
         },
         test_utils::{MockFileReferenceStore, MockNotificationJsonTransport},
@@ -570,7 +601,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_create_event_handler() {
-        let (chain_store, store, contact, company_invite, bill_invite, transport) = create_mocks();
+        let (
+            chain_store,
+            store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+        ) = create_mocks();
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -578,6 +617,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -586,8 +626,15 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
         let keys = BcrKeys::new().get_nostr_keys();
-        let (chain_store, mut store, contact, company_invite, bill_invite, transport) =
-            create_mocks();
+        let (
+            chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+        ) = create_mocks();
 
         store.expect_get().returning(move || {
             Err(bcr_ebill_persistence::Error::NoSuchEntity(
@@ -603,6 +650,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -614,8 +662,15 @@ pub mod tests {
     #[tokio::test]
     async fn test_validate_chain_event_fails_if_not_own_node_id() {
         let keys = BcrKeys::new();
-        let (chain_store, mut store, contact, company_invite, bill_invite, transport) =
-            create_mocks();
+        let (
+            chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+        ) = create_mocks();
         let identity = get_baseline_identity();
         store
             .expect_get()
@@ -628,6 +683,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -639,8 +695,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_validate_chain_event() {
-        let (chain_store, mut store, contact, company_invite, bill_invite, transport) =
-            create_mocks();
+        let (
+            chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+        ) = create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
         identity.name = Name::new("new name").unwrap();
@@ -655,6 +718,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -668,8 +732,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_update_identity_data() {
-        let (mut chain_store, mut store, contact, company_invite, bill_invite, transport) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+        ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -718,6 +789,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -730,8 +802,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_recovers_chain_on_missing_blocks() {
-        let (mut chain_store, mut store, contact, company_invite, bill_invite, mut transport) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            mut chain_event_store,
+            mut transport,
+        ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -833,6 +912,15 @@ pub mod tests {
             .returning(|_| Ok(()))
             .times(2);
 
+        chain_event_store
+            .expect_remove_chain_events()
+            .returning(|_, _| Ok(()));
+
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()))
+            .times(0..);
+
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -840,6 +928,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -883,8 +972,15 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_identity_proof() {
-        let (mut chain_store, mut store, contact, company_invite, bill_invite, transport) =
-            create_mocks();
+        let (
+            mut chain_store,
+            mut store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+        ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
@@ -936,6 +1032,7 @@ pub mod tests {
             Arc::new(company_invite),
             Arc::new(bill_invite),
             Arc::new(contact),
+            Arc::new(chain_event_store),
             Arc::new(transport),
             bitcoin::Network::Testnet,
         );
@@ -976,9 +1073,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_identity_block_effects_does_not_persist_block() {
-        // Verify that process_identity_block_effects updates identity data
-        // but does NOT call blockchain_store.add_block
-        let (mut chain_store, mut store, contact, _, _, _) = create_mocks();
+        let (mut chain_store, mut store, contact, _, _, _, _) = create_mocks();
 
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -1000,6 +1095,7 @@ pub mod tests {
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(contact),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             bitcoin::Network::Testnet,
         );
@@ -1078,6 +1174,7 @@ pub mod tests {
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(MockNotificationHandlerApi::new()),
             Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             bitcoin::Network::Testnet,
         );
@@ -1112,6 +1209,7 @@ pub mod tests {
         MockNostrContactProcessorApi,
         MockNotificationHandlerApi,
         MockNotificationHandlerApi,
+        MockNostrChainEventStore,
         MockNotificationJsonTransport,
     ) {
         (
@@ -1120,6 +1218,7 @@ pub mod tests {
             MockNostrContactProcessorApi::new(),
             MockNotificationHandlerApi::new(),
             MockNotificationHandlerApi::new(),
+            MockNostrChainEventStore::new(),
             MockNotificationJsonTransport::new(),
         )
     }

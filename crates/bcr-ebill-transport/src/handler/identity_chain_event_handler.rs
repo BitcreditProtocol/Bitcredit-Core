@@ -49,13 +49,13 @@ impl NotificationHandlerApi for IdentityChainEventHandler {
                     .await
                     .inspect_err(|e| error!("Received invalid block {e}"))
                     .is_ok();
-                if let Some(original_event) = original_event {
+
+                if valid && let Some(original_event) = original_event {
                     self.store_event(
-                        original_event,
+                        &original_event,
                         decoded.data.block_height,
                         &decoded.data.block.hash,
                         &decoded.data.node_id.to_string(),
-                        valid,
                     )
                     .await?;
                 }
@@ -85,13 +85,12 @@ impl IdentityChainEventHandler {
     }
     async fn store_event(
         &self,
-        event: Box<nostr::Event>,
+        event: &nostr::Event,
         block_height: usize,
         block_hash: &Sha256Hash,
         chain_id: &str,
-        valid: bool,
     ) -> Result<()> {
-        let (root, reply) = root_and_reply_id(&event);
+        let (root, reply) = root_and_reply_id(event);
         if let Err(e) = self
             .chain_event_store
             .add_chain_event(NostrChainEvent {
@@ -107,12 +106,11 @@ impl IdentityChainEventHandler {
                 block_hash: block_hash.to_owned(),
                 received: Timestamp::now(),
                 time: event.created_at.into(),
-                payload: *event.clone(),
-                valid,
+                payload: event.clone(),
             })
             .await
         {
-            error!("Failed to store bill chain nostr event into event store {e}");
+            error!("Failed to store identity chain nostr event into event store {e}");
         }
         Ok(())
     }
