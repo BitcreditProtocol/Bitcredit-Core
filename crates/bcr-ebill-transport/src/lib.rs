@@ -396,7 +396,7 @@ pub async fn create_restore_account_service(
         db_context.notification_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
-        push_service,
+        push_service.clone(),
         db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         config.bitcoin_network(),
@@ -406,6 +406,15 @@ pub async fn create_restore_account_service(
         nostr_client.clone(),
         company_processor.clone(),
         db_context.nostr_chain_event_store.clone(),
+    ));
+
+    let contact_share_handler = Arc::new(ContactShareEventHandler::new(
+        nostr_client.clone(),
+        db_context.contact_store.clone(),
+        db_context.nostr_contact_store.clone(),
+        db_context.file_reference_store.clone(),
+        db_context.notification_store.clone(),
+        push_service,
     ));
 
     let processor = Arc::new(IdentityChainEventProcessor::new(
@@ -426,7 +435,11 @@ pub async fn create_restore_account_service(
             contact_service.clone(),
             db_context.nostr_event_offset_store.clone(),
             chain_key_service.clone(),
-            vec![company_invite_handler, bill_invite_handler],
+            vec![
+                company_invite_handler,
+                bill_invite_handler,
+                contact_share_handler,
+            ],
             Arc::new(FileMetadataProcessor::new(
                 db_context.file_reference_store.clone(),
             )),
