@@ -4,9 +4,7 @@ use async_trait::async_trait;
 use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use bcr_common::client::mint::Client as ExternalMintClient;
 use bcr_common::core::BillId;
-use bcr_common::wire::clowder::{
-    ConnectedMintResponse, ConnectedMintsResponse, DeriveEbillPaymentAddressRequest,
-};
+use bcr_common::wire::clowder::{ConnectedMintResponse, ConnectedMintsResponse};
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash, Sum};
 use bcr_ebill_core::{
@@ -383,17 +381,14 @@ impl MintClientApi for MintClient {
 
         let beta_url =
             url::Url::from_str(&random_beta.mint.to_string()).map_err(|_| Error::InvalidMintUrl)?;
-        let req = DeriveEbillPaymentAddressRequest {
-            alpha_node_id: *mint_info.node_id,
-            bill_id: bill_id.to_owned(),
-            block_id: block_id.inner(),
-            previous_block_hash: sha256::Hash::from_byte_array(
-                previous_block_hash.decode_to_array(),
-            ),
-        };
         let derived_payment_address_from_beta = self
             .client(&beta_url)?
-            .post_derive_ebill_payment_address(req)
+            .derive_ebill_payment_address(
+                *mint_info.node_id,
+                bill_id.to_owned(),
+                block_id.inner(),
+                sha256::Hash::from_byte_array(previous_block_hash.decode_to_array()),
+            )
             .await
             .map_err(|e| {
                 log::error!("Error deriving payment address on mint {beta_url}: {e}");
