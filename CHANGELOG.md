@@ -1,3 +1,5 @@
+# 0.5.8
+
 # 0.5.7
 
 * Add Mint-specific `RequestToPay`
