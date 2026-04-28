@@ -101,17 +101,6 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 )
                 .await
                 {
-                    if let Err(e) = self
-                        .chain_event_store
-                        .remove_chain_events(
-                            &identity.node_id.to_string(),
-                            BlockchainType::Identity,
-                        )
-                        .await
-                    {
-                        error!("Failed to invalidate old identity chain events during resync: {e}");
-                    }
-
                     for data in chain_data.iter() {
                         let blocks: Vec<IdentityBlock> = data
                             .iter()
@@ -165,6 +154,19 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                                         identity.node_id
                                     );
                                     return Err(e);
+                                }
+
+                                if let Err(e) = self
+                                    .chain_event_store
+                                    .remove_chain_events(
+                                        &identity.node_id.to_string(),
+                                        BlockchainType::Identity,
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to invalidate old identity chain events during resync: {e}"
+                                    );
                                 }
 
                                 for event_container in data.iter() {

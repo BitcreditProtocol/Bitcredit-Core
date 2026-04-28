@@ -144,14 +144,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 )
                 .await
                 {
-                    if let Err(e) = self
-                        .chain_event_store
-                        .remove_chain_events(&company_id.to_string(), BlockchainType::Company)
-                        .await
-                    {
-                        error!("Failed to invalidate old company chain events during resync: {e}");
-                    }
-
                     for data in chain_data.iter() {
                         let blocks: Vec<CompanyBlock> = data
                             .iter()
@@ -217,6 +209,19 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                         "Failed to add blocks after truncation for company {company_id}: {e}"
                                     );
                                     return Err(e);
+                                }
+
+                                if let Err(e) = self
+                                    .chain_event_store
+                                    .remove_chain_events(
+                                        &company_id.to_string(),
+                                        BlockchainType::Company,
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to invalidate old company chain events during resync: {e}"
+                                    );
                                 }
 
                                 for event_container in data.iter() {
