@@ -1,5 +1,7 @@
 # 0.5.8
 
+* Fix an issue with the new orphaned-block validation
+
 # 0.5.7
 
 * Add Mint-specific `RequestToPay`
