@@ -133,14 +133,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 )
                 .await
                 {
-                    if let Err(e) = self
-                        .chain_event_store
-                        .remove_chain_events(&bill_id.to_string(), BlockchainType::Bill)
-                        .await
-                    {
-                        error!("Failed to invalidate old bill chain events during resync: {e}");
-                    }
-
                     for data in chain_data.iter() {
                         let blocks: Vec<BillBlock> = data
                             .iter()
@@ -206,6 +198,16 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                         "Failed to add blocks after truncation for bill {bill_id}: {e}"
                                     );
                                     return Err(e);
+                                }
+
+                                if let Err(e) = self
+                                    .chain_event_store
+                                    .remove_chain_events(&bill_id.to_string(), BlockchainType::Bill)
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to invalidate old bill chain events during resync: {e}"
+                                    );
                                 }
 
                                 for event_container in data.iter() {
