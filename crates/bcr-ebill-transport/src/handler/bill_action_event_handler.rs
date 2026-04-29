@@ -67,6 +67,36 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
+        let is_new_actionable = event
+            .action_type
+            .as_ref()
+            .map(|a| a.is_actionable())
+            .unwrap_or(false);
+
+        let current_active = self
+            .notification_store
+            .get_latest_by_reference(&event.bill_id.to_string(), NotificationType::Bill)
+            .await;
+
+        let current_is_actionable = match &current_active {
+            Ok(Some(currently_active)) => currently_active
+                .payload
+                .as_ref()
+                .and_then(|p| serde_json::from_value::<BillChainEventPayload>(p.clone()).ok())
+                .and_then(|p| p.action_type)
+                .map(|a| a.is_actionable())
+                .unwrap_or(false),
+            _ => false,
+        };
+
+        if !is_new_actionable && current_is_actionable {
+            trace!(
+                "Skipping non-actionable notification for bill {} because an actionable notification is already active",
+                event.bill_id
+            );
+            return Ok(());
+        }
+
         // create notification
         let mut notification = Notification::new_bill_notification(
             &event.bill_id,
@@ -77,22 +107,13 @@ impl BillActionEventHandler {
         notification.event_id = event_id;
 
         // mark Bill event as done if any active one exists
-        match self
-            .notification_store
-            .get_latest_by_reference(&event.bill_id.to_string(), NotificationType::Bill)
-            .await
+        if let Ok(Some(currently_active)) = current_active
+            && let Err(e) = self
+                .notification_store
+                .mark_as_done(&currently_active.id)
+                .await
         {
-            Ok(Some(currently_active)) => {
-                if let Err(e) = self
-                    .notification_store
-                    .mark_as_done(&currently_active.id)
-                    .await
-                {
-                    error!("Failed to mark currently active notification as done: {e}");
-                }
-            }
-            Err(e) => error!("Failed to get latest notification by reference: {e}"),
-            Ok(None) => {}
+            error!("Failed to mark currently active notification as done: {e}");
         }
         // save new notification to database
         self.notification_store
@@ -173,30 +194,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
 
 // generates a human readable description for an event
 fn event_description(event_type: &BillEventType) -> String {
-    match event_type {
-        BillEventType::BillSigned => "bill_signed".to_string(),
-        BillEventType::BillAccepted => "bill_accepted".to_string(),
-        BillEventType::BillAcceptanceRequested => "bill_should_be_accepted".to_string(),
-        BillEventType::BillAcceptanceRejected => "bill_acceptance_rejected".to_string(),
-        BillEventType::BillAcceptanceTimeout => "bill_acceptance_timed_out".to_string(),
-        BillEventType::BillAcceptanceRecourse => "bill_recourse_acceptance_required".to_string(),
-        BillEventType::BillPaymentRequested => "bill_payment_required".to_string(),
-        BillEventType::BillPaymentRejected => "bill_payment_rejected".to_string(),
-        BillEventType::BillPaymentTimeout => "bill_payment_timed_out".to_string(),
-        BillEventType::BillPaymentRecourse => "bill_recourse_payment_required".to_string(),
-        BillEventType::BillRecourseRejected => "Bill_recourse_rejected".to_string(),
-        BillEventType::BillRecourseTimeout => "Bill_recourse_timed_out".to_string(),
-        BillEventType::BillSellOffered => "bill_request_to_buy".to_string(),
-        BillEventType::BillBuyingRejected => "bill_buying_rejected".to_string(),
-        BillEventType::BillPaid => "bill_paid".to_string(),
-        BillEventType::BillRecoursePaid => "bill_recourse_paid".to_string(),
-        BillEventType::BillEndorsed => "bill_endorsed".to_string(),
-        BillEventType::BillSold => "bill_sold".to_string(),
-        BillEventType::BillMintingRequested => "requested_to_mint".to_string(),
-        BillEventType::BillNewQuote => "new_quote".to_string(),
-        BillEventType::BillQuoteApproved => "quote_approved".to_string(),
-        BillEventType::BillBlock => "".to_string(),
-    }
+    event_type.description()
 }
 
 #[cfg(test)]
@@ -354,9 +352,9 @@ mod tests {
             EventType::Bill,
             BillChainEventPayload {
                 bill_id: bill_id_test(),
-                event_type: BillEventType::BillSigned,
+                event_type: BillEventType::BillAcceptanceRequested,
                 sum: Some(Sum::new_sat(500).expect("sat works")),
-                action_type: Some(ActionType::CheckBill),
+                action_type: Some(ActionType::AcceptBill),
             },
         );
 
@@ -434,9 +432,9 @@ mod tests {
             EventType::Bill,
             BillChainEventPayload {
                 bill_id: bill_id_test(),
-                event_type: BillEventType::BillSigned,
+                event_type: BillEventType::BillAcceptanceRequested,
                 sum: Some(Sum::new_sat(500).expect("sat works")),
-                action_type: Some(ActionType::CheckBill),
+                action_type: Some(ActionType::AcceptBill),
             },
         );
 

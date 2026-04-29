@@ -233,6 +233,38 @@ pub enum ActionType {
     CheckQuote,
 }
 
+impl BillEventType {
+    /// Returns a human-readable description key for the event type.
+    pub fn description(&self) -> String {
+        match self {
+            BillEventType::BillSigned => "bill_signed".to_string(),
+            BillEventType::BillAccepted => "bill_accepted".to_string(),
+            BillEventType::BillAcceptanceRequested => "bill_should_be_accepted".to_string(),
+            BillEventType::BillAcceptanceRejected => "bill_acceptance_rejected".to_string(),
+            BillEventType::BillAcceptanceTimeout => "bill_acceptance_timed_out".to_string(),
+            BillEventType::BillAcceptanceRecourse => {
+                "bill_recourse_acceptance_required".to_string()
+            }
+            BillEventType::BillPaymentRequested => "bill_payment_required".to_string(),
+            BillEventType::BillPaymentRejected => "bill_payment_rejected".to_string(),
+            BillEventType::BillPaymentTimeout => "bill_payment_timed_out".to_string(),
+            BillEventType::BillPaymentRecourse => "bill_recourse_payment_required".to_string(),
+            BillEventType::BillRecourseRejected => "Bill_recourse_rejected".to_string(),
+            BillEventType::BillRecourseTimeout => "Bill_recourse_timed_out".to_string(),
+            BillEventType::BillSellOffered => "bill_request_to_buy".to_string(),
+            BillEventType::BillBuyingRejected => "bill_buying_rejected".to_string(),
+            BillEventType::BillPaid => "bill_paid".to_string(),
+            BillEventType::BillRecoursePaid => "bill_recourse_paid".to_string(),
+            BillEventType::BillEndorsed => "bill_endorsed".to_string(),
+            BillEventType::BillSold => "bill_sold".to_string(),
+            BillEventType::BillMintingRequested => "requested_to_mint".to_string(),
+            BillEventType::BillNewQuote => "new_quote".to_string(),
+            BillEventType::BillQuoteApproved => "quote_approved".to_string(),
+            BillEventType::BillBlock => "".to_string(),
+        }
+    }
+}
+
 impl fmt::Display for BillEventType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -271,5 +303,9 @@ impl ActionType {
             Self::PayBill => Some(BillEventType::BillPaymentRecourse),
             _ => None,
         }
+    }
+
+    pub fn is_actionable(&self) -> bool {
+        !matches!(self, Self::CheckBill)
     }
 }

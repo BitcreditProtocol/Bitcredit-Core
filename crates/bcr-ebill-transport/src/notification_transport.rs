@@ -14,35 +14,88 @@ use bcr_ebill_core::application::notification::{Notification, NotificationType};
 use bcr_ebill_core::{
     protocol::Sum,
     protocol::blockchain::bill::participant::BillParticipant,
-    protocol::event::{ActionType, BillChainEventPayload, Event},
+    protocol::event::{ActionType, BillChainEventPayload, BillEventType, Event},
 };
 use bcr_ebill_persistence::NotificationStoreApi;
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
 use log::error;
 
-use crate::NostrTransportService;
+use crate::PushApi;
 
 pub struct NotificationTransportService {
-    nostr_transport: Arc<NostrTransportService>,
     notification_store: Arc<dyn NotificationStoreApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     #[allow(unused)]
     email_client: Arc<dyn EmailClientApi>,
+    push_service: Arc<dyn PushApi>,
 }
 
 impl NotificationTransportService {
     pub fn new(
-        nostr_transport: Arc<NostrTransportService>,
         notification_store: Arc<dyn NotificationStoreApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
         email_client: Arc<dyn EmailClientApi>,
+        push_service: Arc<dyn PushApi>,
     ) -> Self {
         Self {
-            nostr_transport,
             notification_store,
             email_notification_store,
             email_client,
+            push_service,
         }
+    }
+
+    async fn create_bill_notification(
+        &self,
+        node_id: &NodeId,
+        bill_id: &BillId,
+        event_type: BillEventType,
+        action_type: Option<ActionType>,
+        sum: Option<Sum>,
+    ) -> Result<()> {
+        let payload = BillChainEventPayload {
+            event_type: event_type.clone(),
+            bill_id: bill_id.to_owned(),
+            action_type,
+            sum,
+        };
+
+        let notification = Notification::new_bill_notification(
+            bill_id,
+            node_id,
+            &event_type.description(),
+            Some(
+                serde_json::to_value(&payload)
+                    .map_err(|e| Error::Message(format!("Failed to serialize payload: {e}")))?,
+            ),
+        );
+
+        if let Ok(Some(currently_active)) = self
+            .notification_store
+            .get_latest_by_reference(&bill_id.to_string(), NotificationType::Bill)
+            .await
+        {
+            let _ = self
+                .notification_store
+                .mark_as_done(&currently_active.id)
+                .await;
+        }
+
+        match self.notification_store.add(notification.clone()).await {
+            Ok(_) => {
+                if let Ok(notification_value) = serde_json::to_value(notification) {
+                    self.push_service.send(notification_value).await;
+                }
+            }
+            Err(e) => {
+                error!("Failed to save bill notification: {e}");
+                return Err(Error::Persistence(
+                    "Failed to save bill notification".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -125,12 +178,22 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         drawee: &NodeId,
         recoursee: &Option<NodeId>,
     ) -> Result<()> {
-        let node = self.nostr_transport.get_node_transport(sender_node_id);
-
         if let Some(event_type) = timed_out_action.get_timeout_event_type() {
-            // only send to a recipient once
-            let unique: HashMap<NodeId, BillParticipant> =
-                HashMap::from_iter(recipients.iter().map(|r| (r.node_id().clone(), r.clone())));
+            let recipient_ids: Vec<NodeId> =
+                recipients.iter().map(|r| r.node_id().clone()).collect();
+
+            if !recipient_ids.contains(sender_node_id) {
+                return Ok(());
+            }
+
+            self.create_bill_notification(
+                sender_node_id,
+                bill_id,
+                event_type.clone(),
+                Some(ActionType::CheckBill),
+                sum.clone(),
+            )
+            .await?;
 
             let payload = BillChainEventPayload {
                 event_type,
@@ -138,21 +201,15 @@ impl NotificationTransportServiceApi for NotificationTransportService {
                 action_type: Some(ActionType::CheckBill),
                 sum,
             };
-            for (_, recipient) in unique {
-                let event = Event::new_bill(payload.clone());
-                node.send_private_event(sender_node_id, &recipient, event.clone().try_into()?)
-                    .await?;
-
-                // Only send email to holder, and only if we are drawee, or recoursee
-                if let Some(r) = recoursee {
-                    if sender_node_id == r {
-                        self.send_email_notification(sender_node_id, holder, &event)
-                            .await;
-                    }
-                } else if sender_node_id == drawee {
+            let event = Event::new_bill(payload);
+            if let Some(r) = recoursee {
+                if sender_node_id == r {
                     self.send_email_notification(sender_node_id, holder, &event)
                         .await;
                 }
+            } else if sender_node_id == drawee {
+                self.send_email_notification(sender_node_id, holder, &event)
+                    .await;
             }
         }
         Ok(())
@@ -228,26 +285,20 @@ mod tests {
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
     use bcr_ebill_core::{
-        application::notification::Notification,
-        protocol::Email,
-        protocol::blockchain::bill::participant::BillParticipant,
-        protocol::crypto::BcrKeys,
-        protocol::event::{
-            ActionType, BillChainEventPayload, BillEventType, Event, EventEnvelope, EventType,
-        },
-        protocol::{Result, Sum},
+        application::notification::Notification, protocol::Email, protocol::Sum,
+        protocol::blockchain::bill::participant::BillParticipant, protocol::crypto::BcrKeys,
+        protocol::event::ActionType,
     };
     use bcr_ebill_persistence::notification::NotificationFilter;
     use mockall::predicate::eq;
 
     use crate::{
         notification_transport::NotificationTransportService,
+        push_notification::MockPushApi,
         test_utils::{
-            MockContactStore, MockEmailClient, MockEmailNotificationStore,
-            MockNostrChainEventStore, MockNostrContactStore, MockNostrQueuedMessageStore,
-            MockNotificationJsonTransport, MockNotificationStore, bill_id_test,
-            get_identity_public_data, get_nostr_transport, init_test_cfg, node_id_test,
-            node_id_test_other, node_id_test_other2,
+            MockEmailClient, MockEmailNotificationStore, MockNotificationStore, bill_id_test,
+            get_identity_public_data, init_test_cfg, node_id_test, node_id_test_other,
+            node_id_test_other2,
         },
     };
 
@@ -274,18 +325,14 @@ mod tests {
             )),
         ];
 
-        let service = expect_service(|mock, _, _, _, _, _, _, email_client| {
-            // expect to send payment timeout event to all recipients
-            mock.expect_send_private_event()
-                .withf(|_, _, e| check_chain_payload(e, BillEventType::BillPaymentTimeout))
-                .returning(|_, _, _| Ok(()))
-                .times(3);
+        let service = expect_service(|mock_store, _, email_client, mock_push| {
+            mock_store.expect_add().returning(Ok).times(2);
+            mock_store
+                .expect_get_latest_by_reference()
+                .returning(|_, _| Ok(None))
+                .times(2);
 
-            // expect to send acceptance timeout event to all recipients
-            mock.expect_send_private_event()
-                .withf(|_, _, e| check_chain_payload(e, BillEventType::BillAcceptanceTimeout))
-                .returning(|_, _, _| Ok(()))
-                .times(3);
+            mock_push.expect_send().returning(|_| ()).times(2);
 
             email_client
                 .expect_send_bill_notification()
@@ -342,10 +389,7 @@ mod tests {
             )),
         ];
 
-        let service = expect_service(|mock, _, _, _, _, _, _, _| {
-            // expect to never send timeout event on non expiring events
-            mock.expect_send_private_event().never();
-        });
+        let service = expect_service(|_, _, _, _| {});
 
         service
             .send_request_to_action_timed_out_event(
@@ -372,7 +416,7 @@ mod tests {
             ..Default::default()
         };
 
-        let service = expect_service(|_, _, _, _, _, mock_store, _, _| {
+        let service = expect_service(|mock_store, _, _, _| {
             let returning = result.clone();
             mock_store
                 .expect_list()
@@ -398,7 +442,7 @@ mod tests {
             ..Default::default()
         };
 
-        let service = expect_service(|_, _, _, _, _, _, _, _| {});
+        let service = expect_service(|_, _, _, _| {});
 
         assert!(service.get_client_notifications(filter).await.is_err());
         assert!(
@@ -425,7 +469,7 @@ mod tests {
     async fn get_mark_notification_done() {
         init_test_cfg();
 
-        let service = expect_service(|_, _, _, _, _, mock_store, _, _| {
+        let service = expect_service(|mock_store, _, _, _| {
             mock_store
                 .expect_mark_as_done()
                 .with(eq("notification_id"))
@@ -442,7 +486,7 @@ mod tests {
     async fn test_get_email_notifications_preferences_link() {
         init_test_cfg();
 
-        let service = expect_service(|_, _, _, _, _, _, email_store, _| {
+        let service = expect_service(|_, email_store, _, _| {
             email_store
                 .expect_get_email_preferences_link_for_node_id()
                 .returning(|_| Ok(Some(url::Url::parse("http://bit.cr/").unwrap())))
@@ -462,7 +506,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link_no_entry() {
         init_test_cfg();
-        let service = expect_service(|_, _, _, _, _, _, email_store, _| {
+        let service = expect_service(|_, email_store, _, _| {
             email_store
                 .expect_get_email_preferences_link_for_node_id()
                 .returning(|_| Ok(None))
@@ -476,108 +520,57 @@ mod tests {
     }
 
     fn get_mocks() -> (
-        MockNotificationJsonTransport,
-        MockContactStore,
-        MockNostrContactStore,
-        MockNostrQueuedMessageStore,
-        MockNostrChainEventStore,
         MockNotificationStore,
         MockEmailNotificationStore,
         MockEmailClient,
+        MockPushApi,
     ) {
-        let mut mock_transport = MockNotificationJsonTransport::new();
-        // Set default expectation for has_local_signer to return false for any node_id
-        // Tests can override this expectation as needed
-        mock_transport
-            .expect_has_local_signer()
-            .returning(|_| false);
-
         (
-            mock_transport,
-            MockContactStore::new(),
-            MockNostrContactStore::new(),
-            MockNostrQueuedMessageStore::new(),
-            MockNostrChainEventStore::new(),
             MockNotificationStore::new(),
             MockEmailNotificationStore::new(),
             MockEmailClient::new(),
+            MockPushApi::new(),
         )
     }
     fn get_transport(
-        mock_transport: MockNotificationJsonTransport,
-        contact_store: MockContactStore,
-        nostr_contact_store: MockNostrContactStore,
-        queued_message_store: MockNostrQueuedMessageStore,
-        chain_events: MockNostrChainEventStore,
         notification_store: MockNotificationStore,
         email_notification_store: MockEmailNotificationStore,
         email_client: MockEmailClient,
+        push_service: MockPushApi,
     ) -> NotificationTransportService {
         NotificationTransportService::new(
-            Arc::new(get_nostr_transport(
-                mock_transport,
-                contact_store,
-                nostr_contact_store,
-                queued_message_store,
-                chain_events,
-            )),
             Arc::new(notification_store),
             Arc::new(email_notification_store),
             Arc::new(email_client),
+            Arc::new(push_service),
         )
     }
 
     fn expect_service(
         expect: impl Fn(
-            &mut MockNotificationJsonTransport,
-            &mut MockContactStore,
-            &mut MockNostrContactStore,
-            &mut MockNostrQueuedMessageStore,
-            &mut MockNostrChainEventStore,
             &mut MockNotificationStore,
             &mut MockEmailNotificationStore,
             &mut MockEmailClient,
+            &mut MockPushApi,
         ),
     ) -> NotificationTransportService {
         let (
-            mut transport,
-            mut contact_store,
-            mut nostr_contact_store,
-            mut queued_message_store,
-            mut chain_events,
             mut notification_store,
             mut email_notification_store,
             mut email_client,
+            mut push_service,
         ) = get_mocks();
         expect(
-            &mut transport,
-            &mut contact_store,
-            &mut nostr_contact_store,
-            &mut queued_message_store,
-            &mut chain_events,
             &mut notification_store,
             &mut email_notification_store,
             &mut email_client,
+            &mut push_service,
         );
         get_transport(
-            transport,
-            contact_store,
-            nostr_contact_store,
-            queued_message_store,
-            chain_events,
             notification_store,
             email_notification_store,
             email_client,
+            push_service,
         )
-    }
-
-    fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
-        let valid_event_type = event.event_type == EventType::Bill;
-        let event: Result<Event<BillChainEventPayload>> = event.clone().try_into();
-        if let Ok(event) = event {
-            valid_event_type && event.data.event_type == bill_event_type
-        } else {
-            false
-        }
     }
 }
