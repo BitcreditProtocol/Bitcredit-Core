@@ -13,15 +13,14 @@ use bcr_ebill_core::{
         blockchain::{
             Blockchain,
             bill::{
-                BillBlockchain, BillOpCode, BitcreditBill, OfferToSellWaitingForPayment,
-                RecourseWaitingForPayment,
-                block::BillRequestToPayBlockData,
+                BillOpCode, BitcreditBill, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
+                block::{BillOfferToSellBlockData, BillRequestToPayBlockData},
                 participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
             },
             identity::IdentityType,
         },
         crypto::BcrKeys,
-        event::BillChainEvent,
+        event::{ActionType, BillEventType},
     },
 };
 use log::{debug, info};
@@ -89,9 +88,7 @@ impl BillService {
                         self.store.invalidate_bill_in_cache(bill_id).await?;
                         // the bill is paid now - trigger notification
                         if let PaymentState::PaidConfirmed(_) = payment_state
-                            && let Err(e) = self
-                                .trigger_is_paid_notification(identity, &chain, &bill_keys, &bill)
-                                .await
+                            && let Err(e) = self.trigger_is_paid_notification(&bill).await
                         {
                             log::error!("Could not send is-paid notification for {bill_id}: {e}");
                         }
@@ -108,22 +105,26 @@ impl BillService {
         Ok(())
     }
 
-    async fn trigger_is_paid_notification(
-        &self,
-        identity: &Identity,
-        blockchain: &BillBlockchain,
-        bill_keys: &BcrKeys,
-        last_version_bill: &BitcreditBill,
-    ) -> Result<()> {
-        let chain_event = BillChainEvent::new(
-            last_version_bill,
-            blockchain,
-            bill_keys,
-            true,
-            &identity.node_id,
-        )?;
+    async fn trigger_is_paid_notification(&self, last_version_bill: &BitcreditBill) -> Result<()> {
+        let holder_node_id = last_version_bill
+            .endorsee
+            .as_ref()
+            .map(|e| e.node_id())
+            .unwrap_or_else(|| last_version_bill.payee.node_id());
+        log::debug!(
+            "BillPaid notification: bill_id={} recipient={}",
+            last_version_bill.id,
+            holder_node_id
+        );
         self.transport_service
-            .send_bill_is_paid_event(&chain_event)
+            .notification_transport()
+            .create_local_bill_notification(
+                &holder_node_id,
+                &last_version_bill.id,
+                BillEventType::BillPaid,
+                Some(ActionType::CheckBill),
+                Some(last_version_bill.sum.clone()),
+            )
             .await?;
         Ok(())
     }
@@ -365,6 +366,47 @@ impl BillService {
                                     now,
                                 )
                                 .await?;
+                    }
+                }
+            }
+        } else if chain.get_latest_block().op_code == BillOpCode::OfferToSell {
+            // Deadline has passed and the last block is still OfferToSell (not Sell).
+            // Create a timeout notification for OUR local identity only.
+            let last_block = chain.get_latest_block();
+            if let Ok(block_data) =
+                last_block.get_decrypted_block::<BillOfferToSellBlockData>(&bill_keys)
+            {
+                let buyer_node_id = block_data.buyer.node_id();
+                let seller_node_id = block_data.seller.node_id();
+                let local_node_id = &identity.identity.node_id;
+                let recipient = if local_node_id == &buyer_node_id {
+                    Some(buyer_node_id)
+                } else if local_node_id == &seller_node_id {
+                    Some(seller_node_id)
+                } else {
+                    None
+                };
+                if let Some(recipient_node_id) = recipient {
+                    log::debug!(
+                        "OfferToSell timeout: bill_id={} recipient={} (local)",
+                        bill_id,
+                        recipient_node_id
+                    );
+                    if let Err(e) = self
+                        .transport_service
+                        .notification_transport()
+                        .create_local_bill_notification(
+                            &recipient_node_id,
+                            bill_id,
+                            BillEventType::BillSellOfferTimeout,
+                            Some(ActionType::CheckBill),
+                            Some(block_data.payment_data.sum),
+                        )
+                        .await
+                    {
+                        log::error!(
+                            "Failed to create sell offer timeout notification for {recipient_node_id} of bill {bill_id}: {e}"
+                        );
                     }
                 }
             }

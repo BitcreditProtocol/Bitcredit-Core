@@ -4,7 +4,7 @@ use crate::{
     service::{
         company_service::tests::{get_valid_company_chain, get_valid_identity_chain},
         contact_service::tests::get_baseline_contact,
-        transport_service::MockTransportServiceApi,
+        transport_service::{MockNotificationTransportServiceApi, MockTransportServiceApi},
     },
     tests::tests::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
@@ -293,6 +293,17 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.transport_service
         .expect_publish_file_metadata()
         .returning(|_, _, _, _, _| Ok(()));
+    let mut default_notification = MockNotificationTransportServiceApi::new();
+    default_notification
+        .expect_get_active_bill_notification()
+        .returning(|_| None);
+    default_notification
+        .expect_create_local_bill_notification()
+        .returning(|_, _, _, _, _| Ok(()));
+    ctx.transport_service
+        .expect_notification_transport()
+        .times(0..)
+        .return_const(Arc::new(default_notification));
     BillService::new(
         Arc::new(ctx.bill_store),
         Arc::new(ctx.bill_blockchain_store),

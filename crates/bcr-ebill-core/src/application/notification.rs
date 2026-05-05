@@ -119,7 +119,7 @@ impl Display for NotificationType {
 /// Indicates the urgency/attention level of a notification.
 /// ActionRequired means the user needs to take action.
 /// Informational means no immediate action is needed.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum NotificationLevel {
     #[default]
     Informational,

@@ -158,28 +158,6 @@ impl TransportServiceApi for TransportService {
         Ok(())
     }
 
-    async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()> {
-        let all_events = event.generate_messages(BillEventType::BillPaid);
-        self.block_transport_service
-            .send_bill_chain_events(event.clone())
-            .await?;
-        self.nostr_transport
-            .send_all_bill_events(&event.sender(), &all_events)
-            .await?;
-        let holder = event
-            .bill
-            .endorsee
-            .as_ref()
-            .map(|e| e.node_id())
-            .unwrap_or_else(|| event.bill.payee.node_id());
-        if let Some(holder_event) = all_events.get(&holder) {
-            self.notification_transport_service
-                .send_email_notification(&event.sender(), &holder, holder_event)
-                .await;
-        }
-        Ok(())
-    }
-
     async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> Result<()> {
         let all_events = event.generate_messages(BillEventType::BillEndorsed);
         self.block_transport_service
@@ -1292,47 +1270,6 @@ mod tests {
 
         service
             .send_request_to_pay_event(&event)
-            .await
-            .expect("failed to send event");
-    }
-
-    #[tokio::test]
-    async fn test_send_bill_is_paid_event() {
-        init_test_cfg();
-        let payer = get_identity_public_data(
-            &node_id_test(),
-            &Email::new("drawee@example.com").unwrap(),
-            vec![],
-        );
-        let payee = get_identity_public_data(
-            &node_id_test_other(),
-            &Email::new("payee@example.com").unwrap(),
-            vec![],
-        );
-        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-        let (service, event) = expect_service(
-            |mock, mock_contact_store, _, _, _, notification_transport, _, block_transport| {
-                let payer = payer.clone();
-                let payee = payee.clone();
-                setup_chain_expectation(
-                    vec![
-                        (payee, BillEventType::BillPaid, Some(ActionType::CheckBill)),
-                        (payer, BillEventType::BillPaid, Some(ActionType::CheckBill)),
-                    ],
-                    &bill,
-                    &chain,
-                    false,
-                    mock_contact_store,
-                    mock,
-                    block_transport,
-                    notification_transport,
-                )
-            },
-        );
-
-        service
-            .send_bill_is_paid_event(&event)
             .await
             .expect("failed to send event");
     }

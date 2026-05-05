@@ -54,10 +54,6 @@ pub trait TransportServiceApi: ServiceTraitBounds {
     /// Receiver: Payer, Action: PayBill
     async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> Result<()>;
 
-    /// Sent when: A bill is paid by: Payer (Bitcoin API)
-    /// Receiver: Payee, Action: CheckBill
-    async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()>;
-
     /// Sent when: A bill is endorsed by: Previous Holder
     /// Receiver: NewHolder, Action: CheckBill
     async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> Result<()>;

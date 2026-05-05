@@ -30,7 +30,7 @@ use bcr_ebill_core::{
             BcrKeys,
             btc::{calculate_tweak_hash_for_payment_request, get_address_to_pay},
         },
-        event::{CompanyChainEvent, IdentityChainEvent},
+        event::{ActionType, BillEventType, CompanyChainEvent, IdentityChainEvent},
     },
 };
 use log::error;
@@ -654,6 +654,19 @@ impl BillService {
 
         self.validate_and_add_block(&bill_id, blockchain, block.clone())
             .await?;
+
+        if let BillAction::Sell(_) = bill_action {
+            self.transport_service
+                .notification_transport()
+                .create_local_bill_notification(
+                    &signer_public_data.node_id(),
+                    &bill_id,
+                    BillEventType::BillSold,
+                    Some(ActionType::CheckBill),
+                    Some(bill.sum.clone()),
+                )
+                .await?;
+        }
 
         self.add_identity_and_company_chain_blocks_for_signed_bill_action(
             signer_public_data,

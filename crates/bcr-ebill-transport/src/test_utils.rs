@@ -517,6 +517,14 @@ mockall::mock! {
             &self,
             node_ids: &[NodeId],
         ) -> Result<HashMap<NodeId, bool>>;
+        async fn create_local_bill_notification(
+            &self,
+            node_id: &NodeId,
+            bill_id: &BillId,
+            event_type: BillEventType,
+            action_type: Option<ActionType>,
+            sum: Option<Sum>,
+        ) -> Result<()>;
         async fn send_request_to_action_timed_out_event(
             &self,
             sender_node_id: &NodeId,

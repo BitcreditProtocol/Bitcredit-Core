@@ -20,7 +20,7 @@ use bcr_ebill_core::{
 };
 use bcr_ebill_persistence::NotificationStoreApi;
 use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
-use log::error;
+use log::{debug, error};
 
 use crate::PushApi;
 
@@ -55,6 +55,10 @@ impl NotificationTransportService {
         action_type: Option<ActionType>,
         sum: Option<Sum>,
     ) -> Result<()> {
+        debug!(
+            "Local bill notification: type={:?} bill_id={} recipient={} action={:?}",
+            event_type, bill_id, node_id, action_type
+        );
         let payload = BillChainEventPayload {
             event_type: event_type.clone(),
             bill_id: bill_id.to_owned(),
@@ -170,6 +174,18 @@ impl NotificationTransportServiceApi for NotificationTransportService {
             .get_active_status_for_node_ids(node_ids)
             .await
             .unwrap_or_default())
+    }
+
+    async fn create_local_bill_notification(
+        &self,
+        node_id: &NodeId,
+        bill_id: &BillId,
+        event_type: BillEventType,
+        action_type: Option<ActionType>,
+        sum: Option<Sum>,
+    ) -> Result<()> {
+        self.create_bill_notification(node_id, bill_id, event_type, action_type, sum)
+            .await
     }
 
     async fn send_request_to_action_timed_out_event(

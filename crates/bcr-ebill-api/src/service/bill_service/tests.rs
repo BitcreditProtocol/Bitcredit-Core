@@ -3192,10 +3192,13 @@ async fn sell_bitcredit_bill_baseline() {
             chain.try_add_block(offer_to_sell);
             Ok(chain)
         });
-    // Request to sell event should be sent
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_create_local_bill_notification()
+            .returning(|_, _, _, _, _| Ok(()));
+    });
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -3269,6 +3272,10 @@ async fn sell_bitcredit_bill_anon_baseline() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_create_local_bill_notification()
+            .returning(|_, _, _, _, _| Ok(()));
+    });
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -3975,6 +3982,10 @@ async fn check_bill_offer_to_sell_payment_baseline() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_create_local_bill_notification()
+            .returning(|_, _, _, _, _| Ok(()));
+    });
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -4034,6 +4045,10 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
     ctx.transport_service
         .expect_send_bill_is_sold_event()
         .returning(|_, _| Ok(()));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_create_local_bill_notification()
+            .returning(|_, _, _, _, _| Ok(()));
+    });
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));

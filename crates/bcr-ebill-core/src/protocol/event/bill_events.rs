@@ -3,7 +3,8 @@ use crate::protocol::{
     blockchain::{
         Blockchain,
         bill::{
-            BillBlock, BillBlockchain, BitcreditBill,
+            BillBlock, BillBlockchain, BillOpCode, BitcreditBill,
+            block::BillOfferToSellBlockData,
             participant::{BillIdentParticipant, BillParticipant},
         },
     },
@@ -129,6 +130,13 @@ impl BillChainEvent {
                     .unwrap_or((event_type.clone(), action.clone()));
 
                 event_type.map(|e| {
+                    log::debug!(
+                        "Bill transport event: type={:?} sender={} recipient={} action={:?}",
+                        e,
+                        sender_node_id,
+                        node_id,
+                        override_action
+                    );
                     (
                         node_id.to_owned(),
                         Event::new(
@@ -377,6 +385,7 @@ impl BillChainEvent {
             ActionType::AcceptBill => BillEventType::BillAcceptanceTimeout,
             ActionType::PayBill => BillEventType::BillPaymentTimeout,
             ActionType::RecourseBill => BillEventType::BillRecourseTimeout,
+            ActionType::BuyBill => BillEventType::BillSellOfferTimeout,
             _ => return HashMap::new(),
         };
 
@@ -405,6 +414,37 @@ impl BillChainEvent {
                     }
                 }
             }
+            ActionType::BuyBill => match self
+                .chain
+                .get_last_version_block_with_op_code(BillOpCode::OfferToSell)
+            {
+                Some(offer_block) => {
+                    match offer_block
+                        .get_decrypted_block::<BillOfferToSellBlockData>(&self.bill_keys)
+                    {
+                        Ok(block_data) => {
+                            let mut ids = vec![];
+                            let buyer_node_id = block_data.buyer.node_id();
+                            let seller_node_id = block_data.seller.node_id();
+                            if buyer_node_id != self.sender_node_id {
+                                ids.push(buyer_node_id);
+                            }
+                            if seller_node_id != self.sender_node_id {
+                                ids.push(seller_node_id);
+                            }
+                            ids
+                        }
+                        Err(e) => {
+                            error!("Failed to decrypt offer to sell block for timeout: {e}");
+                            return HashMap::new();
+                        }
+                    }
+                }
+                None => {
+                    error!("No offer to sell block found for BuyBill timeout");
+                    return HashMap::new();
+                }
+            },
             _ => {
                 // Regular timeout goes to all NON-BEARER participants
                 match self
@@ -509,6 +549,7 @@ pub enum BillEventType {
     BillRecourseTimeout,
     BillPaymentTimeout,
     BillSellOffered,
+    BillSellOfferTimeout,
     BillBuyingRejected,
     BillPaid,
     BillRecoursePaid,
@@ -537,6 +578,7 @@ impl BillEventType {
             Self::BillRecourseTimeout,
             Self::BillRecourseRejected,
             Self::BillSellOffered,
+            Self::BillSellOfferTimeout,
             Self::BillBuyingRejected,
             Self::BillPaid,
             Self::BillRecoursePaid,
@@ -584,6 +626,7 @@ impl BillEventType {
             BillEventType::BillRecourseRejected => "Bill_recourse_rejected".to_string(),
             BillEventType::BillRecourseTimeout => "Bill_recourse_timed_out".to_string(),
             BillEventType::BillSellOffered => "bill_request_to_buy".to_string(),
+            BillEventType::BillSellOfferTimeout => "bill_sell_offer_timed_out".to_string(),
             BillEventType::BillBuyingRejected => "bill_buying_rejected".to_string(),
             BillEventType::BillPaid => "bill_paid".to_string(),
             BillEventType::BillRecoursePaid => "bill_recourse_paid".to_string(),
@@ -623,6 +666,7 @@ impl ActionType {
             Self::AcceptBill => Some(BillEventType::BillAcceptanceTimeout),
             Self::PayBill => Some(BillEventType::BillPaymentTimeout),
             Self::RecourseBill => Some(BillEventType::BillRecourseTimeout),
+            Self::BuyBill => Some(BillEventType::BillSellOfferTimeout),
             _ => None,
         }
     }
@@ -639,5 +683,32 @@ impl ActionType {
 
     pub fn is_actionable(&self) -> bool {
         !matches!(self, Self::CheckBill)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_timeout_event_type() {
+        assert_eq!(
+            ActionType::AcceptBill.get_timeout_event_type(),
+            Some(BillEventType::BillAcceptanceTimeout)
+        );
+        assert_eq!(
+            ActionType::PayBill.get_timeout_event_type(),
+            Some(BillEventType::BillPaymentTimeout)
+        );
+        assert_eq!(
+            ActionType::RecourseBill.get_timeout_event_type(),
+            Some(BillEventType::BillRecourseTimeout)
+        );
+        assert_eq!(
+            ActionType::BuyBill.get_timeout_event_type(),
+            Some(BillEventType::BillSellOfferTimeout)
+        );
+        assert_eq!(ActionType::CheckBill.get_timeout_event_type(), None);
+        assert_eq!(ActionType::CheckQuote.get_timeout_event_type(), None);
     }
 }

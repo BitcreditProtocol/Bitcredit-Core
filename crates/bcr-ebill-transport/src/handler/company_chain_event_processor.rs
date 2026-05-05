@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
-    application::company::Company,
+    application::company::{Company, CompanySignatoryStatus},
     protocol::BlockId,
     protocol::blockchain::{
         Blockchain, BlockchainType,
@@ -624,6 +624,33 @@ impl CompanyChainEventProcessor {
                     error!("Couldn't create notification for company invite for {company_id}: {e}");
                 }
 
+                for signatory in company.signatories.iter() {
+                    if signatory.node_id != payload.inviter
+                        && signatory.node_id != payload.invitee
+                        && matches!(
+                            signatory.status,
+                            CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                        )
+                        && let Err(e) = self
+                            .save_company_notification(
+                                company_id,
+                                &signatory.node_id,
+                                &format!(
+                                    "{} invited {} to become a signatory",
+                                    payload.inviter, payload.invitee
+                                ),
+                                Some(serde_json::to_value(&company)?),
+                                NotificationLevel::Informational,
+                            )
+                            .await
+                    {
+                        error!(
+                            "Couldn't create notification for signatory {} about company invite for {company_id}: {e}",
+                            signatory.node_id
+                        );
+                    }
+                }
+
                 // reset local hiding state for the invited user, so it's shown again
                 if let Err(e) = self
                     .company_store
@@ -642,7 +669,7 @@ impl CompanyChainEventProcessor {
                     .ensure_nostr_contact(&payload.accepter)
                     .await;
                 company.apply_block_data(
-                    &CompanyBlockPayload::SignatoryAcceptInvite(payload),
+                    &CompanyBlockPayload::SignatoryAcceptInvite(payload.clone()),
                     identity_node_id,
                     timestamp,
                 );
@@ -650,20 +677,92 @@ impl CompanyChainEventProcessor {
                     .update(company_id, company)
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                if let Some(inviter) = company
+                    .signatories
+                    .iter()
+                    .find(|s| matches!(&s.status, CompanySignatoryStatus::Invited { inviter, .. } if *inviter == payload.accepter))
+                    .map(|s| s.node_id.clone())
+                {
+                    for signatory in company.signatories.iter() {
+                        if signatory.node_id != payload.accepter
+                            && matches!(
+                                signatory.status,
+                                CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                            )
+                        {
+                            let desc = if signatory.node_id == inviter {
+                                format!("{} accepted your invitation to become a signatory", payload.accepter)
+                            } else {
+                                format!("{} accepted the invitation to become a signatory", payload.accepter)
+                            };
+                            if let Err(e) = self
+                                .save_company_notification(
+                                    company_id,
+                                    &signatory.node_id,
+                                    &desc,
+                                    Some(serde_json::to_value(&company)?),
+                                    NotificationLevel::Informational,
+                                )
+                                .await
+                            {
+                                error!("Couldn't create notification for signatory {} about invite accept for {company_id}: {e}", signatory.node_id);
+                            }
+                        }
+                    }
+                }
             }
-            update @ CompanyBlockPayload::SignatoryRejectInvite(_) => {
+            CompanyBlockPayload::SignatoryRejectInvite(payload) => {
                 info!("Signatory rejected invite to company {company_id}");
-                company.apply_block_data(&update, identity_node_id, timestamp);
+                company.apply_block_data(
+                    &CompanyBlockPayload::SignatoryRejectInvite(payload.clone()),
+                    identity_node_id,
+                    timestamp,
+                );
                 self.company_store
                     .update(company_id, company)
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                if let Some(inviter) = company
+                    .signatories
+                    .iter()
+                    .find(|s| matches!(&s.status, CompanySignatoryStatus::Invited { inviter, .. } if *inviter == payload.rejecter))
+                    .map(|s| s.node_id.clone())
+                {
+                    for signatory in company.signatories.iter() {
+                        if signatory.node_id != payload.rejecter
+                            && matches!(
+                                signatory.status,
+                                CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                            )
+                        {
+                            let desc = if signatory.node_id == inviter {
+                                format!("{} rejected your invitation to become a signatory", payload.rejecter)
+                            } else {
+                                format!("{} rejected the invitation to become a signatory", payload.rejecter)
+                            };
+                            if let Err(e) = self
+                                .save_company_notification(
+                                    company_id,
+                                    &signatory.node_id,
+                                    &desc,
+                                    Some(serde_json::to_value(&company)?),
+                                    NotificationLevel::Informational,
+                                )
+                                .await
+                            {
+                                error!("Couldn't create notification for signatory {} about invite reject for {company_id}: {e}", signatory.node_id);
+                            }
+                        }
+                    }
+                }
             }
             CompanyBlockPayload::RemoveSignatory(payload) => {
                 let removee = payload.removee.clone();
                 info!("Removing signatory from company {company_id}");
                 company.apply_block_data(
-                    &CompanyBlockPayload::RemoveSignatory(payload),
+                    &CompanyBlockPayload::RemoveSignatory(payload.clone()),
                     identity_node_id,
                     timestamp,
                 );
@@ -691,6 +790,42 @@ impl CompanyChainEventProcessor {
                     error!(
                         "Couldn't set active identity to personal after removing self from company: {e}"
                     );
+                }
+
+                if let Err(e) = self
+                    .create_notification(
+                        company_id,
+                        &payload.removee,
+                        &CompanyBlockPayload::RemoveSignatory(payload.clone()),
+                    )
+                    .await
+                {
+                    error!(
+                        "Couldn't create notification for removed signatory {} from company {company_id}: {e}",
+                        payload.removee
+                    );
+                }
+
+                for signatory in company.signatories.iter() {
+                    if signatory.node_id != payload.remover
+                        && signatory.node_id != payload.removee
+                        && matches!(
+                            signatory.status,
+                            CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
+                        )
+                        && let Err(e) = self
+                            .create_notification(
+                                company_id,
+                                &signatory.node_id,
+                                &CompanyBlockPayload::RemoveSignatory(payload.clone()),
+                            )
+                            .await
+                    {
+                        error!(
+                            "Couldn't create notification for signatory {} about removal from company {company_id}: {e}",
+                            signatory.node_id
+                        );
+                    }
                 }
             }
             CompanyBlockPayload::SignBill(payload) => {
@@ -829,36 +964,75 @@ impl CompanyChainEventProcessor {
             .get(company_id)
             .await
             .map_err(|e| Error::Persistence(e.to_string()))?;
-        let (description, event) = match payload {
+        let (description, event, level) = match payload {
             CompanyBlockPayload::InviteSignatory(_) => {
                 let desc = format!(
                     "{} have requested you to become an authorised signer",
                     company.name
                 );
-                (desc, Some(serde_json::to_value(&company)?))
+                (
+                    desc,
+                    Some(serde_json::to_value(&company)?),
+                    NotificationLevel::ActionRequired,
+                )
+            }
+            CompanyBlockPayload::RemoveSignatory(payload) => {
+                let desc = if node_id == &payload.removee {
+                    format!("You were removed from {}", company.name)
+                } else {
+                    format!("{} was removed from {}", payload.removee, company.name)
+                };
+                (
+                    desc,
+                    Some(serde_json::to_value(&company)?),
+                    NotificationLevel::Informational,
+                )
             }
             _ => return Ok(()), // no notifications for these yet
         };
 
-        let notification = Notification::new_company_notification(
-            company_id,
-            node_id,
-            &description,
-            event,
-            NotificationLevel::ActionRequired,
+        self.save_company_notification(company_id, node_id, &description, event, level)
+            .await
+    }
+
+    async fn save_company_notification(
+        &self,
+        company_id: &NodeId,
+        node_id: &NodeId,
+        description: &str,
+        event: Option<serde_json::Value>,
+        level: NotificationLevel,
+    ) -> Result<()> {
+        debug!(
+            "Company notification: company_id={} recipient={} level={:?} desc=\"{}\"",
+            company_id, node_id, level, description
         );
+        let notification =
+            Notification::new_company_notification(company_id, node_id, description, event, level);
 
         // mark Company event as done if any active one exists
+        // BUT only if we're not demoting an ActionRequired notification to Informational
         match self
             .notification_store
             .get_latest_by_reference(&company_id.to_string(), NotificationType::Company)
             .await
         {
             Ok(Some(currently_active)) => {
-                if let Err(e) = self
-                    .notification_store
-                    .mark_as_done(&currently_active.id)
-                    .await
+                let should_replace = match (currently_active.level, level) {
+                    // Never demote ActionRequired to Informational
+                    (NotificationLevel::ActionRequired, NotificationLevel::Informational) => {
+                        trace!(
+                            "Skipping company notification for {company_id}: would demote ActionRequired to Informational"
+                        );
+                        false
+                    }
+                    _ => true,
+                };
+                if should_replace
+                    && let Err(e) = self
+                        .notification_store
+                        .mark_as_done(&currently_active.id)
+                        .await
                 {
                     error!("Failed to mark currently active notification as done: {e}");
                 }
@@ -893,6 +1067,7 @@ impl CompanyChainEventProcessor {
 impl ServiceTraitBounds for CompanyChainEventProcessor {}
 
 #[cfg(test)]
+#[allow(unused_mut)]
 pub mod tests {
     use std::sync::Arc;
 
@@ -910,6 +1085,7 @@ pub mod tests {
     use bcr_ebill_core::{
         application::company::Company,
         application::identity::ActiveIdentityState,
+        application::notification::{Notification, NotificationLevel},
         protocol::Sha256Hash,
         protocol::Timestamp,
         protocol::blockchain::{
@@ -1909,13 +2085,13 @@ pub mod tests {
         let (
             mut chain_store,
             mut store,
-            notification_store,
+            mut notification_store,
             mut contact,
             bill,
             mut identity,
             chain_event_store,
             transport,
-            push_service,
+            mut push_service,
         ) = create_mocks();
         let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
@@ -1963,13 +2139,12 @@ pub mod tests {
             .returning(move |_| Ok(keys.clone()))
             .once();
 
-        // get the current company state
         let expected_company = company.clone();
         store
             .expect_get()
             .with(eq(node_id.clone()))
             .returning(move |_| Ok(expected_company.clone()))
-            .once();
+            .times(2);
 
         // apply changes from block with the signatory
         let expected_node = node_id.clone();
@@ -2007,6 +2182,22 @@ pub mod tests {
             .with(eq(new_node_id.clone()))
             .returning(|_| ())
             .never();
+
+        notification_store
+            .expect_get_latest_by_reference()
+            .returning(|_, _| Ok(None));
+
+        notification_store.expect_add().returning(|_| {
+            Ok(Notification::new_company_notification(
+                &node_id_test(),
+                &node_id_test_another(),
+                "test",
+                None,
+                NotificationLevel::Informational,
+            ))
+        });
+
+        push_service.expect_send().returning(|_| ());
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
