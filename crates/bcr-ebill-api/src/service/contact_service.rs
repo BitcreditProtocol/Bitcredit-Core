@@ -209,14 +209,14 @@ impl ContactService {
     async fn process_upload_file(
         &self,
         upload_id: &Option<Uuid>,
-        id: &NodeId,
+        contact_node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
         upload_file_type: UploadFileType,
         field_name: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
-            debug!("processing upload file for contact {id}: {upload_id:?}");
+            debug!("processing upload file for contact {contact_node_id}: {upload_id:?}");
             let (file_name, file_bytes) = &self
                 .file_upload_store
                 .read_temp_upload_file(upload_id)
@@ -232,7 +232,12 @@ impl ContactService {
             }
             let file = self
                 .encrypt_and_save_uploaded_file(
-                    file_name, file_bytes, id, public_key, signer, field_name,
+                    file_name,
+                    file_bytes,
+                    contact_node_id,
+                    public_key,
+                    signer,
+                    field_name,
                 )
                 .await?;
             return Ok(Some(file));
@@ -244,11 +249,12 @@ impl ContactService {
         &self,
         file_name: &Name,
         file_bytes: &[u8],
-        node_id: &NodeId,
+        contact_node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
         field_name: &str,
     ) -> Result<File> {
+        let publisher_node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
         encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
@@ -258,8 +264,8 @@ impl ContactService {
             file_bytes,
             public_key,
             signer,
-            node_id,
-            contact_file_context(node_id, field_name),
+            &publisher_node_id,
+            contact_file_context(contact_node_id, field_name),
             None,
             "contact",
         )
