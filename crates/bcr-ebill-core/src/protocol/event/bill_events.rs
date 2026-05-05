@@ -2,7 +2,10 @@ use crate::protocol::{
     Sum,
     blockchain::{
         Blockchain,
-        bill::{BillBlock, BillBlockchain, BitcreditBill},
+        bill::{
+            BillBlock, BillBlockchain, BitcreditBill,
+            participant::{BillIdentParticipant, BillParticipant},
+        },
     },
     crypto::BcrKeys,
 };
@@ -89,12 +92,34 @@ impl BillChainEvent {
     /// If `event_type` and `action` are provided, participants without an override receive that
     /// event. Participants without an override and where `event_type` is `None` will not receive
     /// any event. The recipient `node_id` is the key in the map.
+    fn sender_name(&self) -> Option<String> {
+        if self.bill.drawer.node_id == self.sender_node_id {
+            return Some(self.bill.drawer.name.to_string());
+        }
+        if self.bill.drawee.node_id == self.sender_node_id {
+            return Some(self.bill.drawee.name.to_string());
+        }
+        if let BillParticipant::Ident(ref payee) = self.bill.payee
+            && payee.node_id == self.sender_node_id
+        {
+            return Some(payee.name.to_string());
+        }
+        if let Some(BillParticipant::Ident(ref ident)) = self.bill.endorsee
+            && ident.node_id == self.sender_node_id
+        {
+            return Some(ident.name.to_string());
+        }
+        None
+    }
+
     pub fn generate_action_messages(
         &self,
         event_overrides: HashMap<NodeId, (BillEventType, ActionType)>,
         event_type: Option<BillEventType>,
         action: Option<ActionType>,
     ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let sender_node_id = self.sender_node_id.clone();
+        let sender_name = self.sender_name();
         self.participants
             .keys()
             .filter_map(|node_id| {
@@ -113,6 +138,8 @@ impl BillChainEvent {
                                 bill_id: self.bill.id.to_owned(),
                                 action_type: override_action,
                                 sum: Some(self.bill.sum.clone()),
+                                sender_node_id: Some(sender_node_id.clone()),
+                                sender_name: sender_name.clone(),
                             },
                         ),
                     )
@@ -140,6 +167,307 @@ impl BillChainEvent {
             .map(|node_id| (node_id.to_owned(), Event::new_bill_invite(invite.clone())))
             .collect()
     }
+
+    pub fn generate_messages(
+        &self,
+        event_type: BillEventType,
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        match event_type {
+            BillEventType::BillSigned => self.generate_bill_signed_internal(),
+            BillEventType::BillAccepted => self.generate_bill_accepted_internal(),
+            BillEventType::BillPaymentRequested => self.generate_request_to_pay_internal(),
+            BillEventType::BillAcceptanceRequested => self.generate_request_to_accept_internal(),
+            BillEventType::BillEndorsed => self.generate_bill_endorsed_internal(),
+            BillEventType::BillPaid => self.generate_bill_paid_internal(),
+            _ => HashMap::new(),
+        }
+    }
+
+    fn generate_bill_signed_internal(&self) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        overrides.insert(
+            self.bill.drawee.node_id.clone(),
+            (BillEventType::BillSigned, ActionType::AcceptBill),
+        );
+
+        overrides.insert(
+            self.bill.payee.node_id(),
+            (BillEventType::BillSigned, ActionType::CheckBill),
+        );
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    fn generate_bill_accepted_internal(&self) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        let holder_node_id = self
+            .bill
+            .endorsee
+            .as_ref()
+            .map(|e| e.node_id())
+            .unwrap_or_else(|| self.bill.payee.node_id());
+
+        if holder_node_id != self.sender_node_id {
+            overrides.insert(
+                holder_node_id.clone(),
+                (BillEventType::BillAccepted, ActionType::CheckBill),
+            );
+        }
+
+        if self.bill.drawer.node_id != self.sender_node_id
+            && self.bill.drawer.node_id != holder_node_id
+        {
+            overrides.insert(
+                self.bill.drawer.node_id.clone(),
+                (BillEventType::BillAccepted, ActionType::CheckBill),
+            );
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    fn generate_request_to_pay_internal(&self) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        if self.bill.drawee.node_id != self.sender_node_id {
+            overrides.insert(
+                self.bill.drawee.node_id.clone(),
+                (BillEventType::BillPaymentRequested, ActionType::PayBill),
+            );
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    fn generate_request_to_accept_internal(&self) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        if self.bill.drawee.node_id != self.sender_node_id {
+            overrides.insert(
+                self.bill.drawee.node_id.clone(),
+                (
+                    BillEventType::BillAcceptanceRequested,
+                    ActionType::AcceptBill,
+                ),
+            );
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    fn generate_bill_endorsed_internal(&self) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        if let Some(ref endorsee) = self.bill.endorsee {
+            let endorsee_node_id = endorsee.node_id();
+            if endorsee_node_id != self.sender_node_id {
+                overrides.insert(
+                    endorsee_node_id,
+                    (BillEventType::BillEndorsed, ActionType::CheckBill),
+                );
+            }
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    pub fn generate_offer_to_sell_messages(
+        &self,
+        buyer: &BillParticipant,
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+        let buyer_node_id = buyer.node_id();
+
+        if buyer_node_id != self.sender_node_id {
+            overrides.insert(
+                buyer_node_id,
+                (BillEventType::BillSellOffered, ActionType::CheckBill),
+            );
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    pub fn generate_bill_sold_messages(
+        &self,
+        buyer: &BillParticipant,
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+        let buyer_node_id = buyer.node_id();
+
+        if buyer_node_id != self.sender_node_id {
+            overrides.insert(
+                buyer_node_id,
+                (BillEventType::BillSold, ActionType::CheckBill),
+            );
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    pub fn generate_rejected_messages(
+        &self,
+        rejected_action: ActionType,
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let event_type = match rejected_action {
+            ActionType::AcceptBill => BillEventType::BillAcceptanceRejected,
+            ActionType::PayBill => BillEventType::BillPaymentRejected,
+            ActionType::BuyBill => BillEventType::BillBuyingRejected,
+            ActionType::RecourseBill => BillEventType::BillRecourseRejected,
+            _ => return HashMap::new(),
+        };
+
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+        let drawee_node_id = self.bill.drawee.node_id.clone();
+
+        let recipient_ids: Vec<NodeId> = match rejected_action {
+            ActionType::RecourseBill => {
+                // Recourse rejection goes to all NON-BEARER prior holders
+                let current_holder = self
+                    .bill
+                    .endorsee
+                    .as_ref()
+                    .map(|e| e.node_id())
+                    .unwrap_or_else(|| self.bill.payee.node_id());
+                match self
+                    .chain
+                    .get_past_endorsees_for_bill(&self.bill_keys, &current_holder)
+                {
+                    Ok(endorsees) => endorsees
+                        .into_iter()
+                        .map(|e| e.pay_to_the_order_of.node_id)
+                        .collect(),
+                    Err(e) => {
+                        error!("Failed to get past endorsees for recourse rejection: {e}");
+                        return HashMap::new();
+                    }
+                }
+            }
+            _ => {
+                // Regular rejection goes to all NON-BEARER participants except drawee
+                match self
+                    .chain
+                    .get_all_ident_nodes_with_added_block_height(&self.bill_keys)
+                {
+                    Ok(nodes) => nodes.into_keys().collect(),
+                    Err(e) => {
+                        error!("Failed to get Ident participants for rejection: {e}");
+                        return HashMap::new();
+                    }
+                }
+            }
+        };
+
+        for node_id in recipient_ids {
+            if node_id != self.sender_node_id && node_id != drawee_node_id {
+                overrides.insert(node_id, (event_type.clone(), ActionType::CheckBill));
+            }
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    pub fn generate_timeout_messages(
+        &self,
+        timed_out_action: ActionType,
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let event_type = match timed_out_action {
+            ActionType::AcceptBill => BillEventType::BillAcceptanceTimeout,
+            ActionType::PayBill => BillEventType::BillPaymentTimeout,
+            ActionType::RecourseBill => BillEventType::BillRecourseTimeout,
+            _ => return HashMap::new(),
+        };
+
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        let recipient_ids: Vec<NodeId> = match timed_out_action {
+            ActionType::RecourseBill => {
+                // Recourse timeout goes to all NON-BEARER prior holders
+                let current_holder = self
+                    .bill
+                    .endorsee
+                    .as_ref()
+                    .map(|e| e.node_id())
+                    .unwrap_or_else(|| self.bill.payee.node_id());
+                match self
+                    .chain
+                    .get_past_endorsees_for_bill(&self.bill_keys, &current_holder)
+                {
+                    Ok(endorsees) => endorsees
+                        .into_iter()
+                        .map(|e| e.pay_to_the_order_of.node_id)
+                        .collect(),
+                    Err(e) => {
+                        error!("Failed to get past endorsees for recourse timeout: {e}");
+                        return HashMap::new();
+                    }
+                }
+            }
+            _ => {
+                // Regular timeout goes to all NON-BEARER participants
+                match self
+                    .chain
+                    .get_all_ident_nodes_with_added_block_height(&self.bill_keys)
+                {
+                    Ok(nodes) => nodes.into_keys().collect(),
+                    Err(e) => {
+                        error!("Failed to get Ident participants for timeout: {e}");
+                        return HashMap::new();
+                    }
+                }
+            }
+        };
+
+        for node_id in recipient_ids {
+            if node_id != self.sender_node_id {
+                overrides.insert(node_id, (event_type.clone(), ActionType::CheckBill));
+            }
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    pub fn generate_recourse_messages(
+        &self,
+        action: ActionType,
+        recoursee: &BillIdentParticipant,
+    ) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let event_type = match action {
+            ActionType::AcceptBill => BillEventType::BillAcceptanceRecourse,
+            ActionType::PayBill => BillEventType::BillPaymentRecourse,
+            _ => return HashMap::new(),
+        };
+
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        if recoursee.node_id != self.sender_node_id {
+            overrides.insert(recoursee.node_id.clone(), (event_type, action.clone()));
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
+
+    fn generate_bill_paid_internal(&self) -> HashMap<NodeId, Event<BillChainEventPayload>> {
+        let mut overrides: HashMap<NodeId, (BillEventType, ActionType)> = HashMap::new();
+
+        let holder_node_id = self
+            .bill
+            .endorsee
+            .as_ref()
+            .map(|e| e.node_id())
+            .unwrap_or_else(|| self.bill.payee.node_id());
+
+        if holder_node_id != self.sender_node_id {
+            overrides.insert(
+                holder_node_id,
+                (BillEventType::BillPaid, ActionType::CheckBill),
+            );
+        }
+
+        self.generate_action_messages(overrides, None, None)
+    }
 }
 
 /// Used to signal a change in the blockchain of a bill and an optional
@@ -153,6 +481,10 @@ pub struct BillChainEventPayload {
     pub bill_id: BillId,
     pub action_type: Option<ActionType>,
     pub sum: Option<Sum>,
+    /// The node ID of the participant who triggered this event (sender)
+    pub sender_node_id: Option<NodeId>,
+    /// The display name of the participant who triggered this event
+    pub sender_name: Option<String>,
 }
 
 /// The different types of events that can be sent via this service.

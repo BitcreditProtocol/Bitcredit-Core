@@ -24,7 +24,7 @@ use bcr_common::core::NodeId;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BillParties {
@@ -835,6 +835,107 @@ impl BillBlockchain {
         Ok(nodes)
     }
 
+    /// Returns all Ident (non-Anon) nodes of the bill with the block height they were added in.
+    /// BEARER (Anon) participants are excluded.
+    pub fn get_all_ident_nodes_with_added_block_height(
+        &self,
+        bill_keys: &BcrKeys,
+    ) -> Result<HashMap<NodeId, usize>> {
+        let all_nodes = self.get_all_nodes_with_added_block_height(bill_keys)?;
+        let anon_nodes = self.get_anon_node_ids(bill_keys)?;
+        Ok(all_nodes
+            .into_iter()
+            .filter(|(node_id, _)| !anon_nodes.contains(node_id))
+            .collect())
+    }
+
+    /// Returns a set of all Anon (BEARER) node IDs that have participated in the bill chain.
+    fn get_anon_node_ids(&self, bill_keys: &BcrKeys) -> Result<HashSet<NodeId>> {
+        use super::block::BillParticipantBlockData;
+        let mut anon_nodes: HashSet<NodeId> = HashSet::new();
+        for block in self.blocks.iter() {
+            match block.op_code {
+                BillOpCode::Issue => {
+                    let bill: BillIssueBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = bill.payee {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::Endorse => {
+                    let block: BillEndorseBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.endorsee {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                    if let BillParticipantBlockData::Anon(ref data) = block.endorser {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::Mint => {
+                    let block: BillMintBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.endorsee {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                    if let BillParticipantBlockData::Anon(ref data) = block.endorser {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::RequestToAccept => {
+                    let block: BillRequestToAcceptBlockData =
+                        block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.requester {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::RequestToPay => {
+                    let block: BillRequestToPayBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.requester {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::OfferToSell => {
+                    let block: BillOfferToSellBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.buyer {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                    if let BillParticipantBlockData::Anon(ref data) = block.seller {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::Sell => {
+                    let block: BillSellBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.buyer {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                    if let BillParticipantBlockData::Anon(ref data) = block.seller {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::RejectToBuy => {
+                    let block: BillRejectToBuyBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.rejecter {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::RequestRecourse => {
+                    let block: BillRequestRecourseBlockData =
+                        block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.recourser {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                BillOpCode::Recourse => {
+                    let block: BillRecourseBlockData = block.get_decrypted_block(bill_keys)?;
+                    if let BillParticipantBlockData::Anon(ref data) = block.recourser {
+                        anon_nodes.insert(data.node_id.clone());
+                    }
+                }
+                // Accept, RejectToAccept, RejectToPay, RejectToPayRecourse only have Ident participants
+                _ => {}
+            }
+        }
+        Ok(anon_nodes)
+    }
+
     pub fn get_bill_history(&self, bill_keys: &BcrKeys) -> Result<BillHistory> {
         let result: Result<Vec<BillHistoryBlock>> = self
             .blocks
@@ -1126,7 +1227,7 @@ mod tests {
     use crate::protocol::{
         Sum,
         blockchain::bill::{
-            block::{BillOfferToSellBlockData, BillPaymentBlockData},
+            block::{BillAnonParticipantBlockData, BillOfferToSellBlockData, BillPaymentBlockData},
             tests::get_baseline_identity,
         },
         constants::DAY_IN_SECS,
@@ -1650,7 +1751,63 @@ mod tests {
         assert!(chain.try_add_block(endorse.clone()));
 
         let him = chain.holder_is_mint(&bill_keys).expect("call works");
-        // endorse block after mint
         assert!(him.is_none());
+    }
+
+    #[test]
+    fn test_get_all_ident_nodes_with_added_block_height_filters_anon() {
+        let bill = empty_bitcredit_bill();
+        let bill_id = bill.id.clone();
+        let bill_keys = get_bill_keys();
+        let identity = get_baseline_identity();
+        let mut chain = BillBlockchain::new(
+            &BillIssueBlockData::from(bill, None, test_ts(), signed_identity_proof_test()),
+            identity.1.clone(),
+            None,
+            BcrKeys::from_private_key(&bill_keys.get_private_key()),
+            test_ts(),
+        )
+        .unwrap();
+
+        let signer = bill_identified_participant_only_node_id(NodeId::new(
+            identity.1.pub_key(),
+            bitcoin::Network::Testnet,
+        ));
+        let other_party = bill_identified_participant_only_node_id(NodeId::new(
+            BcrKeys::new().pub_key(),
+            bitcoin::Network::Testnet,
+        ));
+
+        let endorse = BillBlock::create_block_for_endorse(
+            bill_id.clone(),
+            chain.get_latest_block(),
+            &BillEndorseBlockData {
+                endorser: BillParticipant::Ident(signer.clone()).into(),
+                endorsee: BillParticipantBlockData::Anon(BillAnonParticipantBlockData {
+                    node_id: other_party.node_id.clone(),
+                }),
+                signatory: None,
+                signing_timestamp: test_ts() + 1,
+                signing_address: Some(signer.postal_address.clone()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+            },
+            &identity.1,
+            None,
+            &BcrKeys::from_private_key(&bill_keys.get_private_key()),
+            test_ts() + 1,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(endorse.clone()));
+
+        let all_nodes = chain
+            .get_all_nodes_with_added_block_height(&bill_keys)
+            .unwrap();
+        let ident_nodes = chain
+            .get_all_ident_nodes_with_added_block_height(&bill_keys)
+            .unwrap();
+
+        assert!(all_nodes.contains_key(&other_party.node_id));
+        assert!(!ident_nodes.contains_key(&other_party.node_id));
+        assert!(ident_nodes.contains_key(&signer.node_id));
     }
 }

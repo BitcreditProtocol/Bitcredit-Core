@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::application::notification::{Notification, NotificationType};
+use bcr_ebill_core::application::notification::{
+    Notification, NotificationLevel, NotificationType,
+};
 use bcr_ebill_core::protocol::event::BillChainEventPayload;
 use bcr_ebill_core::protocol::event::BillEventType;
 use bcr_ebill_core::protocol::event::Event;
@@ -97,12 +99,26 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
+        // Determine notification level from action type
+        let level = event
+            .action_type
+            .as_ref()
+            .map(|a| {
+                if a.is_actionable() {
+                    NotificationLevel::ActionRequired
+                } else {
+                    NotificationLevel::Informational
+                }
+            })
+            .unwrap_or(NotificationLevel::Informational);
+
         // create notification
         let mut notification = Notification::new_bill_notification(
             &event.bill_id,
             node_id,
             &event_description(&event.event_type),
             Some(serde_json::to_value(event)?),
+            level,
         );
         notification.event_id = event_id;
 
@@ -250,9 +266,11 @@ mod tests {
             EventType::Bill,
             BillChainEventPayload {
                 bill_id: bill_id_test(),
-                event_type: BillEventType::BillBlock,
-                sum: Some(Sum::new_sat(100).expect("sat works")),
-                action_type: Some(ActionType::CheckBill),
+                event_type: BillEventType::BillAcceptanceRequested,
+                sum: Some(Sum::new_sat(500).expect("sat works")),
+                action_type: Some(ActionType::AcceptBill),
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 
@@ -292,6 +310,8 @@ mod tests {
                 event_type: BillEventType::BillBlock,
                 sum: None,
                 action_type: None,
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 
@@ -337,6 +357,7 @@ mod tests {
                 &node_id_test(),
                 "description",
                 None,
+                NotificationLevel::ActionRequired,
             ))
         });
 
@@ -355,6 +376,8 @@ mod tests {
                 event_type: BillEventType::BillAcceptanceRequested,
                 sum: Some(Sum::new_sat(500).expect("sat works")),
                 action_type: Some(ActionType::AcceptBill),
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 
@@ -435,6 +458,8 @@ mod tests {
                 event_type: BillEventType::BillAcceptanceRequested,
                 sum: Some(Sum::new_sat(500).expect("sat works")),
                 action_type: Some(ActionType::AcceptBill),
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 

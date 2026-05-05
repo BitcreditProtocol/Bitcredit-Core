@@ -73,6 +73,7 @@ pub struct NotificationFilter {
     pub notification_type: Option<String>,
     pub node_ids: Vec<NodeId>,
     pub event_id: Option<String>,
+    pub level: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -91,6 +92,9 @@ impl NotificationFilter {
         }
         if self.event_id.is_some() {
             parts.push("event_id = $event_id");
+        }
+        if self.level.is_some() {
+            parts.push("level = $level");
         }
 
         if !self.node_ids.is_empty() {
@@ -144,6 +148,12 @@ impl NotificationFilter {
         } else {
             None
         }
+    }
+
+    pub fn get_level(&self) -> Option<(String, String)> {
+        self.level
+            .as_ref()
+            .map(|level| ("level".to_string(), level.to_string()))
     }
 }
 
@@ -199,12 +209,13 @@ mod tests {
             notification_type: Some("Bill".to_string()),
             node_ids: vec![node_id_test()],
             event_id: Some("test_event_id".to_string()),
+            level: Some("ActionRequired".to_string()),
             ..Default::default()
         };
 
         assert_eq!(
             all.filters(),
-            "WHERE active = $active AND reference_id = $reference_id AND notification_type = $notification_type AND event_id = $event_id AND node_id IN $node_ids"
+            "WHERE active = $active AND reference_id = $reference_id AND notification_type = $notification_type AND event_id = $event_id AND level = $level AND node_id IN $node_ids"
         );
     }
 }

@@ -16,7 +16,7 @@ use crate::{
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::bill_events::ActionType};
 use bcr_ebill_core::{
-    application::notification::{Notification, NotificationType},
+    application::notification::{Notification, NotificationLevel, NotificationType},
     protocol::DateTimeUtc,
     protocol::Timestamp,
 };
@@ -113,6 +113,9 @@ impl NotificationStoreApi for SurrealNotificationStore {
         }
         if let Some(node_ids) = filter.get_node_ids() {
             bindings.add(&node_ids.0, node_ids.1.to_owned())?;
+        }
+        if let Some(level) = filter.get_level() {
+            bindings.add(&level.0, level.1.to_owned())?;
         }
         let result: Vec<NotificationDb> = self.db.query(&format!(
                 "SELECT * FROM type::table($table) {filters} ORDER BY datetime DESC LIMIT $limit START $offset"
@@ -270,6 +273,7 @@ struct NotificationDb {
     pub description: String,
     pub datetime: DateTimeUtc,
     pub active: bool,
+    pub level: NotificationLevel,
     pub payload: Option<Value>,
     pub event_id: Option<String>,
 }
@@ -284,6 +288,7 @@ impl From<NotificationDb> for Notification {
             description: value.description,
             datetime: value.datetime,
             active: value.active,
+            level: value.level,
             payload: value.payload,
             event_id: value.event_id,
         }
@@ -304,6 +309,7 @@ impl From<Notification> for NotificationDb {
             description: value.description,
             datetime: value.datetime,
             active: value.active,
+            level: value.level,
             payload: value.payload,
             event_id: value.event_id,
         }
@@ -671,7 +677,13 @@ mod tests {
     }
 
     fn test_notification(bill_id: &BillId, payload: Option<Value>) -> Notification {
-        Notification::new_bill_notification(bill_id, &node_id_test(), "test_notification", payload)
+        Notification::new_bill_notification(
+            bill_id,
+            &node_id_test(),
+            "test_notification",
+            payload,
+            NotificationLevel::Informational,
+        )
     }
 
     fn test_payload() -> Value {
@@ -687,6 +699,7 @@ mod tests {
             description: "general desc".to_string(),
             datetime: Timestamp::now().to_datetime(),
             active: true,
+            level: NotificationLevel::Informational,
             payload: None,
             event_id: None,
         }

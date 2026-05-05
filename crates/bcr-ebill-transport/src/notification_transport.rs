@@ -10,7 +10,9 @@ use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_api::util::{validate_bill_id_network, validate_node_id_network};
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::application::notification::{Notification, NotificationType};
+use bcr_ebill_core::application::notification::{
+    Notification, NotificationLevel, NotificationType,
+};
 use bcr_ebill_core::{
     protocol::Sum,
     protocol::blockchain::bill::participant::BillParticipant,
@@ -58,6 +60,8 @@ impl NotificationTransportService {
             bill_id: bill_id.to_owned(),
             action_type,
             sum,
+            sender_node_id: None,
+            sender_name: None,
         };
 
         let notification = Notification::new_bill_notification(
@@ -68,6 +72,7 @@ impl NotificationTransportService {
                 serde_json::to_value(&payload)
                     .map_err(|e| Error::Message(format!("Failed to serialize payload: {e}")))?,
             ),
+            NotificationLevel::Informational,
         );
 
         if let Ok(Some(currently_active)) = self
@@ -200,6 +205,8 @@ impl NotificationTransportServiceApi for NotificationTransportService {
                 bill_id: bill_id.to_owned(),
                 action_type: Some(ActionType::CheckBill),
                 sum,
+                sender_node_id: Some(sender_node_id.clone()),
+                sender_name: None,
             };
             let event = Event::new_bill(payload);
             if let Some(r) = recoursee {
@@ -285,8 +292,11 @@ mod tests {
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
     use bcr_ebill_core::{
-        application::notification::Notification, protocol::Email, protocol::Sum,
-        protocol::blockchain::bill::participant::BillParticipant, protocol::crypto::BcrKeys,
+        application::notification::{Notification, NotificationLevel},
+        protocol::Email,
+        protocol::Sum,
+        protocol::blockchain::bill::participant::BillParticipant,
+        protocol::crypto::BcrKeys,
         protocol::event::ActionType,
     };
     use bcr_ebill_persistence::notification::NotificationFilter;
@@ -409,8 +419,13 @@ mod tests {
     #[tokio::test]
     async fn get_client_notifications() {
         init_test_cfg();
-        let result =
-            Notification::new_bill_notification(&bill_id_test(), &node_id_test(), "desc", None);
+        let result = Notification::new_bill_notification(
+            &bill_id_test(),
+            &node_id_test(),
+            "desc",
+            None,
+            NotificationLevel::Informational,
+        );
         let filter = NotificationFilter {
             active: Some(true),
             ..Default::default()

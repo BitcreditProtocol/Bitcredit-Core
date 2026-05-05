@@ -12,7 +12,7 @@ use bcr_ebill_core::{
     application::{
         company::CompanyStatus,
         identity::ActiveIdentityState,
-        notification::{Notification, NotificationType},
+        notification::{Notification, NotificationLevel, NotificationType},
     },
     protocol::{
         EditOptionalFieldMode, Validate,
@@ -840,8 +840,13 @@ impl CompanyChainEventProcessor {
             _ => return Ok(()), // no notifications for these yet
         };
 
-        let notification =
-            Notification::new_company_notification(company_id, node_id, &description, event);
+        let notification = Notification::new_company_notification(
+            company_id,
+            node_id,
+            &description,
+            event,
+            NotificationLevel::ActionRequired,
+        );
 
         // mark Company event as done if any active one exists
         match self
