@@ -77,7 +77,11 @@ impl BillActionEventHandler {
 
         let current_active = self
             .notification_store
-            .get_latest_by_reference(&event.bill_id.to_string(), NotificationType::Bill)
+            .get_latest_by_reference_and_node_id(
+                &event.bill_id.to_string(),
+                NotificationType::Bill,
+                node_id,
+            )
             .await;
 
         let current_is_actionable = match &current_active {
@@ -248,7 +252,9 @@ mod tests {
             .returning(|_, _| Ok(false));
 
         // not look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
+        notification_store
+            .expect_get_latest_by_reference_and_node_id()
+            .never();
 
         // not store new notification
         notification_store.expect_add().never();
@@ -290,7 +296,9 @@ mod tests {
         let (mut notification_store, mut push_service, chain_processor) = create_mocks();
 
         // look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
+        notification_store
+            .expect_get_latest_by_reference_and_node_id()
+            .never();
 
         // store new notification
         notification_store.expect_add().never();
@@ -345,10 +353,14 @@ mod tests {
 
         // look for currently active notification
         notification_store
-            .expect_get_latest_by_reference()
-            .with(eq(bill_id_test().to_string()), eq(NotificationType::Bill))
+            .expect_get_latest_by_reference_and_node_id()
+            .with(
+                eq(bill_id_test().to_string()),
+                eq(NotificationType::Bill),
+                eq(node_id_test()),
+            )
             .times(1)
-            .returning(|_, _| Ok(None));
+            .returning(|_, _, _| Ok(None));
 
         // store new notification
         notification_store.expect_add().times(1).returning(|_| {
@@ -438,7 +450,9 @@ mod tests {
             .returning(|_, _| Ok(true));
 
         // should NOT look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
+        notification_store
+            .expect_get_latest_by_reference_and_node_id()
+            .never();
 
         // should NOT store new notification
         notification_store.expect_add().never();

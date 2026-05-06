@@ -81,7 +81,11 @@ impl NotificationTransportService {
 
         if let Ok(Some(currently_active)) = self
             .notification_store
-            .get_latest_by_reference(&bill_id.to_string(), NotificationType::Bill)
+            .get_latest_by_reference_and_node_id(
+                &bill_id.to_string(),
+                NotificationType::Bill,
+                node_id,
+            )
             .await
         {
             let _ = self
@@ -354,8 +358,8 @@ mod tests {
         let service = expect_service(|mock_store, _, email_client, mock_push| {
             mock_store.expect_add().returning(Ok).times(2);
             mock_store
-                .expect_get_latest_by_reference()
-                .returning(|_, _| Ok(None))
+                .expect_get_latest_by_reference_and_node_id()
+                .returning(|_, _, _| Ok(None))
                 .times(2);
 
             mock_push.expect_send().returning(|_| ()).times(2);

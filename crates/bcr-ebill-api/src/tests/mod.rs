@@ -415,6 +415,12 @@ pub mod tests {
                 reference: &str,
                 notification_type: NotificationType,
             ) -> Result<Option<Notification>>;
+            async fn get_latest_by_reference_and_node_id(
+                &self,
+                reference: &str,
+                notification_type: NotificationType,
+                node_id: &NodeId,
+            ) -> Result<Option<Notification>>;
             #[allow(unused)]
             async fn list_by_type(&self, notification_type: NotificationType) -> Result<Vec<Notification>>;
             async fn mark_as_done(&self, notification_id: &str) -> Result<()>;

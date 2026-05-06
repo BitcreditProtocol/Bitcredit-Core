@@ -178,6 +178,25 @@ impl NotificationStoreApi for SurrealNotificationStore {
             .await?;
         Ok(result.first().cloned())
     }
+    /// Returns the latest active notification for the given reference, notification type and node id
+    async fn get_latest_by_reference_and_node_id(
+        &self,
+        reference: &str,
+        notification_type: NotificationType,
+        node_id: &NodeId,
+    ) -> Result<Option<Notification>> {
+        let result = self
+            .list(NotificationFilter {
+                active: Some(true),
+                reference_id: Some(reference.to_owned()),
+                notification_type: Some(notification_type.to_string()),
+                node_ids: vec![node_id.to_owned()],
+                limit: Some(1),
+                ..Default::default()
+            })
+            .await?;
+        Ok(result.first().cloned())
+    }
     /// Returns all notifications for the given reference and notification type that are active
     async fn list_by_type(&self, notification_type: NotificationType) -> Result<Vec<Notification>> {
         let result = self
@@ -273,6 +292,7 @@ struct NotificationDb {
     pub description: String,
     pub datetime: DateTimeUtc,
     pub active: bool,
+    #[serde(default)]
     pub level: NotificationLevel,
     pub payload: Option<Value>,
     pub event_id: Option<String>,

@@ -1014,7 +1014,11 @@ impl CompanyChainEventProcessor {
         // BUT only if we're not demoting an ActionRequired notification to Informational
         match self
             .notification_store
-            .get_latest_by_reference(&company_id.to_string(), NotificationType::Company)
+            .get_latest_by_reference_and_node_id(
+                &company_id.to_string(),
+                NotificationType::Company,
+                node_id,
+            )
             .await
         {
             Ok(Some(currently_active)) => {
@@ -2184,8 +2188,8 @@ pub mod tests {
             .never();
 
         notification_store
-            .expect_get_latest_by_reference()
-            .returning(|_, _| Ok(None));
+            .expect_get_latest_by_reference_and_node_id()
+            .returning(|_, _, _| Ok(None));
 
         notification_store.expect_add().returning(|_| {
             Ok(Notification::new_company_notification(

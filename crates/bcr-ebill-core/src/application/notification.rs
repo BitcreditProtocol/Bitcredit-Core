@@ -29,6 +29,7 @@ pub struct Notification {
     /// some action to dismiss the notification.
     pub active: bool,
     /// The urgency/attention level of the notification
+    #[serde(default)]
     pub level: NotificationLevel,
     /// Additional data to be used for notification specific logic
     pub payload: Option<Value>,
