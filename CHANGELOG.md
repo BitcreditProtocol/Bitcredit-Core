@@ -1,3 +1,5 @@
+# 0.5.10
+
 # 0.5.9
 
 * Fix wrong signer for contact file upload
