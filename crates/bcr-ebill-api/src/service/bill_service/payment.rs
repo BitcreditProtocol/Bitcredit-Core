@@ -14,7 +14,7 @@ use bcr_ebill_core::{
             Blockchain,
             bill::{
                 BillOpCode, BitcreditBill, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
-                block::{BillOfferToSellBlockData, BillRequestToPayBlockData},
+                block::BillRequestToPayBlockData,
                 participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
             },
             identity::IdentityType,
@@ -366,47 +366,6 @@ impl BillService {
                                     now,
                                 )
                                 .await?;
-                    }
-                }
-            }
-        } else if chain.get_latest_block().op_code == BillOpCode::OfferToSell {
-            // Deadline has passed and the last block is still OfferToSell (not Sell).
-            // Create a timeout notification for OUR local identity only.
-            let last_block = chain.get_latest_block();
-            if let Ok(block_data) =
-                last_block.get_decrypted_block::<BillOfferToSellBlockData>(&bill_keys)
-            {
-                let buyer_node_id = block_data.buyer.node_id();
-                let seller_node_id = block_data.seller.node_id();
-                let local_node_id = &identity.identity.node_id;
-                let recipient = if local_node_id == &buyer_node_id {
-                    Some(buyer_node_id)
-                } else if local_node_id == &seller_node_id {
-                    Some(seller_node_id)
-                } else {
-                    None
-                };
-                if let Some(recipient_node_id) = recipient {
-                    log::debug!(
-                        "OfferToSell timeout: bill_id={} recipient={} (local)",
-                        bill_id,
-                        recipient_node_id
-                    );
-                    if let Err(e) = self
-                        .transport_service
-                        .notification_transport()
-                        .create_local_bill_notification(
-                            &recipient_node_id,
-                            bill_id,
-                            BillEventType::BillSellOfferTimeout,
-                            Some(ActionType::CheckBill),
-                            Some(block_data.payment_data.sum),
-                        )
-                        .await
-                    {
-                        log::error!(
-                            "Failed to create sell offer timeout notification for {recipient_node_id} of bill {bill_id}: {e}"
-                        );
                     }
                 }
             }

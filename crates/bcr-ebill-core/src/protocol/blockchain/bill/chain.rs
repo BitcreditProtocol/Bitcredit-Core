@@ -836,104 +836,120 @@ impl BillBlockchain {
     }
 
     /// Returns all Ident (non-Anon) nodes of the bill with the block height they were added in.
-    /// BEARER (Anon) participants are excluded.
+    /// BEARER (Anon) participants are excluded, but nodes that appear as both Anon and Ident
+    /// are included because they are not exclusively BEARER.
     pub fn get_all_ident_nodes_with_added_block_height(
         &self,
         bill_keys: &BcrKeys,
     ) -> Result<HashMap<NodeId, usize>> {
         let all_nodes = self.get_all_nodes_with_added_block_height(bill_keys)?;
-        let anon_nodes = self.get_anon_node_ids(bill_keys)?;
+        let ident_nodes = self.get_ident_node_ids(bill_keys)?;
         Ok(all_nodes
             .into_iter()
-            .filter(|(node_id, _)| !anon_nodes.contains(node_id))
+            .filter(|(node_id, _)| ident_nodes.contains(node_id))
             .collect())
     }
 
-    /// Returns a set of all Anon (BEARER) node IDs that have participated in the bill chain.
-    fn get_anon_node_ids(&self, bill_keys: &BcrKeys) -> Result<HashSet<NodeId>> {
+    /// Returns a set of all Ident node IDs that have participated in the bill chain.
+    fn get_ident_node_ids(&self, bill_keys: &BcrKeys) -> Result<HashSet<NodeId>> {
         use super::block::BillParticipantBlockData;
-        let mut anon_nodes: HashSet<NodeId> = HashSet::new();
+        let mut ident_nodes: HashSet<NodeId> = HashSet::new();
         for block in self.blocks.iter() {
             match block.op_code {
                 BillOpCode::Issue => {
                     let bill: BillIssueBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = bill.payee {
-                        anon_nodes.insert(data.node_id.clone());
+                    // drawer and drawee are always Ident
+                    ident_nodes.insert(bill.drawer.node_id.clone());
+                    ident_nodes.insert(bill.drawee.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = bill.payee {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::Endorse => {
                     let block: BillEndorseBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.endorsee {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.endorsee {
+                        ident_nodes.insert(data.node_id.clone());
                     }
-                    if let BillParticipantBlockData::Anon(ref data) = block.endorser {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.endorser {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::Mint => {
                     let block: BillMintBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.endorsee {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.endorsee {
+                        ident_nodes.insert(data.node_id.clone());
                     }
-                    if let BillParticipantBlockData::Anon(ref data) = block.endorser {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.endorser {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::RequestToAccept => {
                     let block: BillRequestToAcceptBlockData =
                         block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.requester {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.requester {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::RequestToPay => {
                     let block: BillRequestToPayBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.requester {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.requester {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::OfferToSell => {
                     let block: BillOfferToSellBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.buyer {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.buyer {
+                        ident_nodes.insert(data.node_id.clone());
                     }
-                    if let BillParticipantBlockData::Anon(ref data) = block.seller {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.seller {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::Sell => {
                     let block: BillSellBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.buyer {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.buyer {
+                        ident_nodes.insert(data.node_id.clone());
                     }
-                    if let BillParticipantBlockData::Anon(ref data) = block.seller {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.seller {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::RejectToBuy => {
                     let block: BillRejectToBuyBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.rejecter {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.rejecter {
+                        ident_nodes.insert(data.node_id.clone());
                     }
                 }
                 BillOpCode::RequestRecourse => {
                     let block: BillRequestRecourseBlockData =
                         block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.recourser {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.recourser {
+                        ident_nodes.insert(data.node_id.clone());
                     }
+                    // recoursee can only be Ident
+                    ident_nodes.insert(block.recoursee.node_id.clone());
                 }
                 BillOpCode::Recourse => {
                     let block: BillRecourseBlockData = block.get_decrypted_block(bill_keys)?;
-                    if let BillParticipantBlockData::Anon(ref data) = block.recourser {
-                        anon_nodes.insert(data.node_id.clone());
+                    if let BillParticipantBlockData::Ident(ref data) = block.recourser {
+                        ident_nodes.insert(data.node_id.clone());
                     }
+                    // recoursee can only be Ident
+                    ident_nodes.insert(block.recoursee.node_id.clone());
                 }
-                // Accept, RejectToAccept, RejectToPay, RejectToPayRecourse only have Ident participants
-                _ => {}
+                BillOpCode::Accept => {
+                    let block: BillAcceptBlockData = block.get_decrypted_block(bill_keys)?;
+                    ident_nodes.insert(block.accepter.node_id.clone());
+                }
+                BillOpCode::RejectToAccept
+                | BillOpCode::RejectToPay
+                | BillOpCode::RejectToPayRecourse => {
+                    let block: BillRejectBlockData = block.get_decrypted_block(bill_keys)?;
+                    ident_nodes.insert(block.rejecter.node_id.clone());
+                }
             }
         }
-        Ok(anon_nodes)
+        Ok(ident_nodes)
     }
 
     pub fn get_bill_history(&self, bill_keys: &BcrKeys) -> Result<BillHistory> {
