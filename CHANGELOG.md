@@ -1,3 +1,7 @@
+# 0.5.9
+
+* Fix wrong signer for contact file upload
+
 # 0.5.8
 
 * Fix an issue with the new orphaned-block validation
