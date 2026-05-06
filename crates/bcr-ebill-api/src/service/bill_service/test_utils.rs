@@ -300,6 +300,9 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     default_notification
         .expect_create_local_bill_notification()
         .returning(|_, _, _, _, _| Ok(()));
+    default_notification
+        .expect_create_general_notification()
+        .returning(|_, _, _, _| Ok(()));
     ctx.transport_service
         .expect_notification_transport()
         .times(0..)

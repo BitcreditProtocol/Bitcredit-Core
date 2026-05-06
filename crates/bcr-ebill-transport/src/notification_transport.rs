@@ -191,6 +191,34 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         self.create_bill_notification(node_id, bill_id, event_type, action_type, sum)
             .await
     }
+    async fn create_general_notification(
+        &self,
+        node_id: &NodeId,
+        description: &str,
+        reference_id: Option<String>,
+        level: NotificationLevel,
+    ) -> Result<()> {
+        let notification =
+            Notification::new_general_notification(node_id, description, reference_id, level);
+
+        self.notification_store
+            .add(notification.clone())
+            .await
+            .map_err(|e| {
+                error!("Failed to save general notification: {e}");
+                Error::Persistence("Failed to save general notification".to_string())
+            })?;
+
+        match serde_json::to_value(notification) {
+            Ok(notification_value) => {
+                self.push_service.send(notification_value).await;
+            }
+            Err(e) => {
+                error!("Failed to serialize general notification for push: {e}");
+            }
+        }
+        Ok(())
+    }
 
     async fn send_request_to_action_timed_out_event(
         &self,

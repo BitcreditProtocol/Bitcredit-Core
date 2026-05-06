@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
-    application::notification::Notification,
+    application::notification::{Notification, NotificationLevel},
     protocol::Sum,
     protocol::blockchain::bill::participant::BillParticipant,
     protocol::event::ActionType,
@@ -52,6 +52,16 @@ pub trait NotificationTransportServiceApi: ServiceTraitBounds {
         event_type: BillEventType,
         action_type: Option<ActionType>,
         sum: Option<Sum>,
+    ) -> Result<()>;
+
+    /// Creates a general (non-bill, non-company) notification for the given node.
+    /// Used for system-level notifications like "save your seed phrase".
+    async fn create_general_notification(
+        &self,
+        node_id: &NodeId,
+        description: &str,
+        reference_id: Option<String>,
+        level: NotificationLevel,
     ) -> Result<()>;
 
     /// In case a participant did not perform an action (e.g. request to accept, request

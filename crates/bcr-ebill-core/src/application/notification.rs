@@ -100,6 +100,26 @@ impl Notification {
             event_id: None,
         }
     }
+
+    pub fn new_general_notification(
+        node_id: &NodeId,
+        description: &str,
+        reference_id: Option<String>,
+        level: NotificationLevel,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            node_id: Some(node_id.to_owned()),
+            notification_type: NotificationType::General,
+            reference_id,
+            description: description.to_string(),
+            datetime: Timestamp::now().to_datetime(),
+            active: true,
+            level,
+            payload: None,
+            event_id: None,
+        }
+    }
 }
 
 /// The type/topic of a notification we show to the user
