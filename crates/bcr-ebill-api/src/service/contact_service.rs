@@ -209,14 +209,14 @@ impl ContactService {
     async fn process_upload_file(
         &self,
         upload_id: &Option<Uuid>,
-        id: &NodeId,
+        contact_node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
         upload_file_type: UploadFileType,
         field_name: &str,
     ) -> Result<Option<File>> {
         if let Some(upload_id) = upload_id {
-            debug!("processing upload file for contact {id}: {upload_id:?}");
+            debug!("processing upload file for contact {contact_node_id}: {upload_id:?}");
             let (file_name, file_bytes) = &self
                 .file_upload_store
                 .read_temp_upload_file(upload_id)
@@ -232,7 +232,12 @@ impl ContactService {
             }
             let file = self
                 .encrypt_and_save_uploaded_file(
-                    file_name, file_bytes, id, public_key, signer, field_name,
+                    file_name,
+                    file_bytes,
+                    contact_node_id,
+                    public_key,
+                    signer,
+                    field_name,
                 )
                 .await?;
             return Ok(Some(file));
@@ -244,11 +249,12 @@ impl ContactService {
         &self,
         file_name: &Name,
         file_bytes: &[u8],
-        node_id: &NodeId,
+        contact_node_id: &NodeId,
         public_key: &PublicKey,
         signer: &BcrKeys,
         field_name: &str,
     ) -> Result<File> {
+        let publisher_node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
         encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
@@ -258,8 +264,8 @@ impl ContactService {
             file_bytes,
             public_key,
             signer,
-            node_id,
-            contact_file_context(node_id, field_name),
+            &publisher_node_id,
+            contact_file_context(contact_node_id, field_name),
             None,
             "contact",
         )
@@ -936,9 +942,13 @@ pub mod tests {
             NODE_ID_TEST_STR, empty_address, init_test_cfg, node_id_test, node_id_test_other,
         },
     };
-    use bcr_ebill_core::{application::nostr_contact::HandshakeStatus, protocol::crypto::BcrKeys};
+    use bcr_ebill_core::{
+        application::nostr_contact::HandshakeStatus,
+        protocol::{Sha256Hash, crypto::BcrKeys, file_reference::FileReference},
+    };
     use bcr_ebill_persistence::PendingContactShare;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, str::FromStr};
+    use uuid::Uuid;
 
     pub fn get_baseline_contact() -> Contact {
         Contact {
@@ -1275,6 +1285,105 @@ pub mod tests {
             EditOptionalFieldMode::Ignore,
         )
         .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_contact_upload_avatar_uses_identity_node_id_for_publish() {
+        init_test_cfg();
+        let (
+            mut store,
+            mut file_upload_store,
+            mut file_upload_client,
+            mut file_reference_store,
+            mut identity_store,
+            company_store,
+            mut nostr_contact,
+            mut transport,
+        ) = get_storages();
+
+        let identity = get_baseline_identity();
+        let expected_publisher_node_id =
+            NodeId::new(identity.key_pair.pub_key(), get_config().bitcoin_network());
+
+        identity_store
+            .expect_get_full()
+            .returning(move || Ok(identity.clone()));
+        store.expect_get().returning(|_| {
+            let contact = get_baseline_contact();
+            Ok(Some(contact))
+        });
+        store.expect_update().returning(|_, _| Ok(()));
+
+        nostr_contact
+            .expect_by_node_id()
+            .returning(|_| Ok(None))
+            .once();
+        nostr_contact.expect_upsert().returning(|_| Ok(())).once();
+
+        file_upload_store
+            .expect_read_temp_upload_file()
+            .returning(|_| Ok((Name::new("avatar.png").unwrap(), vec![1, 2, 3])));
+
+        file_upload_client.expect_upload().returning(|_, _| {
+            Ok(nostr::hashes::sha256::Hash::from_str(
+                "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
+            )
+            .unwrap())
+        });
+
+        file_reference_store.expect_get().returning(|_| Ok(None));
+        file_reference_store
+            .expect_add_server_urls()
+            .returning(|_, _| Ok(true));
+        file_reference_store
+            .expect_upsert()
+            .returning(|_, _, _, _, _, _| {
+                Ok(FileReference::new(
+                    Sha256Hash::from_bytes(b"test"),
+                    nostr::hashes::sha256::Hash::from_str(
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .unwrap(),
+                    None,
+                ))
+            });
+
+        transport
+            .expect_publish_file_metadata()
+            .withf(move |node_id, _plaintext, _encrypted, _urls, _mime| {
+                *node_id == expected_publisher_node_id
+            })
+            .returning(|_, _, _, _, _| Ok(()))
+            .times(1);
+
+        let result = get_service(
+            store,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            company_store,
+            nostr_contact,
+            transport,
+        )
+        .update_contact(
+            &node_id_test(),
+            None,
+            None,
+            None,
+            None,
+            EditOptionalFieldMode::Ignore,
+            None,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Ignore,
+            EditOptionalFieldMode::Set(Uuid::new_v4()),
+            EditOptionalFieldMode::Ignore,
+        )
+        .await;
+
         assert!(result.is_ok());
     }
 
