@@ -1,5 +1,7 @@
 # 0.5.10
 
+* Fix company creation with identity upload and missing nostr node id during block propagation
+
 # 0.5.9
 
 * Fix wrong signer for contact file upload
