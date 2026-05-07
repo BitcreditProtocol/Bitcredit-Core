@@ -10,6 +10,7 @@ use bcr_ebill_core::{
         BitcreditBill,
         participant::{BillIdentParticipant, BillParticipant},
     },
+    protocol::crypto::BcrKeys,
     protocol::event::ActionType,
     protocol::event::BillChainEvent,
 };
@@ -130,6 +131,10 @@ pub trait TransportServiceApi: ServiceTraitBounds {
 
     /// Retries failed relay sync attempts
     async fn retry_failed_syncs(&self) -> Result<()>;
+
+    /// Adds a new identity (company keys) to the multi-identity client.
+    /// This will also add a subscription for direct messages to this identity.
+    async fn add_identity(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()>;
 
     /// Publishes file metadata (kind:1063) for the specified file.
     /// This is idempotent - it will only publish if the server URLs have changed.

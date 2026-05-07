@@ -8,10 +8,8 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::BlockTransportServiceApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
-use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
 };
@@ -299,11 +297,6 @@ impl BlockTransportServiceApi for BlockTransportService {
     async fn resync_identity_chain(&self) -> Result<()> {
         self.identity_chain_event_processor.resync_chain().await?;
         Ok(())
-    }
-
-    /// Adds a new transport client for a company if it does not already exist
-    async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
-        self.nostr_transport.add_company_keys(company, keys).await
     }
 }
 
