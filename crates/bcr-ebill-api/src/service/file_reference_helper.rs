@@ -365,6 +365,7 @@ mod tests {
             async fn send_retry_messages(&self) -> crate::service::transport_service::Result<()>;
             async fn sync_relays(&self) -> crate::service::transport_service::Result<()>;
             async fn retry_failed_syncs(&self) -> crate::service::transport_service::Result<()>;
+            async fn add_identity(&self, node_id: &bcr_common::core::NodeId, keys: &bcr_ebill_core::protocol::crypto::BcrKeys) -> crate::service::transport_service::Result<()>;
             async fn publish_file_metadata(&self, node_id: &bcr_common::core::NodeId, plaintext_hash: &str, encrypted_hash: &str, server_urls: Vec<url::Url>, mime_type: Option<String>) -> crate::service::transport_service::Result<()>;
             async fn query_file_metadata_events(&self, file_hash: &str, nostr_hash: &str) -> crate::service::transport_service::Result<Vec<nostr::Event>>;
         }

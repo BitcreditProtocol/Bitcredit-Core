@@ -3,8 +3,6 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
-    application::company::Company,
-    protocol::crypto::BcrKeys,
     protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
 };
 
@@ -17,8 +15,6 @@ use mockall::automock;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait BlockTransportServiceApi: ServiceTraitBounds {
-    /// Adds a new transport client for a company if it does not already exist
-    async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
     /// Sent when a company chain is created or updated

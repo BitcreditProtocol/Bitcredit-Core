@@ -611,6 +611,12 @@ impl CompanyServiceApi for CompanyService {
         debug!("creating company by creator {}", creator_email);
         let company_keys = self.store.get_key_pair(&id).await?;
 
+        // Register the company's identity with the transport layer before any file uploads,
+        // so that file metadata can be published with the correct signer.
+        self.transport_service
+            .add_identity(&id, &company_keys)
+            .await?;
+
         let full_identity = self.identity_store.get_full().await?;
         // company can only be created by identified identity
         if full_identity.identity.t == IdentityType::Anon {
@@ -710,11 +716,6 @@ impl CompanyServiceApi for CompanyService {
 
         self.company_blockchain_store
             .add_block(&id, create_company_block)
-            .await?;
-
-        self.transport_service
-            .block_transport()
-            .add_company_transport(&company, &company_keys)
             .await?;
 
         self.populate_block(&company, &company_chain, &company_keys, None)
@@ -1591,6 +1592,12 @@ impl CompanyServiceApi for CompanyService {
         // update signatories list in the DB
         self.store.update(id, &company).await?;
 
+        // Ensure the company identity is registered with the transport layer before
+        // broadcasting chain events, in case it was lost (e.g. after restart).
+        self.transport_service
+            .add_identity(id, &company_keys)
+            .await?;
+
         // company block
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_accept_signatory_invite(
@@ -2410,15 +2417,16 @@ pub mod tests {
             .expect_publish_file_metadata()
             .returning(|_, _, _, _, _| Ok(()))
             .times(1);
+        transport
+            .expect_add_identity()
+            .returning(|_, _| Ok(()))
+            .times(1);
         transport.expect_on_block_transport(|t| {
             t.expect_send_company_chain_events()
                 .returning(|_| Ok(()))
                 .times(2);
             t.expect_send_identity_chain_events()
                 .returning(|_| Ok(()))
-                .times(1);
-            t.expect_add_company_transport()
-                .returning(|_, _| Ok(()))
                 .times(1);
         });
         transport.expect_on_contact_transport(|c| {
@@ -2472,7 +2480,7 @@ pub mod tests {
             contact_store,
             identity_chain_store,
             company_chain_store,
-            notification,
+            mut notification,
             nostr_contact_store,
             email_client,
             email_notification_store,
@@ -2496,6 +2504,10 @@ pub mod tests {
                 key_pair: BcrKeys::new(),
             })
         });
+        notification
+            .expect_add_identity()
+            .returning(|_, _| Ok(()))
+            .times(1);
         let service = get_service(
             storage,
             file_upload_store,
@@ -3037,6 +3049,10 @@ pub mod tests {
         identity_chain_store
             .expect_add_block()
             .returning(|_| Ok(()));
+        transport
+            .expect_add_identity()
+            .returning(|_, _| Ok(()))
+            .times(1);
 
         let service = get_service(
             storage,

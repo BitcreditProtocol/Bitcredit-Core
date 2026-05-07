@@ -85,7 +85,7 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
                         break;
                     }
                 }
-                // we are onboarded to the chain so store all Nostr chain data also the invalid one
+                // we are onboarded to the chain so store all valid Nostr chain data
                 if let Err(e) = self
                     .store_events(
                         &decoded.data.chain_id,

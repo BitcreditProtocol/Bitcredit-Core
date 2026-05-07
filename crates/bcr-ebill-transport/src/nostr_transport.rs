@@ -5,7 +5,6 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::util::validate_node_id_network;
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::nostr_contact::TrustLevel;
 use bcr_ebill_core::protocol::Address;
 use bcr_ebill_core::protocol::City;
@@ -140,11 +139,10 @@ impl NostrTransportService {
         }
     }
 
-    pub(crate) async fn add_company_keys(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
-        let node_id = NodeId::new(keys.pub_key(), company.id.network());
-        debug!("Adding company keys for node_id: {node_id}");
+    pub(crate) async fn add_identity(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()> {
+        debug!("Adding identity for node_id: {node_id}");
         self.nostr_client
-            .add_identity(node_id, keys.clone())
+            .add_identity(node_id.clone(), keys.clone())
             .await?;
         Ok(())
     }

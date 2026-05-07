@@ -62,7 +62,6 @@ use bcr_ebill_api::service::transport_service::{
     NotificationTransportServiceApi, Result,
 };
 
-use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, IdentityChainEvent,
 };
@@ -468,7 +467,6 @@ mockall::mock! {
 
     #[async_trait]
     impl BlockTransportServiceApi for BlockTransportService {
-        async fn add_company_transport(&self, company: &Company, keys: &BcrKeys) -> Result<()>;
         async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
         async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
         async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;

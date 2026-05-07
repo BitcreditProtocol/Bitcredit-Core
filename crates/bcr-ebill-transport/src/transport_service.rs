@@ -10,6 +10,7 @@ use bcr_ebill_core::protocol::blockchain::bill::BitcreditBill;
 use bcr_ebill_core::protocol::blockchain::bill::participant::{
     BillIdentParticipant, BillParticipant,
 };
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{BillChainEvent, BillChainEventPayload, Event};
 
 use super::nostr_transport::NostrTransportService;
@@ -61,6 +62,10 @@ impl TransportServiceApi for TransportService {
 
     async fn connect(&self) {
         self.nostr_transport.connect().await;
+    }
+
+    async fn add_identity(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()> {
+        self.nostr_transport.add_identity(node_id, keys).await
     }
 
     async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()> {
