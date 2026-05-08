@@ -625,7 +625,7 @@ impl BillEventType {
             BillEventType::BillPaymentRecourse => "bill_recourse_payment_required".to_string(),
             BillEventType::BillRecourseRejected => "Bill_recourse_rejected".to_string(),
             BillEventType::BillRecourseTimeout => "Bill_recourse_timed_out".to_string(),
-            BillEventType::BillSellOffered => "bill_request_to_buy".to_string(),
+            BillEventType::BillSellOffered => "bill_sell_offer".to_string(),
             BillEventType::BillSellOfferTimeout => "bill_sell_offer_timed_out".to_string(),
             BillEventType::BillBuyingRejected => "bill_buying_rejected".to_string(),
             BillEventType::BillPaid => "bill_paid".to_string(),
