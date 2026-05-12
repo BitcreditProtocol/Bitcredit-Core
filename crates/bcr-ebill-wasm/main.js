@@ -136,7 +136,7 @@ let config = {
   default_mint_node_id: "bitcrt020e50d48b6b2897743ca257c82684e984509c05c9bf812176c717005698e57023", //wildcat0 clowder-dev
   num_confirmations_for_payment: 1,
   dev_mode: true,
-  disable_mandatory_email_confirmations: true,
+  mandatory_email_confirmations: false,
   // default_court_url: "http://localhost:8000",
   default_court_url: "https://bcr-court-dev.minibill.tech"
 };

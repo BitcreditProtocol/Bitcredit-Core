@@ -87,8 +87,7 @@ jobs:
 
       - name: Install wasm-pack
         run: |
-          cd scripts
-          bash install-wasm-pack.sh
+          cargo install wasm-pack --version 0.14.0
 
       - name: Build WASM version
         run: |

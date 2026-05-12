@@ -370,10 +370,7 @@ impl CompanyService {
         company_id: &NodeId,
         email: &Email,
     ) -> Result<(SignedIdentityProof, EmailIdentityProofData)> {
-        if !get_config()
-            .dev_mode_config
-            .disable_mandatory_email_confirmations
-        {
+        if get_config().dev_mode_config.mandatory_email_confirmations {
             // Make sure there is a confirmed email
             let email_confirmations = self.store.get_email_confirmations(company_id).await?;
             if email_confirmations.is_empty() {
