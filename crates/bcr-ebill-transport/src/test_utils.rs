@@ -150,7 +150,7 @@ pub fn init_test_cfg() {
                 },
                 dev_mode_config: DevModeConfig {
                     on: false,
-                    disable_mandatory_email_confirmations: false,
+                    mandatory_email_confirmations: true,
                 },
                 court_config: CourtConfig {
                     default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
