@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use bcr_common::client::mint::Client as ExternalMintClient;
 use bcr_common::core::BillId;
-use bcr_common::wire::clowder::{ConnectedMintResponse, ConnectedMintsResponse};
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash, Sum};
 use bcr_ebill_core::{
@@ -13,7 +12,6 @@ use bcr_ebill_core::{
 };
 use nostr::hashes::{Hash, sha256};
 use secp256k1::rand::{prelude::SliceRandom, thread_rng};
-use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -379,10 +377,9 @@ impl MintClientApi for MintClient {
             return Err(Error::NoBetas.into());
         };
 
-        let beta_url =
-            url::Url::from_str(&random_beta.mint.to_string()).map_err(|_| Error::InvalidMintUrl)?;
+        let beta_url = &random_beta.mint;
         let derived_payment_address_from_beta = self
-            .client(&beta_url)?
+            .client(beta_url)?
             .derive_ebill_payment_address(
                 *mint_info.node_id,
                 bill_id.to_owned(),
@@ -518,34 +515,6 @@ impl From<StatusReply> for QuoteStatusReply {
                 keyset_id,
                 minted_amount,
             },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConnectedMintReply {
-    pub mint: cashu::MintUrl,
-    pub pub_key: secp256k1::PublicKey,
-}
-
-impl From<ConnectedMintResponse> for ConnectedMintReply {
-    fn from(value: ConnectedMintResponse) -> Self {
-        Self {
-            mint: value.mint,
-            pub_key: value.node_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConnectedMintsReply {
-    pub mints: Vec<ConnectedMintReply>,
-}
-
-impl From<ConnectedMintsResponse> for ConnectedMintsReply {
-    fn from(value: ConnectedMintsResponse) -> Self {
-        Self {
-            mints: value.mints.into_iter().map(|m| m.into()).collect(),
         }
     }
 }
