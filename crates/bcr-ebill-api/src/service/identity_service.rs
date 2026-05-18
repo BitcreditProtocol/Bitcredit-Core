@@ -314,10 +314,7 @@ impl IdentityService {
                     return Err(ProtocolValidationError::FieldEmpty(Field::Email).into());
                 };
 
-                if !get_config()
-                    .dev_mode_config
-                    .disable_mandatory_email_confirmations
-                {
+                if get_config().dev_mode_config.mandatory_email_confirmations {
                     // Make sure there is a confirmed email
                     let email_confirmations = self.store.get_email_confirmations().await?;
                     if email_confirmations.is_empty() {

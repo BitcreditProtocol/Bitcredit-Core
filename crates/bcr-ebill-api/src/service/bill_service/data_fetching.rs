@@ -173,10 +173,7 @@ impl BillService {
                     .iter()
                     .find(|ec| {
                         &ec.0.witness
-                            == if get_config()
-                                .dev_mode_config
-                                .disable_mandatory_email_confirmations
-                            {
+                            == if !get_config().dev_mode_config.mandatory_email_confirmations {
                                 &identified.node_id
                             } else {
                                 witness
@@ -190,10 +187,7 @@ impl BillService {
                     .iter()
                     .find(|ec| {
                         &ec.0.witness
-                            == if get_config()
-                                .dev_mode_config
-                                .disable_mandatory_email_confirmations
-                            {
+                            == if !get_config().dev_mode_config.mandatory_email_confirmations {
                                 &signatory_identity.identity.node_id
                             } else {
                                 witness
