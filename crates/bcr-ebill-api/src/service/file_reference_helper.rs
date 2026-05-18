@@ -354,7 +354,6 @@ mod tests {
             async fn send_bill_is_accepted_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
             async fn send_request_to_accept_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
             async fn send_request_to_pay_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
-            async fn send_bill_is_paid_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
             async fn send_bill_is_endorsed_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
             async fn send_offer_to_sell_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, buyer: &bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant) -> crate::service::transport_service::Result<()>;
             async fn send_bill_is_sold_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, buyer: &bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant) -> crate::service::transport_service::Result<()>;

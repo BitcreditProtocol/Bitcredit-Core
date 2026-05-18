@@ -267,6 +267,7 @@ pub struct NotificationFilters {
     pub active: Option<bool>,
     pub reference_id: Option<String>,
     pub notification_type: Option<String>,
+    pub level: Option<String>,
     #[tsify(type = "string[] | undefined")]
     pub node_ids: Option<Vec<NodeId>>,
     pub limit: Option<i64>,
@@ -281,6 +282,7 @@ impl From<NotificationFilters> for NotificationFilter {
             notification_type: value.notification_type,
             node_ids: value.node_ids.unwrap_or_default(),
             event_id: None,
+            level: value.level,
             limit: value.limit,
             offset: value.offset,
         }

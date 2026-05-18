@@ -26,3 +26,5 @@ pub const COMPANY_LOGO_FILE_FIELD: &str = "logo_file";
 pub const COMPANY_PROOF_OF_REGISTRATION_FILE_FIELD: &str = "proof_of_registration_file";
 pub const IDENTITY_PROFILE_PICTURE_FILE_FIELD: &str = "profile_picture_file";
 pub const IDENTITY_DOCUMENT_FILE_FIELD: &str = "identity_document_file";
+pub const SAVE_SEED_PHRASE_NOTIFICATION_KEY: &str = "save_seed_phrase";
+pub const SAVE_SEED_PHRASE_NOTIFICATION_REFERENCE_ID: &str = "seed_phrase";

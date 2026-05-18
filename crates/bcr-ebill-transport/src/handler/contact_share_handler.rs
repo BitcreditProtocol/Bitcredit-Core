@@ -8,7 +8,7 @@ use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::contact::Contact,
     application::nostr_contact::NostrContact,
-    application::notification::Notification,
+    application::notification::{Notification, NotificationLevel},
     protocol::{
         Timestamp,
         crypto::decrypt_ecies,
@@ -160,6 +160,7 @@ impl NotificationHandlerApi for ContactShareEventHandler {
                         node_id,
                         description,
                         serde_json::to_value(contact).ok(),
+                        NotificationLevel::ActionRequired,
                     );
 
                     self.notification_store

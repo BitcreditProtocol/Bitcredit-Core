@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::application::notification::{Notification, NotificationType};
+use bcr_ebill_core::application::notification::{
+    Notification, NotificationLevel, NotificationType,
+};
 use bcr_ebill_core::protocol::event::BillChainEventPayload;
 use bcr_ebill_core::protocol::event::BillEventType;
 use bcr_ebill_core::protocol::event::Event;
@@ -67,32 +69,71 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
+        let is_new_actionable = event
+            .action_type
+            .as_ref()
+            .map(|a| a.is_actionable())
+            .unwrap_or(false);
+
+        let current_active = self
+            .notification_store
+            .get_latest_by_reference_and_node_id(
+                &event.bill_id.to_string(),
+                NotificationType::Bill,
+                node_id,
+            )
+            .await;
+
+        let current_is_actionable = match &current_active {
+            Ok(Some(currently_active)) => currently_active
+                .payload
+                .as_ref()
+                .and_then(|p| serde_json::from_value::<BillChainEventPayload>(p.clone()).ok())
+                .and_then(|p| p.action_type)
+                .map(|a| a.is_actionable())
+                .unwrap_or(false),
+            _ => false,
+        };
+
+        if !is_new_actionable && current_is_actionable {
+            trace!(
+                "Skipping non-actionable notification for bill {} because an actionable notification is already active",
+                event.bill_id
+            );
+            return Ok(());
+        }
+
+        // Determine notification level from action type
+        let level = event
+            .action_type
+            .as_ref()
+            .map(|a| {
+                if a.is_actionable() {
+                    NotificationLevel::ActionRequired
+                } else {
+                    NotificationLevel::Informational
+                }
+            })
+            .unwrap_or(NotificationLevel::Informational);
+
         // create notification
         let mut notification = Notification::new_bill_notification(
             &event.bill_id,
             node_id,
             &event_description(&event.event_type),
             Some(serde_json::to_value(event)?),
+            level,
         );
         notification.event_id = event_id;
 
         // mark Bill event as done if any active one exists
-        match self
-            .notification_store
-            .get_latest_by_reference(&event.bill_id.to_string(), NotificationType::Bill)
-            .await
+        if let Ok(Some(currently_active)) = current_active
+            && let Err(e) = self
+                .notification_store
+                .mark_as_done(&currently_active.id)
+                .await
         {
-            Ok(Some(currently_active)) => {
-                if let Err(e) = self
-                    .notification_store
-                    .mark_as_done(&currently_active.id)
-                    .await
-                {
-                    error!("Failed to mark currently active notification as done: {e}");
-                }
-            }
-            Err(e) => error!("Failed to get latest notification by reference: {e}"),
-            Ok(None) => {}
+            error!("Failed to mark currently active notification as done: {e}");
         }
         // save new notification to database
         self.notification_store
@@ -173,30 +214,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
 
 // generates a human readable description for an event
 fn event_description(event_type: &BillEventType) -> String {
-    match event_type {
-        BillEventType::BillSigned => "bill_signed".to_string(),
-        BillEventType::BillAccepted => "bill_accepted".to_string(),
-        BillEventType::BillAcceptanceRequested => "bill_should_be_accepted".to_string(),
-        BillEventType::BillAcceptanceRejected => "bill_acceptance_rejected".to_string(),
-        BillEventType::BillAcceptanceTimeout => "bill_acceptance_timed_out".to_string(),
-        BillEventType::BillAcceptanceRecourse => "bill_recourse_acceptance_required".to_string(),
-        BillEventType::BillPaymentRequested => "bill_payment_required".to_string(),
-        BillEventType::BillPaymentRejected => "bill_payment_rejected".to_string(),
-        BillEventType::BillPaymentTimeout => "bill_payment_timed_out".to_string(),
-        BillEventType::BillPaymentRecourse => "bill_recourse_payment_required".to_string(),
-        BillEventType::BillRecourseRejected => "Bill_recourse_rejected".to_string(),
-        BillEventType::BillRecourseTimeout => "Bill_recourse_timed_out".to_string(),
-        BillEventType::BillSellOffered => "bill_request_to_buy".to_string(),
-        BillEventType::BillBuyingRejected => "bill_buying_rejected".to_string(),
-        BillEventType::BillPaid => "bill_paid".to_string(),
-        BillEventType::BillRecoursePaid => "bill_recourse_paid".to_string(),
-        BillEventType::BillEndorsed => "bill_endorsed".to_string(),
-        BillEventType::BillSold => "bill_sold".to_string(),
-        BillEventType::BillMintingRequested => "requested_to_mint".to_string(),
-        BillEventType::BillNewQuote => "new_quote".to_string(),
-        BillEventType::BillQuoteApproved => "quote_approved".to_string(),
-        BillEventType::BillBlock => "".to_string(),
-    }
+    event_type.description()
 }
 
 #[cfg(test)]
@@ -234,7 +252,9 @@ mod tests {
             .returning(|_, _| Ok(false));
 
         // not look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
+        notification_store
+            .expect_get_latest_by_reference_and_node_id()
+            .never();
 
         // not store new notification
         notification_store.expect_add().never();
@@ -252,9 +272,11 @@ mod tests {
             EventType::Bill,
             BillChainEventPayload {
                 bill_id: bill_id_test(),
-                event_type: BillEventType::BillBlock,
-                sum: Some(Sum::new_sat(100).expect("sat works")),
-                action_type: Some(ActionType::CheckBill),
+                event_type: BillEventType::BillAcceptanceRequested,
+                sum: Some(Sum::new_sat(500).expect("sat works")),
+                action_type: Some(ActionType::AcceptBill),
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 
@@ -274,7 +296,9 @@ mod tests {
         let (mut notification_store, mut push_service, chain_processor) = create_mocks();
 
         // look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
+        notification_store
+            .expect_get_latest_by_reference_and_node_id()
+            .never();
 
         // store new notification
         notification_store.expect_add().never();
@@ -294,6 +318,8 @@ mod tests {
                 event_type: BillEventType::BillBlock,
                 sum: None,
                 action_type: None,
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 
@@ -327,10 +353,14 @@ mod tests {
 
         // look for currently active notification
         notification_store
-            .expect_get_latest_by_reference()
-            .with(eq(bill_id_test().to_string()), eq(NotificationType::Bill))
+            .expect_get_latest_by_reference_and_node_id()
+            .with(
+                eq(bill_id_test().to_string()),
+                eq(NotificationType::Bill),
+                eq(node_id_test()),
+            )
             .times(1)
-            .returning(|_, _| Ok(None));
+            .returning(|_, _, _| Ok(None));
 
         // store new notification
         notification_store.expect_add().times(1).returning(|_| {
@@ -339,6 +369,7 @@ mod tests {
                 &node_id_test(),
                 "description",
                 None,
+                NotificationLevel::ActionRequired,
             ))
         });
 
@@ -354,9 +385,11 @@ mod tests {
             EventType::Bill,
             BillChainEventPayload {
                 bill_id: bill_id_test(),
-                event_type: BillEventType::BillSigned,
+                event_type: BillEventType::BillAcceptanceRequested,
                 sum: Some(Sum::new_sat(500).expect("sat works")),
-                action_type: Some(ActionType::CheckBill),
+                action_type: Some(ActionType::AcceptBill),
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 
@@ -417,7 +450,9 @@ mod tests {
             .returning(|_, _| Ok(true));
 
         // should NOT look for currently active notification
-        notification_store.expect_get_latest_by_reference().never();
+        notification_store
+            .expect_get_latest_by_reference_and_node_id()
+            .never();
 
         // should NOT store new notification
         notification_store.expect_add().never();
@@ -434,9 +469,11 @@ mod tests {
             EventType::Bill,
             BillChainEventPayload {
                 bill_id: bill_id_test(),
-                event_type: BillEventType::BillSigned,
+                event_type: BillEventType::BillAcceptanceRequested,
                 sum: Some(Sum::new_sat(500).expect("sat works")),
-                action_type: Some(ActionType::CheckBill),
+                action_type: Some(ActionType::AcceptBill),
+                sender_node_id: None,
+                sender_name: None,
             },
         );
 

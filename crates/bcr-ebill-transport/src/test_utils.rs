@@ -25,7 +25,7 @@ use bcr_ebill_core::{
     application::contact::Contact,
     application::identity::{Identity, IdentityWithAll},
     application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-    application::notification::Notification,
+    application::notification::{Notification, NotificationLevel},
     protocol::blockchain::BlockchainType,
     protocol::blockchain::{
         bill::{
@@ -517,6 +517,21 @@ mockall::mock! {
             &self,
             node_ids: &[NodeId],
         ) -> Result<HashMap<NodeId, bool>>;
+        async fn create_local_bill_notification(
+            &self,
+            node_id: &NodeId,
+            bill_id: &BillId,
+            event_type: BillEventType,
+            action_type: Option<ActionType>,
+            sum: Option<Sum>,
+        ) -> Result<()>;
+        async fn create_general_notification(
+            &self,
+            node_id: &NodeId,
+            description: &str,
+            reference_id: Option<String>,
+            level: NotificationLevel,
+        ) -> Result<()>;
         async fn send_request_to_action_timed_out_event(
             &self,
             sender_node_id: &NodeId,
@@ -622,6 +637,12 @@ mockall::mock! {
             &self,
             reference: &str,
             notification_type: bcr_ebill_core::application::notification::NotificationType,
+        ) -> bcr_ebill_persistence::Result<Option<Notification>>;
+        async fn get_latest_by_reference_and_node_id(
+            &self,
+            reference: &str,
+            notification_type: bcr_ebill_core::application::notification::NotificationType,
+            node_id: &NodeId,
         ) -> bcr_ebill_persistence::Result<Option<Notification>>;
         #[allow(unused)]
         async fn list_by_type(&self, notification_type: bcr_ebill_core::application::notification::NotificationType) -> bcr_ebill_persistence::Result<Vec<Notification>>;

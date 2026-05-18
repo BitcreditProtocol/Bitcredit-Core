@@ -1,5 +1,7 @@
 use bcr_common::core::NodeId;
-use bcr_ebill_core::application::notification::{Notification, NotificationType};
+use bcr_ebill_core::application::notification::{
+    Notification, NotificationLevel, NotificationType,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tsify::Tsify;
@@ -24,6 +26,7 @@ pub struct NotificationWeb {
     pub description: String,
     pub datetime: String,
     pub active: bool,
+    pub level: NotificationLevelWeb,
     #[tsify(type = "any | undefined")]
     pub payload: Option<Value>,
 }
@@ -40,6 +43,7 @@ impl From<Notification> for NotificationWeb {
                 .datetime
                 .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             active: val.active,
+            level: val.level.into(),
             payload: val.payload,
         }
     }
@@ -61,6 +65,22 @@ impl From<NotificationType> for NotificationTypeWeb {
             NotificationType::Company => NotificationTypeWeb::Company,
             NotificationType::General => NotificationTypeWeb::General,
             NotificationType::Contact => NotificationTypeWeb::Contact,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Copy, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub enum NotificationLevelWeb {
+    Informational,
+    ActionRequired,
+}
+
+impl From<NotificationLevel> for NotificationLevelWeb {
+    fn from(val: NotificationLevel) -> Self {
+        match val {
+            NotificationLevel::Informational => NotificationLevelWeb::Informational,
+            NotificationLevel::ActionRequired => NotificationLevelWeb::ActionRequired,
         }
     }
 }

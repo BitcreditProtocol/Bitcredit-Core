@@ -377,6 +377,14 @@ impl BillParticipantBlockData {
             BillParticipantBlockData::Ident(data) => data.node_id.clone(),
         }
     }
+
+    pub fn is_anon(&self) -> bool {
+        matches!(self, BillParticipantBlockData::Anon(_))
+    }
+
+    pub fn is_ident(&self) -> bool {
+        matches!(self, BillParticipantBlockData::Ident(_))
+    }
 }
 
 /// Anon bill participany data
