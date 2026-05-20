@@ -649,6 +649,26 @@ impl TransportClientApi for NostrClient {
             .await?)
     }
 
+    async fn try_decrypt_private_event(
+        &self,
+        event: &nostr::event::Event,
+    ) -> Result<Option<(NodeId, EventEnvelope, nostr::PublicKey)>> {
+        match event.kind {
+            Kind::EncryptedDirectMessage | Kind::GiftWrap => {
+                let keys_to_try = prioritized_signers_for_event(event, &self.signers);
+                for (node_id, nostr_keys) in keys_to_try {
+                    if let Some((envelope, sender, _, _)) =
+                        unwrap_direct_message(event, &*nostr_keys).await
+                    {
+                        return Ok(Some((node_id, envelope, sender)));
+                    }
+                }
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
+    }
+
     async fn publish_metadata(&self, node_id: &NodeId, data: &Metadata) -> Result<()> {
         // Get the signer for this identity
         let signer = self.get_signer(node_id)?;

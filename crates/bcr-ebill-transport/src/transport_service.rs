@@ -13,10 +13,12 @@ use bcr_ebill_core::protocol::blockchain::bill::participant::{
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{BillChainEvent, BillChainEventPayload, Event};
 
+use super::handler::NotificationHandlerApi;
 use super::nostr_transport::NostrTransportService;
 use bcr_ebill_api::service::transport_service::Result;
 use bcr_ebill_core::application::ServiceTraitBounds;
-use bcr_ebill_core::protocol::event::{ActionType, BillEventType};
+use bcr_ebill_core::protocol::event::{ActionType, BillEventType, EventType};
+use log::{debug, error, info};
 use std::sync::Arc;
 
 pub struct TransportService {
@@ -24,6 +26,7 @@ pub struct TransportService {
     notification_transport_service: Arc<dyn NotificationTransportServiceApi>,
     contact_transport_service: Arc<dyn ContactTransportServiceApi>,
     block_transport_service: Arc<dyn BlockTransportServiceApi>,
+    bill_invite_handler: Arc<dyn NotificationHandlerApi>,
 }
 
 impl TransportService {
@@ -32,12 +35,14 @@ impl TransportService {
         notification_transport_service: Arc<dyn NotificationTransportServiceApi>,
         contact_transport_service: Arc<dyn ContactTransportServiceApi>,
         block_transport_service: Arc<dyn BlockTransportServiceApi>,
+        bill_invite_handler: Arc<dyn NotificationHandlerApi>,
     ) -> Self {
         Self {
             nostr_transport,
             notification_transport_service,
             contact_transport_service,
             block_transport_service,
+            bill_invite_handler,
         }
     }
 }
@@ -479,6 +484,57 @@ impl TransportServiceApi for TransportService {
             .await
     }
 
+    async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::Event>> {
+        self.nostr_transport
+            .get_first_transport()
+            .resolve_private_events(filter)
+            .await
+    }
+
+    async fn process_company_historical_bill_invites(&self, company_id: &NodeId) -> Result<()> {
+        let node = self.nostr_transport.get_first_transport();
+        let events = node
+            .resolve_private_events(nostr::Filter::new().since(nostr::types::Timestamp::zero()))
+            .await?;
+        info!(
+            "found {} private events for company {} historical bill invite processing",
+            events.len(),
+            company_id
+        );
+
+        for event in events {
+            match node.try_decrypt_private_event(&event).await {
+                Ok(Some((recipient_id, envelope, sender))) => {
+                    if recipient_id == *company_id
+                        && envelope.event_type == EventType::BillChainInvite
+                        && let Err(e) = self
+                            .bill_invite_handler
+                            .handle_event(envelope, company_id, Some(sender), Some(Box::new(event)))
+                            .await
+                    {
+                        error!(
+                            "Failed to process historical bill invite for company {}: {}",
+                            company_id, e
+                        );
+                    }
+                }
+                Ok(None) => {
+                    debug!(
+                        "Could not decrypt event {} for company {}",
+                        event.id, company_id
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Error decrypting event {} for company {}: {}",
+                        event.id, company_id, e
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn publish_file_metadata(
         &self,
         node_id: &NodeId,
@@ -546,7 +602,9 @@ mod tests {
         node_id_test_other2, private_key_test, valid_payment_address_testnet,
     };
 
-    use super::super::test_utils::{get_identity_public_data, get_test_bitcredit_bill};
+    use super::super::test_utils::{
+        MockNotificationHandler, get_identity_public_data, get_test_bitcredit_bill,
+    };
     use super::*;
 
     fn check_chain_payload(event: &EventEnvelope, bill_event_type: BillEventType) -> bool {
@@ -614,6 +672,7 @@ mod tests {
             Arc::new(mock_notification_transport),
             Arc::new(mock_contact_transport),
             Arc::new(mock_block_transport),
+            Arc::new(MockNotificationHandler::new()),
         )
     }
 

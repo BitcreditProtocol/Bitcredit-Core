@@ -55,6 +55,13 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Resolves all private messages matching the filter
     async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
 
+    /// Tries to decrypt a private direct message event with any of the local signers.
+    /// Returns the recipient NodeId, decrypted EventEnvelope, and sender public key if successful.
+    async fn try_decrypt_private_event(
+        &self,
+        event: &Event,
+    ) -> Result<Option<(NodeId, EventEnvelope, nostr::PublicKey)>>;
+
     /// Publishes the metadata (contact info) via the Nostr client for the specified identity
     async fn publish_metadata(
         &self,
