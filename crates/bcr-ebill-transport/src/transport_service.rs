@@ -18,7 +18,7 @@ use super::nostr_transport::NostrTransportService;
 use bcr_ebill_api::service::transport_service::Result;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::event::{ActionType, BillEventType, EventType};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::sync::Arc;
 
 pub struct TransportService {
@@ -486,16 +486,18 @@ impl TransportServiceApi for TransportService {
 
     async fn process_company_historical_bill_invites(&self, company_id: &NodeId) -> Result<()> {
         let node = self.nostr_transport.get_first_transport();
-        let kinds = if node.has_local_signer(company_id) {
-            vec![nostr::Kind::EncryptedDirectMessage, nostr::Kind::GiftWrap]
-        } else {
-            vec![nostr::Kind::GiftWrap]
+        if !node.has_local_signer(company_id) {
+            warn!("Try to process_company_historical_bill_invites without signer in transport");
+            return Ok(());
         };
         let events = node
             .resolve_events(
                 nostr::Filter::new()
                     .pubkey(company_id.npub())
-                    .kinds(kinds)
+                    .kinds(vec![
+                        nostr::Kind::EncryptedDirectMessage,
+                        nostr::Kind::GiftWrap,
+                    ])
                     .since(nostr::types::Timestamp::zero()),
             )
             .await?;
