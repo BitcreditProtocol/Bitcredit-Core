@@ -1,5 +1,8 @@
 use super::Result;
-use crate::constants::{IDENTITY_DOCUMENT_FILE_FIELD, IDENTITY_PROFILE_PICTURE_FILE_FIELD};
+use crate::constants::{
+    IDENTITY_DOCUMENT_FILE_FIELD, IDENTITY_PROFILE_PICTURE_FILE_FIELD,
+    SAVE_SEED_PHRASE_NOTIFICATION_KEY, SAVE_SEED_PHRASE_NOTIFICATION_REFERENCE_ID,
+};
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
@@ -705,6 +708,20 @@ impl IdentityServiceApi for IdentityService {
         self.populate_block(&identity, first_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
 
+        if let Err(e) = self
+            .block_transport
+            .notification_transport()
+            .create_general_notification(
+                &node_id,
+                SAVE_SEED_PHRASE_NOTIFICATION_KEY,
+                Some(SAVE_SEED_PHRASE_NOTIFICATION_REFERENCE_ID.to_string()),
+                bcr_ebill_core::application::notification::NotificationLevel::ActionRequired,
+            )
+            .await
+        {
+            error!("Failed to create save seed phrase notification: {e}");
+        }
+
         // Create and populate identity proof block
         if let Some((proof, data)) = email_confirmation {
             self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
@@ -1123,6 +1140,11 @@ mod tests {
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
             t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
+        transport.expect_on_notification_transport(|t| {
+            t.expect_create_general_notification()
+                .returning(|_, _, _, _| Ok(()))
+                .once();
+        });
 
         let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service
@@ -1168,8 +1190,11 @@ mod tests {
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
             t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
-
-        // publishes contact info to nostr
+        transport.expect_on_notification_transport(|t| {
+            t.expect_create_general_notification()
+                .returning(|_, _, _, _| Ok(()))
+                .once();
+        });
 
         let service = get_service_with_chain_storage(storage, chain_storage, transport);
         let res = service

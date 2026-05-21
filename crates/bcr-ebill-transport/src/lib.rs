@@ -161,7 +161,7 @@ pub async fn create_transport_service(
         db_context.notification_store.clone(),
         nostr_contact_processor.clone(),
         bill_invite_handler.clone(),
-        push_service,
+        push_service.clone(),
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         get_config().bitcoin_network(),
@@ -206,10 +206,10 @@ pub async fn create_transport_service(
     ));
 
     let notification_transport = Arc::new(NotificationTransportService::new(
-        nostr_transport.clone(),
         db_context.notification_store.clone(),
         db_context.email_notification_store.clone(),
         email_client,
+        push_service.clone(),
     ));
 
     #[allow(clippy::arc_with_non_send_sync)]

@@ -3,11 +3,11 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
-    application::notification::Notification,
+    application::notification::{Notification, NotificationLevel},
     protocol::Sum,
     protocol::blockchain::bill::participant::BillParticipant,
     protocol::event::ActionType,
-    protocol::event::{BillChainEventPayload, Event},
+    protocol::event::{BillChainEventPayload, BillEventType, Event},
 };
 use bcr_ebill_persistence::notification::NotificationFilter;
 use std::collections::HashMap;
@@ -42,6 +42,27 @@ pub trait NotificationTransportServiceApi: ServiceTraitBounds {
         &self,
         node_ids: &[NodeId],
     ) -> Result<HashMap<NodeId, bool>>;
+
+    /// Creates a local bill notification for the given node without sending Nostr events.
+    /// Marks any existing active bill notification as done and pushes to connected clients.
+    async fn create_local_bill_notification(
+        &self,
+        node_id: &NodeId,
+        bill_id: &BillId,
+        event_type: BillEventType,
+        action_type: Option<ActionType>,
+        sum: Option<Sum>,
+    ) -> Result<()>;
+
+    /// Creates a general (non-bill, non-company) notification for the given node.
+    /// Used for system-level notifications like "save your seed phrase".
+    async fn create_general_notification(
+        &self,
+        node_id: &NodeId,
+        description: &str,
+        reference_id: Option<String>,
+        level: NotificationLevel,
+    ) -> Result<()>;
 
     /// In case a participant did not perform an action (e.g. request to accept, request
     /// to pay) in time we notify all bill participants about the timed out action. Will

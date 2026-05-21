@@ -74,60 +74,32 @@ impl TransportServiceApi for TransportService {
     }
 
     async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()> {
-        let event_type = BillEventType::BillSigned;
-        let sender = event.sender();
-        let drawer = &event.bill.drawer.node_id;
-        let drawee = &event.bill.drawee.node_id;
-        let payee = &event.bill.payee.node_id();
-
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![
-                (
-                    event.bill.drawee.node_id.clone(),
-                    (event_type.clone(), ActionType::AcceptBill),
-                ),
-                (
-                    event.bill.payee.node_id().clone(),
-                    (event_type, ActionType::CheckBill),
-                ),
-            ]),
-            None,
-            None,
-        );
+        let all_events = event.generate_messages(BillEventType::BillSigned);
 
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
-            .send_all_bill_events(&sender, &all_events)
+            .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // send email(s)
-        if drawer != drawee && drawer != payee {
-            // if we're drawer, but neither drawee, nor payee, send mail to both
-            if let Some(payee_event) = all_events.get(payee) {
-                self.notification_transport_service
-                    .send_email_notification(&event.sender(), payee, payee_event)
-                    .await;
-            }
 
-            if let Some(drawee_event) = all_events.get(drawee) {
-                self.notification_transport_service
-                    .send_email_notification(&event.sender(), drawee, drawee_event)
-                    .await;
-            }
-        } else if drawer == drawee {
-            // if we're drawer & drawee, send mail to payee only
+        let payee = event.bill.payee.node_id();
+        let drawee = event.bill.drawee.node_id.clone();
+        let drawer = event.bill.drawer.node_id.clone();
 
-            if let Some(payee_event) = all_events.get(payee) {
+        if let Some(payee_event) = all_events.get(&payee) {
+            // No self-notification: don't email payee if drawer is payee (unless drawer == drawee)
+            if drawer != payee || drawer == drawee {
                 self.notification_transport_service
-                    .send_email_notification(&event.sender(), payee, payee_event)
+                    .send_email_notification(&event.sender(), &payee, payee_event)
                     .await;
             }
-        } else if drawer == payee {
-            // if we're drawer & payee, send mail to drawee only
-            if let Some(drawee_event) = all_events.get(drawee) {
+        }
+        if let Some(drawee_event) = all_events.get(&drawee) {
+            // No self-notification: don't email drawee if drawer is drawee (unless drawer == payee)
+            if drawer != drawee || drawer == payee {
                 self.notification_transport_service
-                    .send_email_notification(&event.sender(), drawee, drawee_event)
+                    .send_email_notification(&event.sender(), &drawee, drawee_event)
                     .await;
             }
         }
@@ -136,151 +108,76 @@ impl TransportServiceApi for TransportService {
     }
 
     async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> Result<()> {
-        let payee = event.bill.payee.node_id();
-        let drawer = &event.bill.drawer.node_id;
-
-        // Build recipients: payee and drawer (avoiding duplicates)
-        let mut recipients = vec![(
-            payee.clone(),
-            (BillEventType::BillAccepted, ActionType::CheckBill),
-        )];
-
-        // Add drawer only if different from payee
-        if drawer != &payee {
-            recipients.push((
-                drawer.clone(),
-                (BillEventType::BillAccepted, ActionType::CheckBill),
-            ));
-        }
-
-        let all_events = event.generate_action_messages(HashMap::from_iter(recipients), None, None);
+        let all_events = event.generate_messages(BillEventType::BillAccepted);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to payee
-        if let Some(payee_event) = all_events.get(&payee) {
+        let holder = event
+            .bill
+            .endorsee
+            .as_ref()
+            .map(|e| e.node_id())
+            .unwrap_or_else(|| event.bill.payee.node_id());
+        if let Some(holder_event) = all_events.get(&holder) {
             self.notification_transport_service
-                .send_email_notification(&event.sender(), &payee, payee_event)
+                .send_email_notification(&event.sender(), &holder, holder_event)
                 .await;
         }
         Ok(())
     }
 
     async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> Result<()> {
-        let drawee = &event.bill.drawee.node_id;
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                drawee.clone(),
-                (
-                    BillEventType::BillAcceptanceRequested,
-                    ActionType::AcceptBill,
-                ),
-            )]),
-            None,
-            None,
-        );
+        let all_events = event.generate_messages(BillEventType::BillAcceptanceRequested);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to drawee
-        if let Some(drawee_event) = all_events.get(drawee) {
+        let drawee = event.bill.drawee.node_id.clone();
+        if let Some(drawee_event) = all_events.get(&drawee) {
             self.notification_transport_service
-                .send_email_notification(&event.sender(), drawee, drawee_event)
+                .send_email_notification(&event.sender(), &drawee, drawee_event)
                 .await;
         }
         Ok(())
     }
 
     async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> Result<()> {
-        let drawee = &event.bill.drawee.node_id;
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                drawee.clone(),
-                (BillEventType::BillPaymentRequested, ActionType::PayBill),
-            )]),
-            None,
-            None,
-        );
+        let all_events = event.generate_messages(BillEventType::BillPaymentRequested);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to drawee
-        if let Some(drawee_event) = all_events.get(drawee) {
+        let drawee = event.bill.drawee.node_id.clone();
+        if let Some(drawee_event) = all_events.get(&drawee) {
             self.notification_transport_service
-                .send_email_notification(&event.sender(), drawee, drawee_event)
-                .await;
-        }
-        Ok(())
-    }
-
-    async fn send_bill_is_paid_event(&self, event: &BillChainEvent) -> Result<()> {
-        let sender = event.sender();
-        let payee = event.bill.payee.node_id();
-        let drawer = &event.bill.drawer.node_id;
-
-        // Build recipients: payee and drawer (avoiding duplicates)
-        let mut recipients = vec![(
-            payee.clone(),
-            (BillEventType::BillPaid, ActionType::CheckBill),
-        )];
-
-        // Add drawer only if different from payee
-        if drawer != &payee {
-            recipients.push((
-                drawer.clone(),
-                (BillEventType::BillPaid, ActionType::CheckBill),
-            ));
-        }
-
-        let all_events = event.generate_action_messages(HashMap::from_iter(recipients), None, None);
-        self.block_transport_service
-            .send_bill_chain_events(event.clone())
-            .await?;
-        self.nostr_transport
-            .send_all_bill_events(&sender, &all_events)
-            .await?;
-        // Only send email to holder and only if we are drawee
-        let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
-        if let Some(holder_event) = all_events.get(&holder.node_id())
-            && sender == event.bill.drawee.node_id
-        {
-            self.notification_transport_service
-                .send_email_notification(&sender, &holder.node_id(), holder_event)
+                .send_email_notification(&event.sender(), &drawee, drawee_event)
                 .await;
         }
         Ok(())
     }
 
     async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> Result<()> {
-        let endorsee = event.bill.endorsee.as_ref().unwrap().node_id();
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                endorsee.clone(),
-                (BillEventType::BillEndorsed, ActionType::CheckBill),
-            )]),
-            None,
-            None,
-        );
+        let all_events = event.generate_messages(BillEventType::BillEndorsed);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to endorsee
-        if let Some(endorsee_event) = all_events.get(&endorsee) {
-            self.notification_transport_service
-                .send_email_notification(&event.sender(), &endorsee, endorsee_event)
-                .await;
+        if let Some(ref endorsee) = event.bill.endorsee {
+            let endorsee_node_id = endorsee.node_id();
+            if let Some(endorsee_event) = all_events.get(&endorsee_node_id) {
+                self.notification_transport_service
+                    .send_email_notification(&event.sender(), &endorsee_node_id, endorsee_event)
+                    .await;
+            }
         }
         Ok(())
     }
@@ -290,24 +187,17 @@ impl TransportServiceApi for TransportService {
         event: &BillChainEvent,
         buyer: &BillParticipant,
     ) -> Result<()> {
-        let all_events = event.generate_action_messages(
-            HashMap::from_iter(vec![(
-                buyer.node_id().clone(),
-                (BillEventType::BillSellOffered, ActionType::CheckBill),
-            )]),
-            None,
-            None,
-        );
+        let all_events = event.generate_offer_to_sell_messages(buyer);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to buyer
-        if let Some(buyer_event) = all_events.get(&buyer.node_id()) {
+        let buyer_node_id = buyer.node_id();
+        if let Some(buyer_event) = all_events.get(&buyer_node_id) {
             self.notification_transport_service
-                .send_email_notification(&event.sender(), &buyer.node_id(), buyer_event)
+                .send_email_notification(&event.sender(), &buyer_node_id, buyer_event)
                 .await;
         }
         Ok(())
@@ -318,33 +208,17 @@ impl TransportServiceApi for TransportService {
         event: &BillChainEvent,
         buyer: &BillParticipant,
     ) -> Result<()> {
-        let seller = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
-
-        // Build recipients: buyer and seller (avoiding duplicates)
-        let mut recipients = vec![(
-            buyer.node_id().clone(),
-            (BillEventType::BillSold, ActionType::CheckBill),
-        )];
-
-        // Add seller only if different from buyer
-        if buyer.node_id() != seller.node_id() {
-            recipients.push((
-                seller.node_id(),
-                (BillEventType::BillSold, ActionType::CheckBill),
-            ));
-        }
-
-        let all_events = event.generate_action_messages(HashMap::from_iter(recipients), None, None);
+        let all_events = event.generate_bill_sold_messages(buyer);
         self.block_transport_service
             .send_bill_chain_events(event.clone())
             .await?;
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to buyer
-        if let Some(buyer_event) = all_events.get(&buyer.node_id()) {
+        let buyer_node_id = buyer.node_id();
+        if let Some(buyer_event) = all_events.get(&buyer_node_id) {
             self.notification_transport_service
-                .send_email_notification(&event.sender(), &buyer.node_id(), buyer_event)
+                .send_email_notification(&event.sender(), &buyer_node_id, buyer_event)
                 .await;
         }
         Ok(())
@@ -369,7 +243,6 @@ impl TransportServiceApi for TransportService {
         self.nostr_transport
             .send_all_bill_events(&event.sender(), &all_events)
             .await?;
-        // Only send email to recoursee
         if let Some(recoursee_event) = all_events.get(&recoursee.node_id) {
             self.notification_transport_service
                 .send_email_notification(&event.sender(), &recoursee.node_id, recoursee_event)
@@ -389,6 +262,8 @@ impl TransportServiceApi for TransportService {
             bill_id: bill.id.clone(),
             action_type: Some(ActionType::CheckBill),
             sum: Some(bill.sum.clone()),
+            sender_node_id: Some(sender_node_id.clone()),
+            sender_name: None,
         });
         let node = self.nostr_transport.get_node_transport(sender_node_id);
         node.send_private_event(sender_node_id, mint, event.clone().try_into()?)
@@ -405,30 +280,23 @@ impl TransportServiceApi for TransportService {
         event: &BillChainEvent,
         rejected_action: ActionType,
     ) -> Result<()> {
-        if let Some(event_type) = rejected_action.get_rejected_event_type() {
-            let drawee = &event.bill.drawee.node_id;
-
-            // Build recipients: everyone in bill chain except payer (drawee)
-            let recipients: HashMap<NodeId, (BillEventType, ActionType)> = event
-                .get_all_participant_node_ids()
-                .into_iter()
-                .filter(|node_id| node_id != drawee)
-                .map(|node_id| (node_id, (event_type.clone(), ActionType::CheckBill)))
-                .collect();
-
-            let all_events = event.generate_action_messages(recipients, None, None);
-
+        let all_events = event.generate_rejected_messages(rejected_action);
+        if !all_events.is_empty() {
             self.block_transport_service
                 .send_bill_chain_events(event.clone())
                 .await?;
             self.nostr_transport
                 .send_all_bill_events(&event.sender(), &all_events)
                 .await?;
-            // Only send email to holder (=requester)
-            let holder = event.bill.endorsee.as_ref().unwrap_or(&event.bill.payee);
-            if let Some(holder_event) = all_events.get(&holder.node_id()) {
+            let holder = event
+                .bill
+                .endorsee
+                .as_ref()
+                .map(|e| e.node_id())
+                .unwrap_or_else(|| event.bill.payee.node_id());
+            if let Some(holder_event) = all_events.get(&holder) {
                 self.notification_transport_service
-                    .send_email_notification(&event.sender(), &holder.node_id(), holder_event)
+                    .send_email_notification(&event.sender(), &holder, holder_event)
                     .await;
             }
         }
@@ -441,22 +309,14 @@ impl TransportServiceApi for TransportService {
         action: ActionType,
         recoursee: &BillIdentParticipant,
     ) -> Result<()> {
-        if let Some(event_type) = action.get_recourse_event_type() {
-            let all_events = event.generate_action_messages(
-                HashMap::from_iter(vec![(
-                    recoursee.node_id.clone(),
-                    (event_type.clone(), action.clone()),
-                )]),
-                None,
-                None,
-            );
+        let all_events = event.generate_recourse_messages(action, recoursee);
+        if !all_events.is_empty() {
             self.block_transport_service
                 .send_bill_chain_events(event.clone())
                 .await?;
             self.nostr_transport
                 .send_all_bill_events(&event.sender(), &all_events)
                 .await?;
-            // Only send email to recoursee
             if let Some(recoursee_event) = all_events.get(&recoursee.node_id) {
                 self.notification_transport_service
                     .send_email_notification(&event.sender(), &recoursee.node_id, recoursee_event)
@@ -865,22 +725,21 @@ mod tests {
                     .returning(|_, _, _| Ok(()))
                     .times(2);
 
-                // expect to send recourse rejected event to all recipients (except payer)
+                // Recourse rejection goes to prior holders only; this test chain has none
                 transport
                     .expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
-                    .returning(|_, _, _| Ok(()))
-                    .times(2);
+                    .never();
 
                 block_transport
                     .expect_send_bill_chain_events()
                     .returning(|_| Ok(()))
-                    .times(4);
+                    .times(3);
 
                 notification_transport
                     .expect_send_email_notification()
                     .returning(|_, _, _| ())
-                    .times(4);
+                    .times(3);
 
                 // this is only required for the test as it contains an invite block so it tries to send an
                 // invite to new participants as well and the test data doesn't have them all.
@@ -1498,47 +1357,6 @@ mod tests {
 
         service
             .send_request_to_pay_event(&event)
-            .await
-            .expect("failed to send event");
-    }
-
-    #[tokio::test]
-    async fn test_send_bill_is_paid_event() {
-        init_test_cfg();
-        let payer = get_identity_public_data(
-            &node_id_test(),
-            &Email::new("drawee@example.com").unwrap(),
-            vec![],
-        );
-        let payee = get_identity_public_data(
-            &node_id_test_other(),
-            &Email::new("payee@example.com").unwrap(),
-            vec![],
-        );
-        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
-        let chain = get_genesis_chain(Some(bill.clone()));
-        let (service, event) = expect_service(
-            |mock, mock_contact_store, _, _, _, notification_transport, _, block_transport| {
-                let payer = payer.clone();
-                let payee = payee.clone();
-                setup_chain_expectation(
-                    vec![
-                        (payee, BillEventType::BillPaid, Some(ActionType::CheckBill)),
-                        (payer, BillEventType::BillPaid, Some(ActionType::CheckBill)),
-                    ],
-                    &bill,
-                    &chain,
-                    false,
-                    mock_contact_store,
-                    mock,
-                    block_transport,
-                    notification_transport,
-                )
-            },
-        );
-
-        service
-            .send_bill_is_paid_event(&event)
             .await
             .expect("failed to send event");
     }
@@ -2675,6 +2493,8 @@ mod tests {
                     bill_id: bill_id_test(),
                     action_type: Some(ActionType::CheckBill),
                     sum: Some(Sum::new_sat(1).unwrap()),
+                    sender_node_id: None,
+                    sender_name: None,
                 });
 
                 let payload = base58::encode(&borsh::to_vec(&legacy_event).unwrap());

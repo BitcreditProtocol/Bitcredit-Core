@@ -13,15 +13,14 @@ use bcr_ebill_core::{
         blockchain::{
             Blockchain,
             bill::{
-                BillBlockchain, BillOpCode, BitcreditBill, OfferToSellWaitingForPayment,
-                RecourseWaitingForPayment,
+                BillOpCode, BitcreditBill, OfferToSellWaitingForPayment, RecourseWaitingForPayment,
                 block::BillRequestToPayBlockData,
                 participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
             },
             identity::IdentityType,
         },
         crypto::BcrKeys,
-        event::BillChainEvent,
+        event::{ActionType, BillEventType},
     },
 };
 use log::{debug, info};
@@ -89,9 +88,7 @@ impl BillService {
                         self.store.invalidate_bill_in_cache(bill_id).await?;
                         // the bill is paid now - trigger notification
                         if let PaymentState::PaidConfirmed(_) = payment_state
-                            && let Err(e) = self
-                                .trigger_is_paid_notification(identity, &chain, &bill_keys, &bill)
-                                .await
+                            && let Err(e) = self.trigger_is_paid_notification(&bill).await
                         {
                             log::error!("Could not send is-paid notification for {bill_id}: {e}");
                         }
@@ -108,22 +105,26 @@ impl BillService {
         Ok(())
     }
 
-    async fn trigger_is_paid_notification(
-        &self,
-        identity: &Identity,
-        blockchain: &BillBlockchain,
-        bill_keys: &BcrKeys,
-        last_version_bill: &BitcreditBill,
-    ) -> Result<()> {
-        let chain_event = BillChainEvent::new(
-            last_version_bill,
-            blockchain,
-            bill_keys,
-            true,
-            &identity.node_id,
-        )?;
+    async fn trigger_is_paid_notification(&self, last_version_bill: &BitcreditBill) -> Result<()> {
+        let holder_node_id = last_version_bill
+            .endorsee
+            .as_ref()
+            .map(|e| e.node_id())
+            .unwrap_or_else(|| last_version_bill.payee.node_id());
+        log::debug!(
+            "BillPaid notification: bill_id={} recipient={}",
+            last_version_bill.id,
+            holder_node_id
+        );
         self.transport_service
-            .send_bill_is_paid_event(&chain_event)
+            .notification_transport()
+            .create_local_bill_notification(
+                &holder_node_id,
+                &last_version_bill.id,
+                BillEventType::BillPaid,
+                Some(ActionType::CheckBill),
+                Some(last_version_bill.sum.clone()),
+            )
             .await?;
         Ok(())
     }
