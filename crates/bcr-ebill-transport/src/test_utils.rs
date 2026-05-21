@@ -574,6 +574,7 @@ mockall::mock! {
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
         async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
+        async fn resolve_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::event::Event>>;
         async fn try_decrypt_private_event(&self, event: &nostr::event::Event) -> Result<Option<(NodeId, EventEnvelope, nostr::PublicKey)>>;
         async fn publish_metadata(&self, node_id: &NodeId, data: &nostr::nips::nip01::Metadata) -> Result<()>;
         async fn publish_relay_list(&self, node_id: &NodeId, relays: Vec<nostr::types::RelayUrl>) -> Result<()>;

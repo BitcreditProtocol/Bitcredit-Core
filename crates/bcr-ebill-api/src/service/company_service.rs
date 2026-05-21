@@ -63,6 +63,7 @@ use bitcoin::base58;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tokio_with_wasm::alias as tokio;
 use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1612,9 +1613,19 @@ impl CompanyServiceApi for CompanyService {
 
         // Process any historical bill invites that were sent to this company
         // before we joined, so we can construct those bills in our store.
-        self.transport_service
-            .process_company_historical_bill_invites(id)
-            .await?;
+        let transport = self.transport_service.clone();
+        let company_id = id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = transport
+                .process_company_historical_bill_invites(&company_id)
+                .await
+            {
+                error!(
+                    "Failed to process historical bill invites for company {}: {}",
+                    company_id, e
+                );
+            }
+        });
 
         // company block
         let previous_block = company_chain.get_latest_block();

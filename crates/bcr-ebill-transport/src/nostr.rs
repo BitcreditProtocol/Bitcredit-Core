@@ -649,6 +649,12 @@ impl TransportClientApi for NostrClient {
             .await?)
     }
 
+    async fn resolve_events(&self, filter: Filter) -> Result<Vec<nostr::event::Event>> {
+        Ok(self
+            .fetch_events(filter, Some(SortOrder::Asc), None)
+            .await?)
+    }
+
     async fn try_decrypt_private_event(
         &self,
         event: &nostr::event::Event,
@@ -870,8 +876,13 @@ impl TransportClientApi for NostrClient {
                 vec![Kind::GiftWrap]
             };
             debug!("Adding subscription for direct messages to identity: {node_id}");
-            self.subscribe(Filter::new().pubkey(node_id.npub()).kinds(kinds))
-                .await?;
+            self.subscribe(
+                Filter::new()
+                    .pubkey(node_id.npub())
+                    .kinds(kinds)
+                    .limit(1000),
+            )
+            .await?;
             let relay_urls: Vec<RelayUrl> = self
                 .relays
                 .iter()

@@ -136,9 +136,6 @@ pub trait TransportServiceApi: ServiceTraitBounds {
     /// This will also add a subscription for direct messages to this identity.
     async fn add_identity(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()>;
 
-    /// Resolves all private messages matching the filter
-    async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::Event>>;
-
     /// Queries historical private messages for a company identity and processes any
     /// bill chain invites found, constructing the bills in the local store.
     async fn process_company_historical_bill_invites(&self, company_id: &NodeId) -> Result<()>;

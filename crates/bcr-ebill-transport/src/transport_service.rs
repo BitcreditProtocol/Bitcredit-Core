@@ -484,17 +484,20 @@ impl TransportServiceApi for TransportService {
             .await
     }
 
-    async fn resolve_private_events(&self, filter: nostr::Filter) -> Result<Vec<nostr::Event>> {
-        self.nostr_transport
-            .get_first_transport()
-            .resolve_private_events(filter)
-            .await
-    }
-
     async fn process_company_historical_bill_invites(&self, company_id: &NodeId) -> Result<()> {
         let node = self.nostr_transport.get_first_transport();
+        let kinds = if node.has_local_signer(company_id) {
+            vec![nostr::Kind::EncryptedDirectMessage, nostr::Kind::GiftWrap]
+        } else {
+            vec![nostr::Kind::GiftWrap]
+        };
         let events = node
-            .resolve_private_events(nostr::Filter::new().since(nostr::types::Timestamp::zero()))
+            .resolve_events(
+                nostr::Filter::new()
+                    .pubkey(company_id.npub())
+                    .kinds(kinds)
+                    .since(nostr::types::Timestamp::zero()),
+            )
             .await?;
         info!(
             "found {} private events for company {} historical bill invite processing",
@@ -504,9 +507,8 @@ impl TransportServiceApi for TransportService {
 
         for event in events {
             match node.try_decrypt_private_event(&event).await {
-                Ok(Some((recipient_id, envelope, sender))) => {
-                    if recipient_id == *company_id
-                        && envelope.event_type == EventType::BillChainInvite
+                Ok(Some((_recipient_id, envelope, sender))) => {
+                    if envelope.event_type == EventType::BillChainInvite
                         && let Err(e) = self
                             .bill_invite_handler
                             .handle_event(envelope, company_id, Some(sender), Some(Box::new(event)))

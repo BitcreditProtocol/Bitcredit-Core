@@ -52,8 +52,11 @@ pub trait TransportClientApi: ServiceTraitBounds {
     ) -> Result<Vec<Event>>;
     /// Adds a new Nostr subscription on the primary client for an added contact
     async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
-    /// Resolves all private messages matching the filter
+    /// Resolves private messages matching the filter for all local identities.
     async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
+
+    /// Resolves events matching the given filter. The filter is passed through as-is.
+    async fn resolve_events(&self, filter: Filter) -> Result<Vec<Event>>;
 
     /// Tries to decrypt a private direct message event with any of the local signers.
     /// Returns the recipient NodeId, decrypted EventEnvelope, and sender public key if successful.
