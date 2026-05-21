@@ -2784,10 +2784,9 @@ mod tests {
             .expect(" Could not create test event");
 
         let invite = ChainInvite::bill(bill_id_test().to_string(), BcrKeys::new());
-        let envelope: EventEnvelope =
-            Event::new(EventType::BillChainInvite, invite.clone())
-                .try_into()
-                .unwrap();
+        let envelope: EventEnvelope = Event::new(EventType::BillChainInvite, invite.clone())
+            .try_into()
+            .unwrap();
 
         let company_id_for_decrypt = company_id.clone();
         mock_transport
@@ -2853,10 +2852,9 @@ mod tests {
             .expect(" Could not create test event");
 
         let non_invite = ChainInvite::company(node_id_test().to_string(), BcrKeys::new());
-        let envelope: EventEnvelope =
-            Event::new(EventType::CompanyChainInvite, non_invite.clone())
-                .try_into()
-                .unwrap();
+        let envelope: EventEnvelope = Event::new(EventType::CompanyChainInvite, non_invite.clone())
+            .try_into()
+            .unwrap();
 
         let company_id_for_decrypt = company_id.clone();
         mock_transport
