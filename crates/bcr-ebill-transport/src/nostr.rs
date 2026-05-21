@@ -883,6 +883,10 @@ impl TransportClientApi for NostrClient {
                     .limit(1000),
             )
             .await?;
+            debug!("Adding subscription for public blocks messages from identity: {node_id}");
+            self.subscribe(Filter::new().author(node_id.npub()).kind(Kind::TextNote))
+                .await?;
+
             let relay_urls: Vec<RelayUrl> = self
                 .relays
                 .iter()
