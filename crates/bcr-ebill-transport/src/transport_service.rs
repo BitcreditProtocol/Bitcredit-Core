@@ -665,6 +665,30 @@ mod tests {
         mock_contact_transport: MockContactTransportService,
         mock_block_transport: MockBlockTransportService,
     ) -> TransportService {
+        get_transport_with_handler(
+            mock_transport,
+            contact_store,
+            nostr_contact_store,
+            queued_message_store,
+            chain_events,
+            mock_notification_transport,
+            mock_contact_transport,
+            mock_block_transport,
+            Arc::new(MockNotificationHandler::new()),
+        )
+    }
+
+    fn get_transport_with_handler(
+        mock_transport: MockNotificationJsonTransport,
+        contact_store: MockContactStore,
+        nostr_contact_store: MockNostrContactStore,
+        queued_message_store: MockNostrQueuedMessageStore,
+        chain_events: MockNostrChainEventStore,
+        mock_notification_transport: MockNotificationTransportService,
+        mock_contact_transport: MockContactTransportService,
+        mock_block_transport: MockBlockTransportService,
+        handler: Arc<dyn NotificationHandlerApi>,
+    ) -> TransportService {
         TransportService::new(
             Arc::new(get_nostr_transport(
                 mock_transport,
@@ -676,7 +700,7 @@ mod tests {
             Arc::new(mock_notification_transport),
             Arc::new(mock_contact_transport),
             Arc::new(mock_block_transport),
-            Arc::new(MockNotificationHandler::new()),
+            handler,
         )
     }
 
@@ -2737,6 +2761,165 @@ mod tests {
         });
 
         let result = service.send_retry_messages().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_process_company_historical_bill_invites_success() {
+        init_test_cfg();
+        let company_id = node_id_test();
+        let sender_npub = nostr::PublicKey::from_hex(
+            "22886f449bec154764401cfb139b80f108a39a91c7e7609f9ffd8a4592b86d38",
+        )
+        .unwrap();
+
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_has_local_signer()
+            .with(eq(company_id.clone()))
+            .returning(|_| true);
+
+        let event = nostr::event::EventBuilder::text_note("test")
+            .sign_with_keys(&nostr::key::Keys::generate())
+            .expect(" Could not create test event");
+
+        let invite = ChainInvite::bill(bill_id_test().to_string(), BcrKeys::new());
+        let envelope: EventEnvelope =
+            Event::new(EventType::BillChainInvite, invite.clone())
+                .try_into()
+                .unwrap();
+
+        let company_id_for_decrypt = company_id.clone();
+        mock_transport
+            .expect_resolve_events()
+            .returning(move |_| Ok(vec![event.clone()]));
+        mock_transport
+            .expect_try_decrypt_private_event()
+            .returning(move |_| {
+                Ok(Some((
+                    company_id_for_decrypt.clone(),
+                    envelope.clone(),
+                    sender_npub,
+                )))
+            });
+
+        let mut handler = MockNotificationHandler::new();
+        let company_id_for_handler = company_id.clone();
+        handler
+            .expect_handle_event()
+            .withf(move |env, node_id, sender, _original_event| {
+                env.event_type == EventType::BillChainInvite
+                    && *node_id == company_id_for_handler
+                    && sender.is_some()
+            })
+            .returning(|_, _, _, _| Ok(()))
+            .times(1);
+
+        let service = get_transport_with_handler(
+            mock_transport,
+            MockContactStore::new(),
+            MockNostrContactStore::new(),
+            MockNostrQueuedMessageStore::new(),
+            MockNostrChainEventStore::new(),
+            MockNotificationTransportService::new(),
+            MockContactTransportService::new(),
+            MockBlockTransportService::new(),
+            Arc::new(handler),
+        );
+
+        let result = service
+            .process_company_historical_bill_invites(&company_id)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_process_company_historical_bill_invites_skips_non_invite() {
+        init_test_cfg();
+        let company_id = node_id_test();
+        let sender_npub = nostr::PublicKey::from_hex(
+            "22886f449bec154764401cfb139b80f108a39a91c7e7609f9ffd8a4592b86d38",
+        )
+        .unwrap();
+
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_has_local_signer()
+            .with(eq(company_id.clone()))
+            .returning(|_| true);
+
+        let event = nostr::event::EventBuilder::text_note("test")
+            .sign_with_keys(&nostr::key::Keys::generate())
+            .expect(" Could not create test event");
+
+        let non_invite = ChainInvite::company(node_id_test().to_string(), BcrKeys::new());
+        let envelope: EventEnvelope =
+            Event::new(EventType::CompanyChainInvite, non_invite.clone())
+                .try_into()
+                .unwrap();
+
+        let company_id_for_decrypt = company_id.clone();
+        mock_transport
+            .expect_resolve_events()
+            .returning(move |_| Ok(vec![event.clone()]));
+        mock_transport
+            .expect_try_decrypt_private_event()
+            .returning(move |_| {
+                Ok(Some((
+                    company_id_for_decrypt.clone(),
+                    envelope.clone(),
+                    sender_npub,
+                )))
+            });
+
+        let mut handler = MockNotificationHandler::new();
+        handler.expect_handle_event().times(0);
+
+        let service = get_transport_with_handler(
+            mock_transport,
+            MockContactStore::new(),
+            MockNostrContactStore::new(),
+            MockNostrQueuedMessageStore::new(),
+            MockNostrChainEventStore::new(),
+            MockNotificationTransportService::new(),
+            MockContactTransportService::new(),
+            MockBlockTransportService::new(),
+            Arc::new(handler),
+        );
+
+        let result = service
+            .process_company_historical_bill_invites(&company_id)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_process_company_historical_bill_invites_no_signer() {
+        init_test_cfg();
+        let company_id = node_id_test();
+
+        let mut mock_transport = MockNotificationJsonTransport::new();
+        mock_transport
+            .expect_has_local_signer()
+            .with(eq(company_id.clone()))
+            .returning(|_| false);
+        mock_transport.expect_resolve_events().times(0);
+
+        let service = get_transport_with_handler(
+            mock_transport,
+            MockContactStore::new(),
+            MockNostrContactStore::new(),
+            MockNostrQueuedMessageStore::new(),
+            MockNostrChainEventStore::new(),
+            MockNotificationTransportService::new(),
+            MockContactTransportService::new(),
+            MockBlockTransportService::new(),
+            Arc::new(MockNotificationHandler::new()),
+        );
+
+        let result = service
+            .process_company_historical_bill_invites(&company_id)
+            .await;
         assert!(result.is_ok());
     }
 }

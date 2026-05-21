@@ -54,6 +54,7 @@ pub enum SortOrder {
 
 const BLOSSOM_SERVER_LIST_KIND: Kind = Kind::Custom(10063);
 const FILE_METADATA_KIND: Kind = Kind::Custom(1063);
+const DM_BACKFILL_LIMIT: usize = 1000;
 
 /// Check the output of sending an event to Nostr relays.
 /// Logs warnings for individual relay failures and returns an error if no relay
@@ -880,7 +881,7 @@ impl TransportClientApi for NostrClient {
                 Filter::new()
                     .pubkey(node_id.npub())
                     .kinds(kinds)
-                    .limit(1000),
+                    .limit(DM_BACKFILL_LIMIT),
             )
             .await?;
             debug!("Adding subscription for public blocks messages from identity: {node_id}");
@@ -1077,7 +1078,7 @@ impl NostrConsumer {
                 Filter::new()
                     .pubkeys(local_pubkeys.clone())
                     .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
-                    .limit(1000),
+                    .limit(DM_BACKFILL_LIMIT),
             )
             .await
             .map_err(|e| {
