@@ -218,6 +218,7 @@ pub async fn create_transport_service(
         notification_transport,
         contact_transport,
         block_transport,
+        bill_invite_handler,
     )))
 }
 

@@ -63,6 +63,7 @@ use bitcoin::base58;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tokio_with_wasm::alias as tokio;
 use uuid::Uuid;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1595,6 +1596,37 @@ impl CompanyServiceApi for CompanyService {
             .add_identity(id, &company_keys)
             .await?;
 
+        // Ensure all company signatories and the company itself are in our nostr contacts
+        // so that we can receive and decrypt messages from them.
+        for signatory in company.signatories.iter() {
+            if signatory.node_id != our_node_id {
+                self.transport_service
+                    .contact_transport()
+                    .ensure_nostr_contact(&signatory.node_id)
+                    .await;
+            }
+        }
+        self.transport_service
+            .contact_transport()
+            .ensure_nostr_contact(id)
+            .await;
+
+        // Process any historical bill invites that were sent to this company
+        // before we joined, so we can construct those bills in our store.
+        let transport = self.transport_service.clone();
+        let company_id = id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = transport
+                .process_company_historical_bill_invites(&company_id)
+                .await
+            {
+                error!(
+                    "Failed to process historical bill invites for company {}: {}",
+                    company_id, e
+                );
+            }
+        });
+
         // company block
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_accept_signatory_invite(
@@ -2975,6 +3007,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn accept_company_invite_baseline() {
+        crate::tests::tests::init_test_cfg();
         let (
             mut storage,
             file_upload_store,
@@ -3049,6 +3082,13 @@ pub mod tests {
         transport
             .expect_add_identity()
             .returning(|_, _| Ok(()))
+            .times(1);
+        transport.expect_on_contact_transport(|t| {
+            t.expect_ensure_nostr_contact().returning(|_| ()).times(1);
+        });
+        transport
+            .expect_process_company_historical_bill_invites()
+            .returning(|_| Ok(()))
             .times(1);
 
         let service = get_service(

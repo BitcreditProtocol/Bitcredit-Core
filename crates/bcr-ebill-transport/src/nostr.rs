@@ -54,6 +54,7 @@ pub enum SortOrder {
 
 const BLOSSOM_SERVER_LIST_KIND: Kind = Kind::Custom(10063);
 const FILE_METADATA_KIND: Kind = Kind::Custom(1063);
+const DM_BACKFILL_LIMIT: usize = 1000;
 
 /// Check the output of sending an event to Nostr relays.
 /// Logs warnings for individual relay failures and returns an error if no relay
@@ -649,6 +650,32 @@ impl TransportClientApi for NostrClient {
             .await?)
     }
 
+    async fn resolve_events(&self, filter: Filter) -> Result<Vec<nostr::event::Event>> {
+        Ok(self
+            .fetch_events(filter, Some(SortOrder::Asc), None)
+            .await?)
+    }
+
+    async fn try_decrypt_private_event(
+        &self,
+        event: &nostr::event::Event,
+    ) -> Result<Option<(NodeId, EventEnvelope, nostr::PublicKey)>> {
+        match event.kind {
+            Kind::EncryptedDirectMessage | Kind::GiftWrap => {
+                let keys_to_try = prioritized_signers_for_event(event, &self.signers);
+                for (node_id, nostr_keys) in keys_to_try {
+                    if let Some((envelope, sender, _, _)) =
+                        unwrap_direct_message(event, &*nostr_keys).await
+                    {
+                        return Ok(Some((node_id, envelope, sender)));
+                    }
+                }
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
+    }
+
     async fn publish_metadata(&self, node_id: &NodeId, data: &Metadata) -> Result<()> {
         // Get the signer for this identity
         let signer = self.get_signer(node_id)?;
@@ -850,8 +877,17 @@ impl TransportClientApi for NostrClient {
                 vec![Kind::GiftWrap]
             };
             debug!("Adding subscription for direct messages to identity: {node_id}");
-            self.subscribe(Filter::new().pubkey(node_id.npub()).kinds(kinds))
+            self.subscribe(
+                Filter::new()
+                    .pubkey(node_id.npub())
+                    .kinds(kinds)
+                    .limit(DM_BACKFILL_LIMIT),
+            )
+            .await?;
+            debug!("Adding subscription for public blocks messages from identity: {node_id}");
+            self.subscribe(Filter::new().author(node_id.npub()).kind(Kind::TextNote))
                 .await?;
+
             let relay_urls: Vec<RelayUrl> = self
                 .relays
                 .iter()
@@ -1042,7 +1078,7 @@ impl NostrConsumer {
                 Filter::new()
                     .pubkeys(local_pubkeys.clone())
                     .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
-                    .limit(1000),
+                    .limit(DM_BACKFILL_LIMIT),
             )
             .await
             .map_err(|e| {
