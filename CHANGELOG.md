@@ -2,6 +2,7 @@
 
 * Fix company creation with identity upload and missing nostr node id during block propagation
 * rename `disable_mandatory_email_confirmations` to `mandatory_email_confirmations` with default = `true` (breaking CONFIG change)
+* Fix that when a company invite gets accepted, sometimes the invited party wouldn't see previous company bills
 
 # 0.5.9
 
