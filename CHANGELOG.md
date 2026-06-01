@@ -1,5 +1,7 @@
 # 0.5.11
 
+* Update to latest bcr-common and cashu 0.16
+
 # 0.5.10
 
 * Fix company creation with identity upload and missing nostr node id during block propagation

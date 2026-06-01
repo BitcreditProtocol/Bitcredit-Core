@@ -3,7 +3,8 @@ use std::str::FromStr;
 use async_trait::async_trait;
 use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
 use bcr_common::client::mint::Client as ExternalMintClient;
-use bcr_common::core::BillId;
+use bcr_common::core::{BillId, keys::to_fee_and_amounts};
+use bcr_common::wallet;
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash, Sum};
 use bcr_ebill_core::{
@@ -51,6 +52,9 @@ pub enum Error {
     /// all errors originating from tokens and mints not matching
     #[error("External Mint Token and Mint don't match Error")]
     TokenAndMintDontMatch,
+    /// all errors originating from cashu amount generation
+    #[error("External Mint Amount Error")]
+    Amount,
     /// all errors originating from blind message generation
     #[error("External Mint BlindMessage Error")]
     BlindMessage,
@@ -171,8 +175,7 @@ impl MintClientApi for MintClient {
     ) -> Result<bool> {
         let token_mint_url =
             cashu::MintUrl::from_str(mint_url.as_str()).map_err(|_| Error::InvalidMintUrl)?;
-        let token =
-            bcr_wallet_lib::wallet::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
+        let token = wallet::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
 
         if token_mint_url != token.mint_url() {
             return Err(Error::InvalidToken.into());
@@ -253,12 +256,8 @@ impl MintClientApi for MintClient {
         })?;
 
         // generate token from proofs
-        let token = bcr_wallet_lib::wallet::Token::new_bitcr(
-            token_mint_url,
-            proofs,
-            Some(bill_id.to_string()),
-            currency,
-        );
+        let token =
+            wallet::Token::new_bitcr(token_mint_url, proofs, Some(bill_id.to_string()), currency);
 
         Ok(token.to_string())
     }
@@ -408,20 +407,23 @@ impl MintClientApi for MintClient {
 }
 
 pub fn generate_blinds(
-    keyset_id: cashu::Id,
+    keyset: &cdk02::KeySet,
     discounted_amount: Sum,
 ) -> Result<(
     Vec<cashu::BlindedMessage>,
     Vec<cashu::secret::Secret>,
     Vec<cashu::SecretKey>,
 )> {
-    let amounts: Vec<cashu::Amount> = cashu::Amount::from(discounted_amount.as_sat()).split();
+    let amount = cashu::Amount::from(discounted_amount.as_sat());
+    let amounts: Vec<cashu::Amount> = amount
+        .split(&to_fee_and_amounts(keyset))
+        .map_err(|_| Error::Amount)?;
     let mut blinded_messages = Vec::with_capacity(amounts.len());
     let mut secrets = Vec::with_capacity(amounts.len());
     let mut rs = Vec::with_capacity(amounts.len());
 
     for amount in amounts {
-        let blind = generate_blind(keyset_id, amount)?;
+        let blind = generate_blind(keyset.id, amount)?;
         blinded_messages.push(blind.0);
         secrets.push(blind.1);
         rs.push(blind.2);
