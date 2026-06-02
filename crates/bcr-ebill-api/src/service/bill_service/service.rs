@@ -384,7 +384,7 @@ impl BillService {
                             .await
                         {
                             // keyset info is available
-                            Ok(keyset_info) => {
+                            Ok(keyset) => {
                                 // fetch private key for requester
                                 let private_key = match self.identity_store.get_full().await {
                                     Ok(identity) => {
@@ -423,10 +423,7 @@ impl BillService {
                                 );
                                 // generate blinds
                                 let (blinded_messages, secrets, rs) =
-                                    external::mint::generate_blinds(
-                                        keyset_info.id,
-                                        offer.discounted_sum,
-                                    )?;
+                                    external::mint::generate_blinds(&keyset, offer.discounted_sum)?;
                                 // persist recovery data in case something goes wrong after minting
                                 // getting here a second time for this offer will fail, which is OK
                                 // since it means that either minting, or proof creation failed and we can't
@@ -457,7 +454,7 @@ impl BillService {
                                     .mint(
                                         &mint_request.bill_id,
                                         &mint_cfg.default_mint_url,
-                                        keyset_info,
+                                        keyset,
                                         &mint_request.mint_request_id,
                                         &private_key,
                                         blinded_messages,
