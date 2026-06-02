@@ -7298,6 +7298,8 @@ async fn check_mint_state_minting_enabled_proofs() {
             unit: bcr_common::cashu::CurrencyUnit::Sat,
             keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
             final_expiry: None,
+            active: Some(true),
+            input_fee_ppk: 0,
         })
     });
     ctx.mint_client
@@ -7353,6 +7355,8 @@ async fn check_mint_state_minting_enabled_check_spent() {
             unit: bcr_common::cashu::CurrencyUnit::Sat,
             keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
             final_expiry: None,
+            active: Some(true),
+            input_fee_ppk: 0,
         })
     });
     ctx.mint_client
