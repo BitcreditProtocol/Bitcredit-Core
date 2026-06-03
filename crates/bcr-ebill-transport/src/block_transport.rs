@@ -277,10 +277,11 @@ impl BlockTransportServiceApi for BlockTransportService {
         Ok(())
     }
 
-    /// Resync bill chain
-    async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()> {
+    /// Resync bill chain. If `from_nostr` is true, fetches missing blocks from Nostr first.
+    /// If false, only invalidates the local cache.
+    async fn resync_bill_chain(&self, bill_id: &BillId, from_nostr: bool) -> Result<()> {
         self.bill_chain_event_processor
-            .resync_chain(bill_id)
+            .resync_chain(bill_id, from_nostr)
             .await?;
         Ok(())
     }

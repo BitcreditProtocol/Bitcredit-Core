@@ -1077,7 +1077,7 @@ impl Bill {
             get_ctx()
                 .transport_service
                 .block_transport()
-                .resync_bill_chain(&payload.bill_id)
+                .resync_bill_chain(&payload.bill_id, payload.from_nostr)
                 .await?;
             Ok(())
         }
