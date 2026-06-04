@@ -252,8 +252,7 @@ impl From<SweepResult> for BillSweepBTCFundsResultWeb {
 pub struct ResyncBillPayload {
     #[tsify(type = "string")]
     pub bill_id: BillId,
-    #[serde(default)]
-    pub from_nostr: bool,
+    pub from_nostr: Option<bool>,
 }
 
 impl From<BillCombinedBitcoinKey> for BillCombinedBitcoinKeyWeb {
