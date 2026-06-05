@@ -1,6 +1,12 @@
 # 0.5.11
 
 * Update to latest bcr-common and cashu 0.16
+* Improve Bill Cache clearing and improved sync-bills
+    * Added a flag `from_nostr` to `sync_bill_chain`, which is `false` by default
+        * if set to `false` - it just clears the bill cache
+            * this should be used by default when "polling"
+        * if set to `true` - it actually goes to nostr and attempts to fetch blocks from the network
+            * this should be used when it's a deliberate action (e.g. pressing a refresh button)
 
 # 0.5.10
 
