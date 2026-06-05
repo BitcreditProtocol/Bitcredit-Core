@@ -21,8 +21,9 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
     async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
     /// Sent when: A bill chain is created or updated
     async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;
-    /// Resync bill chain
-    async fn resync_bill_chain(&self, bill_id: &BillId) -> Result<()>;
+    /// Resync bill chain. If `from_nostr` is true, fetches missing blocks from Nostr first.
+    /// If false, only invalidates the local cache.
+    async fn resync_bill_chain(&self, bill_id: &BillId, from_nostr: bool) -> Result<()>;
     /// Resync company chain
     async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
     /// Resync identity chain

@@ -279,6 +279,10 @@ impl BillService {
             }
             _ => None,
         } {
+            if let Err(e) = self.store.invalidate_bill_in_cache(bill_id).await {
+                error!("Failed to invalidate cache for {bill_id} before timeout notification: {e}");
+            }
+
             // did we already send the notification
             let sent = self
                 .transport_service

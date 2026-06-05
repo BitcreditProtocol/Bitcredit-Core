@@ -104,7 +104,12 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         .await
     }
 
-    async fn resync_chain(&self, bill_id: &BillId) -> Result<()> {
+    async fn resync_chain(&self, bill_id: &BillId, from_nostr: bool) -> Result<()> {
+        if !from_nostr {
+            debug!("invalidating cache for {bill_id} without Nostr refetch");
+            return self.invalidate_cache_for_bill(bill_id).await;
+        }
+
         match (
             self.bill_blockchain_store.get_chain(bill_id).await,
             self.bill_store.get_keys(bill_id).await,
@@ -252,6 +257,16 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             }
         }
     }
+
+    async fn invalidate_cache_for_bill(&self, bill_id: &BillId) -> Result<()> {
+        if let Err(e) = self.bill_store.invalidate_bill_in_cache(bill_id).await {
+            error!("Failed to invalidate cache for bill {bill_id}: {e}");
+            return Err(Error::Persistence(
+                "Failed to invalidate cache for bill".to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -331,7 +346,7 @@ impl BillChainEventProcessor {
                             "Split chain detected for bill {bill_id} at height {} - resyncing",
                             block.id
                         );
-                        self.resync_chain(bill_id).await?;
+                        self.resync_chain(bill_id, true).await?;
                         return Ok(());
                     }
                 }
@@ -366,7 +381,7 @@ impl BillChainEventProcessor {
                             "Received invalid block {} for bill {bill_id} - missing blocks - try to resync",
                             block.id
                         );
-                        self.resync_chain(bill_id).await?;
+                        self.resync_chain(bill_id, true).await?;
                         break;
                     } else {
                         error!("Error adding block for bill {bill_id}: {e}");
@@ -799,16 +814,6 @@ impl BillChainEventProcessor {
             error!("Failed to add block to blockchain store: {e}");
             return Err(Error::Persistence(
                 "Failed to add block to blockchain store".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
-    async fn invalidate_cache_for_bill(&self, bill_id: &BillId) -> Result<()> {
-        if let Err(e) = self.bill_store.invalidate_bill_in_cache(bill_id).await {
-            error!("Failed to invalidate cache for bill {bill_id}: {e}");
-            return Err(Error::Persistence(
-                "Failed to invalidate cache for bill".to_string(),
             ));
         }
         Ok(())
@@ -2019,7 +2024,7 @@ mod tests {
 
         // This should process the valid chain and exit
         handler
-            .resync_chain(&bill_id)
+            .resync_chain(&bill_id, true)
             .await
             .expect("resync should succeed");
     }
@@ -2160,7 +2165,7 @@ mod tests {
         );
 
         handler
-            .resync_chain(&bill_id)
+            .resync_chain(&bill_id, true)
             .await
             .expect("resync should succeed with fork resolution");
     }
@@ -2275,7 +2280,7 @@ mod tests {
             bitcoin::Network::Testnet,
         );
 
-        let result = handler.resync_chain(&bill_id).await;
+        let result = handler.resync_chain(&bill_id, true).await;
 
         assert!(result.is_ok());
     }

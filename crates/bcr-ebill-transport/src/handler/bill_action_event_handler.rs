@@ -69,6 +69,17 @@ impl BillActionEventHandler {
             return Ok(());
         }
 
+        if let Err(e) = self
+            .processor
+            .invalidate_cache_for_bill(&event.bill_id)
+            .await
+        {
+            error!(
+                "Failed to invalidate cache for bill {} before notification: {e}",
+                event.bill_id
+            );
+        }
+
         let is_new_actionable = event
             .action_type
             .as_ref()
@@ -343,6 +354,12 @@ mod tests {
             .expect_validate_chain_event_and_sender()
             .with(eq(bill_id_test()), always())
             .returning(|_, _| Ok(true));
+
+        chain_processor
+            .expect_invalidate_cache_for_bill()
+            .with(eq(bill_id_test()))
+            .times(1)
+            .returning(|_| Ok(()));
 
         // check for deduplication
         notification_store
