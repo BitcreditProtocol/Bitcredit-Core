@@ -1,3 +1,5 @@
+# 0.5.12
+
 # 0.5.11
 
 * Update to latest bcr-common and cashu 0.16
