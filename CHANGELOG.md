@@ -1,6 +1,8 @@
 # 0.5.12
 
 * Upgrade bcr-common
+* Add strum Display/EnumString for block op codes
+* Add functionality for getting bill history for a shared bill
 
 # 0.5.11
 
