@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::handler::public_chain_helpers::{BlockData, resolve_event_chains};
 use crate::handler::{
     BillChainEventProcessorApi, CompanyChainEventProcessorApi, IdentityChainEventProcessorApi,
 };
@@ -10,6 +11,7 @@ use bcr_ebill_api::service::transport_service::BlockTransportServiceApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
+use bcr_ebill_core::protocol::blockchain::bill::BillBlock;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
 };
@@ -97,7 +99,6 @@ impl BlockTransportServiceApi for BlockTransportService {
                     &event.data.node_id.to_string(),
                     BlockchainType::Identity,
                     event.data.block.timestamp,
-                    events.keys.clone(),
                     event.clone().try_into()?,
                     previous_event.clone().map(|e| e.payload),
                     root_event.clone().map(|e| e.payload),
@@ -156,7 +157,6 @@ impl BlockTransportServiceApi for BlockTransportService {
                     &event.data.node_id.to_string(),
                     BlockchainType::Company,
                     event.data.block.timestamp,
-                    events.keys.clone(),
                     event.clone().try_into()?,
                     previous_event.clone().map(|e| e.payload),
                     root_event.clone().map(|e| e.payload),
@@ -232,7 +232,6 @@ impl BlockTransportServiceApi for BlockTransportService {
                     &block_event.data.bill_id.to_string(),
                     BlockchainType::Bill,
                     block_event.data.block.timestamp,
-                    events.bill_keys.clone(),
                     block_event.clone().try_into()?,
                     previous_event.clone().map(|e| e.payload),
                     root_event.clone().map(|e| e.payload),
@@ -311,6 +310,57 @@ impl BlockTransportServiceApi for BlockTransportService {
         self.identity_chain_event_processor.resync_chain().await?;
         Ok(())
     }
+
+    /// Fetch all chains for this bill id from nostr and attempt to find one which exactly matches the given blocks
+    async fn validate_bill_blocks_exist_on_nostr_chain(
+        &self,
+        bill_id: &BillId,
+        blocks: &[BillBlock],
+    ) -> Result<bool> {
+        if blocks.is_empty() {
+            return Ok(true);
+        }
+        let mut sorted_blocks = blocks.to_vec();
+        sorted_blocks.sort_by(|x, y| x.bill_id.cmp(&y.bill_id).then_with(|| x.id.cmp(&y.id)));
+
+        let transport = self.nostr_transport.get_first_transport();
+        // chains are sorted by longest first, so we start there and move down until we have a success
+        let chains =
+            resolve_event_chains(transport, &bill_id.to_string(), BlockchainType::Bill, &None)
+                .await?;
+        for chain in chains.iter() {
+            // ignore empty chains
+            if chain.is_empty() {
+                continue;
+            }
+
+            let mut chain_blocks: Vec<BillBlock> = chain
+                .iter()
+                .filter_map(|d| match d.block.clone() {
+                    BlockData::Bill(block) => Some(block),
+                    _ => None,
+                })
+                .collect();
+            chain_blocks.sort_by(|x, y| x.bill_id.cmp(&y.bill_id).then_with(|| x.id.cmp(&y.id)));
+
+            // ignore chains with no bill blocks
+            if chain_blocks.is_empty() {
+                continue;
+            }
+
+            // chain has to match exactly
+            if chain_blocks.len() != sorted_blocks.len() {
+                continue;
+            }
+
+            // if it matches exactly, it's valid
+            if sorted_blocks == chain_blocks {
+                return Ok(true);
+            }
+        }
+        // didn't find all blocks exactly in any chain - invalid
+        Ok(false)
+    }
 }
 
 #[cfg(test)]
@@ -322,11 +372,15 @@ mod tests {
     };
     use crate::test_utils::{
         MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
-        MockNostrQueuedMessageStore, MockNotificationJsonTransport, get_nostr_transport,
-        get_test_company_chain_event, get_test_identity_chain_event,
+        MockNostrQueuedMessageStore, MockNotificationJsonTransport, bill_id_test,
+        get_genesis_chain, get_nostr_transport, get_test_company_chain_event,
+        get_test_identity_chain_event, private_key_test,
     };
-    use bcr_ebill_core::protocol::Sha256Hash;
-    use bcr_ebill_core::protocol::blockchain::BlockchainType;
+    use crate::transport::create_public_chain_event;
+    use bcr_ebill_core::protocol::blockchain::{Blockchain, BlockchainType};
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
+    use bcr_ebill_core::protocol::event::{BillBlockEvent, Event};
+    use bcr_ebill_core::protocol::{BlockId, Sha256Hash, Timestamp};
     use bcr_ebill_persistence::nostr::NostrChainEvent;
 
     fn create_test_chain_event(
@@ -456,7 +510,7 @@ mod tests {
         let mut transport = MockNotificationJsonTransport::new();
         transport
             .expect_build_public_chain_event()
-            .returning(move |_, _, _, _, _, _, _, _| Ok(signed_event.clone()));
+            .returning(move |_, _, _, _, _, _, _| Ok(signed_event.clone()));
         transport.expect_relay_ack_threshold().returning(|| 1);
         transport
             .expect_broadcast_event_optimistic()
@@ -486,7 +540,7 @@ mod tests {
         let mut transport = MockNotificationJsonTransport::new();
         transport
             .expect_build_public_chain_event()
-            .returning(move |_, _, _, _, _, _, _, _| Ok(signed_event.clone()));
+            .returning(move |_, _, _, _, _, _, _| Ok(signed_event.clone()));
         transport.expect_relay_ack_threshold().returning(|| 1);
         transport
             .expect_broadcast_event_optimistic()
@@ -516,7 +570,7 @@ mod tests {
         let mut transport = MockNotificationJsonTransport::new();
         transport
             .expect_build_public_chain_event()
-            .returning(move |_, _, _, _, _, _, _, _| Ok(signed_event.clone()));
+            .returning(move |_, _, _, _, _, _, _| Ok(signed_event.clone()));
         transport.expect_relay_ack_threshold().returning(|| 1);
         transport
             .expect_broadcast_event_optimistic()
@@ -556,5 +610,145 @@ mod tests {
 
         let result = service.send_identity_chain_events(event).await;
         assert!(result.is_ok());
+    }
+
+    fn generate_test_event(
+        previous: Option<nostr::Event>,
+        root: Option<nostr::Event>,
+        height: usize,
+        block: BillBlock,
+    ) -> nostr::Event {
+        let keys = BcrKeys::from_private_key(&private_key_test());
+        let block_event = Event::new_bill_chain(BillBlockEvent {
+            bill_id: bill_id_test(),
+            block: block.clone(),
+            block_height: height,
+        })
+        .try_into()
+        .expect("could not create envelope");
+        create_public_chain_event(
+            &bill_id_test().to_string(),
+            block_event,
+            Timestamp::new(1000).unwrap(),
+            BlockchainType::Bill,
+            previous,
+            root,
+        )
+        .expect("could not create chain event")
+        .sign_with_keys(&keys.get_nostr_keys())
+        .expect("could not sign event")
+    }
+
+    #[tokio::test]
+    async fn test_validate_bill_blocks_exist_on_nostr_chain_empty() {
+        let mut transport = MockNotificationJsonTransport::new();
+        transport.expect_resolve_public_chain().never();
+        let service = get_service_with_transport(transport, MockNostrChainEventStore::new());
+        let bill_id = bill_id_test();
+
+        let res = service
+            .validate_bill_blocks_exist_on_nostr_chain(&bill_id, &[])
+            .await;
+        assert!(res.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_validate_bill_blocks_exist_on_nostr_chain_invalid() {
+        let mut transport = MockNotificationJsonTransport::new();
+        // create a block
+        let block = get_genesis_chain(None)
+            .blocks()
+            .first()
+            .expect("could not get block")
+            .clone();
+        transport
+            .expect_resolve_public_chain()
+            .times(1)
+            .returning(move |_, _| Ok(vec![generate_test_event(None, None, 1, block.clone())]));
+        let service = get_service_with_transport(transport, MockNostrChainEventStore::new());
+        let bill_id = bill_id_test();
+
+        // create a different block
+        let block = get_genesis_chain(None)
+            .blocks()
+            .first()
+            .expect("could not get block")
+            .clone();
+
+        let res = service
+            .validate_bill_blocks_exist_on_nostr_chain(&bill_id, &[block])
+            .await;
+        assert!(!res.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_validate_bill_blocks_exist_on_nostr_chain_valid() {
+        // create a block
+        let block = get_genesis_chain(None)
+            .blocks()
+            .first()
+            .expect("could not get block")
+            .clone();
+        let mut transport = MockNotificationJsonTransport::new();
+        let block_clone = block.clone();
+        transport
+            .expect_resolve_public_chain()
+            .times(1)
+            .returning(move |_, _| {
+                Ok(vec![generate_test_event(
+                    None,
+                    None,
+                    1,
+                    block_clone.clone(),
+                )])
+            });
+        let service = get_service_with_transport(transport, MockNostrChainEventStore::new());
+        let bill_id = bill_id_test();
+
+        let res = service
+            .validate_bill_blocks_exist_on_nostr_chain(&bill_id, &[block])
+            .await;
+        assert!(res.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_validate_bill_blocks_exist_on_nostr_chain_multi() {
+        // create a block
+        let block = get_genesis_chain(None)
+            .blocks()
+            .first()
+            .expect("could not get block")
+            .clone();
+        // create another block
+        let mut block_2 = get_genesis_chain(None)
+            .blocks()
+            .first()
+            .expect("could not get block")
+            .clone();
+        block_2.id = BlockId::first().add(1);
+        let mut transport = MockNotificationJsonTransport::new();
+        let block_clone = block.clone();
+        let block_2_clone = block_2.clone();
+        transport
+            .expect_resolve_public_chain()
+            .times(1)
+            .returning(move |_, _| {
+                let first_event = generate_test_event(None, None, 1, block_clone.clone());
+                let second_event = generate_test_event(
+                    Some(first_event.clone()),
+                    Some(first_event.clone()),
+                    2,
+                    block_2_clone.clone(),
+                );
+                Ok(vec![first_event, second_event])
+            });
+        let service = get_service_with_transport(transport, MockNostrChainEventStore::new());
+        let bill_id = bill_id_test();
+
+        // works if it's not sorted correctly as well
+        let res = service
+            .validate_bill_blocks_exist_on_nostr_chain(&bill_id, &[block_2, block])
+            .await;
+        assert!(res.unwrap());
     }
 }

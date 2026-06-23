@@ -7846,3 +7846,31 @@ async fn get_bill_history_baseline() {
         drawer_node_id
     );
 }
+
+#[tokio::test]
+async fn get_local_bill_chain_baseline() {
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+    ctx.bill_store.expect_exists().returning(|_| Ok(true));
+    let chain = get_genesis_chain(Some(bill.clone()));
+    let chain_clone = chain.clone();
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| Ok(chain_clone.clone()));
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_get_active_bill_notification()
+            .with(eq(bill_id_test()))
+            .returning(|_| None);
+    });
+
+    let res = get_service(ctx)
+        .get_local_bill_chain(
+            &bill_id_test(),
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+        )
+        .await;
+    assert!(res.is_ok());
+    assert_eq!(res.as_ref().unwrap().blocks(), chain.blocks());
+}

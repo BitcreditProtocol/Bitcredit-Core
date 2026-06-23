@@ -253,6 +253,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
         court_node_id: &NodeId,
     ) -> Result<()>;
 
+    /// Return a bill's history
     async fn get_bill_history(
         &self,
         bill_id: &BillId,
@@ -261,6 +262,13 @@ pub trait BillServiceApi: ServiceTraitBounds {
         caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BillHistory>;
+
+    /// Return a bill's Blockchain
+    async fn get_local_bill_chain(
+        &self,
+        bill_id: &BillId,
+        caller_public_data: &BillParticipant,
+    ) -> Result<BillBlockchain>;
 
     fn mempool_link(&self, address: &BitcoinAddress) -> String;
 

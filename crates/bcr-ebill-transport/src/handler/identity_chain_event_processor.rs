@@ -97,7 +97,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                     self.transport.clone(),
                     &identity.node_id.to_string(),
                     BlockchainType::Identity,
-                    &key_pair,
+                    &Some(key_pair.to_owned()),
                 )
                 .await
                 {
@@ -963,7 +963,6 @@ pub mod tests {
             data,
             Timestamp::new(1000).unwrap(),
             BlockchainType::Identity,
-            keys.clone(),
             previous,
             root,
         )

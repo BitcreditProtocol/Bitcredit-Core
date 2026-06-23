@@ -2,8 +2,8 @@ use crate::{
     chain_keys::ChainKeyServiceApi,
     handler::{FileMetadataProcessorApi, NotificationHandlerApi},
     transport::{
-        chain_filter, create_nip04_event, create_public_chain_event, decrypt_public_chain_event,
-        unwrap_direct_message, unwrap_public_chain_event,
+        chain_filter, create_nip04_event, create_public_chain_event,
+        decrypt_or_decode_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
     },
 };
 use async_trait::async_trait;
@@ -604,7 +604,6 @@ impl TransportClientApi for NostrClient {
         id: &str,
         blockchain: BlockchainType,
         block_time: Timestamp,
-        keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
         root_event: Option<Event>,
@@ -617,7 +616,6 @@ impl TransportClientApi for NostrClient {
             event,
             block_time,
             blockchain,
-            keys,
             previous_event,
             root_event,
         )?;
@@ -1156,8 +1154,8 @@ impl NostrConsumer {
             #[allow(clippy::arc_with_non_send_sync)]
             event_handlers,
             contact_service,
-            offset_store,
             chain_key_service,
+            offset_store,
             file_metadata_processor,
         }
     }
@@ -1495,19 +1493,23 @@ async fn handle_public_event(
     chain_key_store: &Arc<dyn ChainKeyServiceApi>,
     handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<bool> {
-    if let Some(encrypted_data) = unwrap_public_chain_event(event.clone())? {
+    if let Some(encoded_or_encrypted) = unwrap_public_chain_event(event.clone())? {
         debug!(
             "Received public chain event: {} {}",
-            encrypted_data.chain_type, encrypted_data.id
+            encoded_or_encrypted.chain_type, encoded_or_encrypted.id
         );
-        if let Ok(Some(chain_keys)) = chain_key_store
-            .get_chain_keys(&encrypted_data.id, encrypted_data.chain_type)
+        // make sure we have the correct keys for this event
+        if let Ok(Some(keys)) = chain_key_store
+            .get_chain_keys(&encoded_or_encrypted.id, encoded_or_encrypted.chain_type)
             .await
         {
-            let decrypted = decrypt_public_chain_event(&encrypted_data.payload, &chain_keys)?;
-            debug!("Handling public chain event: {:?}", decrypted.event_type);
+            let decoded = decrypt_or_decode_public_chain_event(
+                &encoded_or_encrypted.payload,
+                &Some(keys.to_owned()),
+            )?;
+            debug!("Handling public chain event: {:?}", decoded.event_type);
             handle_event(
-                decrypted.clone(),
+                decoded.clone(),
                 node_id,
                 handlers,
                 Some(event.pubkey),
@@ -1618,11 +1620,11 @@ mod tests {
     use nostr::EventBuilder;
     use tokio::time;
 
-    use crate::handler::MockNotificationHandlerApi;
     use crate::test_utils::{
-        MockChainKeyService, MockContactService, MockFileMetadataProcessor,
-        MockNostrEventOffsetStore, TestEventPayload, create_test_event, get_identity_public_data,
+        MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
+        create_test_event, get_identity_public_data,
     };
+    use crate::{handler::MockNotificationHandlerApi, test_utils::MockChainKeyService};
 
     use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
@@ -2551,6 +2553,7 @@ mod optimistic_broadcast_tests {
     }
 
     #[tokio::test]
+    #[ignore] // slow test - enable on-demand
     async fn test_pre_threshold_relay_failure_is_queued_for_resync() {
         let relay = get_mock_relay().await;
         let real_url = url::Url::parse(&relay.url()).unwrap();

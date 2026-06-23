@@ -15,8 +15,8 @@ use bcr_ebill_core::protocol::Name;
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::protocol::Timestamp;
-use bcr_ebill_core::protocol::blockchain::bill::BillBlockchain;
 use bcr_ebill_core::protocol::blockchain::bill::block::BillIssueBlockData;
+use bcr_ebill_core::protocol::blockchain::bill::{BillBlock, BillBlockchain};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{EventEnvelope, EventType};
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
@@ -514,6 +514,11 @@ mockall::mock! {
         async fn resync_bill_chain(&self, bill_id: &BillId, from_nostr: bool) -> Result<()>;
         async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
         async fn resync_identity_chain(&self) -> Result<()>;
+        async fn validate_bill_blocks_exist_on_nostr_chain(
+            &self,
+            bill_id: &BillId,
+            blocks: &[BillBlock],
+        ) -> Result<bool>;
     }
 }
 
@@ -621,7 +626,6 @@ mockall::mock! {
             id: &str,
             blockchain: bcr_ebill_core::protocol::blockchain::BlockchainType,
             block_time: Timestamp,
-            keys: BcrKeys,
             event: EventEnvelope,
             previous_event: Option<nostr::event::Event>,
             root_event: Option<nostr::event::Event>) -> Result<nostr::event::Event>;

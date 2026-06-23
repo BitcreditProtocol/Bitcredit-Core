@@ -35,7 +35,6 @@ pub trait TransportClientApi: ServiceTraitBounds {
         id: &str,
         blockchain: BlockchainType,
         block_time: Timestamp,
-        keys: BcrKeys,
         event: EventEnvelope,
         previous_event: Option<Event>,
         root_event: Option<Event>,

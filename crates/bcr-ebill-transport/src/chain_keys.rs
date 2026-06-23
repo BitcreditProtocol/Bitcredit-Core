@@ -10,7 +10,7 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::{
     bill::BillStoreApi, company::CompanyStoreApi, identity::IdentityStoreApi,
 };
-use log::warn;
+use log::{debug, warn};
 
 /// Resolver for generic chain keys that are needed to decrypt
 /// public chain events.
@@ -87,7 +87,17 @@ impl ChainKeyServiceApi for ChainKeyService {
                 }
             }
             BlockchainType::Identity => match self.identity_store.get_key_pair().await {
-                Ok(keys) => Some(keys),
+                Ok(keys) => {
+                    // for identity, we have to additionally check if the chain id match our identity
+                    let node_id =
+                        NodeId::from_str(chain_id).map_err(ProtocolValidationError::from)?;
+                    if node_id.pub_key() != keys.pub_key() {
+                        debug!("skipping identity block for other identity");
+                        None
+                    } else {
+                        Some(keys)
+                    }
+                }
                 Err(e) => {
                     warn!("failed to get identity keys with {e}");
                     None
