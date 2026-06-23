@@ -96,6 +96,191 @@ impl BillBlockPlaintextWrapper {
         }
     }
 
+    pub fn get_history(&self) -> Result<BillHistoryBlock> {
+        Ok(match self.block.op_code() {
+            BillOpCode::Issue => {
+                let block_data: BillIssueBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    None,
+                    SignedBy::from((
+                        BillParticipantBlockData::Ident(block_data.drawer),
+                        block_data.signatory,
+                    )),
+                    Some(block_data.signing_address),
+                )
+            }
+            BillOpCode::Endorse => {
+                let block_data: BillEndorseBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    Some(block_data.endorsee.into()),
+                    None,
+                    None,
+                    SignedBy::from((block_data.endorser, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::Mint => {
+                let block_data: BillMintBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    Some(block_data.endorsee.into()),
+                    None,
+                    None,
+                    SignedBy::from((block_data.endorser, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::RequestToAccept => {
+                let block_data: BillRequestToAcceptBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    Some(block_data.acceptance_deadline_timestamp),
+                    SignedBy::from((block_data.requester, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::Accept => {
+                let block_data: BillAcceptBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    None,
+                    SignedBy::from((
+                        BillParticipantBlockData::Ident(block_data.accepter),
+                        block_data.signatory,
+                    )),
+                    Some(block_data.signing_address),
+                )
+            }
+            BillOpCode::RequestToPay => {
+                let block_data: BillRequestToPayBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    Some(block_data.payment_data.clone().into()),
+                    Some(block_data.payment_data.payment_deadline),
+                    SignedBy::from((block_data.requester, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::OfferToSell => {
+                let block_data: BillOfferToSellBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    Some(block_data.buyer.into()),
+                    Some(block_data.payment_data.clone().into()),
+                    Some(block_data.payment_data.payment_deadline),
+                    SignedBy::from((block_data.seller, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::Sell => {
+                let block_data: BillSellBlockData = borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    Some(block_data.buyer.into()),
+                    None,
+                    None,
+                    SignedBy::from((block_data.seller, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::RejectToAccept => {
+                let block_data: BillRejectBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    None,
+                    SignedBy::from((
+                        BillParticipantBlockData::Ident(block_data.rejecter),
+                        block_data.signatory,
+                    )),
+                    Some(block_data.signing_address),
+                )
+            }
+            BillOpCode::RejectToPay => {
+                let block_data: BillRejectBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    None,
+                    SignedBy::from((
+                        BillParticipantBlockData::Ident(block_data.rejecter),
+                        block_data.signatory,
+                    )),
+                    Some(block_data.signing_address),
+                )
+            }
+            BillOpCode::RejectToPayRecourse => {
+                let block_data: BillRejectBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    None,
+                    SignedBy::from((
+                        BillParticipantBlockData::Ident(block_data.rejecter),
+                        block_data.signatory,
+                    )),
+                    Some(block_data.signing_address),
+                )
+            }
+            BillOpCode::RejectToBuy => {
+                let block_data: BillRejectToBuyBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    None,
+                    None,
+                    None,
+                    SignedBy::from((block_data.rejecter, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::RequestRecourse => {
+                let block_data: BillRequestRecourseBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    Some(BillParticipantBlockData::Ident(block_data.recoursee).into()),
+                    Some(block_data.payment_data.clone().into()),
+                    Some(block_data.payment_data.payment_deadline),
+                    SignedBy::from((block_data.recourser, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+            BillOpCode::Recourse => {
+                let block_data: BillRecourseBlockData =
+                    borsh::from_slice(&self.plaintext_data_bytes)?;
+                BillHistoryBlock::new(
+                    &self.block,
+                    Some(BillParticipantBlockData::Ident(block_data.recoursee).into()),
+                    None,
+                    None,
+                    SignedBy::from((block_data.recourser, block_data.signatory)),
+                    block_data.signing_address,
+                )
+            }
+        })
+    }
+
     /// This is only used for dev mode
     pub fn to_json_text(&self) -> Result<String> {
         let mut serialized =

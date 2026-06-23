@@ -4,6 +4,7 @@ use bitcoin::base58;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use chain::BillBlockPlaintextWrapper;
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
 pub mod block;
 pub mod chain;
@@ -35,7 +36,17 @@ use crate::protocol::{
 };
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    EnumString,
+    Display,
 )]
 pub enum BillOpCode {
     Issue,

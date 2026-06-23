@@ -6,6 +6,7 @@ use super::{Block, Blockchain};
 use bcr_common::core::NodeId;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
 pub mod block;
 pub mod chain;
@@ -15,7 +16,17 @@ pub use block::CompanyBlock;
 pub use block::CompanyBlockPayload;
 pub use chain::CompanyBlockchain;
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(
+    BorshDeserialize,
+    BorshSerialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    EnumString,
+    Display,
+)]
 pub enum CompanyOpCode {
     Create,
     Update,

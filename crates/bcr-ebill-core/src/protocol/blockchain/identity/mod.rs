@@ -22,8 +22,19 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::error;
 use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    EnumString,
+    Display,
+)]
 pub enum IdentityOpCode {
     Create,
     Update,
