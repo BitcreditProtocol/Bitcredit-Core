@@ -104,7 +104,11 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
-            if let Err(e) = node.broadcast_event(&nostr_event).await {
+            let threshold = node.relay_ack_threshold();
+            if let Err(e) = node
+                .broadcast_event_optimistic(&nostr_event, threshold)
+                .await
+            {
                 error!("Failed to broadcast identity chain event, queuing for retry: {e}");
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
@@ -159,7 +163,11 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
-            if let Err(e) = node.broadcast_event(&nostr_event).await {
+            let threshold = node.relay_ack_threshold();
+            if let Err(e) = node
+                .broadcast_event_optimistic(&nostr_event, threshold)
+                .await
+            {
                 error!("Failed to broadcast company chain event, queuing for retry: {e}");
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;

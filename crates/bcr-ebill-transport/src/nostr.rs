@@ -541,12 +541,24 @@ impl NostrClient {
 
 impl ServiceTraitBounds for NostrClient {}
 
+async fn queue_failed_relay_sync(store: &Arc<dyn NostrStoreApi>, relay: &RelayUrl, event: &Event) {
+    let relay_url = match url::Url::parse(relay.as_str()) {
+        Ok(url) => url,
+        Err(parse_err) => {
+            error!("Failed to parse relay url {relay}: {parse_err}");
+            return;
+        }
+    };
+    if let Err(store_err) = store.add_failed_relay_sync(&relay_url, event.clone()).await {
+        error!("Failed to queue failed relay sync for {relay}: {store_err}");
+    }
+}
+
 async fn collect_remaining_broadcast_results(
     mut rx: UnboundedReceiver<(RelayUrl, std::result::Result<EventId, Error>)>,
     mut success: HashSet<RelayUrl>,
-    mut failed: HashMap<RelayUrl, String>,
-    event: Event,
     nostr_store: Option<Arc<dyn NostrStoreApi>>,
+    event: Event,
 ) {
     while let Some((relay, result)) = rx.next().await {
         match result {
@@ -554,28 +566,16 @@ async fn collect_remaining_broadcast_results(
                 success.insert(relay);
             }
             Err(e) => {
-                failed.insert(relay.clone(), e.to_string());
                 if let Some(store) = &nostr_store {
-                    let relay_url = match url::Url::parse(relay.as_str()) {
-                        Ok(url) => url,
-                        Err(parse_err) => {
-                            error!("Failed to parse relay url {relay}: {parse_err}");
-                            continue;
-                        }
-                    };
-                    if let Err(store_err) =
-                        store.add_failed_relay_sync(&relay_url, event.clone()).await
-                    {
-                        error!("Failed to queue failed relay sync for {relay}: {store_err}");
-                    }
+                    queue_failed_relay_sync(store, &relay, &event).await;
                 }
+                debug!("Optimistic broadcast background failure for {relay}: {e}");
             }
         }
     }
     debug!(
-        "Optimistic broadcast background completion: {} succeeded, {} failed",
-        success.len(),
-        failed.len()
+        "Optimistic broadcast background completion: {} succeeded",
+        success.len()
     );
 }
 
@@ -691,7 +691,6 @@ impl TransportClientApi for NostrClient {
         drop(tx);
 
         let mut success = HashSet::new();
-        let mut failed = HashMap::new();
 
         while let Some((relay, result)) = rx.next().await {
             match result {
@@ -701,24 +700,24 @@ impl TransportClientApi for NostrClient {
                         tokio::spawn(collect_remaining_broadcast_results(
                             rx,
                             success,
-                            failed,
-                            event,
                             nostr_store,
+                            event,
                         ));
                         return Ok(());
                     }
                 }
-                Err(e) => {
-                    failed.insert(relay, e.to_string());
+                Err(_) => {
+                    if let Some(store) = &nostr_store {
+                        queue_failed_relay_sync(store, &relay, &event).await;
+                    }
                 }
             }
         }
 
         Err(Error::Network(format!(
-            "broadcast_event_optimistic: only {} of {} required acks received ({} failed)",
+            "broadcast_event_optimistic: only {} of {} required acks received",
             success.len(),
             threshold,
-            failed.len()
         )))
     }
 
