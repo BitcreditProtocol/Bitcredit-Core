@@ -281,10 +281,10 @@ impl TransportServiceApi for TransportService {
         rejected_action: ActionType,
     ) -> Result<()> {
         let all_events = event.generate_rejected_messages(rejected_action);
+        self.block_transport_service
+            .send_bill_chain_events(event.clone())
+            .await?;
         if !all_events.is_empty() {
-            self.block_transport_service
-                .send_bill_chain_events(event.clone())
-                .await?;
             self.nostr_transport
                 .send_all_bill_events(&event.sender(), &all_events)
                 .await?;
@@ -310,10 +310,10 @@ impl TransportServiceApi for TransportService {
         recoursee: &BillIdentParticipant,
     ) -> Result<()> {
         let all_events = event.generate_recourse_messages(action, recoursee);
+        self.block_transport_service
+            .send_bill_chain_events(event.clone())
+            .await?;
         if !all_events.is_empty() {
-            self.block_transport_service
-                .send_bill_chain_events(event.clone())
-                .await?;
             self.nostr_transport
                 .send_all_bill_events(&event.sender(), &all_events)
                 .await?;
@@ -725,21 +725,22 @@ mod tests {
                     .returning(|_, _, _| Ok(()))
                     .times(2);
 
-                // Recourse rejection goes to prior holders only; this test chain has none
+                // Recourse rejection goes to prior holders and recourser only; this test chain has no previous holders
                 transport
                     .expect_send_private_event()
                     .withf(|_, _, e| check_chain_payload(e, BillEventType::BillRecourseRejected))
-                    .never();
+                    .returning(|_, _, _| Ok(()))
+                    .times(1);
 
                 block_transport
                     .expect_send_bill_chain_events()
                     .returning(|_| Ok(()))
-                    .times(3);
+                    .times(4);
 
                 notification_transport
                     .expect_send_email_notification()
                     .returning(|_, _, _| ())
-                    .times(3);
+                    .times(4);
 
                 // this is only required for the test as it contains an invite block so it tries to send an
                 // invite to new participants as well and the test data doesn't have them all.
@@ -827,13 +828,19 @@ mod tests {
         )
         .unwrap();
 
-        let (service, _) = expect_service(|mock, mock_contact_store, _, _, _, _, _, _| {
-            // no participant should receive events
-            mock_contact_store.expect_get().never();
+        let (service, _) =
+            expect_service(|mock, mock_contact_store, _, _, _, _, _, block_transport| {
+                // no participant should receive events
+                mock_contact_store.expect_get().never();
 
-            // expect to not send rejected event for non rejectable actions
-            mock.expect_send_private_event().never();
-        });
+                // expect to not send rejected event for non rejectable actions
+                mock.expect_send_private_event().never();
+
+                block_transport
+                    .expect_send_bill_chain_events()
+                    .returning(|_| Ok(()))
+                    .times(1);
+            });
 
         service
             .send_request_to_action_rejected_event(&event, ActionType::CheckBill)
@@ -976,7 +983,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_recourse_action_event_does_not_send_non_recurse_action() {
+    async fn test_send_recourse_action_event_does_not_send_non_recourse_action() {
         init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
@@ -1031,9 +1038,13 @@ mod tests {
         )
         .unwrap();
 
-        let (service, _) = expect_service(|mock, _, _, _, _, _, _, _| {
+        let (service, _) = expect_service(|mock, _, _, _, _, _, _, block_transport| {
             // expect not to send non recourse event
             mock.expect_send_private_event().never();
+            block_transport
+                .expect_send_bill_chain_events()
+                .returning(|_| Ok(()))
+                .times(1);
         });
 
         service

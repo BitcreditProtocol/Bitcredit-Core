@@ -339,19 +339,21 @@ impl BillChainEvent {
                     .as_ref()
                     .map(|e| e.node_id())
                     .unwrap_or_else(|| self.bill.payee.node_id());
+                // always send to the current holder
+                let mut recips = vec![current_holder.clone()];
                 match self
                     .chain
                     .get_past_endorsees_for_bill(&self.bill_keys, &current_holder)
                 {
-                    Ok(endorsees) => endorsees
-                        .into_iter()
-                        .map(|e| e.pay_to_the_order_of.node_id)
-                        .collect(),
+                    Ok(endorsees) => {
+                        recips.extend(endorsees.into_iter().map(|e| e.pay_to_the_order_of.node_id));
+                    }
                     Err(e) => {
                         error!("Failed to get past endorsees for recourse rejection: {e}");
                         return HashMap::new();
                     }
-                }
+                };
+                recips
             }
             _ => {
                 // Regular rejection goes to all NON-BEARER participants except drawee

@@ -3,6 +3,7 @@
 * Upgrade bcr-common
 * Add strum Display/EnumString for block op codes
 * Add functionality for getting bill history for a shared bill
+* Fix Recourse block sending
 
 # 0.5.11
 
