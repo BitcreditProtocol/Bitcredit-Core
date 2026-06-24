@@ -28,12 +28,14 @@ use bcr_ebill_core::{
     application::notification::{Notification, NotificationLevel},
     protocol::blockchain::BlockchainType,
     protocol::blockchain::{
+        Blockchain,
         bill::{
             BitcreditBill,
             block::ContactType,
             participant::{BillIdentParticipant, BillParticipant},
         },
-        identity::IdentityType,
+        company::{CompanyBlockchain, block::CompanyCreateBlockData},
+        identity::{IdentityBlockchain, IdentityCreateBlockData, IdentityType},
     },
     protocol::event::{ActionType, BillEventType},
     protocol::{OptionalPostalAddress, PostalAddress},
@@ -397,6 +399,44 @@ pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofD
     };
     let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
     (proof, data)
+}
+
+pub fn get_test_identity_chain_event() -> IdentityChainEvent {
+    let identity = get_baseline_identity();
+    let create_data = IdentityCreateBlockData::from(identity.identity.clone());
+    let chain = IdentityBlockchain::new(&create_data, &identity.key_pair, test_ts())
+        .expect("failed to create identity chain");
+    let block = chain.get_first_block().clone();
+    IdentityChainEvent::new(&identity.identity.node_id, &block, &identity.key_pair)
+}
+
+pub fn get_test_company_chain_event() -> CompanyChainEvent {
+    let identity_keys = BcrKeys::new();
+    let company_keys = BcrKeys::new();
+    let company_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
+    let creator_id = NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet);
+    let company_data = CompanyCreateBlockData {
+        id: company_id.clone(),
+        name: Name::new("Test Company").unwrap(),
+        country_of_registration: Some(Country::AT),
+        city_of_registration: Some(City::new("Vienna").unwrap()),
+        postal_address: PostalAddress {
+            country: Country::AT,
+            city: City::new("Vienna").unwrap(),
+            zip: None,
+            address: Address::new("Some address").unwrap(),
+        },
+        email: Email::new("test@example.com").unwrap(),
+        registration_number: None,
+        registration_date: None,
+        proof_of_registration_file: None,
+        logo_file: None,
+        creation_time: test_ts(),
+        creator: creator_id,
+    };
+    let chain = CompanyBlockchain::new(&company_data, &identity_keys, &company_keys, test_ts())
+        .expect("failed to create company chain");
+    CompanyChainEvent::new(&company_id, &chain, &company_keys, None, true)
 }
 
 pub fn node_id_test_other2() -> NodeId {

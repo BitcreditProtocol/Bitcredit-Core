@@ -2461,12 +2461,14 @@ mod relay_calculation_tests {
 
 #[cfg(test)]
 mod optimistic_broadcast_tests {
-    use super::super::test_utils::get_mock_relay;
+    use super::super::test_utils::{MockNostrContactStore, get_mock_relay};
     use super::{NostrClient, NostrConfig};
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use nostr::EventBuilder;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_relay_ack_threshold_returns_configured_value() {
@@ -2545,6 +2547,47 @@ mod optimistic_broadcast_tests {
             result.is_ok(),
             "optimistic broadcast should clamp threshold to relay count: {:?}",
             result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pre_threshold_relay_failure_is_queued_for_resync() {
+        let relay = get_mock_relay().await;
+        let real_url = url::Url::parse(&relay.url()).unwrap();
+        let unreachable_url = url::Url::parse("ws://127.0.0.1:1").unwrap();
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+
+        let mut mock_store = MockNostrContactStore::new();
+        let unreachable_url_for_assert = unreachable_url.clone();
+        mock_store
+            .expect_add_failed_relay_sync()
+            .withf(move |url, _event| url.as_str() == unreachable_url_for_assert.as_str())
+            .times(1..)
+            .returning(|_, _| Ok(()));
+
+        let client = NostrClient::new(
+            vec![(node_id, keys.clone())],
+            vec![real_url, unreachable_url],
+            vec![],
+            Duration::from_secs(2),
+            Some(10),
+            2,
+            Some(Arc::new(mock_store)),
+        )
+        .await
+        .expect("failed to create nostr client");
+
+        client.connect().await.expect("failed to connect");
+
+        let event = EventBuilder::text_note("pre-threshold failure")
+            .sign_with_keys(&keys.get_nostr_keys())
+            .unwrap();
+
+        let result = client.broadcast_event_optimistic(&event, 2).await;
+        assert!(
+            result.is_err(),
+            "threshold should not be met because one relay is unreachable"
         );
     }
 }
