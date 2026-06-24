@@ -898,7 +898,7 @@ async function syncBillChain() {
   let bill_id = document.getElementById("bill_id").value;
   console.log("syncBillChain", bill_id);
   let measured = measure(async () => {
-    return success_or_fail(await window.billApi.sync_bill_chain({ bill_id: bill_id }));
+    return success_or_fail(await window.billApi.sync_bill_chain({ bill_id: bill_id, from_nostr: true }));
   });
   await measured();
 }
