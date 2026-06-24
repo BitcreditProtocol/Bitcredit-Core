@@ -137,6 +137,7 @@ pub fn init_test_cfg() {
                     relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
                     blossom_servers: vec![],
                     max_relays: Some(50),
+                    relay_ack_threshold: 1,
                 },
                 mint_config: bcr_ebill_api::MintConfig {
                     default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
@@ -585,6 +586,12 @@ mockall::mock! {
             previous_event: Option<nostr::event::Event>,
             root_event: Option<nostr::event::Event>) -> Result<nostr::event::Event>;
         async fn broadcast_event(&self, event: &nostr::event::Event) -> Result<()>;
+        async fn broadcast_event_optimistic(
+            &self,
+            event: &nostr::event::Event,
+            min_acks: usize,
+        ) -> Result<()>;
+        fn relay_ack_threshold(&self) -> usize;
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;

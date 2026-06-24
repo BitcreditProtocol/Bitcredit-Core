@@ -67,6 +67,7 @@ pub struct Config {
     pub blossom_servers: Option<Vec<String>>,
     pub nostr_only_known_contacts: Option<bool>,
     pub nostr_max_relays: Option<usize>,
+    pub nostr_relay_ack_threshold: Option<usize>,
     pub job_runner_initial_delay_seconds: u32,
     pub job_runner_check_interval_seconds: u32,
     pub transport_initial_subscription_delay_seconds: Option<u32>,
@@ -231,6 +232,7 @@ pub async fn initialize_api(
             blossom_servers,
             only_known_contacts: config.nostr_only_known_contacts.unwrap_or(false),
             max_relays: config.nostr_max_relays.or(Some(50)),
+            relay_ack_threshold: config.nostr_relay_ack_threshold.unwrap_or(1),
         },
         mint_config: MintConfig::new(config.default_mint_url, mint_node_id)?,
         payment_config: PaymentConfig {
