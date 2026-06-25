@@ -175,6 +175,9 @@ pub struct NostrConfig {
     pub default_timeout: Duration,
     pub is_primary: bool,
     pub node_id: NodeId,
+    /// Number of relay acknowledgements required before an optimistic broadcast
+    /// returns to the caller. The remaining relays continue publishing in the background.
+    pub relay_ack_threshold: usize,
 }
 
 impl NostrConfig {
@@ -193,7 +196,13 @@ impl NostrConfig {
             default_timeout: Duration::from_secs(20),
             is_primary,
             node_id,
+            relay_ack_threshold: 1,
         }
+    }
+
+    pub fn with_relay_ack_threshold(mut self, threshold: usize) -> Self {
+        self.relay_ack_threshold = threshold.max(1);
+        self
     }
 
     pub fn get_npub(&self) -> String {

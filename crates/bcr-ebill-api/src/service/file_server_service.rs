@@ -380,6 +380,7 @@ mod tests {
             relays: vec![url::Url::parse("wss://relay.example.com").unwrap()],
             blossom_servers: vec![],
             max_relays: Some(50),
+            relay_ack_threshold: 1,
         }
     }
 

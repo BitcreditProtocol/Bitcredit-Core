@@ -104,7 +104,11 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
-            if let Err(e) = node.broadcast_event(&nostr_event).await {
+            let threshold = node.relay_ack_threshold();
+            if let Err(e) = node
+                .broadcast_event_optimistic(&nostr_event, threshold)
+                .await
+            {
                 error!("Failed to broadcast identity chain event, queuing for retry: {e}");
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
@@ -159,7 +163,11 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
-            if let Err(e) = node.broadcast_event(&nostr_event).await {
+            let threshold = node.relay_ack_threshold();
+            if let Err(e) = node
+                .broadcast_event_optimistic(&nostr_event, threshold)
+                .await
+            {
                 error!("Failed to broadcast company chain event, queuing for retry: {e}");
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
@@ -231,7 +239,11 @@ impl BlockTransportServiceApi for BlockTransportService {
                 )
                 .await?;
 
-            if let Err(e) = node.broadcast_event(&nostr_event).await {
+            let threshold = node.relay_ack_threshold();
+            if let Err(e) = node
+                .broadcast_event_optimistic(&nostr_event, threshold)
+                .await
+            {
                 error!("Failed to broadcast bill chain event, queuing for retry: {e}");
                 let payload = serde_json::to_string(&nostr_event)
                     .map_err(|e| Error::Message(e.to_string()))?;
@@ -311,6 +323,7 @@ mod tests {
     use crate::test_utils::{
         MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
         MockNostrQueuedMessageStore, MockNotificationJsonTransport, get_nostr_transport,
+        get_test_company_chain_event, get_test_identity_chain_event,
     };
     use bcr_ebill_core::protocol::Sha256Hash;
     use bcr_ebill_core::protocol::blockchain::BlockchainType;
@@ -343,10 +356,13 @@ mod tests {
         }
     }
 
-    fn get_service(chain_event_store: MockNostrChainEventStore) -> BlockTransportService {
+    fn get_service_with_transport(
+        mock_transport: MockNotificationJsonTransport,
+        chain_event_store: MockNostrChainEventStore,
+    ) -> BlockTransportService {
         BlockTransportService::new(
             Arc::new(get_nostr_transport(
-                MockNotificationJsonTransport::new(),
+                mock_transport,
                 MockContactStore::new(),
                 MockNostrContactStore::new(),
                 MockNostrQueuedMessageStore::new(),
@@ -356,6 +372,10 @@ mod tests {
             Arc::new(MockCompanyChainEventProcessorApi::new()),
             Arc::new(MockIdentityChainEventProcessorApi::new()),
         )
+    }
+
+    fn get_service(chain_event_store: MockNostrChainEventStore) -> BlockTransportService {
+        get_service_with_transport(MockNotificationJsonTransport::new(), chain_event_store)
     }
 
     #[tokio::test]
@@ -426,5 +446,115 @@ mod tests {
         let (previous, root) = result.unwrap();
         assert!(previous.is_some());
         assert!(root.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_identity_chain_event_uses_optimistic_broadcast() {
+        let signed_event = nostr::EventBuilder::text_note("identity chain event")
+            .sign_with_keys(&nostr::Keys::generate())
+            .unwrap();
+        let mut transport = MockNotificationJsonTransport::new();
+        transport
+            .expect_build_public_chain_event()
+            .returning(move |_, _, _, _, _, _, _, _| Ok(signed_event.clone()));
+        transport.expect_relay_ack_threshold().returning(|| 1);
+        transport
+            .expect_broadcast_event_optimistic()
+            .withf(|_event, min_acks| *min_acks == 1)
+            .returning(|_, _| Ok(()));
+
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service_with_transport(transport, chain_event_store);
+        let event = get_test_identity_chain_event();
+
+        let result = service.send_identity_chain_events(event).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_company_chain_event_uses_optimistic_broadcast() {
+        let signed_event = nostr::EventBuilder::text_note("company chain event")
+            .sign_with_keys(&nostr::Keys::generate())
+            .unwrap();
+        let mut transport = MockNotificationJsonTransport::new();
+        transport
+            .expect_build_public_chain_event()
+            .returning(move |_, _, _, _, _, _, _, _| Ok(signed_event.clone()));
+        transport.expect_relay_ack_threshold().returning(|| 1);
+        transport
+            .expect_broadcast_event_optimistic()
+            .withf(|_event, min_acks| *min_acks == 1)
+            .returning(|_, _| Ok(()));
+
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service_with_transport(transport, chain_event_store);
+        let event = get_test_company_chain_event();
+
+        let result = service.send_company_chain_events(event).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_error_triggers_full_message_retry() {
+        let signed_event = nostr::EventBuilder::text_note("retry event")
+            .sign_with_keys(&nostr::Keys::generate())
+            .unwrap();
+        let mut transport = MockNotificationJsonTransport::new();
+        transport
+            .expect_build_public_chain_event()
+            .returning(move |_, _, _, _, _, _, _, _| Ok(signed_event.clone()));
+        transport.expect_relay_ack_threshold().returning(|| 1);
+        transport
+            .expect_broadcast_event_optimistic()
+            .withf(|_event, min_acks| *min_acks == 1)
+            .returning(|_, _| Err(Error::Network("relay failed".to_string())));
+
+        let mut chain_event_store = MockNostrChainEventStore::new();
+        chain_event_store
+            .expect_find_by_block_hash()
+            .returning(|_| Ok(None));
+        chain_event_store
+            .expect_add_chain_event()
+            .returning(|_| Ok(()));
+
+        let mut queued_message_store = MockNostrQueuedMessageStore::new();
+        queued_message_store
+            .expect_add_message()
+            .times(1)
+            .returning(|_, _| Ok(()));
+        queued_message_store
+            .expect_get_retry_messages()
+            .returning(|_| Ok(vec![]));
+
+        let service = BlockTransportService::new(
+            Arc::new(get_nostr_transport(
+                transport,
+                MockContactStore::new(),
+                MockNostrContactStore::new(),
+                queued_message_store,
+                chain_event_store,
+            )),
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            Arc::new(MockCompanyChainEventProcessorApi::new()),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+        );
+        let event = get_test_identity_chain_event();
+
+        let result = service.send_identity_chain_events(event).await;
+        assert!(result.is_ok());
     }
 }

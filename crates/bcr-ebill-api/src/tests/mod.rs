@@ -554,6 +554,7 @@ pub mod tests {
                         relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
                         blossom_servers: vec![],
                         max_relays: Some(50),
+                        relay_ack_threshold: 1,
                     },
                     mint_config: MintConfig {
                         default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
@@ -767,12 +768,19 @@ pub mod tests {
         }
 
         #[test]
+        fn test_nostr_config_default_threshold() {
+            let config = NostrConfig::default();
+            assert_eq!(config.relay_ack_threshold, 1);
+        }
+
+        #[test]
         fn test_nostr_config_with_custom_max_relays() {
             let config = NostrConfig {
                 only_known_contacts: true,
                 relays: vec![],
                 blossom_servers: vec![],
                 max_relays: Some(100),
+                relay_ack_threshold: 1,
             };
             assert_eq!(config.max_relays, Some(100));
         }
@@ -784,8 +792,10 @@ pub mod tests {
                 relays: vec![],
                 blossom_servers: vec![],
                 max_relays: None,
+                relay_ack_threshold: 2,
             };
             assert_eq!(config.max_relays, None);
+            assert_eq!(config.relay_ack_threshold, 2);
         }
     }
 }

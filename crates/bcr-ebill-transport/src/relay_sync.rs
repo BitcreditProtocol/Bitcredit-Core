@@ -314,6 +314,7 @@ mod tests {
             vec![],
             std::time::Duration::from_secs(10),
             None,
+            1,
             Some(store.clone()),
         )
         .await
@@ -364,6 +365,7 @@ mod tests {
             vec![],
             std::time::Duration::from_secs(10),
             None,
+            1,
             Some(store.clone()),
         )
         .await

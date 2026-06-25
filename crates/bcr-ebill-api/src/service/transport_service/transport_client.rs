@@ -42,6 +42,13 @@ pub trait TransportClientApi: ServiceTraitBounds {
     ) -> Result<Event>;
     /// Broadcasts a pre-signed event to all configured relays.
     async fn broadcast_event(&self, event: &Event) -> Result<()>;
+    /// Broadcasts a pre-signed event to all configured relays, returning as soon as
+    /// `min_acks` relays have acknowledged it. Remaining relays continue publishing
+    /// in the background.
+    async fn broadcast_event_optimistic(&self, event: &Event, min_acks: usize) -> Result<()>;
+    /// Returns the configured minimum number of relay acknowledgements required for
+    /// an optimistic broadcast to return early.
+    fn relay_ack_threshold(&self) -> usize;
     /// Resolves a nostr contact by node id.
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
     /// Given an id and chain type, tries to resolve the public chain events.

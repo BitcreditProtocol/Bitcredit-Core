@@ -109,6 +109,7 @@ pub async fn create_nostr_clients(
         config.nostr_config.blossom_servers.clone(),
         std::time::Duration::from_secs(20),
         config.nostr_config.max_relays,
+        config.nostr_config.relay_ack_threshold,
         Some(nostr_contact_store),
     )
     .await?;

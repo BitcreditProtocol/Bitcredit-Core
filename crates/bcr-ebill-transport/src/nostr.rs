@@ -43,6 +43,10 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi, NostrStoreApi};
+use futures::{
+    StreamExt,
+    channel::mpsc::{UnboundedReceiver, unbounded},
+};
 
 use tokio::task::JoinSet;
 use tokio_with_wasm::alias as tokio;
@@ -97,6 +101,7 @@ pub struct NostrClient {
     connected: Arc<AtomicBool>,
     sync_running: Arc<AtomicBool>, // Prevents concurrent sync
     max_relays: Option<usize>,
+    relay_ack_threshold: usize,
     nostr_contact_store: Option<Arc<dyn NostrStoreApi>>, // Keep for backwards compatibility
     nostr_store: Option<Arc<dyn NostrStoreApi>>,
 }
@@ -109,6 +114,7 @@ impl NostrClient {
         blossom_servers: Vec<url::Url>,
         default_timeout: Duration,
         max_relays: Option<usize>,
+        relay_ack_threshold: usize,
         nostr_store: Option<Arc<dyn NostrStoreApi>>,
     ) -> Result<Self> {
         if identities.is_empty() {
@@ -146,6 +152,7 @@ impl NostrClient {
             connected: Arc::new(AtomicBool::new(false)),
             sync_running: Arc::new(AtomicBool::new(false)),
             max_relays,
+            relay_ack_threshold: relay_ack_threshold.max(1),
             nostr_contact_store: nostr_store.clone(), // Keep for backwards compatibility
             nostr_store,
         })
@@ -160,6 +167,7 @@ impl NostrClient {
             config.blossom_servers.clone(),
             config.default_timeout,
             None, // max_relays not available in old config
+            config.relay_ack_threshold,
             None, // store not available
         )
         .await
@@ -533,6 +541,44 @@ impl NostrClient {
 
 impl ServiceTraitBounds for NostrClient {}
 
+async fn queue_failed_relay_sync(store: &Arc<dyn NostrStoreApi>, relay: &RelayUrl, event: &Event) {
+    let relay_url = match url::Url::parse(relay.as_str()) {
+        Ok(url) => url,
+        Err(parse_err) => {
+            error!("Failed to parse relay url {relay}: {parse_err}");
+            return;
+        }
+    };
+    if let Err(store_err) = store.add_failed_relay_sync(&relay_url, event.clone()).await {
+        error!("Failed to queue failed relay sync for {relay}: {store_err}");
+    }
+}
+
+async fn collect_remaining_broadcast_results(
+    mut rx: UnboundedReceiver<(RelayUrl, std::result::Result<EventId, Error>)>,
+    mut success: HashSet<RelayUrl>,
+    nostr_store: Option<Arc<dyn NostrStoreApi>>,
+    event: Event,
+) {
+    while let Some((relay, result)) = rx.next().await {
+        match result {
+            Ok(_) => {
+                success.insert(relay);
+            }
+            Err(e) => {
+                if let Some(store) = &nostr_store {
+                    queue_failed_relay_sync(store, &relay, &event).await;
+                }
+                debug!("Optimistic broadcast background failure for {relay}: {e}");
+            }
+        }
+    }
+    debug!(
+        "Optimistic broadcast background completion: {} succeeded",
+        success.len()
+    );
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl TransportClientApi for NostrClient {
@@ -593,6 +639,90 @@ impl TransportClientApi for NostrClient {
         })?;
         check_send_output(output, "broadcast_event")?;
         Ok(())
+    }
+
+    async fn broadcast_event_optimistic(&self, event: &Event, min_acks: usize) -> Result<()> {
+        let client = self.client().await?;
+        let event = event.clone();
+
+        let relays: Vec<RelayUrl> = client
+            .relays()
+            .await
+            .into_values()
+            .filter(|relay| relay.flags().has_write())
+            .map(|relay| relay.url().clone())
+            .collect();
+
+        if relays.is_empty() {
+            return Err(Error::Network(
+                "No write relays available for optimistic broadcast".to_string(),
+            ));
+        }
+
+        let threshold = min_acks.max(1).min(relays.len());
+        let nostr_store = self.nostr_store.clone();
+
+        let (tx, mut rx) = unbounded::<(RelayUrl, std::result::Result<EventId, Error>)>();
+
+        for relay in relays {
+            let client = client.clone();
+            let event = event.clone();
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let result = client.send_event_to(vec![relay.clone()], &event).await;
+                let mapped = match result {
+                    Ok(output) => {
+                        if output.success.contains(&relay) {
+                            Ok(output.val)
+                        } else {
+                            let err = output
+                                .failed
+                                .get(&relay)
+                                .cloned()
+                                .unwrap_or_else(|| "unknown relay error".to_string());
+                            Err(Error::Network(format!("relay {relay} failed: {err}")))
+                        }
+                    }
+                    Err(e) => Err(Error::Network(format!("relay {relay} error: {e}"))),
+                };
+                let _ = tx.unbounded_send((relay, mapped));
+            });
+        }
+        drop(tx);
+
+        let mut success = HashSet::new();
+
+        while let Some((relay, result)) = rx.next().await {
+            match result {
+                Ok(_) => {
+                    success.insert(relay);
+                    if success.len() >= threshold {
+                        tokio::spawn(collect_remaining_broadcast_results(
+                            rx,
+                            success,
+                            nostr_store,
+                            event,
+                        ));
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    if let Some(store) = &nostr_store {
+                        queue_failed_relay_sync(store, &relay, &event).await;
+                    }
+                }
+            }
+        }
+
+        Err(Error::Network(format!(
+            "broadcast_event_optimistic: only {} of {} required acks received",
+            success.len(),
+            threshold,
+        )))
+    }
+
+    fn relay_ack_threshold(&self) -> usize {
+        self.relay_ack_threshold
     }
 
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
@@ -1710,6 +1840,7 @@ mod tests {
             vec![],
             Duration::from_secs(20),
             None,
+            1,
             None,
         )
         .await
@@ -1745,6 +1876,7 @@ mod tests {
             vec![],
             Duration::from_secs(20),
             None,
+            1,
             None,
         )
         .await
@@ -2025,6 +2157,7 @@ mod tests {
                 vec![],
                 Duration::from_secs(20),
                 None,
+                1,
                 None,
             )
             .await
@@ -2323,5 +2456,138 @@ mod relay_calculation_tests {
 
         // Should handle gracefully
         assert_eq!(result.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod optimistic_broadcast_tests {
+    use super::super::test_utils::{MockNostrContactStore, get_mock_relay};
+    use super::{NostrClient, NostrConfig};
+    use bcr_common::core::NodeId;
+    use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
+    use nostr::EventBuilder;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_relay_ack_threshold_returns_configured_value() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+        let keys = BcrKeys::new();
+        let config = NostrConfig::new(
+            keys.clone(),
+            vec![url],
+            vec![],
+            true,
+            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+        )
+        .with_relay_ack_threshold(3);
+        let client = NostrClient::default(&config)
+            .await
+            .expect("failed to create nostr client");
+
+        assert_eq!(client.relay_ack_threshold(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_event_optimistic_returns_after_ack() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+        let keys = BcrKeys::new();
+        let config = NostrConfig::new(
+            keys.clone(),
+            vec![url],
+            vec![],
+            true,
+            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+        );
+        let client = NostrClient::default(&config)
+            .await
+            .expect("failed to create nostr client");
+
+        client.connect().await.expect("failed to connect");
+
+        let event = EventBuilder::text_note("test optimistic broadcast")
+            .sign_with_keys(&keys.get_nostr_keys())
+            .unwrap();
+
+        let result = client.broadcast_event_optimistic(&event, 1).await;
+        assert!(
+            result.is_ok(),
+            "optimistic broadcast should return after first ack: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_event_optimistic_clamps_threshold_to_relay_count() {
+        let relay = get_mock_relay().await;
+        let url = url::Url::parse(&relay.url()).unwrap();
+        let keys = BcrKeys::new();
+        let config = NostrConfig::new(
+            keys.clone(),
+            vec![url],
+            vec![],
+            true,
+            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
+        );
+        let client = NostrClient::default(&config)
+            .await
+            .expect("failed to create nostr client");
+
+        client.connect().await.expect("failed to connect");
+
+        let event = EventBuilder::text_note("test threshold clamping")
+            .sign_with_keys(&keys.get_nostr_keys())
+            .unwrap();
+
+        let result = client.broadcast_event_optimistic(&event, 5).await;
+        assert!(
+            result.is_ok(),
+            "optimistic broadcast should clamp threshold to relay count: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pre_threshold_relay_failure_is_queued_for_resync() {
+        let relay = get_mock_relay().await;
+        let real_url = url::Url::parse(&relay.url()).unwrap();
+        let unreachable_url = url::Url::parse("ws://127.0.0.1:1").unwrap();
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+
+        let mut mock_store = MockNostrContactStore::new();
+        let unreachable_url_for_assert = unreachable_url.clone();
+        mock_store
+            .expect_add_failed_relay_sync()
+            .withf(move |url, _event| url.as_str() == unreachable_url_for_assert.as_str())
+            .times(1..)
+            .returning(|_, _| Ok(()));
+
+        let client = NostrClient::new(
+            vec![(node_id, keys.clone())],
+            vec![real_url, unreachable_url],
+            vec![],
+            Duration::from_secs(2),
+            Some(10),
+            2,
+            Some(Arc::new(mock_store)),
+        )
+        .await
+        .expect("failed to create nostr client");
+
+        client.connect().await.expect("failed to connect");
+
+        let event = EventBuilder::text_note("pre-threshold failure")
+            .sign_with_keys(&keys.get_nostr_keys())
+            .unwrap();
+
+        let result = client.broadcast_event_optimistic(&event, 2).await;
+        assert!(
+            result.is_err(),
+            "threshold should not be met because one relay is unreachable"
+        );
     }
 }

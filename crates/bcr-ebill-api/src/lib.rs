@@ -100,6 +100,9 @@ pub struct NostrConfig {
     /// Maximum number of contact relays to add (in addition to user relays which are always included).
     /// Defaults to 50 if not specified.
     pub max_relays: Option<usize>,
+    /// Number of relay acknowledgements required before an optimistic broadcast
+    /// returns to the caller. The remaining relays continue publishing in the background.
+    pub relay_ack_threshold: usize,
 }
 
 impl Default for NostrConfig {
@@ -109,6 +112,7 @@ impl Default for NostrConfig {
             relays: vec![],
             blossom_servers: vec![],
             max_relays: Some(50),
+            relay_ack_threshold: 1,
         }
     }
 }

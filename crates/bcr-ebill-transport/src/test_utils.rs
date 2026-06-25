@@ -28,12 +28,14 @@ use bcr_ebill_core::{
     application::notification::{Notification, NotificationLevel},
     protocol::blockchain::BlockchainType,
     protocol::blockchain::{
+        Blockchain,
         bill::{
             BitcreditBill,
             block::ContactType,
             participant::{BillIdentParticipant, BillParticipant},
         },
-        identity::IdentityType,
+        company::{CompanyBlockchain, block::CompanyCreateBlockData},
+        identity::{IdentityBlockchain, IdentityCreateBlockData, IdentityType},
     },
     protocol::event::{ActionType, BillEventType},
     protocol::{OptionalPostalAddress, PostalAddress},
@@ -137,6 +139,7 @@ pub fn init_test_cfg() {
                     relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
                     blossom_servers: vec![],
                     max_relays: Some(50),
+                    relay_ack_threshold: 1,
                 },
                 mint_config: bcr_ebill_api::MintConfig {
                     default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
@@ -398,6 +401,44 @@ pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofD
     (proof, data)
 }
 
+pub fn get_test_identity_chain_event() -> IdentityChainEvent {
+    let identity = get_baseline_identity();
+    let create_data = IdentityCreateBlockData::from(identity.identity.clone());
+    let chain = IdentityBlockchain::new(&create_data, &identity.key_pair, test_ts())
+        .expect("failed to create identity chain");
+    let block = chain.get_first_block().clone();
+    IdentityChainEvent::new(&identity.identity.node_id, &block, &identity.key_pair)
+}
+
+pub fn get_test_company_chain_event() -> CompanyChainEvent {
+    let identity_keys = BcrKeys::new();
+    let company_keys = BcrKeys::new();
+    let company_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
+    let creator_id = NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet);
+    let company_data = CompanyCreateBlockData {
+        id: company_id.clone(),
+        name: Name::new("Test Company").unwrap(),
+        country_of_registration: Some(Country::AT),
+        city_of_registration: Some(City::new("Vienna").unwrap()),
+        postal_address: PostalAddress {
+            country: Country::AT,
+            city: City::new("Vienna").unwrap(),
+            zip: None,
+            address: Address::new("Some address").unwrap(),
+        },
+        email: Email::new("test@example.com").unwrap(),
+        registration_number: None,
+        registration_date: None,
+        proof_of_registration_file: None,
+        logo_file: None,
+        creation_time: test_ts(),
+        creator: creator_id,
+    };
+    let chain = CompanyBlockchain::new(&company_data, &identity_keys, &company_keys, test_ts())
+        .expect("failed to create company chain");
+    CompanyChainEvent::new(&company_id, &chain, &company_keys, None, true)
+}
+
 pub fn node_id_test_other2() -> NodeId {
     NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
         .unwrap()
@@ -585,6 +626,12 @@ mockall::mock! {
             previous_event: Option<nostr::event::Event>,
             root_event: Option<nostr::event::Event>) -> Result<nostr::event::Event>;
         async fn broadcast_event(&self, event: &nostr::event::Event) -> Result<()>;
+        async fn broadcast_event_optimistic(
+            &self,
+            event: &nostr::event::Event,
+            min_acks: usize,
+        ) -> Result<()>;
+        fn relay_ack_threshold(&self) -> usize;
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
