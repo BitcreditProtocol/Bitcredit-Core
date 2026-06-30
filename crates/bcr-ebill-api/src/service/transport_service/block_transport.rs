@@ -3,7 +3,10 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
-    protocol::event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
+    protocol::{
+        blockchain::bill::BillBlock,
+        event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
+    },
 };
 
 #[cfg(test)]
@@ -28,6 +31,12 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
     async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
     /// Resync identity chain
     async fn resync_identity_chain(&self) -> Result<()>;
+    /// Validates that the given list of blocks exist in the resolved chain from Nostr
+    async fn validate_bill_blocks_exist_on_nostr_chain(
+        &self,
+        bill_id: &BillId,
+        blocks: &[BillBlock],
+    ) -> Result<bool>;
 }
 
 #[cfg(test)]

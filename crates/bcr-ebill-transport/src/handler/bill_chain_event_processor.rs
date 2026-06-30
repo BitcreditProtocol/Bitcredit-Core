@@ -94,12 +94,11 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         bill_id: &BillId,
         bill_keys: &BcrKeys,
     ) -> Result<Vec<Vec<EventContainer>>> {
-        let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
         resolve_event_chains(
             self.transport.clone(),
             &bill_id.to_string(),
             BlockchainType::Bill,
-            &bcr_keys,
+            &Some(bill_keys.to_owned()),
         )
         .await
     }
@@ -117,7 +116,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             (Ok(mut existing_chain), Ok(bill_keys)) => {
                 debug!("starting bill chain resync for {bill_id}");
                 let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
-
                 // Pre-fetch validation data needed for all chain candidates
                 let is_paid = self.bill_store.is_paid(bill_id).await.map_err(|e| {
                     error!("Could not resync bill {bill_id} because getting paid status failed");
@@ -134,7 +132,7 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                     self.transport.clone(),
                     &bill_id.to_string(),
                     BlockchainType::Bill,
-                    &bcr_keys,
+                    &Some(bcr_keys.to_owned()),
                 )
                 .await
                 {
@@ -1264,7 +1262,6 @@ mod tests {
             data,
             Timestamp::new(1000).unwrap(),
             BlockchainType::Bill,
-            keys.clone(),
             previous,
             root,
         )

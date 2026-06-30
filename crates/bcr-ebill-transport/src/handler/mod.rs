@@ -27,7 +27,7 @@ mod identity_chain_event_handler;
 mod identity_chain_event_processor;
 mod inbound_file_anchor;
 mod nostr_contact_processor;
-mod public_chain_helpers;
+pub(crate) mod public_chain_helpers;
 mod restore;
 
 pub use bill_action_event_handler::BillActionEventHandler;

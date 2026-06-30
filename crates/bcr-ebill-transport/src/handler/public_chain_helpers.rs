@@ -1,15 +1,13 @@
 use std::sync::Arc;
 
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
-use bcr_ebill_core::{
-    protocol::BlockId,
-    protocol::Sha256Hash,
-    protocol::Timestamp,
-    protocol::blockchain::{
+use bcr_ebill_core::protocol::{
+    BlockId, Sha256Hash, Timestamp,
+    blockchain::{
         Block, BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock,
     },
-    protocol::crypto::BcrKeys,
-    protocol::event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
+    crypto::BcrKeys,
+    event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
 };
 use bcr_ebill_persistence::nostr::NostrChainEvent;
 use nostr::{
@@ -17,7 +15,7 @@ use nostr::{
     nips::nip10::Marker,
 };
 
-use crate::transport::{decrypt_public_chain_event, unwrap_public_chain_event};
+use crate::transport::{decrypt_or_decode_public_chain_event, unwrap_public_chain_event};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 
 /// Compares two chains for sorting. Ordering is:
@@ -117,7 +115,7 @@ pub async fn resolve_event_chains(
     transport: Arc<dyn TransportClientApi>,
     chain_id: &str,
     chain_type: BlockchainType,
-    keys: &BcrKeys,
+    keys: &Option<BcrKeys>,
 ) -> Result<Vec<Vec<EventContainer>>> {
     let events = transport.resolve_public_chain(chain_id, chain_type).await?;
     let mut chains = collect_event_chains(&events, chain_id, chain_type, keys);
@@ -131,7 +129,7 @@ pub fn collect_event_chains(
     events: &[nostr_sdk::Event],
     chain_id: &str,
     chain_type: BlockchainType,
-    keys: &BcrKeys,
+    keys: &Option<BcrKeys>,
 ) -> Vec<Vec<EventContainer>> {
     let mut result = Vec::new();
     let markers: Vec<EventContainer> = events
@@ -157,9 +155,9 @@ pub fn ids_and_markers(
     event: &nostr_sdk::Event,
     chain_id: &str,
     chain_type: BlockchainType,
-    keys: &BcrKeys,
+    keys: &Option<BcrKeys>,
 ) -> Option<EventContainer> {
-    if let Ok(block) = decrypt_block(event.clone(), chain_id, chain_type, keys) {
+    if let Ok(block) = decode_block(event.clone(), chain_id, chain_type, keys) {
         let mut result = EventContainer::new(event.clone(), None, None, block);
         event.tags.filter_standardized(TagKind::e()).for_each(|t| {
             if let TagStandard::Event {
@@ -179,25 +177,25 @@ pub fn ids_and_markers(
     }
 }
 
-pub fn decrypt_block(
+pub fn decode_block(
     event: nostr_sdk::Event,
     chain_id: &str,
     chain_type: BlockchainType,
-    keys: &BcrKeys,
+    keys: &Option<BcrKeys>,
 ) -> Result<BlockData> {
     if let Ok(Some(payload)) = unwrap_public_chain_event(Box::new(event.clone())) {
         if (payload.id == chain_id) && (payload.chain_type == chain_type) {
-            let decrypted = decrypt_public_chain_event(&payload.payload, keys)?;
+            let decoded = decrypt_or_decode_public_chain_event(&payload.payload, keys)?;
             let data = match chain_type {
                 BlockchainType::Bill => {
-                    BlockData::Bill(borsh::from_slice::<BillBlockEvent>(&decrypted.data)?.block)
+                    BlockData::Bill(borsh::from_slice::<BillBlockEvent>(&decoded.data)?.block)
                 }
                 BlockchainType::Identity => BlockData::Identity(
-                    borsh::from_slice::<IdentityBlockEvent>(&decrypted.data)?.block,
+                    borsh::from_slice::<IdentityBlockEvent>(&decoded.data)?.block,
                 ),
-                BlockchainType::Company => BlockData::Company(
-                    borsh::from_slice::<CompanyBlockEvent>(&decrypted.data)?.block,
-                ),
+                BlockchainType::Company => {
+                    BlockData::Company(borsh::from_slice::<CompanyBlockEvent>(&decoded.data)?.block)
+                }
             };
             Ok(data)
         } else {

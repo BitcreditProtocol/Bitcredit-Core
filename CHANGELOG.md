@@ -1,3 +1,17 @@
+# 0.5.13
+
+* Removed an encryption layer on the nostr public events
+    * This is implemented backwards-compatible in that new apps can still process old chains, but old apps won't be able to process new chains
+        * Cases to Test:
+            * Old client with identity/companies/bills
+                * => continuiing works on new clients (add blocks to bills/companies/identitiy)
+                * => restore works on new clients (before/after adding new blocks to existing things)
+                * => fresh new clients work with data from old clients
+    * The block metadata (e.g. block id, hash, signature etc.) will now be unencrypted in the chains on Nostr - just the block data will be encrypted with the corresponding key (e.g. bill key)
+* Add bill-service function to get the bill chain
+* Add block transport function to check a set of blocks against a published set of nostr public chain events for a given bill
+* Optimistically publish to Nostr relays - once we successfully publish to a configured threshold (e.g. 1), the other relays are pushed to asynchronously, so it's not blocked by the slowest relay anymore
+
 # 0.5.12
 
 * Upgrade bcr-common

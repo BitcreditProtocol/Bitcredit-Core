@@ -531,6 +531,9 @@ impl BillService {
                     QuoteStatusReply::Pending => {
                         // it's already pending, or offered, or accepted and can't go from Accepted to Offered to Pending - nothing to do
                     }
+                    QuoteStatusReply::FailedEbillValidation { .. } => {
+                        // it's already endorsed and failed validation - nothing to do
+                    }
                     QuoteStatusReply::Offered {
                         keyset_id,
                         expiration_date,
@@ -1969,6 +1972,30 @@ impl BillServiceApi for BillService {
             )
             .await?;
         Ok(detail.history)
+    }
+
+    async fn get_local_bill_chain(
+        &self,
+        bill_id: &BillId,
+        caller_public_data: &BillParticipant,
+    ) -> Result<BillBlockchain> {
+        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(&caller_public_data.node_id())?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+
+        // if caller is not part of the bill, they can't access it
+        if !chain
+            .get_all_nodes_from_bill(&bill_keys)
+            .map_err(|e| Error::Protocol(e.into()))?
+            .iter()
+            .any(|p| p == &caller_public_data.node_id())
+        {
+            debug!("caller is not a participant of bill {bill_id}");
+            return Err(Error::NotFound);
+        }
+
+        Ok(chain)
     }
 
     fn mempool_link(&self, address: &BitcoinAddress) -> String {

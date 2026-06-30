@@ -84,7 +84,7 @@ impl RestoreAccountService {
             self.nostr.clone(),
             &self.node_id.to_string(),
             BlockchainType::Identity,
-            &self.keys,
+            &Some(self.keys.to_owned()),
         )
         .await?;
         info!("found {} chains for primary account", chains.len());
@@ -287,7 +287,6 @@ mod tests {
             generate_test_block(height),
             Timestamp::new(1000).unwrap(),
             BlockchainType::Identity,
-            keys.clone(),
             previous,
             root,
         )

@@ -48,13 +48,12 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
         debug!("incoming company chain invite for {node_id}");
         if let Ok(decoded) = Event::<ChainInvite>::try_from(event.clone()) {
             let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key);
-
             let mut inserted_chain: Vec<EventContainer> = Vec::new();
             if let Ok(chain_data) = resolve_event_chains(
                 self.transport.clone(),
                 &decoded.data.chain_id,
                 decoded.data.chain_type,
-                &keys,
+                &Some(keys.to_owned()),
             )
             .await
             {
@@ -169,12 +168,12 @@ mod tests {
 
     #[test]
     fn test_single_block() {
-        let (keys, chain) = generate_test_chain(1, false);
+        let (_keys, chain) = generate_test_chain(1, false);
         let chains = collect_event_chains(
             &chain,
             &node_id_test().to_string(),
             BlockchainType::Company,
-            &keys,
+            &None,
         );
         assert_eq!(chains.len(), 1, "should contain a single valid chain");
         let result_chain = chains.first().unwrap();
@@ -183,12 +182,12 @@ mod tests {
 
     #[test]
     fn test_multiple_valid_blocks() {
-        let (keys, chain) = generate_test_chain(3, false);
+        let (_keys, chain) = generate_test_chain(3, false);
         let chains = collect_event_chains(
             &chain,
             &node_id_test().to_string(),
             BlockchainType::Company,
-            &keys,
+            &None,
         );
 
         assert_eq!(chains.len(), 1, "should contain a single valid chain");
@@ -198,12 +197,12 @@ mod tests {
 
     #[test]
     fn test_multiple_chains() {
-        let (keys, chain) = generate_test_chain(3, true);
+        let (_keys, chain) = generate_test_chain(3, true);
         let chains = collect_event_chains(
             &chain,
             &node_id_test().to_string(),
             BlockchainType::Company,
-            &keys,
+            &None,
         );
 
         assert_eq!(chains.len(), 2, "should contain two valid chains");
@@ -425,7 +424,6 @@ mod tests {
             generate_test_block(height),
             Timestamp::new(1000).unwrap(),
             BlockchainType::Company,
-            keys.clone(),
             previous,
             root,
         )

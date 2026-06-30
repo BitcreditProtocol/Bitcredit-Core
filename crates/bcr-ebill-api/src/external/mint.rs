@@ -488,6 +488,9 @@ pub enum QuoteStatusReply {
     Expired {
         tstamp: DateTimeUtc,
     },
+    FailedEbillValidation {
+        keyset_id: cdk02::Id,
+    },
 }
 
 impl From<StatusReply> for QuoteStatusReply {
@@ -509,6 +512,9 @@ impl From<StatusReply> for QuoteStatusReply {
             StatusReply::Rejected { tstamp, .. } => QuoteStatusReply::Rejected { tstamp },
             StatusReply::Canceled { tstamp } => QuoteStatusReply::Cancelled { tstamp },
             StatusReply::OfferExpired { tstamp, .. } => QuoteStatusReply::Expired { tstamp },
+            StatusReply::FailedEbillValidation { keyset_id, .. } => {
+                QuoteStatusReply::FailedEbillValidation { keyset_id }
+            }
             StatusReply::MintingEnabled {
                 keyset_id,
                 minted_amount,

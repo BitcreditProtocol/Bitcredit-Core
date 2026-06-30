@@ -83,6 +83,7 @@ document.getElementById("bill_test_promissory_blank").addEventListener("click", 
 document.getElementById("clear_bill_cache").addEventListener("click", clearBillCache);
 document.getElementById("bitcoin_keys").addEventListener("click", getBitcoinKeys);
 document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
+document.getElementById("sync_bill_chain_from_nostr").addEventListener("click", syncBillChainFromNostr);
 document.getElementById("dev_mode_get_bill_chain").addEventListener("click", devModeGetBillChain);
 document.getElementById("share_bill_with_court").addEventListener("click", shareBillWithCourt);
 document.getElementById("mempool_link").addEventListener("click", mempoolLink);
@@ -897,6 +898,15 @@ async function getBitcoinKeys() {
 async function syncBillChain() {
   let bill_id = document.getElementById("bill_id").value;
   console.log("syncBillChain", bill_id);
+  let measured = measure(async () => {
+    return success_or_fail(await window.billApi.sync_bill_chain({ bill_id: bill_id, from_nostr: false }));
+  });
+  await measured();
+}
+
+async function syncBillChainFromNostr() {
+  let bill_id = document.getElementById("bill_id").value;
+  console.log("syncBillChain from Nostr", bill_id);
   let measured = measure(async () => {
     return success_or_fail(await window.billApi.sync_bill_chain({ bill_id: bill_id, from_nostr: true }));
   });

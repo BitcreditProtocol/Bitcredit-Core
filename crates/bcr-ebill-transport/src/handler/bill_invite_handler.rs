@@ -150,12 +150,12 @@ mod tests {
 
     #[test]
     fn test_single_block() {
-        let (keys, chain) = generate_test_chain(1, false);
+        let (_keys, chain) = generate_test_chain(1, false);
         let chains = collect_event_chains(
             &chain,
             &bill_id_test().to_string(),
             BlockchainType::Bill,
-            &keys,
+            &None,
         );
         assert_eq!(chains.len(), 1, "should contain a single valid chain");
         let result_chain = chains.first().unwrap();
@@ -164,12 +164,12 @@ mod tests {
 
     #[test]
     fn test_multiple_valid_blocks() {
-        let (keys, chain) = generate_test_chain(3, false);
+        let (_keys, chain) = generate_test_chain(3, false);
         let chains = collect_event_chains(
             &chain,
             &bill_id_test().to_string(),
             BlockchainType::Bill,
-            &keys,
+            &None,
         );
 
         assert_eq!(chains.len(), 1, "should contain a single valid chain");
@@ -179,12 +179,12 @@ mod tests {
 
     #[test]
     fn test_multiple_chains() {
-        let (keys, chain) = generate_test_chain(3, true);
+        let (_keys, chain) = generate_test_chain(3, true);
         let chains = collect_event_chains(
             &chain,
             &bill_id_test().to_string(),
             BlockchainType::Bill,
-            &keys,
+            &None,
         );
 
         assert_eq!(chains.len(), 2, "should contain two valid chains");
@@ -198,12 +198,12 @@ mod tests {
         let (mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (bcr_keys, chain) = generate_test_chain(1, false);
+        let (_bcr_keys, chain) = generate_test_chain(1, false);
         let chains = collect_event_chains(
             &chain,
             &bill_id_test().to_string(),
             BlockchainType::Bill,
-            &bcr_keys,
+            &None,
         );
 
         // get events from nostr
@@ -248,12 +248,12 @@ mod tests {
         let (mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (bcr_keys, chain) = generate_test_chain(3, false);
+        let (_bcr_keys, chain) = generate_test_chain(3, false);
         let chains = collect_event_chains(
             &chain,
             &bill_id_test().to_string(),
             BlockchainType::Bill,
-            &bcr_keys,
+            &None,
         );
 
         // get events from nostr
@@ -299,12 +299,12 @@ mod tests {
         let (mut processor, mut chain_event_store) = get_mocks();
 
         let node_id = node_id_test();
-        let (bcr_keys, chain) = generate_test_chain(3, true);
+        let (_bcr_keys, chain) = generate_test_chain(3, true);
         let chains = collect_event_chains(
             &chain,
             &bill_id_test().to_string(),
             BlockchainType::Bill,
-            &bcr_keys,
+            &None,
         );
 
         // get events from nostr
@@ -406,7 +406,6 @@ mod tests {
             generate_test_block(height),
             Timestamp::new(1000).unwrap(),
             BlockchainType::Bill,
-            keys.clone(),
             previous,
             root,
         )

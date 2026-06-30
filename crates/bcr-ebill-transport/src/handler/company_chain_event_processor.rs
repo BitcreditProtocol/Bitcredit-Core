@@ -140,7 +140,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                     self.transport.clone(),
                     &company_id.to_string(),
                     BlockchainType::Company,
-                    &company_keys,
+                    &Some(company_keys.to_owned()),
                 )
                 .await
                 {
@@ -1705,7 +1705,6 @@ pub mod tests {
             data,
             Timestamp::new(1000).unwrap(),
             BlockchainType::Company,
-            keys.clone(),
             previous,
             root,
         )

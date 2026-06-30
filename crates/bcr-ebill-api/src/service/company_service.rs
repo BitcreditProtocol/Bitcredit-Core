@@ -2492,9 +2492,6 @@ pub mod tests {
                 test_ts(),
             )
             .await;
-        if let Err(ref e) = res {
-            eprintln!("create_company error: {:?}", e);
-        }
         assert!(res.is_ok());
     }
 

@@ -1,9 +1,9 @@
-use bcr_ebill_core::{
-    protocol::Timestamp,
-    protocol::blockchain::BlockchainType,
-    protocol::constants::BCR_NOSTR_CHAIN_PREFIX,
-    protocol::crypto::{BcrKeys, decrypt_ecies, encrypt_ecies},
-    protocol::event::EventEnvelope,
+use bcr_ebill_core::protocol::{
+    Timestamp,
+    blockchain::BlockchainType,
+    constants::BCR_NOSTR_CHAIN_PREFIX,
+    crypto::{BcrKeys, decrypt_ecies},
+    event::EventEnvelope,
 };
 
 use bcr_ebill_api::service::transport_service::{Error, Result};
@@ -83,10 +83,12 @@ async fn unwrap_nip17_envelope<T: NostrSigner>(
     result
 }
 
-/// Unwraps a Nostr chain event with its metadata. Will return the encrypted payload and
+/// Unwraps a Nostr chain event with its metadata. Will return the encrypted, or encoded payload and
 /// the metadata if the event matches a public chain event. Otherwise it returns None.
-pub fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPublicEventData>> {
-    let data: Vec<EncryptedPublicEventData> = event
+pub fn unwrap_public_chain_event(
+    event: Box<Event>,
+) -> Result<Option<EncryptedOrEncodedPublicEventData>> {
+    let data: Vec<EncryptedOrEncodedPublicEventData> = event
         .tags
         .filter_standardized(TagKind::SingleLetter(SingleLetterTag::lowercase(
             Alphabet::I,
@@ -101,7 +103,7 @@ pub fn unwrap_public_chain_event(event: Box<Event>) -> Result<Option<EncryptedPu
             } => chain_id
                 .as_ref()
                 .and_then(|id| BlockchainType::try_from(id.as_ref()).ok())
-                .map(|chain_type| EncryptedPublicEventData {
+                .map(|chain_type| EncryptedOrEncodedPublicEventData {
                     id: address.to_owned(),
                     chain_type,
                     payload: event.content.clone(),
@@ -158,16 +160,46 @@ pub fn root_and_reply_id(event: &Event) -> (Option<EventId>, Option<EventId>) {
     (root, reply)
 }
 
+/// Given an encoded payload, decodes the payload and returns its content as an EventEnvelope.
+fn decode_public_chain_event(data: &str) -> Result<EventEnvelope> {
+    let decoded = base58::decode(data)?;
+    let payload = borsh::from_slice::<EventEnvelope>(&decoded)?;
+    Ok(payload)
+}
+
 /// Given an encrypted payload and a private key, decrypts the payload and returns
 /// its content as an EventEnvelope.
-pub fn decrypt_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
+/// => For the deprecated chains, where metadata is encrypted (PR #938)
+fn decrypt_and_decode_public_chain_event(data: &str, keys: &BcrKeys) -> Result<EventEnvelope> {
     let decrypted = decrypt_ecies(&base58::decode(data)?, &keys.get_private_key())?;
     let payload = borsh::from_slice::<EventEnvelope>(&decrypted)?;
     Ok(payload)
 }
 
+/// Attempts to decrypt and then decode the payload (old, deprecated payload)
+/// If it's not encrypted, just decodes the payload
+/// If no key is supplied, it also only decodes
+pub fn decrypt_or_decode_public_chain_event(
+    data: &str,
+    keys: &Option<BcrKeys>,
+) -> Result<EventEnvelope> {
+    match keys {
+        Some(keys) => match decrypt_and_decode_public_chain_event(data, keys) {
+            Ok(decrypted) => Ok(decrypted),
+            Err(decrypt_err) => match decode_public_chain_event(data) {
+                Ok(decoded) => Ok(decoded),
+                Err(decode_err) => Err(Error::Blockchain(format!(
+                    "Could not decrypt or decode public chain event. Decrypt error: {decrypt_err}; decode error: {decode_err}"
+                ))),
+            },
+        },
+        // no keys - just decode - this is the code path to check the nostr chain based on the unencrypted metadata
+        None => decode_public_chain_event(data),
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct EncryptedPublicEventData {
+pub struct EncryptedOrEncodedPublicEventData {
     pub id: String,
     pub chain_type: BlockchainType,
     pub payload: String,
@@ -192,18 +224,17 @@ pub async fn create_nip04_event<T: NostrSigner>(
     .tag(Tag::public_key(*public_key)))
 }
 
-/// Takes an event envelope and creates a public chain event with appropriate tags and encrypted
-/// base58 encoded payload.
+/// Takes an event envelope and creates a public chain event with appropriate tags and base58
+/// encoded payload.
 pub fn create_public_chain_event(
     id: &str,
     event: EventEnvelope,
     block_time: Timestamp,
     blockchain: BlockchainType,
-    keys: BcrKeys,
     previous_event: Option<Event>,
     root_event: Option<Event>,
 ) -> Result<EventBuilder> {
-    let payload = base58::encode(&encrypt_ecies(&borsh::to_vec(&event)?, &keys.pub_key())?);
+    let payload = base58::encode(&borsh::to_vec(&event)?);
     let event = match previous_event {
         Some(evt) => EventBuilder::text_note_reply(payload, &evt, root_event.as_ref(), None)
             .tag(bcr_nostr_tag(id, blockchain)),
@@ -232,5 +263,118 @@ fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
         Some(envelope)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bcr_ebill_core::protocol::{crypto::encrypt_ecies, event::EventType};
+    use borsh::{BorshDeserialize, BorshSerialize};
+
+    #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+    struct TestPayload {
+        id: u64,
+        message: String,
+    }
+
+    fn test_payload() -> TestPayload {
+        TestPayload {
+            id: 42,
+            message: "hello public chain".to_string(),
+        }
+    }
+
+    fn test_envelope() -> EventEnvelope {
+        let payload = test_payload();
+
+        EventEnvelope {
+            event_type: EventType::Bill,
+            version: "1.0".to_string(),
+            data: borsh::to_vec(&payload).unwrap(),
+        }
+    }
+
+    fn encode_envelope_base58(envelope: &EventEnvelope) -> String {
+        let encoded = borsh::to_vec(envelope).unwrap();
+        base58::encode(&encoded)
+    }
+
+    fn assert_envelope_eq(actual: &EventEnvelope, expected: &EventEnvelope) {
+        assert_eq!(actual.event_type, expected.event_type);
+        assert_eq!(actual.version, expected.version);
+        assert_eq!(actual.data, expected.data);
+        let actual_payload = TestPayload::try_from_slice(&actual.data).unwrap();
+        let expected_payload = TestPayload::try_from_slice(&expected.data).unwrap();
+        assert_eq!(actual_payload, expected_payload);
+    }
+
+    #[test]
+    fn decode_public_chain_event_decodes_base58_borsh_envelope() {
+        let envelope = test_envelope();
+        let encoded = encode_envelope_base58(&envelope);
+        let decoded = decode_public_chain_event(&encoded).unwrap();
+        assert_envelope_eq(&decoded, &envelope);
+    }
+
+    #[test]
+    fn decode_public_chain_event_returns_error_for_invalid_base58() {
+        let result = decode_public_chain_event("invvalid base58");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decode_public_chain_event_returns_error_for_non_envelope_payload() {
+        let encoded = base58::encode(b"valid base58 data but not a borsh envelope");
+        let result = decode_public_chain_event(&encoded);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decrypt_or_decode_public_chain_event_decodes_plain_payload_when_no_keys_are_supplied() {
+        let envelope = test_envelope();
+        let encoded = encode_envelope_base58(&envelope);
+        let decoded = decrypt_or_decode_public_chain_event(&encoded, &None).unwrap();
+        assert_envelope_eq(&decoded, &envelope);
+    }
+
+    #[test]
+    fn decrypt_or_decode_public_chain_event_falls_back_to_decode_when_decryption_fails() {
+        let envelope = test_envelope();
+        let encoded = encode_envelope_base58(&envelope);
+        let keys = BcrKeys::new();
+        let decoded = decrypt_or_decode_public_chain_event(&encoded, &Some(keys)).unwrap();
+        assert_envelope_eq(&decoded, &envelope);
+    }
+
+    #[test]
+    fn decrypt_or_decode_public_chain_event_returns_combined_error_when_decrypt_and_decode_fail() {
+        let invalid_payload = base58::encode(b"invalid payload");
+        let keys = BcrKeys::new();
+        let result = decrypt_or_decode_public_chain_event(&invalid_payload, &Some(keys));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Could not decrypt or decode public chain event"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("Decrypt error:"),
+            "expected decrypt error in: {err}"
+        );
+        assert!(
+            err.contains("decode error:"),
+            "expected decode error in: {err}"
+        );
+    }
+
+    #[test]
+    fn decrypt_and_decode_public_chain_event_decodes_encrypted_payload() {
+        let envelope = test_envelope();
+        let serialized = borsh::to_vec(&envelope).unwrap();
+        let keys = BcrKeys::new();
+        let encrypted = encrypt_ecies(&serialized, &keys.pub_key()).unwrap();
+        let encoded = base58::encode(&encrypted);
+        let decoded = decrypt_and_decode_public_chain_event(&encoded, &keys).unwrap();
+        assert_envelope_eq(&decoded, &envelope);
     }
 }
