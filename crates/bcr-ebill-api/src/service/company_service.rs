@@ -735,6 +735,34 @@ impl CompanyServiceApi for CompanyService {
         self.on_company_contact_change(&company, &company_keys)
             .await?;
 
+        // add to contacts without files if it's not there already, but don't fail
+        if let Ok(None) = self.contact_store.get(&id).await
+            && let Err(e) = self
+                .contact_store
+                .insert(
+                    &id,
+                    Contact {
+                        t: ContactType::Company,
+                        node_id: id.to_owned(),
+                        name: company.name.clone(),
+                        email: Some(company.email.clone()),
+                        postal_address: Some(company.postal_address.clone()),
+                        date_of_birth_or_registration: company.registration_date.clone(),
+                        country_of_birth_or_registration: company.country_of_registration.clone(),
+                        city_of_birth_or_registration: company.city_of_registration.clone(),
+                        identification_number: company.registration_number.clone(),
+                        avatar_file: None,
+                        proof_document_file: None,
+                        nostr_relays: get_config().nostr_config.relays.clone(),
+                        is_logical: false,
+                        mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                    },
+                )
+                .await
+        {
+            error!("Could not create contact for added company {id}: {e}");
+        }
+
         let reference_block = create_company_block.id();
         CompanyValidateActionData {
             blockchain: company_chain.clone(),
@@ -2372,7 +2400,7 @@ pub mod tests {
             mut file_upload_client,
             mut file_reference_store,
             mut identity_store,
-            contact_store,
+            mut contact_store,
             mut identity_chain_store,
             mut company_chain_store,
             mut transport,
@@ -2380,6 +2408,8 @@ pub mod tests {
             email_client,
             email_notification_store,
         ) = get_storages();
+        contact_store.expect_get().returning(|_| Ok(None));
+        contact_store.expect_insert().returning(|_, _| Ok(()));
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
