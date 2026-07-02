@@ -165,6 +165,7 @@ pub async fn create_transport_service(
         push_service.clone(),
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
+        db_context.contact_store.clone(),
         get_config().bitcoin_network(),
     ));
     let company_invite_handler = CompanyInviteEventHandler::new(
@@ -271,6 +272,7 @@ pub async fn create_nostr_consumer(
         push_service.clone(),
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
+        db_context.contact_store.clone(),
         get_config().bitcoin_network(),
     ));
 
@@ -401,6 +403,7 @@ pub async fn create_restore_account_service(
         push_service.clone(),
         db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
+        db_context.contact_store.clone(),
         config.bitcoin_network(),
     ));
 

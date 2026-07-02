@@ -7,16 +7,17 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
+use bcr_ebill_api::{get_config, service::transport_service::transport_client::TransportClientApi};
 use bcr_ebill_core::{
     application::{
         company::CompanyStatus,
+        contact::Contact,
         identity::ActiveIdentityState,
         notification::{Notification, NotificationLevel, NotificationType},
     },
     protocol::{
         EditOptionalFieldMode, Validate,
-        blockchain::{Block, company::CompanyValidateActionData},
+        blockchain::{Block, bill::ContactType, company::CompanyValidateActionData},
         crypto::BcrKeys,
         event::{ChainInvite, Event},
     },
@@ -35,7 +36,7 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::{
-    FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
+    ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
     company::{CompanyChainStoreApi, CompanyStoreApi},
     identity::IdentityStoreApi,
 };
@@ -55,6 +56,7 @@ pub struct CompanyChainEventProcessor {
     push_service: Arc<dyn PushApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
+    contact_store: Arc<dyn ContactStoreApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -286,6 +288,7 @@ impl CompanyChainEventProcessor {
         push_service: Arc<dyn PushApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
+        contact_store: Arc<dyn ContactStoreApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
@@ -299,6 +302,7 @@ impl CompanyChainEventProcessor {
             push_service,
             chain_event_store,
             bitcoin_network,
+            contact_store,
             transport,
         }
     }
@@ -374,6 +378,38 @@ impl CompanyChainEventProcessor {
                 self.nostr_contact_processor
                     .ensure_nostr_contact(&signatory.node_id)
                     .await;
+            }
+
+            // add to contacts without files if it's not there already, but don't fail
+            if let Ok(None) = self.contact_store.get(&company_id).await
+                && let Err(e) = self
+                    .contact_store
+                    .insert(
+                        &company_id,
+                        Contact {
+                            t: ContactType::Company,
+                            node_id: company_id.to_owned(),
+                            name: company.name.clone(),
+                            email: Some(company.email.clone()),
+                            postal_address: Some(company.postal_address.clone()),
+                            date_of_birth_or_registration: company.registration_date.clone(),
+                            country_of_birth_or_registration: company
+                                .country_of_registration
+                                .clone(),
+                            city_of_birth_or_registration: company.city_of_registration.clone(),
+                            identification_number: company.registration_number.clone(),
+                            avatar_file: None,
+                            proof_document_file: None,
+                            nostr_relays: get_config().nostr_config.relays.clone(),
+                            is_logical: false,
+                            mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                        },
+                    )
+                    .await
+            {
+                error!(
+                    "Could not create contact for company {company_id} identity {identity} was added for: {e}"
+                );
             }
         } else {
             info!("We are not a signatory for company {company_id} so skipping chain");
@@ -1111,7 +1147,9 @@ pub mod tests {
         private_key_test, private_key_test_another, update_company_block_with_name,
     };
     use crate::push_notification::MockPushApi;
-    use crate::test_utils::{MockFileReferenceStore, signed_identity_proof_test, test_ts};
+    use crate::test_utils::{
+        MockContactStore, MockFileReferenceStore, signed_identity_proof_test, test_ts,
+    };
     use crate::{
         handler::{
             CompanyChainEventProcessor, CompanyChainEventProcessorApi,
@@ -1137,6 +1175,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -1149,6 +1188,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
     }
@@ -1166,6 +1206,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
 
         store
@@ -1189,6 +1230,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1212,6 +1254,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let (_, (company, _)) = get_company_data();
         store
@@ -1230,6 +1273,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1253,6 +1297,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let (_, (mut company, _)) = get_company_data();
         company.signatories = vec![get_valid_activated_signatory(&NodeId::new(
@@ -1275,6 +1320,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1297,6 +1343,7 @@ pub mod tests {
             chain_event_store,
             mut transport,
             push_service,
+            mut contact_store,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let _blocks = [get_company_create_block(
@@ -1323,6 +1370,9 @@ pub mod tests {
             .expect_get()
             .returning(|| Ok(get_baseline_identity().identity))
             .once();
+
+        contact_store.expect_get().returning(|_| Ok(None));
+        contact_store.expect_insert().returning(|_, _| Ok(()));
 
         // it is valid so add the company
         let expected_company = company.clone();
@@ -1370,6 +1420,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1392,6 +1443,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
@@ -1482,6 +1534,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1503,6 +1556,7 @@ pub mod tests {
             mut chain_event_store,
             mut transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let bcr_keys: BcrKeys = keys.clone();
@@ -1674,6 +1728,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1725,6 +1780,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let new_node_id = node_id_test_another();
         let (node_id, (company, keys)) = get_company_data();
@@ -1830,6 +1886,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1851,6 +1908,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
@@ -1952,6 +2010,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1973,6 +2032,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
@@ -2074,6 +2134,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -2095,6 +2156,7 @@ pub mod tests {
             chain_event_store,
             transport,
             mut push_service,
+            contact_store,
         ) = create_mocks();
         let new_node_id = node_id_test_another();
         let (node_id, (mut company, keys)) = get_company_data();
@@ -2213,6 +2275,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -2234,6 +2297,7 @@ pub mod tests {
             chain_event_store,
             transport,
             push_service,
+            contact_store,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
         let blocks = vec![get_company_create_block(
@@ -2335,6 +2399,7 @@ pub mod tests {
             Arc::new(push_service),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -2527,7 +2592,7 @@ pub mod tests {
     async fn test_process_company_block_effects_does_not_persist_block() {
         // Verify that process_company_block_effects updates company data
         // but does NOT call blockchain_store.add_block
-        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _, _) = create_mocks();
+        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _, _, _) = create_mocks();
 
         let (_, (company, _)) = get_company_data();
         let identity_full = get_baseline_identity();
@@ -2565,6 +2630,7 @@ pub mod tests {
             Arc::new(MockPushApi::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockContactStore::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -2654,6 +2720,7 @@ pub mod tests {
             Arc::new(MockPushApi::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockContactStore::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -2696,6 +2763,7 @@ pub mod tests {
         MockNostrChainEventStore,
         MockNotificationJsonTransport,
         MockPushApi,
+        MockContactStore,
     ) {
         (
             MockCompanyChainStore::new(),
@@ -2707,6 +2775,7 @@ pub mod tests {
             MockNostrChainEventStore::new(),
             MockNotificationJsonTransport::new(),
             MockPushApi::new(),
+            MockContactStore::new(),
         )
     }
 }
