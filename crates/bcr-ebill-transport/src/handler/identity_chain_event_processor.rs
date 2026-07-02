@@ -4,10 +4,14 @@ use crate::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
+use bcr_ebill_api::{get_config, service::transport_service::transport_client::TransportClientApi};
 use bcr_ebill_core::{
-    protocol::crypto::BcrKeys,
-    protocol::event::{ChainInvite, Event},
+    application::contact::Contact,
+    protocol::{
+        blockchain::{bill::ContactType, identity::IdentityType},
+        crypto::BcrKeys,
+        event::{ChainInvite, Event},
+    },
 };
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -22,7 +26,7 @@ use bcr_ebill_core::{
     },
     protocol::{BlockId, EditOptionalFieldMode},
 };
-use bcr_ebill_persistence::NostrChainEventStoreApi;
+use bcr_ebill_persistence::{ContactStoreApi, NostrChainEventStoreApi};
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
     identity::{IdentityChainStoreApi, IdentityStoreApi},
@@ -42,6 +46,7 @@ pub struct IdentityChainEventProcessor {
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
+    contact_store: Arc<dyn ContactStoreApi>,
     bitcoin_network: bitcoin::Network,
 }
 
@@ -232,6 +237,7 @@ impl IdentityChainEventProcessor {
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
+        contact_store: Arc<dyn ContactStoreApi>,
         bitcoin_network: bitcoin::Network,
     ) -> Self {
         Self {
@@ -243,6 +249,7 @@ impl IdentityChainEventProcessor {
             nostr_contact_processor,
             chain_event_store,
             transport,
+            contact_store,
             bitcoin_network,
         }
     }
@@ -280,6 +287,38 @@ impl IdentityChainEventProcessor {
         for block in blocks.iter().skip(1) {
             self.add_identity_block(&node_id, keys, &mut identity, &mut chain, block)
                 .await?;
+        }
+
+        // add to contacts without files if it's not there already, but don't fail
+        if let Ok(None) = self.contact_store.get(&node_id).await
+            && let Err(e) = self
+                .contact_store
+                .insert(
+                    &node_id,
+                    Contact {
+                        t: if matches!(identity.t, IdentityType::Ident) {
+                            ContactType::Person
+                        } else {
+                            ContactType::Anon
+                        },
+                        node_id: identity.node_id.to_owned(),
+                        name: identity.name.clone(),
+                        email: identity.email.clone(),
+                        postal_address: identity.postal_address.to_full_postal_address(),
+                        date_of_birth_or_registration: identity.date_of_birth.clone(),
+                        country_of_birth_or_registration: identity.country_of_birth.clone(),
+                        city_of_birth_or_registration: identity.city_of_birth.clone(),
+                        identification_number: identity.identification_number.clone(),
+                        avatar_file: None,
+                        proof_document_file: None,
+                        nostr_relays: get_config().nostr_config.relays.clone(),
+                        is_logical: false,
+                        mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                    },
+                )
+                .await
+        {
+            error!("Could not create contact for own identity {node_id}: {e}");
         }
 
         Ok(())
@@ -586,7 +625,7 @@ pub mod tests {
     use mockall::predicate::{always, eq};
 
     use crate::handler::test_utils::update_identity_block_with_name;
-    use crate::test_utils::{signed_identity_proof_test, test_ts};
+    use crate::test_utils::{MockContactStore, signed_identity_proof_test, test_ts};
     use crate::{
         handler::{
             IdentityChainEventProcessorApi, MockNostrContactProcessorApi,
@@ -611,6 +650,7 @@ pub mod tests {
             bill_invite,
             chain_event_store,
             transport,
+            contact_store,
         ) = create_mocks();
         IdentityChainEventProcessor::new(
             Arc::new(chain_store),
@@ -621,6 +661,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
     }
@@ -636,6 +677,7 @@ pub mod tests {
             bill_invite,
             chain_event_store,
             transport,
+            contact_store,
         ) = create_mocks();
 
         store.expect_get().returning(move || {
@@ -654,6 +696,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -672,6 +715,7 @@ pub mod tests {
             bill_invite,
             chain_event_store,
             transport,
+            contact_store,
         ) = create_mocks();
         let identity = get_baseline_identity();
         store
@@ -687,6 +731,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -705,6 +750,7 @@ pub mod tests {
             bill_invite,
             chain_event_store,
             transport,
+            contact_store,
         ) = create_mocks();
         let full = get_baseline_identity();
         let mut identity = full.identity.clone();
@@ -722,6 +768,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -742,6 +789,7 @@ pub mod tests {
             bill_invite,
             chain_event_store,
             transport,
+            contact_store,
         ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -793,6 +841,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -812,6 +861,7 @@ pub mod tests {
             bill_invite,
             mut chain_event_store,
             mut transport,
+            contact_store,
         ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -932,6 +982,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -981,6 +1032,7 @@ pub mod tests {
             bill_invite,
             chain_event_store,
             transport,
+            contact_store,
         ) = create_mocks();
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -1035,6 +1087,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(chain_event_store),
             Arc::new(transport),
+            Arc::new(contact_store),
             bitcoin::Network::Testnet,
         );
 
@@ -1074,7 +1127,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_identity_block_effects_does_not_persist_block() {
-        let (mut chain_store, mut store, contact, _, _, _, _) = create_mocks();
+        let (mut chain_store, mut store, contact, _, _, _, _, _) = create_mocks();
 
         let full = get_baseline_identity();
         let identity = full.identity.clone();
@@ -1098,6 +1151,7 @@ pub mod tests {
             Arc::new(contact),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockContactStore::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1177,6 +1231,7 @@ pub mod tests {
             Arc::new(MockNostrContactProcessorApi::new()),
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockContactStore::new()),
             bitcoin::Network::Testnet,
         );
 
@@ -1212,6 +1267,7 @@ pub mod tests {
         MockNotificationHandlerApi,
         MockNostrChainEventStore,
         MockNotificationJsonTransport,
+        MockContactStore,
     ) {
         (
             MockIdentityChainStore::new(),
@@ -1221,6 +1277,7 @@ pub mod tests {
             MockNotificationHandlerApi::new(),
             MockNostrChainEventStore::new(),
             MockNotificationJsonTransport::new(),
+            MockContactStore::new(),
         )
     }
 }

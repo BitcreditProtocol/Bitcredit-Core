@@ -187,20 +187,6 @@ async function start(create_identity) {
           address: "street 1",
         }
       }));
-
-      // add self to contacts
-      fail_on_error(await window.contactApi.create({
-        t: 0,
-        node_id: identity.node_id,
-        name: "Self Contact",
-        email: "selfcont@example.com",
-        postal_address: {
-          country: "AT",
-          city: "Vienna",
-          zip: "1020",
-          address: "street 1",
-        },
-      }));
     }
   }
 
