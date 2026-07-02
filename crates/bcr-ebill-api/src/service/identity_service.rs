@@ -14,6 +14,8 @@ use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::validate_node_id_network;
 use crate::{get_config, util};
+use bcr_ebill_core::application::contact::Contact;
+use bcr_ebill_core::protocol::blockchain::bill::ContactType;
 use bcr_ebill_core::protocol::{Address, EditOptionalFieldMode, Zip};
 
 use async_trait::async_trait;
@@ -36,10 +38,10 @@ use bcr_ebill_core::protocol::{Country, EmailIdentityProofData, SignedIdentityPr
 use bcr_ebill_core::protocol::{Date, Field};
 use bcr_ebill_core::protocol::{Email, blockchain};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::IdentityChainEvent};
-use bcr_ebill_persistence::FileReferenceStoreApi;
 use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::{ContactStoreApi, FileReferenceStoreApi};
 use bitcoin::base58;
 use log::{debug, error};
 use secp256k1::{PublicKey, SecretKey};
@@ -160,6 +162,7 @@ pub struct IdentityService {
     block_transport: Arc<dyn TransportServiceApi>,
     email_client: Arc<dyn EmailClientApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+    contact_store: Arc<dyn ContactStoreApi>,
 }
 
 impl IdentityService {
@@ -172,6 +175,7 @@ impl IdentityService {
         block_transport: Arc<dyn TransportServiceApi>,
         email_client: Arc<dyn EmailClientApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+        contact_store: Arc<dyn ContactStoreApi>,
     ) -> Self {
         Self {
             store,
@@ -182,6 +186,7 @@ impl IdentityService {
             block_transport,
             email_client,
             email_notification_store,
+            contact_store,
         }
     }
 
@@ -708,6 +713,38 @@ impl IdentityServiceApi for IdentityService {
         self.populate_block(&identity, first_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
 
+        // add to contacts without files if it's not there already, but don't fail
+        if let Ok(None) = self.contact_store.get(&node_id).await
+            && let Err(e) = self
+                .contact_store
+                .insert(
+                    &node_id,
+                    Contact {
+                        t: if matches!(t, IdentityType::Ident) {
+                            ContactType::Person
+                        } else {
+                            ContactType::Anon
+                        },
+                        node_id: identity.node_id.to_owned(),
+                        name: identity.name.clone(),
+                        email: identity.email.clone(),
+                        postal_address: identity.postal_address.to_full_postal_address(),
+                        date_of_birth_or_registration: identity.date_of_birth.clone(),
+                        country_of_birth_or_registration: identity.country_of_birth.clone(),
+                        city_of_birth_or_registration: identity.city_of_birth.clone(),
+                        identification_number: identity.identification_number.clone(),
+                        avatar_file: None,
+                        proof_document_file: None,
+                        nostr_relays: get_config().nostr_config.relays.clone(),
+                        is_logical: false,
+                        mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                    },
+                )
+                .await
+        {
+            error!("Could not create contact for own identity {node_id}: {e}");
+        }
+
         if let Err(e) = self
             .block_transport
             .notification_transport()
@@ -1058,9 +1095,10 @@ mod tests {
         external::{email::MockEmailClientApi, file_storage::MockFileStorageClientApi},
         service::transport_service::MockTransportServiceApi,
         tests::tests::{
-            MockEmailNotificationStoreApiMock, MockFileReferenceStoreApiMock,
-            MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            empty_identity, empty_optional_address, filled_optional_address, init_test_cfg,
+            MockContactStoreApiMock, MockEmailNotificationStoreApiMock,
+            MockFileReferenceStoreApiMock, MockFileUploadStoreApiMock,
+            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
+            empty_optional_address, filled_optional_address, init_test_cfg,
             signed_identity_proof_test, test_ts,
         },
     };
@@ -1076,6 +1114,7 @@ mod tests {
             Arc::new(MockTransportServiceApi::new()),
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
+            Arc::new(MockContactStoreApiMock::new()),
         )
     }
 
@@ -1084,6 +1123,10 @@ mod tests {
         mock_chain_storage: MockIdentityChainStoreApiMock,
         transport: MockTransportServiceApi,
     ) -> IdentityService {
+        let mut contact_store = MockContactStoreApiMock::new();
+        contact_store.expect_get().returning(|_| Ok(None));
+        contact_store.expect_insert().returning(|_, _| Ok(()));
+
         IdentityService::new(
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
@@ -1093,6 +1136,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
+            Arc::new(contact_store),
         )
     }
 
@@ -1110,6 +1154,7 @@ mod tests {
             Arc::new(MockTransportServiceApi::new()),
             Arc::new(mock_email_client),
             Arc::new(mock_notif_store),
+            Arc::new(MockContactStoreApiMock::new()),
         )
     }
 

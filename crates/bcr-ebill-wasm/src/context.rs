@@ -111,6 +111,7 @@ impl Context {
             transport_service.clone(),
             email_client.clone(),
             db.email_notification_store.clone(),
+            db.contact_store.clone(),
         );
 
         let company_service = CompanyService::new(
