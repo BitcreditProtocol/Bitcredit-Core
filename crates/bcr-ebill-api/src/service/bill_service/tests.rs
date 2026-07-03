@@ -12,7 +12,8 @@ use crate::{
         bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
         empty_bill_identified_participant, empty_identity, init_test_cfg, node_id_test,
         node_id_test_another, node_id_test_other, private_key_test, private_key_test_another,
-        signed_identity_proof_test, test_ts, valid_payment_address_testnet,
+        signed_identity_proof_test, signed_other_identity_proof_test, test_ts,
+        valid_payment_address_testnet,
     },
     util::get_uuid_v4,
 };
@@ -625,7 +626,7 @@ async fn issue_bill_as_company() {
         .returning(|_| Ok(()));
     ctx.company_store
         .expect_get_email_confirmations()
-        .returning(|_| Ok(vec![signed_identity_proof_test()]));
+        .returning(|_| Ok(vec![signed_other_identity_proof_test()]));
 
     // Populates company and identity block
     expect_populates_company_and_identity_block(&mut ctx);
@@ -2521,7 +2522,7 @@ async fn accept_bill_as_company() {
         .returning(|_, _, _| Ok(()));
     ctx.company_store
         .expect_get_email_confirmations()
-        .returning(|_| Ok(vec![signed_identity_proof_test()]));
+        .returning(|_| Ok(vec![signed_other_identity_proof_test()]));
 
     // Should send bill accepted event
     ctx.transport_service
@@ -2542,6 +2543,7 @@ async fn accept_bill_as_company() {
             test_ts(),
         )
         .await;
+
     assert!(res.is_ok());
     assert!(res.as_ref().unwrap().blocks().len() == 2);
     assert!(res.as_ref().unwrap().blocks()[1].op_code == BillOpCode::Accept);
@@ -4013,6 +4015,14 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
     let company = get_baseline_company_data();
     let mut bill = get_baseline_bill(&bill_id_test());
     bill.payee = BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
+    ctx.company_store.expect_get().returning(|_| {
+        let mut company = get_baseline_company_data();
+        company.1.0.id = node_id_test_another();
+        Ok(company.1.0)
+    });
+    ctx.company_store
+        .expect_get_email_confirmations()
+        .returning(|_| Ok(vec![signed_identity_proof_test()]));
 
     ctx.bill_store
         .expect_get_bill_ids_waiting_for_sell_payment()
@@ -4054,9 +4064,7 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
     // Populates identity block and company block
-    ctx.transport_service.expect_on_block_transport(|t| {
-        t.expect_send_identity_chain_events().returning(|_| Ok(()));
-    });
+    expect_populates_company_and_identity_block(&mut ctx);
 
     let service = get_service(ctx);
 
@@ -5925,6 +5933,23 @@ async fn check_bills_in_recourse_payment_baseline() {
         BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
     );
 
+    ctx.company_store.expect_get_all().returning(move || {
+        let company = get_baseline_company_data();
+        let map = HashMap::from([(
+            company.0.clone(),
+            (company.1.0.clone(), company.1.1.clone()),
+        )]);
+        Ok(map)
+    });
+    ctx.company_store.expect_get().returning(|_| {
+        let mut company = get_baseline_company_data();
+        company.1.0.id = node_id_test_another();
+        Ok(company.1.0)
+    });
+    ctx.company_store
+        .expect_get_email_confirmations()
+        .returning(|_| Ok(vec![signed_identity_proof_test()]));
+
     ctx.bill_store
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
@@ -5976,8 +6001,8 @@ async fn check_bills_in_recourse_payment_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
-    // Populate identity block
-    expect_populates_identity_block(&mut ctx);
+    // Populates identity block and company block
+    expect_populates_company_and_identity_block(&mut ctx);
 
     let service = get_service(ctx);
 
@@ -5996,6 +6021,14 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
     let mut bill = get_baseline_bill(&bill_id_test());
     bill.payee = BillParticipant::Ident(BillIdentParticipant::from(company.1.0.clone()));
 
+    ctx.company_store.expect_get().returning(|_| {
+        let mut company = get_baseline_company_data();
+        company.1.0.id = node_id_test_another();
+        Ok(company.1.0)
+    });
+    ctx.company_store
+        .expect_get_email_confirmations()
+        .returning(|_| Ok(vec![signed_identity_proof_test()]));
     ctx.bill_store
         .expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()));
@@ -6060,8 +6093,8 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
-    // Populate identity block
-    expect_populates_identity_block(&mut ctx);
+    // Populates identity block and company block
+    expect_populates_company_and_identity_block(&mut ctx);
 
     let service = get_service(ctx);
 
@@ -7292,6 +7325,15 @@ async fn check_mint_state_minting_enabled_proofs() {
     let identity = get_baseline_identity();
 
     let req_node_id = identity.identity.node_id.clone();
+    ctx.company_store.expect_get_all().returning(move || {
+        let company = get_baseline_company_data();
+        let mut map = HashMap::new();
+        map.insert(
+            company.0.clone(),
+            (company.1.0.clone(), company.1.1.clone()),
+        );
+        Ok(map)
+    });
     ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
         Ok(cdk02::KeySet {
             id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),

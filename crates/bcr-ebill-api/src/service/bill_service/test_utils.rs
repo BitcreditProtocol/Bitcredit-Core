@@ -12,9 +12,10 @@ use crate::{
         MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
         MockMintStore, MockNostrContactStore, bill_id_test,
         bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
-        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity, init_test_cfg,
-        node_id_test, node_id_test_other, node_id_test_other2, private_key_test,
-        signed_identity_proof_test, test_ts, valid_payment_address_testnet,
+        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity,
+        empty_other_identity, init_test_cfg, node_id_test, node_id_test_other, node_id_test_other2,
+        private_key_test, private_key_test_another, signed_identity_proof_test, test_ts,
+        valid_payment_address_testnet,
     },
 };
 use bcr_ebill_core::{
@@ -267,10 +268,13 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.identity_store
         .expect_get()
-        .returning(|| Ok(get_baseline_identity().identity));
-    ctx.identity_store
-        .expect_get_full()
-        .returning(|| Ok(get_baseline_identity()));
+        .returning(|| Ok(empty_other_identity()));
+    ctx.identity_store.expect_get_full().returning(|| {
+        Ok(IdentityWithAll {
+            identity: empty_other_identity(),
+            key_pair: BcrKeys::from_private_key(&private_key_test_another()),
+        })
+    });
     ctx.mint_store
         .expect_exists_for_bill()
         .returning(|_, _| Ok(false));

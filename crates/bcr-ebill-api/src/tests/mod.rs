@@ -619,6 +619,23 @@ pub mod tests {
         }
     }
 
+    pub fn empty_other_identity() -> Identity {
+        Identity {
+            t: IdentityType::Ident,
+            node_id: node_id_test_another(),
+            name: Name::new("some name").unwrap(),
+            email: Some(Email::new("some@example.com").unwrap()),
+            postal_address: empty_optional_address(),
+            date_of_birth: None,
+            country_of_birth: None,
+            city_of_birth: None,
+            identification_number: None,
+            nostr_relays: vec![],
+            profile_picture_file: None,
+            identity_document_file: None,
+        }
+    }
+
     pub fn empty_bill_identified_participant() -> BillIdentParticipant {
         BillIdentParticipant {
             t: ContactType::Person,
@@ -700,6 +717,17 @@ pub mod tests {
     pub fn signed_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
         let data = EmailIdentityProofData {
             node_id: node_id_test(),
+            company_node_id: None,
+            email: Email::new("test@example.com").unwrap(),
+            created_at: test_ts(),
+        };
+        let proof = data.sign(&node_id_test(), &private_key_test()).unwrap();
+        (proof, data)
+    }
+
+    pub fn signed_other_identity_proof_test() -> (SignedIdentityProof, EmailIdentityProofData) {
+        let data = EmailIdentityProofData {
+            node_id: node_id_test_another(),
             company_node_id: None,
             email: Email::new("test@example.com").unwrap(),
             created_at: test_ts(),

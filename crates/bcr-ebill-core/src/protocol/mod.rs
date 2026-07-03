@@ -371,6 +371,10 @@ pub enum ProtocolValidationError {
     #[error("Invalid company action")]
     InvalidCompanyAction,
 
+    /// error returned if the given identity action was invalid
+    #[error("Invalid identity action")]
+    InvalidIdentityAction,
+
     /// error returned if the contact type is not valid
     #[error("Invalid contact type")]
     InvalidContactType,
@@ -386,6 +390,14 @@ pub enum ProtocolValidationError {
     /// error returned if the signatory is not a signatory of the company
     #[error("Caller must be signatory for company")]
     CallerMustBeSignatory,
+
+    /// error returned if the signatory is not
+    #[error("Caller must be creator for identity")]
+    CallerMustBeCreator,
+
+    /// error returned if the signatory is not the identified creator of the identity
+    #[error("Caller must be identified creator for identity")]
+    CallerMustBeIdentifiedCreator,
 
     /// error returned if the reference block for an identity proof doesn't exist, or is a wrong block
     #[error("Reference block must exist and be either an accept, or create block")]
