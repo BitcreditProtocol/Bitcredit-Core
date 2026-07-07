@@ -2,6 +2,7 @@
 
 * When creating a company, or being invited to a company, it's added to the contact book (if it hasn't been there before), but without files
 * When creating an identity, or restoring, our own identity is added to the contact book (if it hasn't been there before), but without files
+* Add identity block validation for block creation and incoming blocks
 
 # 0.5.13
 

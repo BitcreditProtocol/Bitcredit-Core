@@ -8,7 +8,12 @@ use bcr_ebill_api::{get_config, service::transport_service::transport_client::Tr
 use bcr_ebill_core::{
     application::contact::Contact,
     protocol::{
-        blockchain::{bill::ContactType, identity::IdentityType},
+        Validate,
+        blockchain::{
+            Block,
+            bill::ContactType,
+            identity::{IdentityType, IdentityValidateActionData},
+        },
         crypto::BcrKeys,
         event::{ChainInvite, Event},
     },
@@ -131,7 +136,12 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                             test_chain.truncate_from(*fork_id);
                         }
 
-                        match self.validate_identity_blocks_for_chain(&mut test_chain, &blocks) {
+                        match self.validate_identity_blocks_for_chain(
+                            &mut test_chain,
+                            &blocks,
+                            &key_pair,
+                            &identity.node_id,
+                        ) {
                             Ok(()) => {
                                 if let Some(fork_id) = fork_point {
                                     info!(
@@ -401,6 +411,8 @@ impl IdentityChainEventProcessor {
         &self,
         chain: &mut IdentityBlockchain,
         block: &IdentityBlock,
+        keys: &BcrKeys,
+        identity_id: &NodeId,
     ) -> Result<bool> {
         let block_height = chain.get_latest_block().id;
 
@@ -408,6 +420,7 @@ impl IdentityChainEventProcessor {
         if block.id <= block_height {
             return Ok(false);
         }
+        let chain_clone_for_validation = chain.clone();
 
         // do cheap integrity checks (mutates chain in-memory)
         if !chain.try_add_block(block.clone()) {
@@ -415,6 +428,33 @@ impl IdentityChainEventProcessor {
             return Err(Error::Blockchain(
                 "Received invalid identity block".to_string(),
             ));
+        }
+
+        let block_id = block.id;
+        // then, verify signature and signer of the block and get data to validate
+        let verify_and_get_signer = match block.verify_and_get_signer(keys) {
+            Ok(d) => d,
+            Err(e) => {
+                error!(
+                    "Received invalid block {block_id} for identity {identity_id} - could not verify signature from block data signer"
+                );
+                return Err(Error::Blockchain(e.to_string()));
+            }
+        };
+
+        if let Err(e) = (IdentityValidateActionData {
+            blockchain: chain_clone_for_validation,
+            id: identity_id.clone(),
+            op: block.op_code().clone(),
+            keys: keys.to_owned(),
+            identity_proof_data: verify_and_get_signer.identity_proof_data,
+        })
+        .validate()
+        {
+            error!(
+                "Received invalid block {block_id} for identity {identity_id}, company action validation failed: {e}"
+            );
+            return Err(Error::Blockchain(e.to_string()));
         }
 
         Ok(true)
@@ -426,9 +466,11 @@ impl IdentityChainEventProcessor {
         &self,
         chain: &mut IdentityBlockchain,
         blocks: &[IdentityBlock],
+        keys: &BcrKeys,
+        identity_id: &NodeId,
     ) -> Result<()> {
         for block in blocks {
-            self.validate_identity_block_for_chain(chain, block)?;
+            self.validate_identity_block_for_chain(chain, block, keys, identity_id)?;
         }
         Ok(())
     }
@@ -441,7 +483,7 @@ impl IdentityChainEventProcessor {
         chain: &mut IdentityBlockchain,
         block: &IdentityBlock,
     ) -> Result<()> {
-        if self.validate_identity_block_for_chain(chain, block)? {
+        if self.validate_identity_block_for_chain(chain, block, keys, &identity.node_id)? {
             let data = block
                 .get_block_data(keys)
                 .map_err(|e| Error::Blockchain(e.to_string()))?;
@@ -794,7 +836,14 @@ pub mod tests {
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
-        let blocks = vec![get_identity_create_block(full.identity, &full.key_pair)];
+        let create_block = get_identity_create_block(full.identity, &full.key_pair);
+        let test_signed_identity = signed_identity_proof_test();
+        let data = IdentityProofBlockData {
+            proof: test_signed_identity.0,
+            data: test_signed_identity.1,
+        };
+        let identity_proof_block = get_identity_proof_block(&create_block, &keys, &data);
+        let blocks = vec![create_block, identity_proof_block];
         let chain = IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
         let data = update_identity_block_with_name(Some(Name::new("new_name").unwrap()));
         let update_block = get_identity_update_block(chain.get_latest_block(), &keys, &data);
@@ -866,10 +915,14 @@ pub mod tests {
         let full = get_baseline_identity();
         let identity = full.identity.clone();
         let keys = full.key_pair.clone();
-        let blocks = vec![get_identity_create_block(
-            full.identity.clone(),
-            &full.key_pair,
-        )];
+        let create_block = get_identity_create_block(full.identity.clone(), &full.key_pair);
+        let test_signed_identity = signed_identity_proof_test();
+        let data = IdentityProofBlockData {
+            proof: test_signed_identity.0,
+            data: test_signed_identity.1,
+        };
+        let identity_proof_block = get_identity_proof_block(&create_block, &keys, &data);
+        let blocks = vec![create_block, identity_proof_block];
         let skipped_chain =
             IdentityBlockchain::new_from_blocks(blocks).expect("could not create chain");
 
@@ -886,13 +939,21 @@ pub mod tests {
             &keys,
             None,
             None,
+            as_event_payload(&full.identity.node_id, skipped_chain.get_first_block()),
+            &full.identity.node_id,
+        );
+
+        let event1_proof = generate_test_event(
+            &keys,
+            Some(event1.clone()),
+            Some(event1.clone()),
             as_event_payload(&full.identity.node_id, skipped_chain.get_latest_block()),
             &full.identity.node_id,
         );
 
         let event2 = generate_test_event(
             &keys,
-            Some(event1.clone()),
+            Some(event1_proof.clone()),
             Some(event1.clone()),
             as_event_payload(&full.identity.node_id, &skipped_block),
             &full.identity.node_id,
@@ -906,7 +967,12 @@ pub mod tests {
             &full.identity.node_id,
         );
 
-        let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
+        let nostr_chain = vec![
+            event1.clone(),
+            event1_proof.clone(),
+            event2.clone(),
+            event3.clone(),
+        ];
 
         // checks if we already have the chain two times with one call for the chain resync
         chain_store

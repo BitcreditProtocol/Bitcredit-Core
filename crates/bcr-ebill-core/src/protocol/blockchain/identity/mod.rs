@@ -19,10 +19,12 @@ use crate::protocol::{File, OptionalPostalAddress};
 use bcr_common::core::{BillId, NodeId};
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
-use log::error;
+use log::{error, warn};
 use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
+
+pub mod validation;
 
 #[derive(
     BorshSerialize,
@@ -46,6 +48,15 @@ pub enum IdentityOpCode {
     RejectSignatoryInvite,
     RemoveSignatory,
     IdentityProof,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdentityValidateActionData {
+    pub blockchain: IdentityBlockchain,
+    pub id: NodeId,
+    pub op: IdentityOpCode,
+    pub keys: BcrKeys,
+    pub identity_proof_data: Option<(SignedIdentityProof, EmailIdentityProofData)>,
 }
 
 #[derive(BorshSerialize)]
@@ -135,6 +146,12 @@ impl IdentityBlockPlaintextWrapper {
 
         serde_json::to_string(&serialized).map_err(|e| Error::JSON(e.to_string()))
     }
+}
+
+#[derive(Debug)]
+pub struct VerifyAndGetSignerData {
+    pub signer: Option<NodeId>,
+    pub identity_proof_data: Option<(SignedIdentityProof, EmailIdentityProofData)>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -656,6 +673,58 @@ impl IdentityBlock {
         let decrypted_bytes = crypto::decrypt_ecies(&self.data, &keys.get_private_key())?;
         Ok(decrypted_bytes)
     }
+
+    pub fn verify_and_get_signer(&self, keys: &BcrKeys) -> Result<VerifyAndGetSignerData> {
+        let (signer, identity_proof_data) = match self.get_block_data(keys)? {
+            IdentityBlockPayload::Create(data) => (Some(data.node_id), None),
+            IdentityBlockPayload::IdentityProof(data) => (
+                Some(data.data.node_id.clone()),
+                Some((data.proof, data.data)),
+            ),
+            _ => (None, None),
+        };
+
+        if !self.verify_sig(keys)? {
+            return Err(super::Error::BlockSignatureDoesNotMatchSigner);
+        }
+
+        // If the identity proof doesn't match with the signer, or isn't valid, we show a warning
+        if let Some(ref ip) = identity_proof_data
+            && let Some(ref sig) = signer
+        {
+            let (proof, data) = (&ip.0, &ip.1);
+            if data.node_id != *sig {
+                warn!(
+                    "Identity Proof Verification failed for identity block {} and signer {}",
+                    self.id(),
+                    sig
+                );
+            }
+
+            if !proof.verify(data).unwrap_or(false) {
+                warn!(
+                    "Identity Proof Verification failed for identity block {} and signer {}",
+                    self.id(),
+                    sig
+                );
+            }
+        }
+
+        Ok(VerifyAndGetSignerData {
+            signer,
+            identity_proof_data,
+        })
+    }
+
+    fn verify_sig(&self, keys: &BcrKeys) -> Result<bool> {
+        match self.signature().verify(self.hash(), &keys.pub_key()) {
+            Err(e) => {
+                error!("Error while verifying block id {}: {e}", self.id());
+                Ok(false)
+            }
+            Ok(res) => Ok(res),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -690,6 +759,30 @@ impl IdentityBlockchain {
         Ok(Self {
             blocks: vec![first_block],
         })
+    }
+
+    pub fn is_creator(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<bool> {
+        if let IdentityBlockPayload::Create(block_data) =
+            self.get_first_block().get_block_data(keys)?
+            && &block_data.node_id == node_id
+        {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    // creator and at least one identity proof block
+    pub fn is_identified(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<bool> {
+        if self.is_creator(node_id, keys)? {
+            for block in self.blocks().iter() {
+                if matches!(block.op_code(), IdentityOpCode::IdentityProof) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        } else {
+            Ok(false)
+        }
     }
 
     /// Creates an identity chain from a list of blocks

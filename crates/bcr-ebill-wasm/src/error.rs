@@ -142,6 +142,8 @@ enum JsErrorType {
     InvalidFileName,
     UnknownNodeId,
     CallerMustBeSignatory,
+    CallerMustBeCreator,
+    CallerMustBeIdentifiedCreator,
     InvalidIdentityProof,
     InvalidReferenceBlock,
     MintRequestToPayWithoutCustomAddress,
@@ -152,6 +154,7 @@ enum JsErrorType {
     Json,
     InvalidBillAction,
     InvalidCompanyAction,
+    InvalidIdentityAction,
     CompanySignerCreatorMismatch,
     InvalidMintRequestId,
 }
@@ -417,6 +420,9 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         ProtocolValidationError::InvalidCompanyAction => {
             err_400(e, JsErrorType::InvalidCompanyAction)
         }
+        ProtocolValidationError::InvalidIdentityAction => {
+            err_400(e, JsErrorType::InvalidIdentityAction)
+        }
         ProtocolValidationError::CompanySignerCreatorMismatch => {
             err_400(e, JsErrorType::CompanySignerCreatorMismatch)
         }
@@ -425,6 +431,12 @@ fn protocol_validation_error_data(e: ProtocolValidationError) -> JsErrorData {
         }
         ProtocolValidationError::CallerMustBeSignatory => {
             err_400(e, JsErrorType::CallerMustBeSignatory)
+        }
+        ProtocolValidationError::CallerMustBeCreator => {
+            err_400(e, JsErrorType::CallerMustBeCreator)
+        }
+        ProtocolValidationError::CallerMustBeIdentifiedCreator => {
+            err_400(e, JsErrorType::CallerMustBeIdentifiedCreator)
         }
         ProtocolValidationError::InvalidIdentityProof => {
             err_400(e, JsErrorType::InvalidIdentityProof)

@@ -30,7 +30,8 @@ use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::Blockchain;
 use bcr_ebill_core::protocol::blockchain::identity::{
     IdentityBlock, IdentityBlockPlaintextWrapper, IdentityBlockchain, IdentityCreateBlockData,
-    IdentityProofBlockData, IdentityType, IdentityUpdateBlockData,
+    IdentityOpCode, IdentityProofBlockData, IdentityType, IdentityUpdateBlockData,
+    IdentityValidateActionData,
 };
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
@@ -523,6 +524,14 @@ impl IdentityServiceApi for IdentityService {
         }
 
         let mut identity_chain = self.blockchain_store.get_chain().await?;
+        IdentityValidateActionData {
+            blockchain: identity_chain.clone(),
+            id: identity.node_id.clone(),
+            op: IdentityOpCode::Update,
+            keys: keys.clone(),
+            identity_proof_data: None,
+        }
+        .validate()?;
         let previous_block = identity_chain.get_latest_block();
         let block_data = IdentityUpdateBlockData {
             t: None,
@@ -541,6 +550,7 @@ impl IdentityServiceApi for IdentityService {
                 .swap_value(identity_document_file),
         };
         block_data.validate()?;
+
         let new_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
@@ -579,6 +589,14 @@ impl IdentityServiceApi for IdentityService {
             .await?;
 
         let mut identity_chain = self.blockchain_store.get_chain().await?;
+        IdentityValidateActionData {
+            blockchain: identity_chain.clone(),
+            id: identity.node_id.clone(),
+            op: IdentityOpCode::Update,
+            keys: keys.clone(),
+            identity_proof_data: None,
+        }
+        .validate()?;
         let previous_block = identity_chain.get_latest_block();
         let block_data = IdentityUpdateBlockData {
             t: None,
@@ -608,6 +626,14 @@ impl IdentityServiceApi for IdentityService {
 
         // Create and populate identity proof block
         if let Some((proof, data)) = email_confirmation {
+            IdentityValidateActionData {
+                blockchain: identity_chain.clone(),
+                id: identity.node_id.clone(),
+                op: IdentityOpCode::IdentityProof,
+                keys: keys.clone(),
+                identity_proof_data: Some((proof.clone(), data.clone())),
+            }
+            .validate()?;
             self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
                 .await?;
         }
@@ -761,6 +787,14 @@ impl IdentityServiceApi for IdentityService {
 
         // Create and populate identity proof block
         if let Some((proof, data)) = email_confirmation {
+            IdentityValidateActionData {
+                blockchain: identity_chain.clone(),
+                id: identity.node_id.clone(),
+                op: IdentityOpCode::IdentityProof,
+                keys: keys.clone(),
+                identity_proof_data: Some((proof.clone(), data.clone())),
+            }
+            .validate()?;
             self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
                 .await?;
         }
@@ -844,6 +878,14 @@ impl IdentityServiceApi for IdentityService {
         };
 
         let mut identity_chain = self.blockchain_store.get_chain().await?;
+        IdentityValidateActionData {
+            blockchain: identity_chain.clone(),
+            id: identity.node_id.clone(),
+            op: IdentityOpCode::Update,
+            keys: keys.clone(),
+            identity_proof_data: None,
+        }
+        .validate()?;
         let previous_block = identity_chain.get_latest_block();
         let block_data = IdentityUpdateBlockData {
             t: Some(t.clone()),
@@ -1098,8 +1140,8 @@ mod tests {
             MockContactStoreApiMock, MockEmailNotificationStoreApiMock,
             MockFileReferenceStoreApiMock, MockFileUploadStoreApiMock,
             MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
-            empty_optional_address, filled_optional_address, init_test_cfg,
-            signed_identity_proof_test, test_ts,
+            empty_optional_address, filled_optional_address, init_test_cfg, node_id_test,
+            private_key_test, signed_identity_proof_test, test_ts,
         },
     };
     use mockall::predicate::eq;
@@ -1164,7 +1206,7 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_or_create_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage
             .expect_get_email_confirmations()
             .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -1218,7 +1260,7 @@ mod tests {
 
         storage
             .expect_get_or_create_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
@@ -1267,14 +1309,14 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_or_create_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+            identity.node_id = node_id_test();
             identity.t = IdentityType::Anon;
             Ok(identity)
         });
@@ -1325,14 +1367,14 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_or_create_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+            identity.node_id = node_id_test();
             identity.t = IdentityType::Anon;
             Ok(identity)
         });
@@ -1375,14 +1417,14 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_or_create_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
-            identity.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+            identity.node_id = node_id_test();
             Ok(identity)
         });
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
@@ -1420,7 +1462,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_identity_calls_storage() {
-        let keys = BcrKeys::new();
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut storage = MockIdentityStoreApiMock::new();
         storage.expect_save().returning(|_| Ok(()));
         storage
@@ -1473,8 +1515,11 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
         storage.expect_save().returning(|_| Ok(()));
         storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
+        storage
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_get().returning(move || {
             let mut identity = empty_identity();
             identity.name = Name::new("name").unwrap();
@@ -1506,8 +1551,11 @@ mod tests {
     async fn update_identity_propagates_errors() {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
+            .expect_get_or_create_key_pair()
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
+        storage
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::new()));
+            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_get().returning(move || {
             let identity = empty_identity();
             Ok(identity)
@@ -1728,8 +1776,28 @@ mod tests {
         assert!(res.is_ok());
     }
 
+    fn add_identity_proof_block(mut chain: IdentityBlockchain) -> IdentityBlockchain {
+        let (proof, data) = signed_identity_proof_test();
+        let block = IdentityBlock::create_block_for_identity_proof(
+            chain.get_latest_block(),
+            &IdentityProofBlockData { proof, data },
+            &BcrKeys::from_private_key(&private_key_test()),
+            test_ts() - 6,
+        )
+        .unwrap();
+        assert!(chain.try_add_block(block));
+        assert!(chain.is_chain_valid());
+        chain
+    }
+
     fn get_genesis_chain(identity: Option<Identity>) -> IdentityBlockchain {
         let identity = identity.unwrap_or(empty_identity());
-        IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), test_ts()).unwrap()
+        let chain = IdentityBlockchain::new(
+            &identity.into(),
+            &BcrKeys::from_private_key(&private_key_test()),
+            test_ts() - 7,
+        )
+        .unwrap();
+        add_identity_proof_block(chain)
     }
 }

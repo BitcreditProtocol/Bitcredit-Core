@@ -22,8 +22,9 @@ use bcr_ebill_core::{
                 block::CompanySignCompanyBillBlockData,
             },
             identity::{
-                IdentityBlock, IdentityBlockchain, IdentitySignCompanyBillBlockData,
-                IdentitySignPersonBillBlockData,
+                IdentityBlock, IdentityBlockchain, IdentityOpCode,
+                IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
+                IdentityValidateActionData,
             },
         },
         crypto::{
@@ -805,6 +806,14 @@ impl BillService {
         bill_keys: Option<BcrKeys>,
     ) -> Result<()> {
         let mut chain = self.identity_blockchain_store.get_chain().await?;
+        IdentityValidateActionData {
+            blockchain: chain.clone(),
+            id: identity.identity.node_id.clone(),
+            op: IdentityOpCode::SignPersonBill,
+            keys: identity.key_pair.clone(),
+            identity_proof_data: None,
+        }
+        .validate()?;
         let previous_block = chain.get_latest_block();
         let new_block = IdentityBlock::create_block_for_sign_person_bill(
             previous_block,
@@ -841,6 +850,14 @@ impl BillService {
         timestamp: Timestamp,
     ) -> Result<()> {
         let mut chain = self.identity_blockchain_store.get_chain().await?;
+        IdentityValidateActionData {
+            blockchain: chain.clone(),
+            id: identity.identity.node_id.clone(),
+            op: IdentityOpCode::SignCompanyBill,
+            keys: identity.key_pair.clone(),
+            identity_proof_data: None,
+        }
+        .validate()?;
         let previous_block = chain.get_latest_block();
         let new_block = IdentityBlock::create_block_for_sign_company_bill(
             previous_block,
