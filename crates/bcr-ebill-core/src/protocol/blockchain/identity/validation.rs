@@ -6,9 +6,12 @@ use crate::protocol::{
 impl Validate for IdentityValidateActionData {
     fn validate(&self) -> std::result::Result<(), crate::protocol::ProtocolValidationError> {
         match self.op {
-            IdentityOpCode::Update
-            | IdentityOpCode::SignPersonBill
-            | IdentityOpCode::SignCompanyBill
+            // anon users can update identity and sign personal bills
+            IdentityOpCode::Update | IdentityOpCode::SignPersonBill => {
+                self.check_signer()?;
+            }
+            // only identified users can do these
+            IdentityOpCode::SignCompanyBill
             | IdentityOpCode::CreateCompany
             | IdentityOpCode::InviteSignatory
             | IdentityOpCode::AcceptSignatoryInvite
@@ -126,9 +129,25 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_update_for_anon() {
+        let mut data = valid_identity_validate_action_data(valid_identity_chain());
+        data.op = IdentityOpCode::Update;
+        let result = data.validate();
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
     fn test_validate_sign_person_bill() {
         let mut data =
             valid_identity_validate_action_data(add_identity_proof_block(valid_identity_chain()));
+        data.op = IdentityOpCode::SignPersonBill;
+        let result = data.validate();
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn test_validate_sign_person_bill_anon() {
+        let mut data = valid_identity_validate_action_data(valid_identity_chain());
         data.op = IdentityOpCode::SignPersonBill;
         let result = data.validate();
         assert_eq!(result, Ok(()));
@@ -144,12 +163,28 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_sign_company_bill_anon() {
+        let mut data = valid_identity_validate_action_data(valid_identity_chain());
+        data.op = IdentityOpCode::SignCompanyBill;
+        let result = data.validate();
+        assert!(matches!(result, Err(_)));
+    }
+
+    #[test]
     fn test_validate_create_company() {
         let mut data =
             valid_identity_validate_action_data(add_identity_proof_block(valid_identity_chain()));
         data.op = IdentityOpCode::CreateCompany;
         let result = data.validate();
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn test_validate_create_company_anon() {
+        let mut data = valid_identity_validate_action_data(valid_identity_chain());
+        data.op = IdentityOpCode::CreateCompany;
+        let result = data.validate();
+        assert!(matches!(result, Err(_)));
     }
 
     #[test]
