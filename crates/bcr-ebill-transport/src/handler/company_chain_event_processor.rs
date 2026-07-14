@@ -695,7 +695,7 @@ impl CompanyChainEventProcessor {
                 {
                     warn!(
                         "Couldn't reset local signatory override for company {company_id} and {}: {e}",
-                        &payload.invitee
+                        payload.invitee
                     );
                 }
             }

@@ -536,7 +536,6 @@ pub mod tests {
             Some(_) => (),
             None => {
                 let _ = crate::init(crate::Config {
-                    app_url: url::Url::parse("https://bitcredit-dev.minibill.tech").unwrap(),
                     bitcoin_network: "testnet".to_string(),
                     esplora_base_urls: vec![
                         url::Url::parse("https://esplora.minibill.tech").unwrap(),

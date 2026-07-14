@@ -216,12 +216,12 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                         }
                     }
 
-                    debug!("finished identity chain resync for {}", &identity.node_id);
+                    debug!("finished identity chain resync for {}", identity.node_id);
                     Ok(())
                 } else {
                     let message = format!(
                         "Could not refetch chain data from Nostr for identity {}",
-                        &identity.node_id
+                        identity.node_id
                     );
                     error!("{message}");
                     Err(Error::Network(message))

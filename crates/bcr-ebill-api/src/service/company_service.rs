@@ -1049,7 +1049,7 @@ impl CompanyServiceApi for CompanyService {
     ) -> Result<()> {
         debug!(
             "adding signatory {} to company with id: {id}",
-            &signatory_node_id
+            signatory_node_id
         );
         validate_node_id_network(id)?;
         validate_node_id_network(&signatory_node_id)?;
@@ -1174,7 +1174,7 @@ impl CompanyServiceApi for CompanyService {
 
         debug!(
             "added signatory {} to company with id: {id}",
-            &signatory_node_id
+            signatory_node_id
         );
 
         Ok(())
@@ -1188,7 +1188,7 @@ impl CompanyServiceApi for CompanyService {
     ) -> Result<()> {
         debug!(
             "removing signatory {} from company with id: {id}",
-            &signatory_node_id
+            signatory_node_id
         );
         validate_node_id_network(id)?;
         validate_node_id_network(&signatory_node_id)?;
@@ -1320,7 +1320,7 @@ impl CompanyServiceApi for CompanyService {
         }
         debug!(
             "removed signatory {} to company with id: {id}",
-            &signatory_node_id
+            signatory_node_id
         );
 
         Ok(())

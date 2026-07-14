@@ -782,7 +782,7 @@ impl BillChainEventProcessor {
                                 Err(e) => {
                                     error!(
                                         "Received invalid block for bill {} - could not verify signature from block data signer",
-                                        &bill.id
+                                        bill.id
                                     );
                                     return Err(Error::Blockchain(e.to_string()));
                                 }

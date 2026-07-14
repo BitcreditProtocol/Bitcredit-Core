@@ -36,7 +36,6 @@ pub mod util;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub app_url: url::Url,
     pub bitcoin_network: String,
     /// List of Esplora API base URLs (in order of priority).
     /// The first URL is used for API requests with fallback to subsequent URLs on failure.

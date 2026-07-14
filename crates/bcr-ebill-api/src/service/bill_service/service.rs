@@ -357,7 +357,7 @@ impl BillService {
     ) -> Result<()> {
         debug!(
             "Checking mint request for quote {}",
-            &mint_request.mint_request_id
+            mint_request.mint_request_id
         );
         let mint_cfg = &get_config().mint_config;
         // for now, we only support the default mint
@@ -377,7 +377,7 @@ impl BillService {
                     if offer.proofs.is_none() && !offer.proofs_spent {
                         debug!(
                             "Checking for keyset info for {}",
-                            &mint_request.mint_request_id
+                            mint_request.mint_request_id
                         );
 
                         // Quote is MintingEnabled - attempt to mint
@@ -411,7 +411,7 @@ impl BillService {
                                                 // requester is neither identity, nor company
                                                 log::warn!(
                                                     "Requester for {} is not a local identity, or company",
-                                                    &mint_request.mint_request_id
+                                                    mint_request.mint_request_id
                                                 );
                                                 return Ok(());
                                             }
@@ -423,7 +423,7 @@ impl BillService {
                                 };
                                 debug!(
                                     "Keyset found and minting for {}",
-                                    &mint_request.mint_request_id
+                                    mint_request.mint_request_id
                                 );
                                 // generate blinds
                                 let (blinded_messages, secrets, rs) =
@@ -478,7 +478,7 @@ impl BillService {
                     } else if offer.proofs.is_some() && !offer.proofs_spent {
                         debug!(
                             "Checking if proofs for {} are spent",
-                            &mint_request.mint_request_id
+                            mint_request.mint_request_id
                         );
                         if let Some(proofs) = offer.proofs {
                             match self
@@ -494,7 +494,7 @@ impl BillService {
                                     if spent {
                                         debug!(
                                             "Proofs for {} are spent - updating",
-                                            &mint_request.mint_request_id
+                                            mint_request.mint_request_id
                                         );
                                         self.mint_store
                                             .set_proofs_to_spent_for_offer(
@@ -506,7 +506,7 @@ impl BillService {
                                 Err(e) => {
                                     error!(
                                         "Could not check if proofs are spent for {}: {e}",
-                                        &mint_request.mint_request_id
+                                        mint_request.mint_request_id
                                     );
                                 }
                             }
@@ -945,7 +945,7 @@ impl BillServiceApi for BillService {
             if self.check_requests_for_expiration(bill, current_timestamp)? {
                 debug!(
                     "Bill cache hit, but needs to recalculate because of request deadline {} - recalculating",
-                    &bill.id
+                    bill.id
                 );
                 *bill = self
                     .recalculate_and_cache_bill(
@@ -1180,7 +1180,7 @@ impl BillServiceApi for BillService {
     ) -> Result<BillBlockchain> {
         debug!(
             "Executing bill action {:?} for bill {bill_id}",
-            &bill_action
+            bill_action
         );
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(&signer_public_data.node_id())?;
@@ -1245,7 +1245,7 @@ impl BillServiceApi for BillService {
         )
         .await?;
 
-        debug!("Executed bill action {:?} for bill {bill_id}", &bill_action);
+        debug!("Executed bill action {:?} for bill {bill_id}", bill_action);
 
         Ok(blockchain)
     }
@@ -1715,7 +1715,7 @@ impl BillServiceApi for BillService {
             if let Err(e) = self.check_mint_quote_and_update_bill_mint_state(&req).await {
                 error!(
                     "Could not check mint state for {}: {e}",
-                    &req.mint_request_id
+                    req.mint_request_id
                 );
             }
         }
@@ -1734,7 +1734,7 @@ impl BillServiceApi for BillService {
             if let Err(e) = self.check_mint_quote_and_update_bill_mint_state(&req).await {
                 error!(
                     "Could not check mint state for {}: {e}",
-                    &req.mint_request_id
+                    req.mint_request_id
                 );
             }
         }
@@ -2006,7 +2006,7 @@ impl BillServiceApi for BillService {
         self.bitcoin_client.generate_link_to_pay(
             address,
             sum,
-            &format!("Payment in relation to a bill {}", &bill_id),
+            &format!("Payment in relation to a bill {}", bill_id),
         )
     }
 
