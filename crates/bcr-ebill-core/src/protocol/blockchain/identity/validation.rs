@@ -167,7 +167,7 @@ mod tests {
         let mut data = valid_identity_validate_action_data(valid_identity_chain());
         data.op = IdentityOpCode::SignCompanyBill;
         let result = data.validate();
-        assert!(matches!(result, Err(_)));
+        assert!(result.is_err());
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
         let mut data = valid_identity_validate_action_data(valid_identity_chain());
         data.op = IdentityOpCode::CreateCompany;
         let result = data.validate();
-        assert!(matches!(result, Err(_)));
+        assert!(result.is_err());
     }
 
     #[test]

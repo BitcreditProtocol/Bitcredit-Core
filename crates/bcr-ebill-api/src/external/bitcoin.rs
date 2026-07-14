@@ -541,7 +541,7 @@ impl BitcoinClientApi for BitcoinClient {
 
         // broadcast tx
         let tx_id = self.broadcast_tx(&serialize_hex(&tx)).await?;
-        let link = self.link_url(&format!("tx/{}", &tx_id));
+        let link = self.link_url(&format!("tx/{}", tx_id));
 
         Ok(SweepResult {
             tx_id,

@@ -67,7 +67,7 @@ impl BillService {
     pub(super) async fn issue_bill(&self, data: BillIssueData) -> Result<BitcreditBill> {
         debug!(
             "issuing bill with type {}, blank: {}",
-            &data.t, &data.blank_issue
+            data.t, data.blank_issue
         );
         validate_node_id_network(&data.drawee)?;
         validate_node_id_network(&data.payee)?;
@@ -283,7 +283,7 @@ impl BillService {
             {
                 error!(
                     "Error while cleaning up temporary file uploads for {}: {e}",
-                    &file_upload_id
+                    file_upload_id
                 );
             }
         }

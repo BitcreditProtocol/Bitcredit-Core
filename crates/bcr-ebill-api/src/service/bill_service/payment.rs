@@ -186,7 +186,7 @@ impl BillService {
                                 } else {
                                     log::error!(
                                         "Signer {} for bill {bill_id} is not a valid signer",
-                                        &identity.identity.node_id
+                                        identity.identity.node_id
                                     );
                                     return Ok(()); // return early
                                 }
@@ -310,7 +310,7 @@ impl BillService {
                                 } else {
                                     log::error!(
                                         "Signer {} for bill {bill_id} is not a valid signer",
-                                        &identity.identity.node_id
+                                        identity.identity.node_id
                                     );
                                     return Ok(()); // return early
                                 }

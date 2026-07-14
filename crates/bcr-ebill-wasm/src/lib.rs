@@ -56,7 +56,6 @@ where
 #[tsify(from_wasm_abi)]
 pub struct Config {
     pub log_level: Option<String>,
-    pub app_url: String,
     pub bitcoin_network: String,
     #[serde(
         alias = "esplora_base_url",
@@ -218,7 +217,6 @@ pub async fn initialize_api(
         .collect();
     let mint_node_id = NodeId::from_str(&config.default_mint_node_id).expect("is a valid mint id");
     let api_config = ApiConfig {
-        app_url: url::Url::parse(&config.app_url).expect("app url is not a valid URL"),
         bitcoin_network: config.bitcoin_network,
         esplora_base_urls: config
             .esplora_base_urls

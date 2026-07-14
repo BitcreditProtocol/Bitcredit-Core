@@ -201,7 +201,7 @@ pub fn decode_block(
         } else {
             Err(Error::Blockchain(format!(
                 "Invalid blockchain event {} {} expected {chain_id} {chain_type}",
-                &payload.id, payload.chain_type
+                payload.id, payload.chain_type
             )))
         }
     } else {

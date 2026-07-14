@@ -92,7 +92,7 @@ pub async fn create_nostr_clients(
     companies.extend(invite_companies);
 
     // Add all company identities
-    for (_, (_company, company_keys)) in companies.iter() {
+    for (_company, company_keys) in companies.values() {
         let company_node_id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
         debug!("Adding company identity: {}", company_node_id);
         identities.push((company_node_id, company_keys.clone()));
