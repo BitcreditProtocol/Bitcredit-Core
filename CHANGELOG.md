@@ -4,6 +4,7 @@
 * When creating an identity, or restoring, our own identity is added to the contact book (if it hasn't been there before), but without files
 * Add identity block validation for block creation and incoming blocks
 * Removed unused `app_url` from config
+* Use latest bcr-common
 
 # 0.5.13
 
