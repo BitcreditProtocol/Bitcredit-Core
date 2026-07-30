@@ -115,7 +115,7 @@ impl ServiceTraitBounds for MockBitcoinClientApi {}
 
 impl BitcoinClient {
     pub fn new() -> Self {
-        Self::from_config(get_config())
+        Self::from_config(get_config().as_ref())
     }
 
     pub fn from_config(config: &crate::Config) -> Self {
