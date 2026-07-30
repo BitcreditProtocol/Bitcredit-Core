@@ -11,8 +11,7 @@ use mockall::automock;
 /// Allows to sync and manage contacts with the remote transport network
 #[allow(dead_code)]
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait ContactTransportServiceApi: ServiceTraitBounds {
     /// Attempts to resolve the nostr contact for the given Node Id
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;

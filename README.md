@@ -1,6 +1,6 @@
 # E-Bills
 
-Core for Bitcredit E-Bills project.
+Bitcredit E-Bills project
 
 ### Crates
 
@@ -10,11 +10,39 @@ The project consists of the following crates:
 * `bcr-ebill-persistence` - persistence traits and SurrealDB implementation
 * `bcr-ebill-transport` - network transport API traits and Nostr implementation
 * `bcr-ebill-api` - API of the E-Bills project, contains most of the business logic
-* `bcr-ebill-wasm` - Entrypoint for WASM version of the E-Bill API
+* `bcr-ebill-flutter-ffi` - Entrypoint for the Native Flutter FFI version of the E-Bill API
 
 ### Entrypoint
 
-There is a `WASM` entry point into the API. You can find the documentation to build and configure it [here](docs/index.md):
+There is a `Native Flutter FFI` entry point into the API. You can find the documentation to build and configure it [here](docs/index.md):
+
+#### Run locally
+
+Check the prerequisites generally [here](./docs/prerequisites.md) and for flutter [here](./docs/flutter.md).
+
+In the project root, to re-build the bindings:
+
+```
+just flutter
+```
+
+then (you can replace linux with macos etc.)
+
+```
+cd example
+flutter run -d linux
+```
+
+If you want to run a second version, you can simply, from another tab, run:
+
+```
+cd example
+EBILL_HARNESS_DIR=/tmp/some-other-folder flutter run -d linux
+```
+
+and it will start a second app, with it's state set to the folder you set to.
+
+Deleting this folder resets the state.
 
 ### Tests
 
@@ -32,19 +60,3 @@ RUST_LOG=info cargo test -- --nocapture
 
 Check out the organisation's [contributing guide](https://github.com/BitcreditProtocol/.github/blob/master/CONTRIBUTING.md).
 
-## WASM publication approval
-
-The manual `WASM Release` workflow uses the `release-wasm` GitHub environment.
-Publication requires approval from one of the reviewers configured for that
-environment. GitHub environment settings are the source of truth for the list.
-Self-approval is allowed, administrators retain their bypass, and there is no
-additional wait timer. The workflow's existing initiator allowlist still applies.
-
-Only the `master` branch and branches matching `hotfix/*` may use this
-environment. Use names such as `hotfix/0.5.7-1` for new hotfix branches. Historical
-branches keep their names; they do not gain publication permission from an older
-naming convention. No tag policies are configured.
-
-Validate WASM builds with the normal `Rust CI` workflow. Do not run the publication
-workflow merely to test environment settings: it creates a release and publishes
-the npm package.

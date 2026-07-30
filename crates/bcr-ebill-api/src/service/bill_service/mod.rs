@@ -48,8 +48,7 @@ pub mod tests;
 impl ServiceTraitBounds for MockBillServiceApi {}
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait BillServiceApi: ServiceTraitBounds {
     /// Get bill balances
     async fn get_bill_balances(

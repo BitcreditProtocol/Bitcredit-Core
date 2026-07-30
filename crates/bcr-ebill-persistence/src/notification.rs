@@ -12,8 +12,7 @@ use bcr_ebill_core::{
     protocol::event::bill_events::ActionType,
 };
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NotificationStoreApi: ServiceTraitBounds {
     /// Returns node ids with an active notification for the given node ids
     async fn get_active_status_for_node_ids(
@@ -164,8 +163,7 @@ impl NotificationFilter {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait EmailNotificationStoreApi: ServiceTraitBounds {
     /// Stores an email preferences link for a given node id
     async fn add_email_preferences_link_for_node_id(

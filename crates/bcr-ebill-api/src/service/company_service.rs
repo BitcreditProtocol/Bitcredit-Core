@@ -63,11 +63,9 @@ use bitcoin::base58;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio_with_wasm::alias as tokio;
 use uuid::Uuid;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait CompanyServiceApi: ServiceTraitBounds {
     /// List signatories for company
     async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>>;
@@ -478,8 +476,7 @@ fn get_bcr_data(
 
 impl ServiceTraitBounds for CompanyService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl CompanyServiceApi for CompanyService {
     async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>> {
         validate_node_id_network(id)?;

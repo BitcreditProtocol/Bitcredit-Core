@@ -36,8 +36,7 @@ impl NostrContactProcessor {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NostrContactProcessorApi for NostrContactProcessor {
     async fn ensure_nostr_contact(&self, node_id: &NodeId) {
         // check that the given node id is from the configured network

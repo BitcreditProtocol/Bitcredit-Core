@@ -71,8 +71,7 @@ impl SurrealBillChainStore {
 
 impl ServiceTraitBounds for SurrealBillChainStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl BillChainStoreApi for SurrealBillChainStore {
     async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock> {
         let mut bindings = Bindings::default();

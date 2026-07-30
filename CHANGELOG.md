@@ -1,3 +1,10 @@
+# 0.6.0
+
+* Remove `bcr-ebill-wasm` - the PWA version of this is now deprecated, the last published version is 0.5.16 (and potential hotfixes)
+* Add `bcr-ebill-flutter-ffi` - the Native Flutter FFI Library version, which will be the main entry point going forward
+* Create a flutter test harness in the `example` folder
+* Adapted CI/CD away from wasm to Flutter
+
 # 0.5.16
 
 * Upgrade Dependencies

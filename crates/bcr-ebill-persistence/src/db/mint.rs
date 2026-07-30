@@ -40,8 +40,7 @@ impl SurrealMintStore {
 
 impl ServiceTraitBounds for SurrealMintStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl MintStoreApi for SurrealMintStore {
     async fn exists_for_bill(&self, requester_node_id: &NodeId, bill_id: &BillId) -> Result<bool> {
         let mut bindings = Bindings::default();

@@ -22,8 +22,7 @@ pub struct CompanyChainEventHandler {
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NotificationHandlerApi for CompanyChainEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
         event_type == &EventType::CompanyChain

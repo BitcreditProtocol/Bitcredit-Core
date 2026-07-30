@@ -10,8 +10,7 @@ use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 
 use super::Result;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait FileReferenceStoreApi: ServiceTraitBounds {
     async fn upsert(
         &self,

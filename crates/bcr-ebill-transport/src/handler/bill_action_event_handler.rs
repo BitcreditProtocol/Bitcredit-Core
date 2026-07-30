@@ -186,8 +186,7 @@ impl BillActionEventHandler {
 
 impl ServiceTraitBounds for BillActionEventHandler {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NotificationHandlerApi for BillActionEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
         event_type == &EventType::Bill

@@ -7,6 +7,11 @@ license.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = []
+protocol-ws = ["surrealdb/protocol-ws"]
+surrealkv = ["surrealdb/kv-surrealkv"]
+
 [dependencies]
 borsh.workspace = true
 async-trait.workspace = true
@@ -21,22 +26,13 @@ nostr.workspace = true
 bcr-ebill-core.workspace = true
 bcr-common.workspace = true
 time.workspace = true
+surrealdb = { workspace = true, default-features = false, features = ["protocol-ws"] }
 tokio.workspace = true
-tokio_with_wasm.workspace = true
 bitcoin.workspace = true
 url.workspace = true
 arc-swap = "1.7"
 
-# Enable "kv-indxdb" only for WebAssembly (wasm32)
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-surrealdb = { workspace = true, default-features = false, features = ["kv-indxdb"] }
-
-# Enable "protocol-ws" for all other targets
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-surrealdb = { workspace = true, default-features = false, features = ["protocol-ws"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
-
 [dev-dependencies]
 nostr_043 = { package = "nostr", version = "=0.43.1" } # for backwards-compat testing
+surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
+

@@ -16,8 +16,7 @@ use uuid::Uuid;
 #[cfg(test)]
 use mockall::automock;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait FileUploadServiceApi: ServiceTraitBounds {
     /// validates the given uploaded file
     async fn validate_attached_file(&self, file: &dyn UploadFileHandler) -> Result<()>;
@@ -42,8 +41,7 @@ impl FileUploadService {
 
 impl ServiceTraitBounds for FileUploadService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl FileUploadServiceApi for FileUploadService {
     async fn validate_attached_file(&self, file: &dyn UploadFileHandler) -> Result<()> {
         if file.is_empty() {

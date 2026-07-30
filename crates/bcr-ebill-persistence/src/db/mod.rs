@@ -1,8 +1,4 @@
 use super::{Error, Result};
-#[cfg(target_arch = "wasm32")]
-use crate::constants::{
-    SURREAL_DB_CON_INDXDB_DATA, SURREAL_DB_INDXDB_DB_DATA, SURREAL_DB_INDXDB_NS_DATA,
-};
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::{
     Address, City, Country, Email, EmailIdentityProofData, File, Name, OptionalPostalAddress,
@@ -10,7 +6,6 @@ use bcr_ebill_core::protocol::{
 };
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_arch = "wasm32"))]
 use surrealdb::{
     Surreal,
     engine::any::{Any, connect},
@@ -44,7 +39,6 @@ pub struct SurrealDbConfig {
 }
 
 impl Default for SurrealDbConfig {
-    #[cfg(not(target_arch = "wasm32"))]
     fn default() -> Self {
         Self {
             connection_string: "rocksdb://data/surrealdb".to_owned(),
@@ -52,18 +46,9 @@ impl Default for SurrealDbConfig {
             database: "ebills".to_owned(),
         }
     }
-    #[cfg(target_arch = "wasm32")]
-    fn default() -> Self {
-        Self {
-            connection_string: SURREAL_DB_CON_INDXDB_DATA.to_string(),
-            namespace: SURREAL_DB_INDXDB_NS_DATA.to_string(),
-            database: SURREAL_DB_INDXDB_DB_DATA.to_string(),
-        }
-    }
 }
 
 /// Connect to the SurrealDB instance using the provided configuration.
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn get_surreal_db(config: &SurrealDbConfig) -> Result<Surreal<Any>> {
     let db = connect(&config.connection_string).await.map_err(|e| {
         log::error!("Error connecting to SurrealDB with config: {config:?}. Error: {e}");

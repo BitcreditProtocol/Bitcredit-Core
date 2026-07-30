@@ -34,8 +34,7 @@ impl SurrealFileReferenceStore {
 
 impl ServiceTraitBounds for SurrealFileReferenceStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl FileReferenceStoreApi for SurrealFileReferenceStore {
     async fn upsert(
         &self,
