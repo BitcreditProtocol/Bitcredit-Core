@@ -4,8 +4,7 @@ pub mod tests {
     use crate::CourtConfig;
     use crate::service::transport_service::{self, chain_keys::ChainKeyServiceApi};
     use crate::{
-        CONFIG, DbContext, DevModeConfig, MintConfig, NostrConfig, NostrContactStoreApi,
-        PaymentConfig,
+        DbContext, DevModeConfig, MintConfig, NostrConfig, NostrContactStoreApi, PaymentConfig,
     };
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
@@ -532,46 +531,40 @@ pub mod tests {
     }
 
     pub fn init_test_cfg() {
-        match CONFIG.get() {
-            Some(_) => (),
-            None => {
-                let _ = crate::init(crate::Config {
-                    bitcoin_network: "testnet".to_string(),
-                    esplora_base_urls: vec![
-                        url::Url::parse("https://esplora.minibill.tech").unwrap(),
-                    ],
-                    db_config: SurrealDbConfig {
-                        connection_string: "ws://localhost:8800".to_string(),
-                        ..SurrealDbConfig::default()
-                    },
-                    files_db_config: SurrealDbConfig {
-                        connection_string: "ws://localhost:8800".to_string(),
-                        ..SurrealDbConfig::default()
-                    },
-                    nostr_config: NostrConfig {
-                        only_known_contacts: false,
-                        relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
-                        blossom_servers: vec![],
-                        max_relays: Some(50),
-                        relay_ack_threshold: 1,
-                    },
-                    mint_config: MintConfig {
-                        default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
-                        default_mint_node_id: node_id_test(),
-                    },
-                    payment_config: PaymentConfig {
-                        num_confirmations_for_payment: 6,
-                    },
-                    dev_mode_config: DevModeConfig {
-                        on: false,
-                        mandatory_email_confirmations: true,
-                    },
-                    court_config: CourtConfig {
-                        default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
-                    },
-                });
-            }
-        }
+        crate::init(crate::Config {
+            bitcoin_network: "testnet".to_string(),
+            esplora_base_urls: vec![url::Url::parse("https://esplora.minibill.tech").unwrap()],
+            db_config: SurrealDbConfig {
+                connection_string: "ws://localhost:8800".to_string(),
+                ..SurrealDbConfig::default()
+            },
+            files_db_config: SurrealDbConfig {
+                connection_string: "ws://localhost:8800".to_string(),
+                ..SurrealDbConfig::default()
+            },
+            nostr_config: NostrConfig {
+                only_known_contacts: false,
+                relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+                blossom_servers: vec![],
+                max_relays: Some(50),
+                relay_ack_threshold: 1,
+            },
+            mint_config: MintConfig {
+                default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
+                default_mint_node_id: node_id_test(),
+            },
+            payment_config: PaymentConfig {
+                num_confirmations_for_payment: 6,
+            },
+            dev_mode_config: DevModeConfig {
+                on: false,
+                mandatory_email_confirmations: true,
+            },
+            court_config: CourtConfig {
+                default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
+            },
+        })
+        .expect("can init config");
     }
 
     pub fn empty_address() -> PostalAddress {
