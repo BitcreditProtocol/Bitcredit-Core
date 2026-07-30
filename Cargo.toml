@@ -12,6 +12,7 @@ members = [
   "crates/bcr-ebill-transport",
   "crates/bcr-ebill-api",
   "crates/bcr-ebill-wasm",
+  "crates/bcr-ebill-flutter-ffi",
 ]
 
 [profile.release]

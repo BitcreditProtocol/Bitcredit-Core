@@ -25,7 +25,7 @@ use bcr_ebill_persistence::{
 };
 use bitcoin::Network;
 use log::error;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, RwLock};
 
 pub mod constants;
 pub mod external;
@@ -50,7 +50,7 @@ pub struct Config {
     pub court_config: CourtConfig,
 }
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
+static CONFIG: RwLock<Option<Arc<Config>>> = RwLock::new(None);
 
 impl Config {
     pub fn bitcoin_network(&self) -> Network {
@@ -148,14 +148,14 @@ pub fn init(conf: Config) -> Result<()> {
         return Err(anyhow!("esplora_base_urls must contain at least one URL"));
     }
 
-    CONFIG
-        .set(conf)
-        .map_err(|e| anyhow!("Could not initialize E-Bill API: {e:?}"))?;
+    let mut cfg_lock = CONFIG.write().expect("can get write lock on config");
+    *cfg_lock = Some(Arc::new(conf));
     Ok(())
 }
 
-pub fn get_config() -> &'static Config {
-    CONFIG.get().expect("E-Bill API is not initialized")
+pub fn get_config() -> Arc<Config> {
+    let config = CONFIG.read().expect("Can get E-Bill config lock");
+    config.clone().expect("E-Bill API is not initialized")
 }
 
 /// A container for all persistence related dependencies.
