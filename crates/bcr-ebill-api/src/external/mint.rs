@@ -1,9 +1,9 @@
-use std::str::FromStr;
-
 use async_trait::async_trait;
-use bcr_common::cashu::{self, ProofsMethods, State, nut01 as cdk01, nut02 as cdk02};
+use bcr_common::cashu::{self, State, nut01 as cdk01, nut02 as cdk02};
 use bcr_common::client::mint::Client as ExternalMintClient;
+use bcr_common::core::NodeId;
 use bcr_common::core::{BillId, keys::to_fee_and_amounts};
+use bcr_common::ecash::ProofsMethods;
 use bcr_common::wallet;
 use bcr_common::wire::quotes::{ResolveOffer, StatusReply};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash, Sum};
@@ -13,6 +13,8 @@ use bcr_ebill_core::{
 };
 use nostr::hashes::{Hash, sha256};
 use secp256k1::rand::{prelude::SliceRandom, thread_rng};
+use std::ops::Deref;
+use std::str::FromStr;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -86,6 +88,8 @@ pub enum Error {
 
 #[cfg(test)]
 use mockall::automock;
+
+use crate::get_config;
 
 #[cfg_attr(test, automock)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -177,7 +181,7 @@ impl MintClientApi for MintClient {
             cashu::MintUrl::from_str(mint_url.as_str()).map_err(|_| Error::InvalidMintUrl)?;
         let token = wallet::Token::from_str(proofs).map_err(|_| Error::InvalidToken)?;
 
-        if token_mint_url != token.mint_url() {
+        if Some(token_mint_url) != token.mint_url() {
             return Err(Error::InvalidToken.into());
         }
 
@@ -196,7 +200,7 @@ impl MintClientApi for MintClient {
             })?;
 
         let ys = token
-            .proofs(&[keyset_info])
+            .proofs(&[keyset_info.into()])
             .map_err(|_| Error::InvalidToken)?
             .ys()
             .map_err(|_| Error::PubKey)?;
@@ -228,6 +232,19 @@ impl MintClientApi for MintClient {
         let secret_key = cdk01::SecretKey::from_hex(private_key.display_secret().to_string())
             .map_err(|_| Error::PrivateKey)?;
         let qid = quote_id.to_owned();
+        let clowder_id = self
+            .client(mint_url)?
+            .get_info()
+            .await
+            .map_err(|e| {
+                log::error!("Error getting mint clowder info on mint {mint_url}: {e}");
+                Error::ClowderClient
+            })?
+            .node_id;
+        let clowder_node_id = NodeId::new(
+            clowder_id.deref().to_owned(),
+            get_config().bitcoin_network(),
+        );
         let currency = self
             .client(mint_url)?
             .keyset_info(keyset.id)
@@ -256,8 +273,15 @@ impl MintClientApi for MintClient {
         })?;
 
         // generate token from proofs
-        let token =
-            wallet::Token::new_bitcr(token_mint_url, proofs, Some(bill_id.to_string()), currency);
+        let token = wallet::Token::BitcrV5(
+            wallet::BitcrTokenV5::new(
+                clowder_node_id,
+                currency,
+                proofs.into_iter().map(|p| p.into()).collect(),
+            )
+            .with_memo(bill_id.to_string())
+            .with_mint_url(token_mint_url.to_string()),
+        );
 
         Ok(token.to_string())
     }
