@@ -1,6 +1,7 @@
 # 0.5.15
 
 * Use latest bcr-common with new bitcr Token format including the btc network
+* Adapt `bitcoin network` parsing - `bitcoin` is now a valid value for `mainnet`
 
 # 0.5.14
 

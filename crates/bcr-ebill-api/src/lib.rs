@@ -56,10 +56,17 @@ impl Config {
     pub fn bitcoin_network(&self) -> Network {
         match self.bitcoin_network.as_str() {
             "mainnet" => Network::Bitcoin,
+            "bitcoin" => Network::Bitcoin,
             "testnet" => Network::Testnet,
             "testnet4" => Network::Testnet4,
             "regtest" => Network::Regtest,
-            _ => Network::Testnet,
+            _ => {
+                log::warn!(
+                    "Triggered fallback for config bitcoin network, network is set to {}, but defaulted to Testnet",
+                    self.bitcoin_network
+                );
+                Network::Testnet
+            }
         }
     }
 }
