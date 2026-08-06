@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.5.14"
+version = "0.5.15"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/BitcreditProtocol/Bitcredit-Core"
@@ -68,7 +68,7 @@ bcr-ebill-core = { path = "./crates/bcr-ebill-core" }
 bcr-ebill-api = { path = "./crates/bcr-ebill-api" }
 bcr-ebill-persistence = { path = "./crates/bcr-ebill-persistence" }
 bcr-ebill-transport = { path = "./crates/bcr-ebill-transport" }
-bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", rev = "578dee0745af17226f3b5e6ec6ed61556e2e1ada" }
+bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", rev = "27f849ea8e17b23b5e9384cae2eaeb766c65a144" }
 surrealdb = { version = "2.3", default-features = false }
 strum = { version = "0.27", features = ["derive"] }
 url = { version = "2.5" }

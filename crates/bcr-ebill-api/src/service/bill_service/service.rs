@@ -1178,10 +1178,7 @@ impl BillServiceApi for BillService {
         signer_keys: &BcrKeys,
         timestamp: Timestamp,
     ) -> Result<BillBlockchain> {
-        debug!(
-            "Executing bill action {:?} for bill {bill_id}",
-            bill_action
-        );
+        debug!("Executing bill action {:?} for bill {bill_id}", bill_action);
         validate_bill_id_network(bill_id)?;
         validate_node_id_network(&signer_public_data.node_id())?;
         // fetch data

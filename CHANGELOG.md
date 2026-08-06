@@ -1,3 +1,7 @@
+# 0.5.15
+
+* Use latest bcr-common with new bitcr Token format including the btc network
+
 # 0.5.14
 
 * When creating a company, or being invited to a company, it's added to the contact book (if it hasn't been there before), but without files
