@@ -245,6 +245,7 @@ pub async fn initialize_api(
                 .expect("court url is not a valid URL"),
         },
     };
+    debug!("Config: {api_config:?}");
     init(api_config.clone())?;
     // make sure the configured default mint node id is valid for the configured network
     validate_node_id_network(&api_config.mint_config.default_mint_node_id)?;
@@ -268,7 +269,6 @@ pub async fn initialize_api(
             .expect("invalid npub from node id")
     );
     info!("Local npub as hex: {}", node_id.npub().to_hex());
-    debug!("Config: {api_config:?}");
 
     // init context as static reference
     let ctx = Context::new(api_config.clone(), db).await?;
