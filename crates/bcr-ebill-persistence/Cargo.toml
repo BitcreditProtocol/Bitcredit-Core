@@ -7,6 +7,11 @@ license.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = []
+protocol-ws = ["surrealdb/protocol-ws"]
+surrealkv = ["surrealdb/kv-surrealkv"]
+
 [dependencies]
 borsh.workspace = true
 chrono.workspace = true
@@ -31,9 +36,16 @@ arc-swap = "1.7"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 surrealdb = { workspace = true, default-features = false, features = ["kv-indxdb"] }
 
-# Enable "protocol-ws" for all other targets
+# Native backend is selected through this crate's features
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-surrealdb = { workspace = true, default-features = false, features = ["protocol-ws"] }
+surrealdb = {
+    workspace = true,
+    default-features = false
+}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
+surrealdb = {
+    workspace = true,
+    default-features = false,
+    features = ["kv-mem"]
+}

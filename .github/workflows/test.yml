@@ -81,6 +81,8 @@ jobs:
             --branch \
             --excl-start 'mod tests \{' \
             --ignore 'tests/*' \
+            --ignore "crates/bcr-ebill-wasm/*" \
+            --ignore "crates/bcr-ebill-flutter-ffi/*" \
             --keep-only "crates/*" \
             -o lcov.info \
             -t lcov `find crates -name coverage`

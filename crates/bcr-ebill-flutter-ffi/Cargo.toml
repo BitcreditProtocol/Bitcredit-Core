@@ -1,0 +1,33 @@
+[package]
+name = "bcr_ebill_flutter_ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+android_logger = {version = "0.15"}
+anyhow = {workspace = true}
+async-trait.workspace = true
+base64.workspace = true
+bcr-common.workspace = true
+bcr-ebill-core.workspace = true
+bcr-ebill-persistence = {workspace = true, features = ["surrealkv"]}
+bcr-ebill-api.workspace = true
+bcr-ebill-transport.workspace = true
+chrono.workspace = true
+env_logger = {version = "0.11"}
+flutter_rust_bridge = { version = "=2.12.0", default-features = false, features = ["anyhow", "dart-opaque", "portable-atomic", "rust-async", "thread-pool", "user-utils", "wasm-start"] }
+log = {version = "0.4"}
+nostr.workspace = true
+nostr-sdk.workspace = true
+once_cell = {version = "1.21"}
+tokio = {workspace = true, features = ["macros", "rt-multi-thread", "time", "rt", "sync"]}
+tokio-util = {version = "0.7"}
+url = {workspace = true}
+uuid.workspace = true
+
+[lints.rust]
+unexpected_cfgs = {level = "warn", check-cfg = ['cfg(frb_expand)']}

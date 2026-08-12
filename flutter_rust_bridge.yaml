@@ -1,0 +1,4 @@
+rust_input: crate::ffi
+rust_root: crates/bcr-ebill-flutter-ffi/
+dart_output: lib/src/rust
+build_runner: false
