@@ -16,7 +16,7 @@ updates:
       - "dependencies"
       - "github-actions"
     assignees:
-      - "cleot" # devops
+      - "zupzup"
 
   - package-ecosystem: "cargo"
     directory: "/"
@@ -40,3 +40,5 @@ updates:
       semver-major-days: 30
       semver-minor-days: 7
       semver-patch-days: 3
+    assignees:
+      - "zupzup"
