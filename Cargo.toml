@@ -62,7 +62,7 @@ rstest = "0.26"
 secp256k1 = { version = "0.29" }
 reqwest = { version = "0.12", default-features = false }
 miniscript = { version = "12.3" }
-base64 = "0.22"
+base64 = "0.23"
 mockall = "0.13.1"
 bcr-ebill-core = { path = "./crates/bcr-ebill-core" }
 bcr-ebill-api = { path = "./crates/bcr-ebill-api" }
