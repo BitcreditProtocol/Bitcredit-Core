@@ -1,0 +1,42 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    groups:
+      all-github-actions:
+        patterns:
+          - "*"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "08:30"
+      timezone: "Europe/Vienna"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    assignees:
+      - "cleot" # devops
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    groups:
+      rust-patch:
+        update-types:
+          - "patch"
+      rust-minor:
+        update-types:
+          - "minor"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:30"
+      timezone: "Europe/Vienna"
+    open-pull-requests-limit: 7
+    labels:
+      - "dependencies"
+      - "rust"
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
