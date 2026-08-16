@@ -70,6 +70,6 @@ bcr-ebill-persistence = { path = "./crates/bcr-ebill-persistence" }
 bcr-ebill-transport = { path = "./crates/bcr-ebill-transport" }
 bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", rev = "27f849ea8e17b23b5e9384cae2eaeb766c65a144" }
 surrealdb = { version = "2.3", default-features = false }
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 url = { version = "2.5" }
 mockito = "1.7"
