@@ -23,7 +23,7 @@ bitcoin.workspace = true
 miniscript.workspace = true
 nostr.workspace = true
 futures.workspace = true
-infer = { version = "0.19.0", default-features = false }
+infer = { version = "0.22.0", default-features = false }
 bcr-ebill-core.workspace = true
 bcr-ebill-persistence.workspace = true
 bcr-common.workspace = true
