@@ -19,6 +19,7 @@ env:
 
 jobs:
   build:
+    timeout-minutes: 40
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
