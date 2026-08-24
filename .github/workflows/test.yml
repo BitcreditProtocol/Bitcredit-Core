@@ -18,6 +18,7 @@ env:
 
 jobs:
   test:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
