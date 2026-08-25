@@ -398,7 +398,10 @@ async fn issue_bill_baseline() {
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
-        Ok(uploaded_at(hash, &format!("https://blossom.example/{hash}")))
+        Ok(uploaded_at(
+            hash,
+            &format!("https://blossom.example/{hash}"),
+        ))
     });
     expect_successful_bill_issue_transaction(&mut ctx, false);
     // should send a bill is signed event
@@ -471,7 +474,10 @@ async fn issue_bill_baseline_anon() {
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
-        Ok(uploaded_at(hash, &format!("https://blossom.example/{hash}")))
+        Ok(uploaded_at(
+            hash,
+            &format!("https://blossom.example/{hash}"),
+        ))
     });
     expect_successful_bill_issue_transaction(&mut ctx, false);
     // should send a bill is signed event
@@ -622,7 +628,10 @@ async fn issue_bill_as_company() {
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
-        Ok(uploaded_at(hash, &format!("https://blossom.example/{hash}")))
+        Ok(uploaded_at(
+            hash,
+            &format!("https://blossom.example/{hash}"),
+        ))
     });
     expect_successful_bill_issue_transaction(&mut ctx, true);
     // should send a bill is signed event
