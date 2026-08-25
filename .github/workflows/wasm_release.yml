@@ -14,6 +14,7 @@ env:
 jobs:
   release:
     name: WASM Release and Publish
+    timeout-minutes: 25
     runs-on: ubuntu-latest
 
     permissions:
