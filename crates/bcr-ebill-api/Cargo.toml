@@ -38,6 +38,7 @@ strum.workspace = true
 hex = { version = "0.4" }
 url.workspace = true
 base64.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true

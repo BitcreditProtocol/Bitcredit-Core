@@ -61,4 +61,4 @@ strum = { version = "0.28", features = ["derive"] }
 url = { version = "2.5" }
 mockito = "1.7"
 once_cell = {version = "1.21"}
-
+unicode-normalization = "0.1"
