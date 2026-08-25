@@ -394,7 +394,10 @@ async fn issue_bill_baseline() {
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
-        Ok(uploaded_at(hash, &format!("https://blossom.example/{hash}")))
+        Ok(uploaded_at(
+            hash,
+            &format!("https://blossom.example/{hash}"),
+        ))
     });
     ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
     ctx.bill_store
@@ -470,7 +473,10 @@ async fn issue_bill_baseline_anon() {
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
-        Ok(uploaded_at(hash, &format!("https://blossom.example/{hash}")))
+        Ok(uploaded_at(
+            hash,
+            &format!("https://blossom.example/{hash}"),
+        ))
     });
     ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
     ctx.bill_store
@@ -624,7 +630,10 @@ async fn issue_bill_as_company() {
             "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
         )
         .unwrap();
-        Ok(uploaded_at(hash, &format!("https://blossom.example/{hash}")))
+        Ok(uploaded_at(
+            hash,
+            &format!("https://blossom.example/{hash}"),
+        ))
     });
     ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
     ctx.bill_store
