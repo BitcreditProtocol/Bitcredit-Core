@@ -782,7 +782,7 @@ mod tests {
 
     #[tokio::test]
     async fn important_file_replication_triggers_when_missing_configured_server() {
-        use crate::external::file_storage::MockFileStorageClientApi;
+        use crate::external::file_storage::{MockFileStorageClientApi, UploadedBlob, to_url};
         use crate::tests::tests::MockFileReferenceStoreApiMock;
         use bitcoin::hashes::Hash;
 
@@ -819,7 +819,13 @@ mod tests {
 
         file_storage_client
             .expect_upload()
-            .returning(|_, _| Ok(nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap()));
+            .returning(|server, _| {
+                let hash = nostr::hashes::sha256::Hash::from_slice(&[0u8; 32]).unwrap();
+                Ok(UploadedBlob {
+                    hash,
+                    url: to_url(server, &hash.to_string()).unwrap(),
+                })
+            });
 
         file_reference_store
             .expect_add_server_urls()
