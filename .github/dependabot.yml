@@ -23,11 +23,9 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/"
     groups:
-      rust-patch:
+      rust:
         update-types:
           - "patch"
-      rust-minor:
-        update-types:
           - "minor"
     schedule:
       interval: "weekly"
