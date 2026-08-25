@@ -2,7 +2,7 @@ use super::error::Error;
 use super::{BillAction, BillServiceApi, Result};
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
-use crate::external::file_storage::{self, FileStorageClientApi};
+use crate::external::file_storage::FileStorageClientApi;
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
 use crate::service::file_server_service::{
     configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers_with_server,
@@ -744,7 +744,7 @@ impl BillService {
                 .await?;
             let encrypted_file = crypto::encrypt_ecies(&decrypted_file, receiver_public_key)?;
 
-            let (uploaded_server, uploaded_hash, _confirmed_servers) =
+            let (uploaded_url, _uploaded_hash, _confirmed_servers) =
                 upload_to_blossom_servers_with_server(
                     self.file_upload_client.as_ref(),
                     &blossom_servers,
@@ -754,10 +754,7 @@ impl BillService {
                 .await
                 .map_err(Error::from)?;
 
-            file_urls.push(file_storage::to_url(
-                &uploaded_server,
-                &uploaded_hash.to_string(),
-            )?);
+            file_urls.push(uploaded_url);
         }
 
         Ok(file_urls)
