@@ -358,6 +358,7 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
             "esplora_base_urls must contain at least one URL"
         )));
     }
+    api_config.try_bitcoin_network()?;
     debug!("Config: {api_config:?}");
     Ok(api_config)
 }
