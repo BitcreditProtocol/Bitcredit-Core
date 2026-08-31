@@ -341,7 +341,7 @@ mod test_utils {
     use bcr_common::cashu::{self, nut02 as cdk02};
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_api::external::mint::MintClientApi;
-    use bcr_ebill_api::external::mint::{QuoteStatusReply, ResolveMintOffer};
+    use bcr_ebill_api::external::mint::{MintQuoteLookupReply, ResolveMintOffer};
     use bcr_ebill_core::application::company::{
         CompanySignatory, CompanySignatoryStatus, CompanyStatus,
     };
@@ -435,7 +435,7 @@ mod test_utils {
                 &self,
                 mint_url: &url::Url,
                 quote_id: &uuid::Uuid,
-            ) -> bcr_ebill_api::external::mint::Result<QuoteStatusReply>;
+            ) -> bcr_ebill_api::external::mint::Result<MintQuoteLookupReply>;
             async fn resolve_quote_for_mint(
                 &self,
                 mint_url: &url::Url,

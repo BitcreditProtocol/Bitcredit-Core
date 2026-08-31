@@ -1,3 +1,4 @@
+use super::service::authoritative_applicant_action_for_status;
 use super::*;
 use crate::{
     external::{file_storage::UploadedBlob, mint::QuoteStatusReply},
@@ -18,6 +19,7 @@ use crate::{
     util::get_uuid_v4,
 };
 use bcr_common::cashu::nut02 as cdk02;
+use bcr_common::wire::quotes::{ApplicantActionKind, ApplicantActionProjection};
 use bcr_ebill_core::{
     application::{
         ValidationError,
@@ -74,6 +76,28 @@ fn uploaded_at(hash: Sha256HexHash, url: &str) -> UploadedBlob {
         hash,
         url: url::Url::parse(url).unwrap(),
     }
+}
+
+#[test]
+fn stale_applicant_action_is_discarded_for_terminal_quote_status() {
+    let action = ApplicantActionProjection {
+        kind: ApplicantActionKind::Clarification,
+        revision_digest: format!("sha256:{}", "a".repeat(64)),
+    };
+
+    assert_eq!(
+        authoritative_applicant_action_for_status(
+            &QuoteStatusReply::Denied {
+                tstamp: DateTimeUtc::default(),
+            },
+            Some(action.clone()),
+        ),
+        None
+    );
+    assert_eq!(
+        authoritative_applicant_action_for_status(&QuoteStatusReply::Pending, Some(action.clone())),
+        Some(action)
+    );
 }
 
 #[tokio::test]
@@ -7529,7 +7553,8 @@ async fn check_mint_state_for_all_bills_baseline() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Denied {
                 tstamp: DateTimeUtc::default(),
-            })
+            }
+            .into())
         });
     let req_node_id = identity.identity.node_id.clone();
     ctx.mint_store
@@ -7564,7 +7589,8 @@ async fn check_mint_state_baseline() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Denied {
                 tstamp: DateTimeUtc::default(),
-            })
+            }
+            .into())
         });
     let req_node_id = identity.identity.node_id.clone();
     ctx.mint_store
@@ -7591,6 +7617,61 @@ async fn check_mint_state_baseline() {
 }
 
 #[tokio::test]
+async fn notification_failure_does_not_block_authoritative_mint_state_update() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+
+    ctx.mint_client
+        .expect_lookup_quote_for_mint()
+        .returning(|_, _| {
+            Ok(QuoteStatusReply::Denied {
+                tstamp: DateTimeUtc::default(),
+            }
+            .into())
+        });
+    let req_node_id = identity.identity.node_id.clone();
+    ctx.mint_store
+        .expect_get_requests_for_bill()
+        .returning(move |_, _| {
+            Ok(vec![MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Offered,
+            }])
+        });
+    ctx.mint_store
+        .expect_update_request()
+        .times(1)
+        .returning(|_, status| {
+            assert!(matches!(status, MintRequestStatus::Denied { .. }));
+            Ok(())
+        });
+    ctx.transport_service.checkpoint();
+    ctx.transport_service
+        .expect_on_notification_transport(|notification| {
+            notification
+                .expect_reconcile_quote_applicant_action_notification()
+                .times(1)
+                .returning(|_, _, _, _| {
+                    Err(crate::service::transport_service::Error::Persistence(
+                        "synthetic notification failure".to_owned(),
+                    ))
+                });
+        });
+
+    let service = get_service(ctx);
+    let result = service
+        .check_mint_state(&bill_id_test(), &identity.identity.node_id)
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
 async fn check_mint_state_pending_accepted() {
     init_test_cfg();
     let mut ctx = get_ctx();
@@ -7601,7 +7682,8 @@ async fn check_mint_state_pending_accepted() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Accepted {
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-            })
+            }
+            .into())
         });
     let req_node_id = identity.identity.node_id.clone();
     ctx.mint_store
@@ -7640,7 +7722,8 @@ async fn check_mint_state_pending_offered() {
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
                 expiration_date: DateTimeUtc::default(),
                 discounted: bitcoin::Amount::default(),
-            })
+            }
+            .into())
         });
     let req_node_id = identity.identity.node_id.clone();
     ctx.mint_store
@@ -7680,7 +7763,8 @@ async fn check_mint_state_offered_accepted() {
         .returning(|_, _| {
             Ok(QuoteStatusReply::Accepted {
                 keyset_id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-            })
+            }
+            .into())
         });
     let req_node_id = identity.identity.node_id.clone();
     ctx.mint_store
