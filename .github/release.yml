@@ -6,9 +6,10 @@
 # first on purpose -- a pull request labelled both `breaking` and `enhancement`
 # is a breaking change, and that is the line a reader is scanning for.
 #
-# Every label named here is in the `required` tier of labels.yml, so it exists in
-# all 29 repositories and sync-labels recreates it if it is deleted. A category
-# keyed on a label that exists in one repository would be a decoration.
+# Every label named here, except the `*` wildcard, is in the `required` tier of
+# labels.yml at the root of BitcreditProtocol/.github; sync-labels there creates it
+# in every repository weekly and recreates it if deleted. A category keyed on a
+# label that exists in one repository would be a decoration.
 changelog:
   exclude:
     labels:
