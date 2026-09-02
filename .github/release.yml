@@ -1,0 +1,38 @@
+# Shapes the notes GitHub generates for a release: the "Generate release notes"
+# button, softprops/action-gh-release, and the release train in
+# BitcreditProtocol/.github. Without this file the generator emits one flat list.
+#
+# Categories are matched in order and the first match wins, so `breaking` is
+# first on purpose -- a pull request labelled both `breaking` and `enhancement`
+# is a breaking change, and that is the line a reader is scanning for.
+#
+# Every label named here is in the `required` tier of labels.yml, so it exists in
+# all 29 repositories and sync-labels recreates it if it is deleted. A category
+# keyed on a label that exists in one repository would be a decoration.
+changelog:
+  exclude:
+    labels:
+      - duplicate
+      - invalid
+      - wontfix
+      - question
+      - awaiting triage
+  categories:
+    - title: ⚠️ Breaking changes
+      labels:
+        - breaking
+    - title: Features
+      labels:
+        - enhancement
+    - title: Fixes
+      labels:
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Other changes
+      labels:
+        - "*"
