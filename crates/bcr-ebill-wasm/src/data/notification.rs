@@ -8,7 +8,6 @@ use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct NotificationStatusWeb {
     #[tsify(type = "string")]
     pub node_id: NodeId,
@@ -16,7 +15,6 @@ pub struct NotificationStatusWeb {
 }
 
 #[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct NotificationWeb {
     pub id: String,
     #[tsify(type = "string")]
@@ -50,7 +48,6 @@ impl From<Notification> for NotificationWeb {
 }
 
 #[derive(Tsify, Debug, Copy, Clone, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum NotificationTypeWeb {
     General,
     Company,
@@ -70,7 +67,6 @@ impl From<NotificationType> for NotificationTypeWeb {
 }
 
 #[derive(Tsify, Debug, Copy, Clone, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum NotificationLevelWeb {
     Informational,
     ActionRequired,

@@ -100,7 +100,7 @@ impl From<DateTimeUtc> for Timestamp {
 
 impl From<nostr::types::Timestamp> for Timestamp {
     fn from(value: nostr::types::Timestamp) -> Self {
-        Timestamp(value.as_u64())
+        Timestamp(value.as_secs())
     }
 }
 

@@ -1,6 +1,6 @@
+use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use nostr::hashes::sha256::Hash as Sha256HexHash;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
