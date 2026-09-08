@@ -31,3 +31,19 @@ RUST_LOG=info cargo test -- --nocapture
 ## Contribute
 
 Check out the project [contributing guide](./CONTRIBUTING.md).
+
+## WASM publication approval
+
+The manual `WASM Release` workflow uses the `release-wasm` GitHub environment.
+Publication requires approval from one of `cleot`, `zupzup` or `mtbitcr`.
+Self-approval is allowed, administrators retain their bypass, and there is no
+additional wait timer. The workflow's existing initiator allowlist still applies.
+
+Only the `master` branch and branches matching `hotfix/*` may use this
+environment. Use names such as `hotfix/0.5.7-1` for new hotfix branches. Historical
+branches keep their names; they do not gain publication permission from an older
+naming convention. No tag policies are configured.
+
+Validate WASM builds with the normal `Rust CI` workflow. Do not run the publication
+workflow merely to test environment settings: it creates a release and publishes
+the npm package.
