@@ -35,7 +35,8 @@ Check out the project [contributing guide](./CONTRIBUTING.md).
 ## WASM publication approval
 
 The manual `WASM Release` workflow uses the `release-wasm` GitHub environment.
-Publication requires approval from one of `cleot`, `zupzup` or `mtbitcr`.
+Publication requires approval from one of the reviewers configured for that
+environment. GitHub environment settings are the source of truth for the list.
 Self-approval is allowed, administrators retain their bypass, and there is no
 additional wait timer. The workflow's existing initiator allowlist still applies.
 
