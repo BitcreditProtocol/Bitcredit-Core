@@ -58,11 +58,17 @@ Actions artifact for 90 days. Source and generated package versions must match.
 SemVer build metadata remains in the source tag and package; npm registry version
 identity excludes build metadata.
 
-Use GitHub's **Re-run failed jobs** or **Re-run all jobs** on the original run.
-The workflow restores the saved bytes, verifies existing tags and assets, and
-adds only missing publication results. A lost write response is checked against
-remote state before continuing. Conflicting content or an unavailable artifact
-after publication starts stops recovery; do not move tags or overwrite assets.
+To recover a partial publication, use **Re-run failed jobs** or rerun the
+**WASM Release and Publish** job (`release`) on the original run. This native
+partial rerun retains the original package artifact. Do not use **Re-run all
+jobs**, which removes previous artifacts despite their retention period.
+The existing `release-wasm` environment protection still applies.
+
+The job restores the original package, verifies its saved bytes
+and existing tags and assets, and adds only missing publication results. A lost
+write response is checked against remote state before continuing. Conflicting
+content or an unavailable artifact after publication starts stops recovery; do
+not move tags or overwrite assets.
 The GitHub release stays draft until its assets and npm integrity are confirmed.
 Stable versions use npm `latest`; prereleases use `next`.
 
