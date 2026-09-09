@@ -48,3 +48,29 @@ naming convention. No tag policies are configured.
 Validate WASM builds with the normal `Rust CI` workflow. Do not run the publication
 workflow merely to test environment settings: it creates a release and publishes
 the npm package.
+
+## WASM publication recovery
+
+The workflow prepares the npm tarball and GitHub release assets before creating
+any tag, release or npm version. It saves their SHA-256 checksums, npm integrity,
+source commit, version and original run ID in the immutable `release-package`
+Actions artifact for 90 days. Source and generated package versions must match.
+SemVer build metadata remains in the source tag and package; npm registry version
+identity excludes build metadata.
+
+Use GitHub's **Re-run failed jobs** or **Re-run all jobs** on the original run.
+The workflow restores the saved bytes, verifies existing tags and assets, and
+adds only missing publication results. A lost write response is checked against
+remote state before continuing. Conflicting content or an unavailable artifact
+after publication starts stops recovery; do not move tags or overwrite assets.
+The GitHub release stays draft until its assets and npm integrity are confirmed.
+Stable versions use npm `latest`; prereleases use `next`.
+
+GitHub allows native reruns for 30 days after the original run. Keeping the
+artifact for 90 days does not extend that window. Beyond it, retain the evidence
+and arrange a separate operator recovery; a fresh dispatch cannot adopt an
+existing version without its original saved artifact.
+
+`WASM release regression checks` simulates partial writes, lost responses,
+conflicts and unreadable metadata without publication credentials. Normal
+`Rust CI` also builds and packs the real WASM output without publishing it.
