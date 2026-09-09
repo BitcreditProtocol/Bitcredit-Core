@@ -6,6 +6,7 @@
         * uses keys API v2 - WARN: this API needs to be deployed before this is deployed
 * Fix flaky test
 * Remove deprecated nip04 code
+* Migrate from `chrono` to `time `
 
 # 0.5.15
 
