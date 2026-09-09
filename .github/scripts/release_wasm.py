@@ -30,12 +30,11 @@ def command(args, **kwargs):
     return subprocess.run(args, capture_output=True, **kwargs)
 
 
-def gh(endpoint, *, method="GET", data=None, missing=False, raw=False, paginate=False):
-    args = ["gh", "api", endpoint, "--method", method]
+def gh(endpoint, *, method="GET", data=None, missing=False, raw=False, paginate=False,
+       accept="application/vnd.github+json"):
+    args = ["gh", "api", endpoint, "--method", method, "-H", "Accept: " + accept]
     if paginate:
         args += ["--paginate", "--slurp"]
-    if raw:
-        args += ["-H", "Accept: application/octet-stream"]
     payload = None
     if data is not None:
         args += ["--input", "-"]
@@ -280,7 +279,8 @@ def matching_asset(ctx, release_id, name, info):
         raise ReleaseError(f"Conflicting or incomplete release asset: {name}")
     checksum = asset.get("digest")
     if checksum is None:
-        checksum = "sha256:" + hashlib.sha256(gh(f"repos/{ctx['repository']}/releases/assets/{asset['id']}", raw=True)).hexdigest()
+        checksum = "sha256:" + hashlib.sha256(gh(f"repos/{ctx['repository']}/releases/assets/{asset['id']}", raw=True,
+                                                accept="application/octet-stream")).hexdigest()
     if checksum != "sha256:" + info["sha256"]:
         raise ReleaseError(f"Conflicting release asset content: {name}")
     return True
