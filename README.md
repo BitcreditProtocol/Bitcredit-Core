@@ -64,6 +64,11 @@ partial rerun retains the original package artifact. Do not use **Re-run all
 jobs**, which removes previous artifacts despite their retention period.
 The existing `release-wasm` environment protection still applies.
 
+If the artifact is absent on a retry, complete native job history must prove
+that package saving never started before a fresh preparation is allowed. A
+missing previously saved package or an incomplete inventory/history stops
+recovery, even when no publication is visible yet.
+
 The job restores the original package, verifies its saved bytes
 and existing tags and assets, and adds only missing publication results. A lost
 write response is checked against remote state before continuing. Conflicting

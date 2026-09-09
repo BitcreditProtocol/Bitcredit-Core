@@ -54,7 +54,7 @@ class Remote:
         if "/artifacts/5/zip" in endpoint:
             return self.archive
         if "/artifacts?" in endpoint:
-            return [{"artifacts": [self.artifact] if self.artifact else []}]
+            return [{"total_count": 1 if self.artifact else 0, "artifacts": [self.artifact] if self.artifact else []}]
         if "/git/ref/tags/" in endpoint:
             return {"object": {"type": "commit", "sha": self.tag}} if self.tag else None
         if endpoint.endswith("/git/refs"):
@@ -201,7 +201,7 @@ class ReleaseTests(unittest.TestCase):
                     if kind == "asset" and "/assets?" in endpoint:
                         return [[{"id": 10, "size": 8, "state": "uploaded"}]]
                     if kind == "artifact" and "/artifacts?" in endpoint:
-                        return [{"artifacts": [{"id": 5, "expired": False}]}]
+                        return [{"total_count": 1, "artifacts": [{"id": 5, "expired": False}]}]
                     if kind == "empty-envelope" and "/artifacts?" in endpoint:
                         return []
                     return original(endpoint, **kwargs)
@@ -217,6 +217,63 @@ class ReleaseTests(unittest.TestCase):
                     patch.object(release, "gh", side_effect=remote.gh):
                 with self.assertRaises(release.ReleaseError):
                     release.restore(Path(tmp), {**self.ctx, key: value})
+
+    def restore_absent(self, artifact_pages, history=None, attempt="1"):
+        def read(endpoint, **kwargs):
+            if "/artifacts?" in endpoint:
+                return artifact_pages
+            previous = int(endpoint.split("/attempts/")[1].split("/")[0])
+            value = history[previous]
+            if isinstance(value, Exception):
+                raise value
+            return value
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"GITHUB_RUN_ATTEMPT": attempt}), \
+                patch.object(release, "gh", side_effect=read), patch.object(release, "tag_sha", return_value=None), \
+                patch.object(release, "release", return_value=None), patch.object(release, "npm_integrity", return_value=None), \
+                patch.object(release, "canonical_version", return_value="1.2.3"):
+            destination = Path(tmp) / "restored"
+            result = release.restore(destination, self.ctx)
+            self.assertFalse(destination.exists())
+            return result
+
+    def preparation_history(self, *, conclusion="skipped", attempt=1):
+        return [{"total_count": 1, "jobs": [{"id": 10, "run_id": 123, "run_attempt": attempt,
+            "head_sha": self.ctx["sha"], "name": "WASM Release and Publish", "status": "completed",
+            "conclusion": "failure", "steps": [{"number": 12, "name": "Save the package before any publication writes",
+                                                  "status": "completed", "conclusion": conclusion}]}]}]
+
+    def test_artifact_counts_cannot_turn_incomplete_read_into_preparation(self):
+        row = {"id": 6, "name": "other", "expired": False}
+        for pages in ([{"total_count": 1, "artifacts": []}], [{"artifacts": []}],
+                      [{"total_count": True, "artifacts": [row]}],
+                      [{"total_count": 2, "artifacts": [row, row]}],
+                      [{"total_count": 1, "artifacts": [row]}, {"total_count": 0, "artifacts": []}]):
+            with self.subTest(pages=pages), self.assertRaises(release.ReleaseError):
+                self.restore_absent(pages)
+        self.assertFalse(self.restore_absent([{"total_count": 0, "artifacts": []}]))
+        with patch.object(release, "gh", return_value=[{"total_count": 2, "artifacts": [row]},
+                         {"total_count": 2, "artifacts": [{**row, "id": 7}]}]):
+            self.assertEqual([v["id"] for v in release.pages("fixture", "artifacts")], [6, 7])
+
+    def test_deleted_package_is_not_rebuilt_before_publication(self):
+        empty = [{"total_count": 0, "artifacts": []}]
+        for conclusion in ("success", "failure", "cancelled"):
+            with self.subTest(conclusion=conclusion), self.assertRaisesRegex(release.ReleaseError, "refusing replacement"):
+                self.restore_absent(empty, {1: self.preparation_history(conclusion=conclusion)}, "2")
+        self.assertFalse(self.restore_absent(empty, {1: self.preparation_history()}, "2"))
+        with self.assertRaisesRegex(release.ReleaseError, "refusing replacement"):
+            self.restore_absent(empty, {1: self.preparation_history(conclusion="success"),
+                                       2: self.preparation_history(attempt=2)}, "3")
+
+    def test_unmeasured_prior_preparation_cannot_authorize_rebuild(self):
+        wrong_sha = self.preparation_history()
+        wrong_sha[0]["jobs"][0]["head_sha"] = "b" * 40
+        missing_step = self.preparation_history()
+        missing_step[0]["jobs"][0]["steps"] = []
+        for history in (wrong_sha, missing_step, [{"total_count": 1, "jobs": []}],
+                        release.ReleaseError("history unavailable")):
+            with self.subTest(history=history), self.assertRaises(release.ReleaseError):
+                self.restore_absent([{"total_count": 0, "artifacts": []}], {1: history}, "2")
 
     def test_semver_uses_npm_but_rejects_loose_coercion(self):
         for version in ("1.2.3", "1.2.3-alpha.1", "1.2.3+build.7", "1.2.3-rc.1+build.7"):

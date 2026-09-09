@@ -58,13 +58,54 @@ def pages(endpoint, key=None):
     result = gh(endpoint + "?per_page=100", paginate=True)
     if not isinstance(result, list) or not result:
         raise ReleaseError("Invalid paginated response")
-    values = []
+    values, total = [], None
     for page in result:
+        if key:
+            if not isinstance(page, dict) or type(page.get("total_count")) is not int or page["total_count"] < 0:
+                raise ReleaseError("Invalid paginated count")
+            if total is not None and total != page["total_count"]:
+                raise ReleaseError("Paginated count changed during reading")
+            total = page["total_count"]
         rows = page.get(key) if key and isinstance(page, dict) else page
-        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        if not isinstance(rows, list) or len(rows) > 100 or not all(isinstance(row, dict) for row in rows):
             raise ReleaseError("Incomplete paginated response")
         values.extend(rows)
+    if key and (len(values) != total or any(type(row.get("id")) is not int or row["id"] <= 0 for row in values)
+                or len({row["id"] for row in values}) != total):
+        raise ReleaseError("Incomplete or duplicate paginated inventory")
     return values
+
+
+def require_unsaved_preparation(ctx):
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    if not re.fullmatch(r"[1-9][0-9]*", attempt):
+        raise ReleaseError("Current run attempt is unmeasured")
+    for previous in range(1, int(attempt)):
+        jobs = pages(f"repos/{ctx['repository']}/actions/runs/{ctx['run_id']}/attempts/{previous}/jobs", "jobs")
+        if any(type(job.get("run_id")) is not int or str(job["run_id"]) != ctx["run_id"]
+               or type(job.get("run_attempt")) is not int or job["run_attempt"] != previous
+               or job.get("head_sha") != ctx["sha"] or job.get("status") != "completed"
+               or not isinstance(job.get("conclusion"), str) or not job["conclusion"]
+               or not isinstance(job.get("name"), str) or not job["name"]
+               or not isinstance(job.get("steps"), list) for job in jobs):
+            raise ReleaseError("Previous preparation history is incomplete")
+        owners = [job for job in jobs if job["name"] == "WASM Release and Publish"]
+        if len(owners) > 1:
+            raise ReleaseError("Previous preparation job is ambiguous")
+        if not owners or owners[0]["conclusion"] == "skipped" and not owners[0]["steps"]:
+            continue
+        steps = owners[0]["steps"]
+        if any(not isinstance(step, dict) or type(step.get("number")) is not int or step["number"] <= 0
+               or not isinstance(step.get("name"), str) or not step["name"] for step in steps) \
+                or len({step["number"] for step in steps}) != len(steps):
+            raise ReleaseError("Previous preparation steps are incomplete")
+        saves = [step for step in steps if step["name"] == "Save the package before any publication writes"]
+        if len(saves) != 1 or not (
+            saves[0].get("status") == "completed" and saves[0].get("conclusion") == "skipped"
+            or saves[0].get("status") == "queued" and "conclusion" in saves[0] and saves[0]["conclusion"] is None
+            and "started_at" in saves[0] and saves[0]["started_at"] is None
+        ):
+            raise ReleaseError("The original package may have been saved; refusing replacement bytes")
 
 
 def context():
@@ -192,6 +233,7 @@ def restore(folder, ctx):
         # Without saved bytes, existing external state must never be adopted.
         if tag_sha(ctx) is not None or release(ctx) is not None or npm_integrity(ctx["package_name"], version) is not None:
             raise ReleaseError("Publication exists but the immutable package artifact is missing")
+        require_unsaved_preparation(ctx)
         return False
     if len(candidates) != 1:
         raise ReleaseError("Ambiguous package artifact")
