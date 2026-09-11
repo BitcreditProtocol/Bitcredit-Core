@@ -1,3 +1,9 @@
+# 0.5.15-hotfix1
+
+* Add dev-mode endpoint `dev_mode_override_bill_chain_from_nostr` that syncs a local bill, overriding it with the state on Nostr
+    * This is helpful if e.g. a bug prevented a local block from propagating, or chains diverged between clients - if all sides do this, they have the same state
+* Add dev-mode endpoint `dev_mode_reset_bill_mint_quote_state` that resets a bill's local mint quote state
+
 # 0.5.15
 
 * Use latest bcr-common with new bitcr Token format including the btc network
