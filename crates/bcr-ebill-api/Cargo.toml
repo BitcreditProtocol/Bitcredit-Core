@@ -13,6 +13,7 @@ sqlite = ["bcr-ebill-persistence/sqlite"]
 postgres = ["bcr-ebill-persistence/postgres"]
 
 [dependencies]
+time.workspace = true
 borsh.workspace = true
 borsh-derive.workspace = true
 async-trait.workspace = true

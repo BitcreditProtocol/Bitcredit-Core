@@ -474,6 +474,7 @@ dependencies = [
  "serde_repr",
  "strum 0.28.0",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "unicode-normalization",
  "url",
