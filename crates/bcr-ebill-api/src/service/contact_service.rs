@@ -1002,7 +1002,7 @@ pub mod tests {
             Arc::new(mock_company_storage),
             Arc::new(mock_nostr_contact_store),
             Arc::new(mock_transport_service),
-            get_config(),
+            get_config().as_ref(),
         )
     }
 

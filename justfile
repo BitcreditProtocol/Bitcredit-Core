@@ -31,6 +31,10 @@ wasm:
 serve:
   http-server -g -c-1 -p 8081 ./crates/bcr-ebill-wasm/
 
+flutter:
+    dart run build_runner build --delete-conflicting-outputs
+    flutter_rust_bridge_codegen generate
+
 # bdk-cli
 # to install:
 # cargo install bdk-cli --features esplora

@@ -1,0 +1,6 @@
+precompiled_binaries:
+  # Uri prefix used when downloading precompiled binaries.
+  url_prefix: https://github.com/BitcreditProtocol/E-Bill/releases/download/precompiled_
+
+  # Public key for verifying downloaded precompiled binaries.
+  public_key: 65d7c5859d185e114b41b1da4fc71e7d2b7cb8f6e299c465dd641ab2f795716f
